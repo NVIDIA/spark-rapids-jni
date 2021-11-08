@@ -1,0 +1,4 @@
+[submodule "thirdparty/cudf"]
+	path = thirdparty/cudf
+	url = https://github.com/rapidsai/cudf.git
+	branch = branch-22.02
