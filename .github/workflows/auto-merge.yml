@@ -1,0 +1,61 @@
+# Copyright (c) 2022, NVIDIA CORPORATION.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A workflow to keep BASE branch up-to-date from HEAD branch
+name: auto-merge HEAD to BASE
+
+on:
+  pull_request_target:
+    branches:
+      - branch-22.02
+    types: [closed]
+
+env:
+  HEAD: branch-22.02
+  BASE: branch-22.04
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ env.HEAD }} # force to fetch from latest upstream instead of PR ref
+
+      - name: push intermediate branch for auto-merge
+        run: |
+          git config user.name "spark-rapids automation"
+          git config user.email "70000568+nvauto@users.noreply.github.com "
+          git fetch origin ${HEAD} ${BASE}
+          git checkout -b ${INTERMEDIATE_HEAD} origin/${HEAD}
+          OUT=$(git --no-pager diff --name-only origin/${BASE} | grep "${FILE_USE_BASE}" || true)
+          [[ ! -z "${OUT}" ]] && git checkout origin/${BASE} -- ${FILE_USE_BASE} && \
+            git commit -s -am "Auto-merge use submodule in BASE ref"
+          git push origin ${INTERMEDIATE_HEAD} -f
+        env:
+          INTERMEDIATE_HEAD: bot-auto-merge-${{ env.HEAD }}
+          FILE_USE_BASE: thirdparty/cudf
+
+      - name: auto-merge job
+        uses: ./.github/workflows/action-helper
+        with:
+          operator: auto-merge
+        env:
+          OWNER: NVIDIA
+          REPO: spark-rapids-jni
+          HEAD: bot-auto-merge-${{ env.HEAD }}
+          BASE: ${{ env.BASE }}
+          TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
