@@ -55,7 +55,6 @@ def main():
                 'body': "submodule-sync to create a PR keeping thirdparty/cudf up-to-date.\n"
                         f"HEAD commit SHA: {args.sha}, "
                         f"cudf commit SHA: https://github.com/rapidsai/cudf/commit/{args.cudf_sha}\n\n"
-                        "The scheduled sync pipeline gets triggered every 6 hours.\n"
                         "This PR will be auto-merged if test passed. "
                         "If failed, it will remain open until test pass or manually fix.",
                 'maintainer_can_modify': True

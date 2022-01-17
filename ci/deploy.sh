@@ -16,7 +16,7 @@
 #
 
 ###
-# Script to deploy cudf jar files along with other classifiers,
+# Script to deploy spark-rapids-jni jar files along with other classifiers,
 # such as cudaXXX, sources, javadoc.
 #
 # Argument(s):
@@ -68,7 +68,7 @@ IFS="$ORI_IFS"
 FIRST_FILE=${CLASS_FILES%%,*}
 cp -f "$FIRST_FILE" "$FPATH.jar"
 
-###### Deploy cudf jar with all its additions ######
+###### Deploy spark-rapids-jni jar with all its additions ######
 $DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
             -Dfile=$FPATH.jar -DpomFile=spark-rapids-jni/pom.xml \
             -Dfiles=$CLASS_FILES \

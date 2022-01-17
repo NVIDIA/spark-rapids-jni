@@ -20,7 +20,6 @@ set -ex
 nvidia-smi
 
 git submodule update --init --recursive
-bash $WORKSPACE/build/submodule-check
 
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 mvn clean package \

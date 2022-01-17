@@ -15,7 +15,7 @@
 #
 
 ###
-# Build the image for cudf development environment.
+# Build the image for spark-rapids-jni development environment.
 #
 # Arguments: CUDA_VERSION=11.5.0
 #
