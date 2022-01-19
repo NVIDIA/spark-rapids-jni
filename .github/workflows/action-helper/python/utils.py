@@ -14,7 +14,6 @@
 
 import argparse
 import os
-import sys
 
 import requests
 
@@ -31,9 +30,9 @@ class PullRequest:
         self.head_owner = head_owner
         self.head = head
         self.base_owner = base_owner
-        self.base_repo = repo
+        self.repo = repo
         self.base = base
-        self.pulls_url = f'{API_URL}/repos/{self.base_owner}/{self.base_repo}/pulls'
+        self.pulls_url = f'{API_URL}/repos/{self.base_owner}/{self.repo}/pulls'
         self._head_auth_headers = {
             'Accept': 'application/vnd.github.v3+json',
             'Authorization': f"token {head_token}"
@@ -50,7 +49,6 @@ class PullRequest:
             'head': f"{self.head_owner}:{self.head}",
             'base': self.base,
         }
-        print(params)
         r = requests.get(self.pulls_url, headers=self._base_auth_headers, params=params)
         if r.status_code == 200:
             return r.json()
@@ -59,7 +57,7 @@ class PullRequest:
         # FAILURE
         print('FAILURE - list PR')
         print(f'status code: {r.status_code}')
-        raise Exception(f"Failed to create PR: {r.json()}")
+        raise Exception(f"Failed to list PR: {r.json()}")
 
     def create(self, params):
         """create a pull request"""
@@ -86,11 +84,11 @@ class PullRequest:
         url = f'{self.pulls_url}/{number}/merge'
         return requests.put(url, headers=self._head_auth_headers, json=params)
 
-    def auto_merge(self, number, sha):
+    def auto_merge(self, number, sha, merge_method='merge'):
         """merge a auto-merge pull request"""
         params = {
             'sha': sha,
-            'merge_method': 'merge'
+            'merge_method': merge_method,
         }
         r = self.merge(number, params)
         if r.status_code == 200:
@@ -106,14 +104,14 @@ class PullRequest:
 
 Please use the following steps to fix the merge conflicts manually:
 ```
-# Assume upstream is {self.base_owner}/{self.base_repo} remote
+# Assume upstream is {self.base_owner}/{self.repo} remote
 git fetch upstream {self.head} {self.base}
 git checkout -b fix-auto-merge-conflict-{number} upstream/{self.base}
 git merge upstream/{self.head}
 # Fix any merge conflicts caused by this merge
 git commit -am "Merge {self.head} into {self.base}"
 git push <personal fork> fix-auto-merge-conflict-{number}
-# Open a PR targets {self.base_owner}/{self.base_repo} {self.base}
+# Open a PR targets {self.base_owner}/{self.repo} {self.base}
 ```
 **IMPORTANT:** Before merging this PR, be sure to change the merging strategy to `Create a merge commit` (repo admin only).
 
@@ -124,7 +122,7 @@ Once this PR is merged, the auto-merge PR should automatically be closed since i
 
     def comment(self, number, content):
         """comment in a pull request"""
-        url = f'{API_URL}/repos/{self.base_owner}/{self.base_repo}/issues/{number}/comments'
+        url = f'{API_URL}/repos/{self.base_owner}/{self.repo}/issues/{number}/comments'
         params = {
             'body': content
         }
@@ -134,7 +132,22 @@ Once this PR is merged, the auto-merge PR should automatically be closed since i
         else:
             print('FAILURE - create comment')
             print(f'status code: {r.status_code}')
-            print(r.json())
+            raise Exception(f"Failed to create comment: {r.json()}")
+
+    def delete_branch(self, owner, branch):
+        """delete a branch"""
+        url = f'{API_URL}/repos/{owner}/{self.repo}/git/refs/heads/{branch}'
+        r = requests.delete(url, headers=self._base_auth_headers)
+        if r.status_code == 204:
+            print(f'SUCCESS - delete {branch}')
+        else:
+            print(f'FAILURE - delete {branch}')
+            print(f'status code: {r.status_code}')
+            raise Exception(f"Failed to delete {branch}: {r.json()}")
+
+    def delete_head(self):
+        """delete the HEAD branch in a pull request"""
+        return self.delete_branch(self.head_owner, self.head)
 
 
 class EnvDefault(argparse.Action):
@@ -150,3 +163,21 @@ class EnvDefault(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
+
+
+def strtobool(val):
+    """Convert a string representation of truth to true (1) or false (0).
+
+    this function is copied from distutils.util to avoid deprecation waring https://www.python.org/dev/peps/pep-0632/
+
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    val = val.lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return 1
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return 0
+    else:
+        raise ValueError("invalid truth value %r" % (val,))

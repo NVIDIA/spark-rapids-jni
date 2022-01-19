@@ -33,9 +33,22 @@ GIT_AUTHOR_EMAIL="70000568+nvauto@users.noreply.github.com"
 GIT_COMMITTER_EMAIL="70000568+nvauto@users.noreply.github.com"
 git submodule update --init --recursive
 
-INTERMEDIATE_HEAD=bot-submodule-sync-${REF}
 cudf_prev_sha=$(git -C thirdparty/cudf rev-parse HEAD)
-git checkout -b ${INTERMEDIATE_HEAD} origin/${REF}
+
+INTERMEDIATE_HEAD=bot-submodule-sync-${REF}
+# try cleanup remote first if no open PR for HEAD targeting BASE
+$WORKSPACE/.github/workflows/action-helper/python/cleanup-bot-branch \
+  --owner=${OWNER} --repo=${REPO} --head=${INTERMEDIATE_HEAD} --base=${REF} --token=${GIT_TOKEN} || true
+
+remote_head=$(git ls-remote --heads origin ${INTERMEDIATE_HEAD})
+if [[ -z $remote_head ]]; then
+  git checkout -b ${INTERMEDIATE_HEAD} origin/${REF}
+else
+  git fetch origin ${INTERMEDIATE_HEAD} ${REF}
+  git checkout -b ${INTERMEDIATE_HEAD} origin/${INTERMEDIATE_HEAD}
+  git merge origin/${REF}
+fi
+
 # sync up cudf from remote
 git submodule update --remote --merge
 cudf_sha=$(git -C thirdparty/cudf rev-parse HEAD)
@@ -46,7 +59,7 @@ fi
 
 echo "Try update cudf submodule to ${cudf_sha}..."
 git add .
-git commit -s -m "Update submodule cudf to ${cudf_sha}"
+git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
 sha=$(git rev-parse HEAD)
 
 echo "Test against ${cudf_sha}..."
@@ -61,16 +74,17 @@ set -e
 
 test_pass="False"
 if [[ "${ret}" == "0" ]]; then
-  echo "Test failed, will update the result"
+  echo "Test passed, will try merge the change"
   test_pass="True"
 else
-  echo "Test passed, will try merge the change"
+  echo "Test failed, will update the result"
 fi
 
-# force push the intermediate branch and create PR against REF
+# push the intermediate branch and create PR against REF
 # if test passed, it will try auto-merge the PR
 # if test failed, it will only comment the test result in the PR
-git push origin ${INTERMEDIATE_HEAD} -f
+git push https://${GIT_USER}:${GIT_TOKEN}@${REPO_LOC} ${INTERMEDIATE_HEAD}
+sleep 30 # sleep for a while to avoid inconsistent sha between HEAD branch and GitHub REST API
 $WORKSPACE/.github/workflows/action-helper/python/submodule-sync \
   --owner=${OWNER} \
   --repo=${REPO} \
@@ -78,5 +92,6 @@ $WORKSPACE/.github/workflows/action-helper/python/submodule-sync \
   --base=${REF} \
   --sha=${sha} \
   --cudf_sha=${cudf_sha} \
-  --token=${GIT_PWD} \
-  --passed=${test_pass}
+  --token=${GIT_TOKEN} \
+  --passed=${test_pass} \
+  --delete_head=True

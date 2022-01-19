@@ -16,13 +16,12 @@
 
 import sys
 from argparse import ArgumentParser
-from distutils.util import strtobool
 
-from utils import EnvDefault, PullRequest, strtobool
+from utils import EnvDefault, PullRequest
 
 
 def main():
-    parser = ArgumentParser(description="Automerge")
+    parser = ArgumentParser(description="Cleanup bot branch")
     parser.add_argument("--owner", action=EnvDefault, env="OWNER",
                         help="github token, will try use env OWNER if empty")
     parser.add_argument("--repo", action=EnvDefault, env="REPO",
@@ -33,33 +32,18 @@ def main():
                         help="Base ref, will try use env BASE if empty")
     parser.add_argument("--token", action=EnvDefault, env="TOKEN",
                         help="github token, will try use env TOKEN if empty")
-    parser.add_argument("--delete_head", default=False,  type=lambda x: bool(strtobool(x)),
-                        help="if delete HEAD branch after auto-merge")
     args = parser.parse_args()
 
-    pr = PullRequest(head_owner=args.owner, head=args.head, head_token=args.token,
-                     base_owner=args.owner, repo=args.repo, base=args.base, base_token=args.token)
     try:
+        if not args.head.startswith('bot-'):
+            raise Exception(f"Cannot delete {args.head}, the script is only allowed to delete branch w/ bot-* prefix")
+
+        pr = PullRequest(head_owner=args.owner, head=args.head, head_token=args.token,
+                         base_owner=args.owner, repo=args.repo, base=args.base, base_token=args.token)
         if exist := pr.get_open():
             number = exist[0].get('number')
-            sha = exist[0].get('head').get('sha')
+            raise Exception(f"Cannot delete {pr.head}, pull request #{number} is still open")
         else:
-            params = {
-                # head share the same owner/repo with base in auto-merge
-                'title': f"[auto-merge] {pr.head} to {pr.base} [skip ci] [bot]",
-                'head': f"{pr.head_owner}:{pr.head}",
-                'base': pr.base,
-                'body': f"auto-merge triggered by github actions on `{pr.head}` to "
-                        f"create a PR keeping `{pr.base}` up-to-date. "
-                        "If this PR is unable to be merged due to conflicts, "
-                        "it will remain open until manually fix.",
-                'maintainer_can_modify': True
-            }
-            number, sha, term = pr.create(params)
-            if term:
-                sys.exit(0)
-        pr.auto_merge(number, sha)
-        if args.delete_head:
             pr.delete_head()
     except Exception as e:
         print(e)

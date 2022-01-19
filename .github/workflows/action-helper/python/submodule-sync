@@ -18,7 +18,7 @@ import sys
 from argparse import ArgumentParser
 from distutils.util import strtobool
 
-from utils import EnvDefault, PullRequest
+from utils import EnvDefault, PullRequest, strtobool
 
 
 def main():
@@ -39,6 +39,8 @@ def main():
                         help="cudf commit SHA")
     parser.add_argument("--passed", default=False, type=lambda x: bool(strtobool(x)),
                         help="if the test passed")
+    parser.add_argument("--delete_head", default=False, type=lambda x: bool(strtobool(x)),
+                        help="if delete HEAD branch after auto-merge")
     args = parser.parse_args()
 
     pr = PullRequest(head_owner=args.owner, head=args.head, head_token=args.token,
@@ -67,8 +69,13 @@ def main():
                                    f"CUDF commit SHA: https://github.com/rapidsai/cudf/commit/{args.cudf_sha}\n"
                                    f"Test passed: **{args.passed}**")
 
-        if args.passed and args.sha == sha:
-            pr.auto_merge(number, sha)
+        if args.passed:
+            if args.sha == sha:
+                pr.auto_merge(number, sha, merge_method='squash')
+                if args.delete_head:
+                    pr.delete_head()
+            else:
+                raise Exception(f'Failed to auto-merge, inconsistent HEAD sha local:{args.sha}, remote: {sha}')
     except Exception as e:
         print(e)
         sys.exit(1)

@@ -25,7 +25,7 @@ fi
 case $1 in
 
     auto-merge)
-        /python/auto-merge
+        /python/auto-merge --delete_head=True
         ;;
 
     *)
