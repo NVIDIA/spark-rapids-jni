@@ -65,6 +65,9 @@ set(CUDF_DIR
   CACHE STRING "path to cudf repository"
 )
 
+# Set a default build type if none was specified
+rapids_cmake_build_type("Release")
+
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
 rapids_find_package(CUDAToolkit REQUIRED)
