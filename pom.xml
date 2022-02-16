@@ -86,7 +86,7 @@
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
     <cudf.tag>49d1cc28648fe676dbddcf27c01939f87122ed8e</cudf.tag>
-    <hadoop.version>3.1.0</hadoop.version>
+    <hadoop.version>3.1.4</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
