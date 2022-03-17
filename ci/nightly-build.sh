@@ -22,7 +22,7 @@ nvidia-smi
 git submodule update --init --recursive
 
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
-mvn clean package \
+mvn clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON

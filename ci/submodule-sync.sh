@@ -65,7 +65,7 @@ sha=$(git rev-parse HEAD)
 echo "Test against ${cudf_sha}..."
 
 set +e
-mvn verify \
+mvn verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON
