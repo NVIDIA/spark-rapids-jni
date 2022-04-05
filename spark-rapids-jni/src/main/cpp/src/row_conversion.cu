@@ -40,8 +40,8 @@ std::unique_ptr<rmm::device_uvector<T>> copy_to_dev_async(const std::vector<T> &
                                                           rmm::cuda_stream_view stream,
                                                           rmm::mr::device_memory_resource *mr) {
   std::unique_ptr<rmm::device_uvector<T>> ret(new rmm::device_uvector<T>(input.size(), stream, mr));
-  CUDA_TRY(cudaMemcpyAsync(ret->data(), input.data(), sizeof(T) * input.size(),
-                           cudaMemcpyHostToDevice, stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(ret->data(), input.data(), sizeof(T) * input.size(),
+                                cudaMemcpyHostToDevice, stream.value()));
   return ret;
 }
 
