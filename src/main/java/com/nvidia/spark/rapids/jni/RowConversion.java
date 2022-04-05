@@ -16,15 +16,12 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.ColumnView;
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.Table;
+import ai.rapids.cudf.*;
 
 /** Utility class for converting between column major and row major data */
 public class RowConversion {
   static {
-    NativeLibraryLoader.loadNativeLibs();
+    NativeDepsLoader.loadNativeDeps();
   }
 
   /**

@@ -35,8 +35,10 @@
           executable="cmake"
           if:true="${needConfigure}">
       <arg value="${cudf.path}/cpp"/>
+      <arg value="-DBUILD_SHARED_LIBS=OFF"/>
       <arg value="-DBUILD_TESTS=OFF"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
+      <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
       <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
       <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
       <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}" />
