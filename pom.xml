@@ -90,6 +90,7 @@
     <libcudf.build.path>${cudf.path}/cpp/build</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
     <libcudf.clean.skip>true</libcudf.clean.skip>
+    <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
     <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
@@ -195,6 +196,7 @@
                 <property name="cudf.path" value="${cudf.path}"/>
                 <property name="libcudf.build.path" value="${libcudf.build.path}"/>
                 <property name="libcudf.build.configure" value="${libcudf.build.configure}"/>
+                <property name="libcudf.install.path" value="${libcudf.install.path}"/>
                 <property name="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
                 <property name="GPU_ARCHS" value="${GPU_ARCHS}"/>
                 <property name="PER_THREAD_DEFAULT_STREAM" value="${PER_THREAD_DEFAULT_STREAM}"/>
@@ -250,7 +252,6 @@
                       failonerror="true"
                       executable="cmake">
                   <arg value="${basedir}/src/main/cpp"/>
-                  <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
                   <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>

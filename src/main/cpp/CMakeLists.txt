@@ -36,7 +36,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 21.12.00
+  VERSION 22.06.00
   LANGUAGES C CXX CUDA
 )
 
@@ -63,6 +63,13 @@ set_property(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
+set(CUDF_INSTALL_DIR
+  "${PROJECT_BINARY_DIR}/../libcudf-install"
+  CACHE STRING "path to libcudf install root"
+)
+
+set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
+
 set(CUDF_DIR
   "${PROJECT_BINARY_DIR}/../../thirdparty/cudf"
   CACHE STRING "path to cudf repository"
@@ -88,48 +95,17 @@ else()
 endif()
 
 # cudf
-set(CUDF_BUILD_DIR "${CUDF_DIR}/cpp/build")
-set(CUDF_DEPS_DIR "${CUDF_BUILD_DIR}/_deps")
-set(CUDF_INCLUDE_DIRS
-  "${CUDF_DIR}/cpp/include"
-  "${CUDF_DIR}/java/src/main/native/include"
-  "${CUDF_DIR}/java/src/main/native/src"
-  "${CUDF_DEPS_DIR}/arrow-src/cpp/src"
-  "${CUDF_DEPS_DIR}/nvcomp-src/include"
-)
-
-# Thrust
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thrust.cmake)
-
-# RMM
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_rmm.cmake)
-
-# Arrow
-find_library(ARROW_LIB "libarrow.a" REQUIRED
-  HINTS "${CUDF_DEPS_DIR}/arrow-build/release"
-        "${CUDF_DEPS_DIR}/arrow-build/debug"
-)
-
-# cudf
-find_library(CUDF_LIB "cudf" REQUIRED HINTS ${CUDF_BUILD_DIR})
+rapids_find_package(cudf REQUIRED)
 
 # cudfjni
-find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED
+find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
 )
 
-# ZLIB
-rapids_find_package(ZLIB REQUIRED)
-
-# ##################################################################################################
-# * nvcomp ----------------------------------------------------------------------------------------
-
-find_path(NVCOMP_INCLUDE "nvcomp" HINTS "${CUDF_BUILD_DIR}/_deps/nvcomp-src/include")
-
-message(STATUS "NVCOMP: NVCOMP_INCLUDE set to ${NVCOMP_INCLUDE}")
-
-set(NVCOMP_LIBNAME "libnvcomp.a")
-find_library(NVCOMP_LIB "libnvcomp.a" REQUIRED HINTS "${CUDF_BUILD_DIR}/lib")
+set(CUDFJNI_INCLUDE_DIRS
+  "${CUDF_DIR}/java/src/main/native/include"
+  "${CUDF_DIR}/java/src/main/native/src"
+)
 
 # ##################################################################################################
 # * library targets -------------------------------------------------------------------------------
@@ -162,11 +138,9 @@ target_compile_options(
 # Specify include paths for the current target and dependents
 target_include_directories(
   spark_rapids_jni
-  PRIVATE cudf::Thrust
-          "${NVCOMP_INCLUDE}"
-          "${SPARK_RAPIDS_JNI_SOURCE_DIR}/src"
-          "${CUDF_INCLUDE_DIRS}"
+  PRIVATE "${SPARK_RAPIDS_JNI_SOURCE_DIR}/src"
           "${JNI_INCLUDE_DIRS}"
+          "${CUDFJNI_INCLUDE_DIRS}"
           "${CUDAToolkit_INCLUDE_DIRS}"
 )
 
@@ -184,13 +158,9 @@ target_link_libraries(
   spark_rapids_jni PRIVATE
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
-    ${CUDF_LIB}
+    cudf::cudf
   -Wl,--no-whole-archive
-  rmm::rmm
-  ${ARROW_LIB}
-  ${NVCOMP_LIB}
-  ZLIB::ZLIB
-  CUDA::cuda_driver
+  cudf::cudf
 )
 
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
@@ -206,7 +176,9 @@ target_link_libraries(cudfjnistub -Wl,--no-as-needed spark_rapids_jni -Wl,--as-n
 
 if(USE_GDS)
   include(${CUDF_DIR}/cpp/cmake/Modules/FindcuFile.cmake)
-  find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED HINTS "${PROJECT_BINARY_DIR}/../libcudfjni")
+  find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED NO_DEFAULT_PATH
+    HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
+  )
   add_library(cufilejni SHARED src/emptyfile.cpp)
   set_target_properties(
     cufilejni
