@@ -46,8 +46,6 @@
       <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}" />
       <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
       <arg value="-DUSE_GDS=${USE_GDS}" />
-      <!-- build GDS only but exclude CuFileTest which requires specific devices -->
-      <arg value="-Dtest=*,!CuFileTest" />
     </exec>
 
     <exec dir="${libcudf.build.path}"
