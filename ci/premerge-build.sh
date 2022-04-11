@@ -17,13 +17,15 @@
 
 set -ex
 
-cmd-not-existed
 
 nvidia-smi
 
 git submodule update --init --recursive
 
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
+
+cmddddd
+
 mvn verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
