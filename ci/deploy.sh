@@ -49,7 +49,7 @@ fi
 echo "Deploy CMD: $DEPLOY_CMD"
 
 ###### Build types/files from classifiers ######
-FPATH="$OUT_PATH/rapids-4-spark-jni-$REL_VERSION"
+FPATH="$OUT_PATH/spark-rapids-jni-$REL_VERSION"
 CLASS_TYPES=''
 CLASS_FILES=''
 ORI_IFS="$IFS"
