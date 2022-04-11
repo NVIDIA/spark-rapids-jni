@@ -17,6 +17,8 @@
 
 set -ex
 
+cmd-not-existed
+
 nvidia-smi
 
 git submodule update --init --recursive
