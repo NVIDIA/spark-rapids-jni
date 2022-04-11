@@ -25,4 +25,4 @@ PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 mvn clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON
+  -DUSE_GDS=ON -Dtest=*,!CuFileTest
