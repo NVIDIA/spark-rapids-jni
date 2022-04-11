@@ -49,7 +49,7 @@ fi
 echo "Deploy CMD: $DEPLOY_CMD"
 
 ###### Build types/files from classifiers ######
-FPATH="$OUT_PATH/rapids-4-spark-jni-$REL_VERSION"
+FPATH="$OUT_PATH/spark-rapids-jni-$REL_VERSION"
 CLASS_TYPES=''
 CLASS_FILES=''
 ORI_IFS="$IFS"
@@ -70,7 +70,7 @@ cp -f "$FIRST_FILE" "$FPATH.jar"
 
 ###### Deploy spark-rapids-jni jar with all its additions ######
 $DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
-            -Dfile=$FPATH.jar -DpomFile=spark-rapids-jni/pom.xml \
+            -Dfile=$FPATH.jar -DpomFile=pom.xml \
             -Dfiles=$CLASS_FILES \
             -Dtypes=$CLASS_TYPES \
             -Dclassifiers=$CLASSIFIERS
