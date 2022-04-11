@@ -14,24 +14,4 @@
  * limitations under the License.
  */
 
-package com.nvidia.spark.rapids.jni;
-
-import ai.rapids.cudf.NativeDepsLoader;
-
-/** Loads the native libraries */
-public class NativeLibraryLoader {
-  private static boolean loaded = false;
-
-  /** Load native libraries if not loaded already */
-  public static synchronized void loadNativeLibs() {
-    if (!loaded) {
-      try {
-        NativeDepsLoader.loadNativeDeps();
-        NativeDepsLoader.loadNativeDeps(new String[]{"spark_rapids_jni"});
-        loaded = true;
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-    }
-  }
-}
+// Intentionally empty
