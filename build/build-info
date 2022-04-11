@@ -28,10 +28,10 @@ echo_build_properties() {
   shift 2
   echo version=$version
   echo user=$USER
-  echo revision=$(git -C "$git_path" rev-parse HEAD)
-  echo branch=$(git -C "$git_path" rev-parse --abbrev-ref HEAD)
+  echo revision=$(cd "$git_path" && git rev-parse HEAD)
+  echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  echo url=$(git -C "$git_path" config --get remote.origin.url)
+  echo url=$(cd "$git_path" && git config --get remote.origin.url)
   for arg in "$@"; do
     echo $arg
   done
