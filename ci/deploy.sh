@@ -70,7 +70,7 @@ cp -f "$FIRST_FILE" "$FPATH.jar"
 
 ###### Deploy spark-rapids-jni jar with all its additions ######
 $DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
-            -Dfile=$FPATH.jar -DpomFile=spark-rapids-jni/pom.xml \
+            -Dfile=$FPATH.jar -DpomFile=pom.xml \
             -Dfiles=$CLASS_FILES \
             -Dtypes=$CLASS_TYPES \
             -Dclassifiers=$CLASSIFIERS
