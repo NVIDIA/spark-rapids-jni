@@ -283,6 +283,13 @@
                   <arg value="${project.version}"/>
                   <arg value="${cudf.path}"/>
                 </exec>
+                <exec executable="bash"
+                      output="${project.build.directory}/extra-resources/spark-rapids-jni-version-info.properties"
+                      failonerror="true">
+                  <arg value="${project.basedir}/build/build-info"/>
+                  <arg value="${project.version}"/>
+                  <arg value="${project.basedir}"/>
+                </exec>
               </target>
             </configuration>
             <goals>
