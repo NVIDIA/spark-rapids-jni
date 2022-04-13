@@ -35,13 +35,20 @@ Maven `package` goal can be used to build the RAPIDS Accelerator JNI jar. After 
 build the RAPIDS Accelerator JNI jar will be in the `spark-rapids-jni/target/` directory.
 Be sure to select the jar with the CUDA classifier.
 
+### Building in the Docker Container
+
+The `build/build-in-docker` script will build the spark-rapids-jni artifact within a Docker
+container using devtoolset to produce native code that can run on all supported Linux
+distributions. The repo directory is bind-mounted into the container and the container runs
+as the current user, so the artifacts are produced as if they were built or installed outside
+the Docker container.
+
+The script passes all of its arguments onto the Maven command run inside the Docker container,
+so it should be invoked as one would invoke Maven, e.g.: `build/build-in-docker clean package`
+
 ### cudf Submodule and Build
 
 [RAPIDS cuDF](https://github.com/rapidsai/cudf) is being used as a submodule in this project.
-The spark-rapids-cudf module wraps the build of this submodule which involves building the
-native libcudf library along with the Java files. By default the libcudf library is built
-under the `cpp/build` directory in the cudf submodule.
-
 Due to the lengthy build of libcudf, it is **not cleaned** during a normal Maven clean phase.
 Use `-Dlibcudf.clean.skip=true` to clean the libcudf build area in addition to the normal clean
 of `target/` directories.
