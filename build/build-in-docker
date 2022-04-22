@@ -31,7 +31,8 @@ LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 PER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
 
-IMAGE_NAME="cudf-build:${CUDA_VERSION}-devel-centos7"
+CUDF_IMAGE_NAME="cudf-build:${CUDA_VERSION}-devel-centos7"
+SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-centos7"
 WORKSPACE_DIR=/rapids
 WORKSPACE_REPODIR="$WORKSPACE_DIR/spark-rapids-jni"
 WORKSPACE_MAVEN_REPODIR="$WORKSPACE_DIR/.m2/repository"
@@ -43,8 +44,13 @@ fi
 
 $DOCKER_CMD build -f $REPODIR/thirdparty/cudf/java/ci/Dockerfile.centos7 \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
-  -t $IMAGE_NAME \
+  -t $CUDF_IMAGE_NAME \
   $REPODIR/thirdparty/cudf/java/ci
+
+$DOCKER_CMD build -f $REPODIR/build/Dockerfile.centos7 \
+  --build-arg CUDA_VERSION=$CUDA_VERSION \
+  -t $SPARK_IMAGE_NAME \
+  $REPODIR/build
 
 $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
@@ -58,7 +64,7 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
-  $IMAGE_NAME \
+  $SPARK_IMAGE_NAME \
   scl enable devtoolset-9 "mvn \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
     -DPER_THREAD_DEFAULT_STREAM=$PER_THREAD_DEFAULT_STREAM \
