@@ -37,9 +37,12 @@
 namespace rapids {
 namespace jni {
 
+/**
+ * Convert a string to lower case. It uses std::tolower per character which has limitations
+ * and may not produce the exact same result as the JVM does. This is probably good enough
+ * for now.
+ */
 std::string unicode_to_lower(std::string & input) {
-  // This is not great, but it works, I think, not sure because it is also dependent on the local, and
-  // we might need to pass that down from the JVM???
   int wide_size = std::mbstowcs(nullptr, input.data(), 0);
   if (wide_size < 0) {
     throw std::invalid_argument("invalid character sequence...");
@@ -55,67 +58,50 @@ std::string unicode_to_lower(std::string & input) {
   return ret;
 }
 
-struct parquet_filter {
+/**
+ * Holds a set of "maps" that are used to rewrite various parts of of the parquet metadata.
+ * Generally each "map" is a gather map that pulls data from an input vector to be placed in
+ * an output vector.
+ */
+struct column_pruning_maps {
+  // gather map for pulling out items from the schema
   std::vector<int> schema_map;
+  // Each SchemaElement also include the number of children in it. This allows the vector
+  // to be interpreted as a tree flattend depth first. These are the new values for num
+  // children after the schema is gathered.
   std::vector<int> schema_num_children;
+  // There are several places where a struct is stored only for a leaf column (like a column chunk)
+  // This holds the gather map for those cases.
   std::vector<int> chunk_map;
 };
 
-class name_tree {
+/**
+ * This class will handle processing column pruning for a schema. It is written as a class because
+ * of JNI we are sending the names of the columns as a depth first list, like parquet does internally.
+ */
+class column_pruner {
 public:
-    name_tree(): children(), s_id(0), c_id(-1) {
-    }
-    name_tree(int s_id, int c_id): children(), s_id(s_id), c_id(c_id) {
-    }
-
-    void add_depth_first(std::vector<std::string> names, std::vector<int> num_children, int parent_num_children) {
-      CUDF_FUNC_RANGE();
-      int local_s_id = 0; // There is always a root on the schema
-      int local_c_id = -1; // for columns it is just the leaf nodes
-      auto num = names.size();
-      std::vector<name_tree*> tree_stack;
-      std::vector<int> num_children_stack;
-      tree_stack.push_back(this);
-      num_children_stack.push_back(parent_num_children);
-      for(uint64_t i = 0; i < num; i++) {
-        auto name = names[i];
-        auto num_c = num_children[i];
-        local_s_id++;
-        int tmp_c_id = -1;
-        if (num_c == 0) {
-          // leaf node...
-          local_c_id++;
-          tmp_c_id = local_c_id;
-        }
-        tree_stack.back()->children.try_emplace(name, local_s_id, tmp_c_id);
-        if (num_c > 0) {
-          tree_stack.push_back(&tree_stack.back()->children[name]);
-          num_children_stack.push_back(num_c);
-        } else {
-          // go back up the stack/tree removing children until we hit one with more children
-          bool done = false;
-          while (!done) {
-              int parent_children_left = num_children_stack.back() - 1;
-              if (parent_children_left > 0) {
-                num_children_stack.back() = parent_children_left;
-                done = true;
-              } else {
-                tree_stack.pop_back();
-                num_children_stack.pop_back();
-              }
-
-              if (tree_stack.size() <= 0) {
-                done = true;
-              }
-          }
-        }
-      }
-      if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
-        throw std::invalid_argument("DIDN'T COSUME EVERYTHING...");
-      }
+    /**
+     * Create pruining filter from a depth first flattened tree of names and num_children.
+     * The root entry is not included in names or in num_children, but parent_num_children
+     * should hold how many entries there are in it.
+     */
+    column_pruner(const std::vector<std::string> & names, 
+            const std::vector<int> & num_children, 
+            int parent_num_children): children(), s_id(0), c_id(-1) {
+      add_depth_first(names, num_children, parent_num_children);
     }
 
-    parquet_filter filter_schema(std::vector<parquet::format::SchemaElement> & schema, bool ignore_case) {
+    column_pruner(int s_id, int c_id): children(), s_id(s_id), c_id(c_id) {
+    }
+
+    column_pruner(): children(), s_id(0), c_id(-1) {
+    }
+
+    /**
+     * Given a schema from a parquet file create a set of pruning maps to prune columns from the rest of the footer
+     */
+    column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> & schema, bool ignore_case) {
       CUDF_FUNC_RANGE();
       // The maps are sorted so we can compress the tree...
       // These are the outputs of the computation
@@ -128,7 +114,7 @@ public:
 
       // num_children_stack and tree_stack hold the current state as we walk though schema
       std::vector<int> num_children_stack;
-      std::vector<name_tree*> tree_stack;
+      std::vector<column_pruner*> tree_stack;
       tree_stack.push_back(this);
       num_children_stack.push_back(schema[0].num_children);
 
@@ -136,8 +122,9 @@ public:
       // We are skipping over the first entry in the schema because it is always the root entry, and
       //  we already processed it
       for (uint64_t schema_index = 1; schema_index < schema.size(); schema_index++) {
+        // num_children is optional, but is supposed to be set for non-leaf nodes. That said leaf nodes
+        // will have 0 children so we can just default to that.
         int num_children = 0;
-        // num_children should always be set if the type is not set, but just to be safe we keep them separate
         if (schema[schema_index].__isset.num_children) {
           num_children = schema[schema_index].num_children;
         }
@@ -147,7 +134,7 @@ public:
         } else {
           name = schema[schema_index].name;
         }
-        name_tree * found = nullptr;
+        column_pruner * found = nullptr;
         if (tree_stack.back() != nullptr) {
           auto found_it = tree_stack.back()->children.find(name);
           if (found_it != tree_stack.back()->children.end()) {
@@ -198,6 +185,9 @@ public:
           }
         }
       }
+
+      // If there is a column that is missing from this file we need to compress the gather maps
+      //  so there are no gaps
       std::vector<int> final_schema_map;
       for (auto it = schema_map.begin(); it != schema_map.end(); it++) {
         final_schema_map.push_back(it->second);
@@ -213,10 +203,60 @@ public:
         final_chunk_map.push_back(it->second);
       }
 
-      return parquet_filter{final_schema_map, final_num_children_map, final_chunk_map};
+      return column_pruning_maps{final_schema_map, final_num_children_map, final_chunk_map};
     }
+
 private:
-    std::map<std::string, name_tree> children;
+
+    void add_depth_first(const std::vector<std::string> & names, const std::vector<int> & num_children, int parent_num_children) {
+      CUDF_FUNC_RANGE();
+      int local_s_id = 0; // There is always a root on the schema
+      int local_c_id = -1; // for columns it is just the leaf nodes
+      auto num = names.size();
+      std::vector<column_pruner*> tree_stack;
+      std::vector<int> num_children_stack;
+      tree_stack.push_back(this);
+      num_children_stack.push_back(parent_num_children);
+      for(uint64_t i = 0; i < num; i++) {
+        auto name = names[i];
+        auto num_c = num_children[i];
+        local_s_id++;
+        int tmp_c_id = -1;
+        if (num_c == 0) {
+          // leaf node...
+          local_c_id++;
+          tmp_c_id = local_c_id;
+        }
+        tree_stack.back()->children.try_emplace(name, local_s_id, tmp_c_id);
+        if (num_c > 0) {
+          tree_stack.push_back(&tree_stack.back()->children[name]);
+          num_children_stack.push_back(num_c);
+        } else {
+          // go back up the stack/tree removing children until we hit one with more children
+          bool done = false;
+          while (!done) {
+              int parent_children_left = num_children_stack.back() - 1;
+              if (parent_children_left > 0) {
+                num_children_stack.back() = parent_children_left;
+                done = true;
+              } else {
+                tree_stack.pop_back();
+                num_children_stack.pop_back();
+              }
+
+              if (tree_stack.size() <= 0) {
+                done = true;
+              }
+          }
+        }
+      }
+      if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
+        throw std::invalid_argument("DIDN'T COSUME EVERYTHING...");
+      }
+    }
+
+
+    std::map<std::string, column_pruner> children;
     // The following IDs are the position that they should be in when output in a filteres footer, except
     // that if there are any missing columns in the actual data the gaps need to be removed.
     // schema ID
@@ -256,7 +296,6 @@ static int64_t get_offset(parquet::format::ColumnChunk & column_chunk) {
 
 static std::vector<parquet::format::RowGroup> filter_groups(parquet::format::FileMetaData & meta, 
         int64_t part_offset, int64_t part_length) {
-    // TODO should combine filter columns with filter_groups so we don't copy as much data...
     CUDF_FUNC_RANGE();
     // This is based off of the java parquet_mr code to find the groups in a range... 
     auto num_row_groups = meta.row_groups.size();
@@ -276,9 +315,6 @@ static std::vector<parquet::format::RowGroup> filter_groups(parquet::format::Fil
         if (first_column_with_metadata) {
             start_index = get_offset(column_chunk);
         } else {
-          //assert rowGroup.isSetFile_offset();
-          //assert rowGroup.isSetTotal_compressed_size();
-
           //the file_offset of first block always holds the truth, while other blocks don't :
           //see PARQUET-2078 for details
           start_index = row_group.file_offset;
@@ -351,9 +387,6 @@ void filter_columns(std::vector<parquet::format::RowGroup> & groups, std::vector
       new_chunks.push_back(group_it->columns[*it]);
     }
     group_it->columns = std::move(new_chunks);
-    // TODO for sorting_columns we need a reverse map...
-    // TODO sorting_columns
-    // TODO ordinal???
   }
 }
 
@@ -382,11 +415,10 @@ JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFil
       cudf::jni::native_jstringArray n_filter_col_names(env, filter_col_names);
       cudf::jni::native_jintArray n_num_children(env, num_children);
 
-      rapids::jni::name_tree tree;
-      tree.add_depth_first(n_filter_col_names.as_cpp_vector(),
+      rapids::jni::column_pruner pruner(n_filter_col_names.as_cpp_vector(),
               std::vector(n_num_children.begin(), n_num_children.end()),
               parent_num_children);
-      auto filter = tree.filter_schema(meta->schema, ignore_case);
+      auto filter = pruner.filter_schema(meta->schema, ignore_case);
 
       // start by filtering the schema and the chunks
       std::size_t new_schema_size = filter.schema_map.size();
@@ -434,7 +466,6 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
   CUDF_FUNC_RANGE();
   try {
     parquet::format::FileMetaData * meta = reinterpret_cast<parquet::format::FileMetaData *>(handle);
-    // TODO at some point add in the PAR1 and the length when we get to that point...
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> transportOut(
             new apache::thrift::transport::TMemoryBuffer());
     apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer> factory;
