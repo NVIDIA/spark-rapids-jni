@@ -40,14 +40,6 @@ REL_VERSION=$(mvn exec:exec -q --non-recursive -Dexec.executable=echo -Dexec.arg
 echo "REL_VERSION: $REL_VERSION, OUT_PATH: $OUT_PATH \
 SERVER_URL: $SERVER_URL, SERVER_ID: $SERVER_ID"
 
-###### Build the deploy command ######
-if [ "$SIGN_FILE" == true ]; then
-    DEPLOY_CMD="mvn -B gpg:sign-and-deploy-file -s ci/settings.xml -Dgpg.passphrase=$GPG_PASSPHRASE"
-else
-    DEPLOY_CMD="mvn -B deploy:deploy-file -s ci/settings.xml"
-fi
-echo "Deploy CMD: $DEPLOY_CMD"
-
 ###### Build types/files from classifiers ######
 FPATH="$OUT_PATH/spark-rapids-jni-$REL_VERSION"
 CLASS_TYPES=''
@@ -67,6 +59,16 @@ IFS="$ORI_IFS"
 # Use the first classifier(aka jar file) as the default jar
 FIRST_FILE=${CLASS_FILES%%,*}
 cp -f "$FIRST_FILE" "$FPATH.jar"
+
+###### Build the deploy command ######
+if [ "$SIGN_FILE" == true ]; then
+    DEPLOY_CMD="mvn -B gpg:sign-and-deploy-file -s ci/settings.xml \
+      -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar -Dgpg.passphrase=$GPG_PASSPHRASE"
+else
+    DEPLOY_CMD="mvn -B deploy:deploy-file -s ci/settings.xml \
+      -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar"
+fi
+echo "Deploy CMD: $DEPLOY_CMD"
 
 ###### Deploy spark-rapids-jni jar with all its additions ######
 $DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
