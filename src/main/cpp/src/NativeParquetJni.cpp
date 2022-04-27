@@ -45,21 +45,33 @@ namespace jni {
 std::string unicode_to_lower(std::string & input) {
   int wide_size = std::mbstowcs(nullptr, input.data(), 0);
   if (wide_size < 0) {
-    throw std::invalid_argument("invalid character sequence...");
+    throw std::invalid_argument("invalid character sequence");
   }
+
   std::vector<wchar_t> wide(wide_size + 1);
+  // Set a null so we can get a proper output size from wcstombs. This is becasue 
+  // we pass in a max length of 0, so it will only stop when it see the null character.
+  wide.back() = 0;
   std::mbstowcs(wide.data(), input.data(), wide_size);
   for (auto wit = wide.begin(); wit != wide.end(); wit++) {
     *wit = std::towlower(*wit);
   }
   int mb_size = std::wcstombs(nullptr, wide.data(), 0);
+  if (mb_size < 0) {
+    throw std::invalid_argument("unsupported wide character sequence");
+  }
+  // We are allocating a fixed size string so we can put the data directly into it
+  // instead of going through a NUL terminated char* first. The NUL fill char is
+  // just because we need to pass in a fill char. The value does not matter
+  // because it will be overwritten. std::string itself will insert a NUL
+  // terminator on the buffer it allocates internally. We don't need to worry about it.
   std::string ret(mb_size, '\0');
   std::wcstombs(ret.data(), wide.data(), mb_size);
   return ret;
 }
 
 /**
- * Holds a set of "maps" that are used to rewrite various parts of of the parquet metadata.
+ * Holds a set of "maps" that are used to rewrite various parts of the parquet metadata.
  * Generally each "map" is a gather map that pulls data from an input vector to be placed in
  * an output vector.
  */
@@ -122,20 +134,23 @@ public:
       // We are skipping over the first entry in the schema because it is always the root entry, and
       //  we already processed it
       for (uint64_t schema_index = 1; schema_index < schema.size(); schema_index++) {
+        auto schema_item = schema[schema_index];
         // num_children is optional, but is supposed to be set for non-leaf nodes. That said leaf nodes
         // will have 0 children so we can just default to that.
         int num_children = 0;
-        if (schema[schema_index].__isset.num_children) {
-          num_children = schema[schema_index].num_children;
+        if (schema_item.__isset.num_children) {
+          num_children = schema_item.num_children;
         }
         std::string name;
         if (ignore_case) {
-          name = unicode_to_lower(schema[schema_index].name);
+          name = unicode_to_lower(schema_item.name);
         } else {
-          name = schema[schema_index].name;
+          name = schema_item.name;
         }
         column_pruner * found = nullptr;
         if (tree_stack.back() != nullptr) {
+          // tree_stack can have a nullptr in it if the scheam we are looking through
+          // has an entry that does not match the tree
           auto found_it = tree_stack.back()->children.find(name);
           if (found_it != tree_stack.back()->children.end()) {
             found = &(found_it->second);
@@ -144,7 +159,7 @@ public:
           }
         }
 
-        if (schema[schema_index].__isset.type) {
+        if (schema_item.__isset.type) {
           if (found != nullptr) {
             int mapped_chunk_index = found->c_id;
             int mapped_schema_index = found->s_id;
@@ -179,7 +194,7 @@ public:
               num_children_stack.pop_back();
             }
  
-            if (tree_stack.size() <= 0) {
+            if (tree_stack.size() == 0) {
               done = true;
             }
           }
@@ -189,16 +204,19 @@ public:
       // If there is a column that is missing from this file we need to compress the gather maps
       //  so there are no gaps
       std::vector<int> final_schema_map;
+      final_schema_map.reserve(schema_map.size());
       for (auto it = schema_map.begin(); it != schema_map.end(); it++) {
         final_schema_map.push_back(it->second);
       }
 
       std::vector<int> final_num_children_map;
+      final_num_children_map.reserve(num_children_map.size());
       for (auto it = num_children_map.begin(); it != num_children_map.end(); it++) {
         final_num_children_map.push_back(it->second);
       }
 
       std::vector<int> final_chunk_map;
+      final_chunk_map.reserve(chunk_map.size());
       for (auto it = chunk_map.begin(); it != chunk_map.end(); it++) {
         final_chunk_map.push_back(it->second);
       }
@@ -251,7 +269,7 @@ private:
         }
       }
       if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
-        throw std::invalid_argument("DIDN'T COSUME EVERYTHING...");
+        throw std::invalid_argument("DIDN'T CONSUME EVERYTHING...");
       }
     }
 
@@ -267,7 +285,6 @@ private:
 
 static bool invalid_file_offset(long start_index, long pre_start_index, long pre_compressed_size) {
   bool invalid = false;
-  //assert preStartIndex <= startIndex;
   // checking the first rowGroup
   if (pre_start_index == 0 && start_index != 4) {
     invalid = true;
@@ -348,7 +365,7 @@ static std::vector<parquet::format::RowGroup> filter_groups(parquet::format::Fil
     return filtered_groups;
 }
 
-void deserialize_parquet_footer(uint8_t* buffer, uint32_t len, parquet::format::FileMetaData * meta) {
+void deserialize_parquet_footer(uint8_t * buffer, uint32_t len, parquet::format::FileMetaData * meta) {
   using ThriftBuffer = apache::thrift::transport::TMemoryBuffer;
 
   CUDF_FUNC_RANGE();
@@ -395,7 +412,7 @@ void filter_columns(std::vector<parquet::format::RowGroup> & groups, std::vector
 
 extern "C" {
 
-JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv *env, jclass,
+JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv * env, jclass,
                                                                                     jlong buffer,
                                                                                     jlong buffer_length,
                                                                                     jlong part_offset,
@@ -406,53 +423,49 @@ JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFil
                                                                                     jboolean ignore_case) {
   CUDF_FUNC_RANGE();
   try {
-      auto meta = std::make_unique<parquet::format::FileMetaData>();
-      uint32_t len = static_cast<uint32_t>(buffer_length);
-      // We don't support encrypted parquet...
-      rapids::jni::deserialize_parquet_footer(reinterpret_cast<uint8_t*>(buffer), len, meta.get());
+    auto meta = std::make_unique<parquet::format::FileMetaData>();
+    uint32_t len = static_cast<uint32_t>(buffer_length);
+    // We don't support encrypted parquet...
+    rapids::jni::deserialize_parquet_footer(reinterpret_cast<uint8_t*>(buffer), len, meta.get());
 
-      // Get the filter for the columns first...
-      cudf::jni::native_jstringArray n_filter_col_names(env, filter_col_names);
-      cudf::jni::native_jintArray n_num_children(env, num_children);
+    // Get the filter for the columns first...
+    cudf::jni::native_jstringArray n_filter_col_names(env, filter_col_names);
+    cudf::jni::native_jintArray n_num_children(env, num_children);
 
-      rapids::jni::column_pruner pruner(n_filter_col_names.as_cpp_vector(),
-              std::vector(n_num_children.begin(), n_num_children.end()),
-              parent_num_children);
-      auto filter = pruner.filter_schema(meta->schema, ignore_case);
+    rapids::jni::column_pruner pruner(n_filter_col_names.as_cpp_vector(),
+            std::vector(n_num_children.begin(), n_num_children.end()),
+            parent_num_children);
+    auto filter = pruner.filter_schema(meta->schema, ignore_case);
 
-      // start by filtering the schema and the chunks
-      std::size_t new_schema_size = filter.schema_map.size();
-      std::vector<parquet::format::SchemaElement> new_schema(new_schema_size);
-      for (std::size_t i = 0; i < new_schema_size; i++) {
-        int orig_index = filter.schema_map[i];
-        int new_num_children = filter.schema_num_children[i];
-        new_schema[i] = meta->schema[orig_index];
-        new_schema[i].num_children = new_num_children;
+    // start by filtering the schema and the chunks
+    std::size_t new_schema_size = filter.schema_map.size();
+    std::vector<parquet::format::SchemaElement> new_schema(new_schema_size);
+    for (std::size_t i = 0; i < new_schema_size; i++) {
+      int orig_index = filter.schema_map[i];
+      int new_num_children = filter.schema_num_children[i];
+      new_schema[i] = meta->schema[orig_index];
+      new_schema[i].num_children = new_num_children;
+    }
+    meta->schema = std::move(new_schema);
+    if (meta->__isset.column_orders) {
+      std::vector<parquet::format::ColumnOrder> new_order;
+      for (auto it = filter.chunk_map.begin(); it != filter.chunk_map.end(); it++) {
+        new_order.push_back(meta->column_orders[*it]);
       }
-      meta->schema = std::move(new_schema);
-      if (meta->__isset.column_orders) {
-        // TODO we might be able to drop some of this ordering copy, if they are all the same,
-        //  but for now we will not worry about it.
-        std::vector<parquet::format::ColumnOrder> new_order;
-        for (auto it = filter.chunk_map.begin(); it != filter.chunk_map.end(); it++) {
-          new_order.push_back(meta->column_orders[*it]);
-        }
-        meta->column_orders = std::move(new_order);
-      }
-      // Now we want to filter the columns out of each row group that we care about as we go.
-      if (part_length >= 0) {
-        meta->row_groups = std::move(rapids::jni::filter_groups(*meta, part_offset, part_length));
-      }
-      rapids::jni::filter_columns(meta->row_groups, filter.chunk_map);
+      meta->column_orders = std::move(new_order);
+    }
+    // Now we want to filter the columns out of each row group that we care about as we go.
+    if (part_length >= 0) {
+      meta->row_groups = std::move(rapids::jni::filter_groups(*meta, part_offset, part_length));
+    }
+    rapids::jni::filter_columns(meta->row_groups, filter.chunk_map);
 
-      // TODO filter out some of the key/value meta that is large and we know we don't need
-
-      return cudf::jni::release_as_jlong(meta);
+    return cudf::jni::release_as_jlong(meta);
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIEnv *env, jclass,
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIEnv * env, jclass,
                                                                             jlong handle) {
   try {
     parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
@@ -461,7 +474,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIE
   CATCH_STD(env, );
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(JNIEnv *env, jclass,
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(JNIEnv * env, jclass,
                                                                                              jlong handle) {
   CUDF_FUNC_RANGE();
   try {
@@ -471,7 +484,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
     apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer> factory;
     auto protocolOut = factory.getProtocol(transportOut);
     meta->write(protocolOut.get());
-    uint8_t* buf_ptr;
+    uint8_t * buf_ptr;
     uint32_t buf_size;
     transportOut->getBuffer(&buf_ptr, &buf_size);
 

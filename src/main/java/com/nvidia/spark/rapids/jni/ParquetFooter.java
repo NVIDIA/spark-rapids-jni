@@ -18,6 +18,9 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
+/**
+ * Represents a footer for a parquet file that can be parsed using native code.
+ */
 public class ParquetFooter implements AutoCloseable {
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -29,6 +32,11 @@ public class ParquetFooter implements AutoCloseable {
     nativeHandle = handle;
   }
 
+  /**
+   * Write the filtered footer back out in a format that is compatible with a parquet
+   * footer file. This will include the MAGIC PAR1 at the beginning and end and also the
+   * length of the footer just before the PAR1 at the end.
+   */
   public HostMemoryBuffer serializeThriftFile() {
     return serializeThriftFile(nativeHandle);
   }
@@ -41,6 +49,22 @@ public class ParquetFooter implements AutoCloseable {
     }
   }
 
+  /**
+   * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
+   * should only include the thrift footer itself. This includes filtering out row groups that do
+   * not fall within the partition and pruning columns that are not needed.
+   * @param buffer the buffer to parse the footer out from.
+   * @param partOffset for a split the start of the split
+   * @param partLength the length of the split
+   * @param names the names of the nodes in the tree to keep, flattened in a depth first way. The
+   *              root node should be skipped and the names of maps and lists needs to match what
+   *              parquet writes in.
+   * @param numChildren the number of children for each item in name.
+   * @param parentNumChildren the number of children in the root nodes
+   * @param ignoreCase should case be ignored when matching column names. If this is true then
+   *                   names should be converted to lower case before being passed to this.
+   * @return a reference to the parsed footer.
+   */
   public static ParquetFooter readAndFilter(HostMemoryBuffer buffer,
       long partOffset, long partLength,
       String[] names,
