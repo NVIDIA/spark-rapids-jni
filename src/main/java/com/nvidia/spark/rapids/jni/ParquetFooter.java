@@ -41,6 +41,20 @@ public class ParquetFooter implements AutoCloseable {
     return serializeThriftFile(nativeHandle);
   }
 
+  /**
+   * Get the number of rows in the footer after filtering.
+   */
+  public long getNumRows() {
+    return getNumRows(nativeHandle);
+  }
+
+  /**
+   * Get the number of top level columns in the footer after filtering.
+   */
+  public int getNumColumns() {
+    return getNumColumns(nativeHandle);
+  }
+
   @Override
   public void close() throws Exception {
     if (nativeHandle != 0) {
@@ -89,6 +103,10 @@ public class ParquetFooter implements AutoCloseable {
       boolean ignoreCase) throws CudfException;
 
   private static native void close(long nativeHandle);
+
+  private static native long getNumRows(long nativeHandle);
+
+  private static native int getNumColumns(long nativeHandle);
 
   private static native HostMemoryBuffer serializeCustom(long nativeHandle);
 

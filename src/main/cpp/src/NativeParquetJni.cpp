@@ -228,6 +228,11 @@ private:
 
     void add_depth_first(const std::vector<std::string> & names, const std::vector<int> & num_children, int parent_num_children) {
       CUDF_FUNC_RANGE();
+      if (parent_num_children == 0) {
+        // There is no point in doing more the tree is empty, and it lets us avoid some corner cases
+        // in the code below
+        return;
+      }
       int local_s_id = 0; // There is always a root on the schema
       int local_c_id = -1; // for columns it is just the leaf nodes
       auto num = names.size();
@@ -272,7 +277,6 @@ private:
         throw std::invalid_argument("DIDN'T CONSUME EVERYTHING...");
       }
     }
-
 
     std::map<std::string, column_pruner> children;
     // The following IDs are the position that they should be in when output in a filteres footer, except
@@ -472,6 +476,34 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIE
     delete ptr;
   }
   CATCH_STD(env, );
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRows(JNIEnv * env, jclass,
+                                                                                 jlong handle) {
+  try {
+    parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
+    long ret = 0;
+    for(auto it = ptr->row_groups.begin(); it != ptr->row_groups.end(); it++) {
+      ret = ret + it->num_rows;
+    }
+    return ret;
+  }
+  CATCH_STD(env, -1);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumColumns(JNIEnv * env, jclass,
+                                                                                     jlong handle) {
+  try {
+    parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
+    int ret = 0;
+    if (ptr->schema.size() > 0) {
+      if (ptr->schema[0].__isset.num_children) {
+        ret = ptr->schema[0].num_children;
+      }
+    }
+    return ret;
+  }
+  CATCH_STD(env, -1);
 }
 
 JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(JNIEnv * env, jclass,
