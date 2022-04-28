@@ -114,6 +114,73 @@ public:
      * Given a schema from a parquet file create a set of pruning maps to prune columns from the rest of the footer
      */
     column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> & schema, bool ignore_case) {
+      // TODO the java code will fail if there is ambiguity in the names and ignore_case is true
+      // so we need to figure that out too???
+      // TODO there are a number of different way to represent a list or a map. We want to support all of them
+      //  so we need a way to detect that schema is a list and group the parts we don't care about together.
+      // TODO the java code verifies that the schema matches when it is looking at the columns or it throws
+      // an exception. Sort of, It really just checks that it is a GroupType where it expects to find them
+      //
+      // With all of this in mind I think what we want to do is to pass down a full-ish schema, not just the names,
+      // and the number of children. We need to know if it is a Map, an Array, a Struct or primitive.
+      //
+      // Then when we are walking the tree we need to keep track of if we are looking for a Map, an array or
+      // a struct and match up the SchemaElement entries accordingly as we go.
+      // If we see somehting that is off we need to throw an exception.
+      //
+      // To be able to handle the duplicates, I think we need to have some state in the column_pruner class
+      // to say if we have matched a leaf node or not.
+      // 
+      // From the Parquet spec
+      // https://github.com/apache/parquet-format/blob/master/LogicalTypes.md
+      //
+      // A repeated field that is neither contained by a LIST- or MAP-annotated group nor annotated by LIST
+      // or MAP should be interpreted as a required list of required elements where the element type is the
+      // type of the field.
+      //
+      // LIST must always annotate a 3-level structure:
+      // <list-repetition> group <name> (LIST) {
+      //   repeated group list {
+      //     <element-repetition> <element-type> element;
+      //   }
+      // }
+      // ...
+      // However, these names may not be used in existing data and should not be enforced as errors when reading.
+      // ...
+      // Some existing data does not include the inner element layer. For backward-compatibility, the type of
+      // elements in LIST-annotated structures should always be determined by the following rules:
+      //
+      //  1. If the repeated field is not a group, then its type is the element type and elements are required.
+      //  2. If the repeated field is a group with multiple fields, then its type is the element type and
+      //     elements are required.
+      //  3. If the repeated field is a group with one field and is named either array or uses the
+      //     LIST-annotated group's name with _tuple appended then the repeated type is the element
+      //     type and elements are required.
+      //  4. Otherwise, the repeated field's type is the element type with the repeated field's repetition.
+
+      // MAP is used to annotate types that should be interpreted as a map from keys to values. MAP must
+      // annotate a 3-level structure:
+      //
+      //  * The outer-most level must be a group annotated with MAP that contains a single field named
+      //    key_value. The repetition of this level must be either optional or required and determines
+      //    whether the list is nullable.
+      //  * The middle level, named key_value, must be a repeated group with a key field for map keys
+      //    and, optionally, a value field for map values.
+      //  * The key field encodes the map's key type. This field must have repetition required and must
+      //    always be present.
+      //  * The value field encodes the map's value type and repetition. This field can be required,
+      //    optional, or omitted.
+      //
+      // It is required that the repeated group of key-value pairs is named key_value and that its
+      // fields are named key and value. However, these names may not be used in existing data and
+      // should not be enforced as errors when reading.
+      //
+      // Some existing data incorrectly used MAP_KEY_VALUE in place of MAP. For backward-compatibility,
+      // a group annotated with MAP_KEY_VALUE that is not contained by a MAP-annotated group should be
+      // handled as a MAP-annotated group.
+
+      // Parquet says that the map's value is optional, but Spark looks like it would throw an exception
+      // if it ever actually saw that in practice, so we should too.
       CUDF_FUNC_RANGE();
       // The maps are sorted so we can compress the tree...
       // These are the outputs of the computation
