@@ -27,6 +27,7 @@ FROM gpuci/cuda:$CUDA_VERSION-devel-centos7
 RUN yum install -y centos-release-scl
 RUN yum install -y devtoolset-9 rh-python38 epel-release
 RUN yum install -y zlib-devel maven tar wget patch ninja-build
+# require git 2.18+ to keep consistent submodule operations
 RUN yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm && yum install -y git
 RUN scl enable rh-python38 "pip install requests"
 
