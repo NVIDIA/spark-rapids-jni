@@ -46,6 +46,25 @@ $DOCKER_CMD build -f $REPODIR/thirdparty/cudf/java/ci/Dockerfile.centos7 \
   -t $IMAGE_NAME \
   $REPODIR/thirdparty/cudf/java/ci
 
+CCACHE_OPTS=(
+  "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CXX_LINKER_LAUNCHER=ccache"
+)
+
+_CUDF_CLEAN_SKIP=""
+# if ccache is enabled and libcudf.clean.skip not provided
+# by the user remove the cpp build directory
+#
+if [[ "$CCACHE_DISABLE" != "1" ]]; then
+  if [[ ! "$*" =~ " -Dlibcudf.clean.skip=" ]]; then
+    # Don't skip clean if ccache is enabled
+    # unless the user overrides
+    _CUDF_CLEAN_SKIP="-Dlibcudf.clean.skip=false"
+  fi
+fi
+
 $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
   -v "/etc/passwd:/etc/passwd:ro" \
@@ -53,14 +72,18 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
   -v "$REPODIR:$WORKSPACE_REPODIR:rw" \
   -v "$LOCAL_MAVEN_REPO:$WORKSPACE_MAVEN_REPODIR:rw" \
+  -v "$HOME/.ccache:$HOME/.ccache:rw" \
   --workdir "$WORKSPACE_REPODIR" \
   -e CMAKE_GENERATOR="$CMAKE_GENERATOR" \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
+  -e CCACHE_DISABLE \
   $IMAGE_NAME \
   scl enable devtoolset-9 "mvn \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
     -DPER_THREAD_DEFAULT_STREAM=$PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
+    -Dcmake.ccache.opts=\"${CCACHE_OPTS[*]}\" \
+    "$_CUDF_CLEAN_SKIP" \
     $*"
