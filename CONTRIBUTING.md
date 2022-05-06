@@ -49,12 +49,9 @@ so it should be invoked as one would invoke Maven, e.g.: `build/build-in-docker 
 ### cudf Submodule and Build
 
 [RAPIDS cuDF](https://github.com/rapidsai/cudf) is being used as a submodule in this project.
-Due to the lengthy build of libcudf, it is **not cleaned** during a normal Maven clean phase
-unless built using `build/build-in-docker`. `build/build-in-docker` uses `ccache` by default
-unless CCACHE_DISABLE=1 is set in the environment.
-
-`-Dlibcudf.clean.skip=false` can also be specified on the Maven command-line to force
-libcudf to be cleaned during the Maven clean phase.
+Due to the lengthy build of libcudf, it is **not cleaned** during a normal Maven clean phase.
+Use `-Dlibcudf.clean.skip=true` to clean the libcudf build area in addition to the normal clean
+of `target/` directories.
 
 Currently libcudf is only configured once and the build relies on cmake to re-configure as needed.
 This is because libcudf currently is rebuilding almost entirely when it is configured with the same
