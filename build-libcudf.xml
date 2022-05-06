@@ -42,7 +42,7 @@
       <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
       <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
       <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
-      <arg value="-DCUDF_ENABLE_ARROW_PARQUET=OF"/>
+      <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
       <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
       <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}" />
       <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
