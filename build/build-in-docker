@@ -74,11 +74,11 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -v "$LOCAL_MAVEN_REPO:$WORKSPACE_MAVEN_REPODIR:rw" \
   -v "$HOME/.ccache:$HOME/.ccache:rw" \
   --workdir "$WORKSPACE_REPODIR" \
+  -e CCACHE_DISABLE \
   -e CMAKE_GENERATOR="$CMAKE_GENERATOR" \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
-  -e CCACHE_DISABLE \
   $IMAGE_NAME \
   scl enable devtoolset-9 "mvn \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
