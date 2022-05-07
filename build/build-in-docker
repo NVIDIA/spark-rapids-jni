@@ -109,6 +109,4 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
     -DPER_THREAD_DEFAULT_STREAM=$PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
-    -Dcmake.ccache.opts=\"${CCACHE_OPTS[*]}\" \
-    $_CUDF_CLEAN_SKIP \
     $*"

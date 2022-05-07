@@ -36,7 +36,6 @@
           executable="cmake"
           if:true="${needConfigure}">
       <arg value="${cudf.path}/cpp"/>
-      <arg line="${cmake.ccache.opts}"/>
       <arg value="-DBUILD_SHARED_LIBS=OFF"/>
       <arg value="-DBUILD_TESTS=OFF"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
