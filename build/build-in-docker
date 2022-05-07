@@ -31,7 +31,7 @@ LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 PER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
 
-IMAGE_NAME="cudf-build:${CUDA_VERSION}-devel-centos7"
+SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-centos7"
 WORKSPACE_DIR=/rapids
 WORKSPACE_REPODIR="$WORKSPACE_DIR/spark-rapids-jni"
 WORKSPACE_MAVEN_REPODIR="$WORKSPACE_DIR/.m2/repository"
@@ -41,10 +41,29 @@ if (( $# == 0 )); then
   exit 1
 fi
 
-$DOCKER_CMD build -f $REPODIR/thirdparty/cudf/java/ci/Dockerfile.centos7 \
+$DOCKER_CMD build -f $REPODIR/ci/Dockerfile \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
-  -t $IMAGE_NAME \
-  $REPODIR/thirdparty/cudf/java/ci
+  -t $SPARK_IMAGE_NAME \
+  $REPODIR/build
+
+CCACHE_OPTS=(
+  "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache"
+  "-DCMAKE_CXX_LINKER_LAUNCHER=ccache"
+)
+
+_CUDF_CLEAN_SKIP=""
+# if ccache is enabled and libcudf.clean.skip not provided
+# by the user remove the cpp build directory
+#
+if [[ "$CCACHE_DISABLE" != "1" ]]; then
+  if [[ ! "$*" =~ " -Dlibcudf.clean.skip=" ]]; then
+    # Don't skip clean if ccache is enabled
+    # unless the user overrides
+    _CUDF_CLEAN_SKIP="-Dlibcudf.clean.skip=false"
+  fi
+fi
 
 CCACHE_OPTS=(
   "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
@@ -79,7 +98,7 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
-  $IMAGE_NAME \
+  $SPARK_IMAGE_NAME \
   scl enable devtoolset-9 "mvn \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
     -DPER_THREAD_DEFAULT_STREAM=$PER_THREAD_DEFAULT_STREAM \

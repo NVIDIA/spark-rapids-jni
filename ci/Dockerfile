@@ -39,3 +39,13 @@ RUN cd /usr/local/ && wget --quiet https://github.com/Kitware/CMake/releases/dow
    tar zxf cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
    rm cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
 ENV PATH /usr/local/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
+
+## install a version of boost that is needed for arrow/parquet to work
+RUN cd /usr/local && wget https://boostorg.jfrog.io/artifactory/main/release/1.79.0/source/boost_1_79_0.tar.gz && \
+  tar -xzf boost_1_79_0.tar.gz && \
+  rm boost_1_79_0.tar.gz && \
+  cd boost_1_79_0 && \
+  ./bootstrap.sh --prefix=/usr/local && \
+  ./b2 install --prefix=/usr/local --with-filesystem --with-system && \
+   cd /usr/local && \
+   rm -rf boost_1_79_0
