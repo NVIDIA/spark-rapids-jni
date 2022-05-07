@@ -22,10 +22,10 @@
 ###
 ARG CUDA_VERSION=11.5.0
 FROM gpuci/cuda:$CUDA_VERSION-devel-centos7
-
+ARG DEVTOOLSET_VERSION=9
 ### Install basic requirements
 RUN yum install -y centos-release-scl
-RUN yum install -y devtoolset-9 rh-python38 epel-release
+RUN yum install -y devtoolset-${DEVTOOLSET_VERSION} rh-python38 epel-release
 RUN yum install -y zlib-devel maven tar wget patch ninja-build
 # require git 2.18+ to keep consistent submodule operations
 RUN yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm && yum install -y git
@@ -34,14 +34,33 @@ RUN scl enable rh-python38 "pip install requests"
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir /usr/local/rapids && mkdir /rapids && chmod 777 /usr/local/rapids && chmod 777 /rapids
 
-ARG CMAKE_VERSION=3.20.5
-RUN cd /usr/local/ && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
+# 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
+ARG CMAKE_VERSION=3.22.3
+
+RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
    tar zxf cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
    rm cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
 ENV PATH /usr/local/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
 
+# ccache for interactive builds
+ARG CCACHE_VERSION=4.6
+RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}.tar.gz && \
+   tar zxf ccache-${CCACHE_VERSION}.tar.gz && \
+   rm ccache-${CCACHE_VERSION}.tar.gz && \
+   cd ccache-${CCACHE_VERSION} && \
+   mkdir build && \
+   cd build && \
+   scl enable devtoolset-${DEVTOOLSET_VERSION} \
+      "cmake .. \
+         -DCMAKE_BUILD_TYPE=Release \
+         -DZSTD_FROM_INTERNET=ON \
+         -DREDIS_STORAGE_BACKEND=OFF && \
+      cmake --build . --parallel ${PARALLEL_LEVEL} --target install" && \
+   cd ../.. && \
+   rm -rf ccache-${CCACHE_VERSION}
+
 ## install a version of boost that is needed for arrow/parquet to work
-RUN cd /usr/local && wget https://boostorg.jfrog.io/artifactory/main/release/1.79.0/source/boost_1_79_0.tar.gz && \
+RUN cd /usr/local && wget --quiet https://boostorg.jfrog.io/artifactory/main/release/1.79.0/source/boost_1_79_0.tar.gz && \
   tar -xzf boost_1_79_0.tar.gz && \
   rm boost_1_79_0.tar.gz && \
   cd boost_1_79_0 && \
