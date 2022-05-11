@@ -100,6 +100,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
+    <cmake.ccache.opts/>
   </properties>
 
   <dependencies>
@@ -260,6 +261,7 @@
                   <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
                   <env key="CUDF_ROOT" value="${cudf.path}"/>
                   <arg value="${cudf.path}/java/src/main/native"/>
+                  <arg line="${cmake.ccache.opts}"/>
                   <arg value="-DBUILD_SHARED_LIBS=OFF"/>
                   <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
                   <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
