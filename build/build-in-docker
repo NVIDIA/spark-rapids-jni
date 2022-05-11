@@ -51,13 +51,6 @@ $DOCKER_CMD build -f $REPODIR/ci/Dockerfile \
   -t $SPARK_IMAGE_NAME \
   $REPODIR/build
 
-CCACHE_OPTS=(
-  "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
-  "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
-  "-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache"
-  "-DCMAKE_CXX_LINKER_LAUNCHER=ccache"
-)
-
 _CUDF_CLEAN_SKIP=""
 # if ccache is enabled and libcudf.clean.skip not provided
 # by the user remove the cpp build directory
@@ -81,6 +74,10 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
   --workdir "$WORKSPACE_REPODIR" \
   -e CCACHE_DISABLE \
   -e CCACHE_DIR="$WORKSPACE_CCACHE_REPODIR" \
+  -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
+  -e CMAKE_CXX_COMPILER_LAUNCHER="ccache" \
+  -e CMAKE_CUDA_COMPILER_LAUNCHER="ccache" \
+  -e CMAKE_CXX_LINKER_LAUNCHER="ccache" \
   -e CMAKE_GENERATOR="$CMAKE_GENERATOR" \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
@@ -90,6 +87,5 @@ $DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
     -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
     -DPER_THREAD_DEFAULT_STREAM=$PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
-    -Dcmake.ccache.opts=\"${CCACHE_OPTS[*]}\" \
     $_CUDF_CLEAN_SKIP \
     $*"
