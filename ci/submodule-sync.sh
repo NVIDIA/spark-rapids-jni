@@ -69,11 +69,11 @@ mvn verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest
-ret="$?"
+verify_status=$?
 set -e
 
 test_pass="False"
-if [[ "${ret}" == "0" ]]; then
+if [[ "${verify_status}" == "0" ]]; then
   echo "Test passed, will try merge the change"
   test_pass="True"
 else
@@ -95,3 +95,5 @@ $WORKSPACE/.github/workflows/action-helper/python/submodule-sync \
   --token=${GIT_TOKEN} \
   --passed=${test_pass} \
   --delete_head=True
+
+exit $verify_status # always exit return code of mvn verify at the end
