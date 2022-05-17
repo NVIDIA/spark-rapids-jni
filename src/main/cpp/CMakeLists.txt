@@ -105,6 +105,7 @@ find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib64"
+  HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib"
 )
 
 # Internal parquet headers
