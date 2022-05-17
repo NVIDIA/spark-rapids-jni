@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# add WSl2 user to passwordless sudoers if desired
+# add WSL2 user to passwordless sudoers if desired
 # sudo visudo /etc/sudoers.d/wsl2-sudo
 
 # Docker 
