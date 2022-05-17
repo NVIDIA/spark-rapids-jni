@@ -63,7 +63,11 @@ if [[ "$CCACHE_DISABLE" != "1" ]]; then
   fi
 fi
 
-$DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
+if [[ DOCKER_CMD == "docker" ]]; then
+  DOCKER_GPU_OPTS="--gpus all"
+fi
+
+$DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \
