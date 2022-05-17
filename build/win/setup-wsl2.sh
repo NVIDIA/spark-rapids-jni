@@ -5,7 +5,7 @@
 # Version	21H2
 # OS build	19044.1645
 # Experience	Windows Feature Experience Pack 120.2212.4170.0
-# NVIDIA Display Driver 511.09
+# NVIDIA Display Driver 473.47
 
 # add WSL2 user to passwordless sudoers if desired
 # sudo visudo /etc/sudoers.d/wsl2-sudo
