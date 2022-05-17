@@ -63,7 +63,7 @@ if [[ "$CCACHE_DISABLE" != "1" ]]; then
   fi
 fi
 
-if [[ DOCKER_CMD == "docker" ]]; then
+if [[ "$DOCKER_CMD" == "docker" ]]; then
   DOCKER_GPU_OPTS="--gpus all"
 fi
 
