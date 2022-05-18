@@ -26,7 +26,7 @@ REPODIR=$SCRIPTDIR/..
 
 CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 CUDA_VERSION=${CUDA_VERSION:-11.5.0}
-DOCKER_CMD=${DOCKER_CMD:-nvidia-docker}
+DOCKER_CMD=${DOCKER_CMD:-docker}
 LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 PER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM:-ON}
@@ -63,7 +63,11 @@ if [[ "$CCACHE_DISABLE" != "1" ]]; then
   fi
 fi
 
-$DOCKER_CMD run -it -u $(id -u):$(id -g) --rm \
+if [[ "$DOCKER_CMD" == "docker" ]]; then
+  DOCKER_GPU_OPTS="--gpus all"
+fi
+
+$DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \

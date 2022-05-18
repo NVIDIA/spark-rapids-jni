@@ -78,6 +78,21 @@ to control aspects of the build:
 |`libcudf.clean.skip`       |Whether to skip cleaning libcudf build |true   |
 |`submodule.check.skip`     |Whether to skip checking git submodules|false  |
 
+### Building on Windows in WSL2
+Building on Windows can be done if your Windows build version supports
+[WSL2](https://docs.microsoft.com/en-us/windows/wsl/install). You can create a minimum
+Ubuntu distro WSL2 instance to be able to run `build/build-in-docker` above.
+```PowerShell
+> wsl --install -d Ubuntu
+> .\build\win\create-wsl2.ps1
+```
+
+Clone spark-rapids-jni inside or outside (convenient but slower filesystem) the distro,
+and build inside WSL2, e.g.
+```PowerShell
+> wsl -d Ubuntu ./build/build-in-docker clean install -DGPU_ACRCHS=NATIVE -Dtest="*,!CuFileTest"
+```
+
 ## Code contributions
 
 ### Your first issue
