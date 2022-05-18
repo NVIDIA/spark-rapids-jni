@@ -1,5 +1,21 @@
 #!/bin/bash
 
+#
+# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # Last tested: 
 # Edition	Windows 10 Enterprise
 # Version	21H2
@@ -29,11 +45,17 @@ sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
 sudo service docker restart
 
 
-#CUDA
+# CUDA
+# Initial instructions
 # https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_network
-wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+distroArch="wsl-ubuntu/x86_64"
+wget https://developer.download.nvidia.com/compute/cuda/repos/${distroArch}/cuda-wsl-ubuntu.pin
 sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
-sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/3bf863cc.pub
-sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/ /"
+# Instructions for fetching keys modified per
+# https://forums.developer.nvidia.com/t/notice-cuda-linux-repository-key-rotation/212772#install-new-cuda-keyring-package-3
+sudo apt-key del 7fa2af80
+wget https://developer.download.nvidia.com/compute/cuda/repos/${distroArch}/cuda-keyring_1.0-1_all.deb
+sudo dpkg -i cuda-keyring_1.0-1_all.deb
+sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/${distroArch}/ /"
 sudo apt-get update
 sudo apt-get -y install cuda-toolkit-11-7
