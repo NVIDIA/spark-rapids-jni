@@ -43,19 +43,8 @@ project(
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
-option(PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
-
-# PER_THREAD_DEFAULT_STREAM will be replaced with CUDF_USE_PER_THREAD_DEFAULT_STREAM
-if(PER_THREAD_DEFAULT_STREAM)
-  set(CUDF_USE_PER_THREAD_DEFAULT_STREAM ON)
-  message(
-    DEPRECATION
-      "SPARK_RAPIDS_JNI: PER_THREAD_DEFAULT_STREAM is deprecated, and will be removed in a future release,
-        please use CUDF_USE_PER_THREAD_DEFAULT_STREAM instead."
-  )
-endif()
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
