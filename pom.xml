@@ -78,6 +78,7 @@
     <CPP_PARALLEL_LEVEL>10</CPP_PARALLEL_LEVEL>
     <GPU_ARCHS>ALL</GPU_ARCHS>
     <PER_THREAD_DEFAULT_STREAM>ON</PER_THREAD_DEFAULT_STREAM>
+    <CUDF_USE_PER_THREAD_DEFAULT_STREAM>${PER_THREAD_DEFAULT_STREAM}</CUDF_USE_PER_THREAD_DEFAULT_STREAM>
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
@@ -259,7 +260,7 @@
                 <property name="libcudf.install.path" value="${libcudf.install.path}"/>
                 <property name="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
                 <property name="GPU_ARCHS" value="${GPU_ARCHS}"/>
-                <property name="PER_THREAD_DEFAULT_STREAM" value="${PER_THREAD_DEFAULT_STREAM}"/>
+                <property name="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                 <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                 <property name="USE_GDS" value="${USE_GDS}"/>
                 <ant antfile="build-libcudf.xml" target="build-libcudf"/>
@@ -285,7 +286,7 @@
                   <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
                   <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
-                  <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}"/>
+                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
                 </exec>
@@ -313,7 +314,7 @@
                       executable="cmake">
                   <arg value="${basedir}/src/main/cpp"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
-                  <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}"/>
+                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
                 </exec>
