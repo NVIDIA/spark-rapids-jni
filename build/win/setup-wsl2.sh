@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 
-# Last tested: 
+# Last tested:
 # Edition	Windows 10 Enterprise
 # Version	21H2
 # OS build	19044.1645
@@ -26,7 +26,7 @@
 # add WSL2 user to passwordless sudoers if desired
 # sudo visudo /etc/sudoers.d/wsl2-sudo
 
-# Docker 
+# Docker
 sudo apt-get -y install apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
 echo \
@@ -59,3 +59,8 @@ sudo dpkg -i cuda-keyring_1.0-1_all.deb
 sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/${distroArch}/ /"
 sudo apt-get update
 sudo apt-get -y install cuda-toolkit-11-7
+
+# TODO
+# 1. install miniconda
+# 2. create conda env
+# conda env create -n cudf_dev -f thirdparty/cudf/conda/environments/cudf_dev_cuda11.5.yml
