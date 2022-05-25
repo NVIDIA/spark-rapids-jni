@@ -39,10 +39,13 @@ project(
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
-option(PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
+option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 
-message(VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream: ${PER_THREAD_DEFAULT_STREAM}")
+message(
+  VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
+            ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
+)
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
@@ -166,8 +169,10 @@ target_compile_definitions(
 )
 
 # Per-thread default stream
-if(PER_THREAD_DEFAULT_STREAM)
-  target_compile_definitions(spark_rapids_jni PUBLIC CUDA_API_PER_THREAD_DEFAULT_STREAM)
+if(CUDF_USE_PER_THREAD_DEFAULT_STREAM)
+  target_compile_definitions(
+    spark_rapids_jni PUBLIC CUDA_API_PER_THREAD_DEFAULT_STREAM  CUDF_USE_PER_THREAD_DEFAULT_STREAM
+  )
 endif()
 
 target_link_libraries(

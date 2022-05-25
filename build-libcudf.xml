@@ -44,7 +44,7 @@
       <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
       <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
       <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
-      <arg value="-DPER_THREAD_DEFAULT_STREAM=${PER_THREAD_DEFAULT_STREAM}" />
+      <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
       <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
       <arg value="-DUSE_GDS=${USE_GDS}" />
     </exec>
