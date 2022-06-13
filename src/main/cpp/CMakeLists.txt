@@ -41,16 +41,23 @@ project(
 
 option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
+option(BUILD_TESTS "Configure CMake to build tests" OFF)
+option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
+message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (google) benchmarks: ${BUILD_BENCHMARKS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Enable the -lineinfo option for nvcc (useful for cuda-memcheck / profiler: ${CUDA_ENABLE_LINEINFO}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
 set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
+set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
+set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -142,6 +149,7 @@ set_target_properties(
              # set target compile options
              CXX_STANDARD 17
              CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
              CUDA_STANDARD 17
              CUDA_STANDARD_REQUIRED ON
              POSITION_INDEPENDENT_CODE ON
@@ -219,4 +227,23 @@ if(USE_GDS)
     spark_rapids_jni
     ${cuFile_LIBRARIES}
   )
+endif()
+
+# ##################################################################################################
+# * add tests -------------------------------------------------------------------------------------
+
+if(SPARK_RAPIDS_JNI_BUILD_TESTS)
+  # include CTest module -- automatically calls enable_testing()
+  include(CTest)
+  add_subdirectory(tests)
+endif()
+
+# ##################################################################################################
+# * add benchmarks --------------------------------------------------------------------------------
+
+if(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS)
+  # Find or install NVBench
+  include(${rapids-cmake-dir}/cpm/nvbench.cmake)
+  rapids_cpm_nvbench()
+  add_subdirectory(benchmarks)
 endif()
