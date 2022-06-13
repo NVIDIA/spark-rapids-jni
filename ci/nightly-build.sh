@@ -26,4 +26,4 @@ mvn clean package ${MVN_MIRROR}  \
   -Psource-javadoc \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON -Dtest=*,!CuFileTest
+  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest
