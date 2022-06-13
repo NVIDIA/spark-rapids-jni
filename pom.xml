@@ -20,13 +20,12 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.nvidia</groupId>
-  <artifactId>spark-rapids-jni-parent</artifactId>
-  <version>22.02.0-SNAPSHOT</version>
-  <packaging>pom</packaging>
-  <name>RAPIDS Accelerator JNI for Apache Spark Root Project</name>
+  <artifactId>spark-rapids-jni</artifactId>
+  <version>22.06.0</version>
+  <packaging>jar</packaging>
+  <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
-    The root project of native code and CUDA kernels specific to the
-    RAPIDS Accelerator for Apache Spark.
+    Native code and CUDA kernels specific to the RAPIDS Accelerator for Apache Spark
   </description>
   <url>http://github.com/NVIDIA/spark-rapids-jni</url>
 
@@ -79,146 +78,430 @@
     <CPP_PARALLEL_LEVEL>10</CPP_PARALLEL_LEVEL>
     <GPU_ARCHS>ALL</GPU_ARCHS>
     <PER_THREAD_DEFAULT_STREAM>ON</PER_THREAD_DEFAULT_STREAM>
+    <CUDF_USE_PER_THREAD_DEFAULT_STREAM>${PER_THREAD_DEFAULT_STREAM}</CUDF_USE_PER_THREAD_DEFAULT_STREAM>
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
-    <cudf.tag>49d1cc28648fe676dbddcf27c01939f87122ed8e</cudf.tag>
-    <hadoop.version>3.1.0</hadoop.version>
+    <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
+    <hadoop.version>3.2.3</hadoop.version>
     <junit.version>5.8.1</junit.version>
+    <libcudf.build.path>${cudf.path}/cpp/build</libcudf.build.path>
+    <libcudf.build.configure>false</libcudf.build.configure>
+    <libcudf.clean.skip>true</libcudf.clean.skip>
+    <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
+    <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <mockito.version>2.25.0</mockito.version>
+    <native.build.path>${project.build.directory}/cmake-build</native.build.path>
     <parquet.version>1.10.0</parquet.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
+    <submodule.check.skip>false</submodule.check.skip>
   </properties>
 
-  <modules>
-    <module>spark-rapids-cudf</module>
-    <module>spark-rapids-jni</module>
-  </modules>
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.arrow</groupId>
+      <artifactId>arrow-vector</artifactId>
+      <version>${arrow.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-common</artifactId>
+      <version>${hadoop.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-avro</artifactId>
+      <version>${parquet.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>${mockito.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>org.apache.arrow</groupId>
-        <artifactId>arrow-vector</artifactId>
-        <version>${arrow.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.hadoop</groupId>
-        <artifactId>hadoop-common</artifactId>
-        <version>${hadoop.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.parquet</groupId>
-        <artifactId>parquet-avro</artifactId>
-        <version>${parquet.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.junit.jupiter</groupId>
-        <artifactId>junit-jupiter-api</artifactId>
-        <version>${junit.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.junit.jupiter</groupId>
-        <artifactId>junit-jupiter-params</artifactId>
-        <version>${junit.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.mockito</groupId>
-        <artifactId>mockito-core</artifactId>
-        <version>${mockito.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.slf4j</groupId>
-        <artifactId>slf4j-api</artifactId>
-        <version>${slf4j.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.slf4j</groupId>
-        <artifactId>slf4j-simple</artifactId>
-        <version>${slf4j.version}</version>
-        <scope>test</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
+  <profiles>
+    <profile>
+      <id>no-cufile-tests</id>
+      <activation>
+        <property>
+          <name>USE_GDS</name>
+          <value>!ON</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <exclude>**/CuFileTest.java</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>source-javadoc</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.0.0</version>
+            <executions>
+              <execution>
+                <id>attach-source</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.0.0</version>
+            <executions>
+              <execution>
+                <id>attach-javadoc</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <doclint>none</doclint>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
   <build>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-antrun-plugin</artifactId>
-          <version>3.0.0</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.8.0</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-exec-plugin</artifactId>
-          <version>1.6.0</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-jar-plugin</artifactId>
-          <version>3.0.2</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-resources-plugin</artifactId>
-          <!-- downgrade version so symlinks are followed -->
-          <version>2.6</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-shade-plugin</artifactId>
-          <version>3.2.4</version>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-surefire-plugin</artifactId>
-          <version>2.22.0</version>
-          <configuration>
-            <!-- you can turn this off, by passing -DtrimStackTrace=true when running tests -->
-            <trimStackTrace>false</trimStackTrace>
-            <redirectTestOutputToFile>true</redirectTestOutputToFile>
-            <systemPropertyVariables>
-              <ai.rapids.refcount.debug>${ai.rapids.refcount.debug}</ai.rapids.refcount.debug>
-              <ai.rapids.cudf.nvtx.enabled>${ai.rapids.cudf.nvtx.enabled}</ai.rapids.cudf.nvtx.enabled>
-            </systemPropertyVariables>
-          </configuration>
-          <dependencies>
-            <dependency>
-              <groupId>org.junit.platform</groupId>
-              <artifactId>junit-platform-surefire-provider</artifactId>
-              <version>1.3.2</version>
-            </dependency>
-            <dependency>
-              <groupId>org.junit.jupiter</groupId>
-              <artifactId>junit-jupiter-engine</artifactId>
-              <version>${junit.version}</version>
-            </dependency>
-          </dependencies>
-        </plugin>
-        <plugin>
-          <groupId>org.codehaus.mojo</groupId>
-          <artifactId>build-helper-maven-plugin</artifactId>
-          <version>3.2.0</version>
-        </plugin>
-      </plugins>
-    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.0.0</version>
+        <executions>
+          <execution>
+            <id>submodule check</id>
+            <phase>validate</phase>
+            <configuration>
+              <skip>${submodule.check.skip}</skip>
+              <target>
+                <exec dir="${project.basedir}"
+                      failonerror="true"
+                      executable="${project.basedir}/build/submodule-check">
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>clean libcudf</id>
+            <phase>clean</phase>
+            <configuration>
+              <skip>${libcudf.clean.skip}</skip>
+              <target>
+                <delete dir="${libcudf.build.path}" includeemptydirs="true"/>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>build-libcudf</id>
+            <phase>validate</phase>
+            <configuration>
+              <target>
+                <property name="cudf.path" value="${cudf.path}"/>
+                <property name="libcudf.build.path" value="${libcudf.build.path}"/>
+                <property name="libcudf.build.configure" value="${libcudf.build.configure}"/>
+                <property name="libcudf.install.path" value="${libcudf.install.path}"/>
+                <property name="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
+                <property name="GPU_ARCHS" value="${GPU_ARCHS}"/>
+                <property name="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
+                <property name="USE_GDS" value="${USE_GDS}"/>
+                <ant antfile="build-libcudf.xml" target="build-libcudf"/>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>build-libcudfjni</id>
+            <phase>validate</phase>
+            <configuration>
+              <target>
+                <mkdir dir="${libcudfjni.build.path}"/>
+                <exec dir="${libcudfjni.build.path}"
+                      failonerror="true"
+                      executable="cmake">
+                  <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
+                  <env key="CUDF_ROOT" value="${cudf.path}"/>
+                  <arg value="${cudf.path}/java/src/main/native"/>
+                  <arg value="-DBUILD_SHARED_LIBS=OFF"/>
+                  <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
+                  <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
+                  <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
+                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
+                  <arg value="-DUSE_GDS=${USE_GDS}"/>
+                </exec>
+                <exec dir="${libcudfjni.build.path}"
+                      failonerror="true"
+                      executable="cmake">
+                  <arg value="--build"/>
+                  <arg value="${libcudfjni.build.path}"/>
+                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>build-sparkrapidsjni</id>
+            <phase>validate</phase>
+            <configuration>
+              <target>
+                <mkdir dir="${native.build.path}"/>
+                <exec dir="${native.build.path}"
+                      failonerror="true"
+                      executable="cmake">
+                  <arg value="${basedir}/src/main/cpp"/>
+                  <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
+                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
+                  <arg value="-DUSE_GDS=${USE_GDS}"/>
+                </exec>
+                <exec dir="${native.build.path}"
+                      failonerror="true"
+                      executable="cmake">
+                  <arg value="--build"/>
+                  <arg value="${native.build.path}"/>
+                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>build-info</id>
+            <phase>generate-resources</phase>
+            <configuration>
+              <target>
+                <mkdir dir="${project.build.directory}/extra-resources"/>
+                <exec executable="bash"
+                      output="${project.build.directory}/extra-resources/cudf-java-version-info.properties"
+                      failonerror="true">
+                  <arg value="${project.basedir}/build/build-info"/>
+                  <arg value="${project.version}"/>
+                  <arg value="${cudf.path}"/>
+                </exec>
+                <exec executable="bash"
+                      output="${project.build.directory}/extra-resources/spark-rapids-jni-version-info.properties"
+                      failonerror="true">
+                  <arg value="${project.basedir}/build/build-info"/>
+                  <arg value="${project.version}"/>
+                  <arg value="${project.basedir}"/>
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.8.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.0.2</version>
+        <configuration>
+          <classifier>${cuda.version}</classifier>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+            <configuration>
+              <classifier>tests</classifier>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <!-- downgrade version so symlinks are followed -->
+        <version>2.6</version>
+        <executions>
+          <execution>
+            <id>copy-native-libs</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <overwrite>true</overwrite>
+              <outputDirectory>${project.build.outputDirectory}/${os.arch}/${os.name}</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${native.build.path}</directory>
+                  <includes>
+                    <include>libcudf.so</include>
+                    <include>libcudfjni.so</include>
+                    <include>libcufilejni.so</include>
+                  </includes>
+                </resource>
+                <resource>
+                  <directory>${libcudfjni.build.path}</directory>
+                  <includes>
+                    <include>libnvcomp.so</include>
+                    <include>libnvcomp_gdeflate.so</include>
+                    <include>libnvcomp_bitcomp.so</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.2.4</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.22.0</version>
+        <configuration>
+          <!-- you can turn this off, by passing -DtrimStackTrace=true when running tests -->
+          <trimStackTrace>false</trimStackTrace>
+          <redirectTestOutputToFile>true</redirectTestOutputToFile>
+          <systemPropertyVariables>
+            <ai.rapids.refcount.debug>${ai.rapids.refcount.debug}</ai.rapids.refcount.debug>
+            <ai.rapids.cudf.nvtx.enabled>${ai.rapids.cudf.nvtx.enabled}</ai.rapids.cudf.nvtx.enabled>
+          </systemPropertyVariables>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-surefire-provider</artifactId>
+            <version>1.3.2</version>
+          </dependency>
+          <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <executions>
+          <execution>
+            <id>add-cudf-src</id>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <phase>generate-sources</phase>
+            <configuration>
+              <sources>
+                <source>${cudf.path}/java/src/main/java</source>
+              </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>add-cudf-test-src</id>
+            <goals>
+              <goal>add-test-source</goal>
+            </goals>
+            <phase>generate-test-sources</phase>
+            <configuration>
+              <sources>
+                <source>${cudf.path}/java/src/test/java</source>
+              </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>add-cudf-test-resource</id>
+            <goals>
+              <goal>add-test-resource</goal>
+            </goals>
+            <phase>generate-test-resources</phase>
+            <configuration>
+              <resources>
+                <resource>
+                  <directory>${cudf.path}/java/src/test/resources</directory>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+    <resources>
+      <resource>
+        <!-- Include the properties file to provide the build information. -->
+        <directory>${project.build.directory}/extra-resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
   </build>
 </project>

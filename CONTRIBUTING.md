@@ -35,21 +35,31 @@ Maven `package` goal can be used to build the RAPIDS Accelerator JNI jar. After 
 build the RAPIDS Accelerator JNI jar will be in the `spark-rapids-jni/target/` directory.
 Be sure to select the jar with the CUDA classifier.
 
+### Building in the Docker Container
+
+The `build/build-in-docker` script will build the spark-rapids-jni artifact within a Docker
+container using devtoolset to produce native code that can run on all supported Linux
+distributions. The repo directory is bind-mounted into the container and the container runs
+as the current user, so the artifacts are produced as if they were built or installed outside
+the Docker container.
+
+The script passes all of its arguments onto the Maven command run inside the Docker container,
+so it should be invoked as one would invoke Maven, e.g.: `build/build-in-docker clean package`
+
 ### cudf Submodule and Build
 
 [RAPIDS cuDF](https://github.com/rapidsai/cudf) is being used as a submodule in this project.
-The spark-rapids-cudf module wraps the build of this submodule which involves building the
-native libcudf library along with the Java files. By default the libcudf library is built
-under the `cpp/build` directory in the cudf submodule.
+Due to the lengthy build of libcudf, it is **not cleaned** during a normal Maven clean phase
+unless built using `build/build-in-docker`. `build/build-in-docker` uses `ccache` by default
+unless CCACHE_DISABLE=1 is set in the environment.
 
-Due to the lengthy build of libcudf, it is **not cleaned** during a normal Maven clean phase.
-Use `-Dlibcudf.clean.skip=true` to clean the libcudf build area in addition to the normal clean
-of `target/` directories.
+`-Dlibcudf.clean.skip=false` can also be specified on the Maven command-line to force
+libcudf to be cleaned during the Maven clean phase.
 
 Currently libcudf is only configured once and the build relies on cmake to re-configure as needed.
 This is because libcudf currently is rebuilding almost entirely when it is configured with the same
 settings. If an explicit reconfigure of libcudf is needed (e.g.: when changing compile settings via
-`GPU_ARCHS`, `PER_THREAD_DEFAULT_STREAM`, etc.) then a configure can be forced via
+`GPU_ARCHS`, `CUDF_USE_PER_THREAD_DEFAULT_STREAM`, etc.) then a configure can be forced via
 `-Dlibcudf.build.configure=true`.
 
 ### Build Properties
@@ -57,16 +67,31 @@ settings. If an explicit reconfigure of libcudf is needed (e.g.: when changing c
 The following build properties can be set on the Maven command-line (e.g.: `-DCPP_PARALLEL_LEVEL=4`)
 to control aspects of the build:
 
-|Property Name              |Description                            |Default|
-|---------------------------|---------------------------------------|-------|
-|`CPP_PARALLEL_LEVEL`       |Parallelism of the C++ builds          |10     |
-|`GPU_ARCHS`                |CUDA architectures to target           |ALL    |
-|`PER_THREAD_DEFAULT_STREAM`|CUDA per-thread default stream         |ON     |
-|`RMM_LOGGING_LEVEL`        |RMM logging control                    |OFF    |
-|`USE_GDS`                  |Compile with GPU Direct Storage support|OFF    |
-|`libcudf.build.configure`  |Force libcudf build to configure       |false  |
-|`libcudf.clean.skip`       |Whether to skip cleaning libcudf build |true   |
-|`submodule.check.skip`     |Whether to skip checking git submodules|false  |
+|Property Name                       |Description                            |Default|
+|------------------------------------|---------------------------------------|-------|
+|`CPP_PARALLEL_LEVEL`                |Parallelism of the C++ builds          |10     |
+|`GPU_ARCHS`                         |CUDA architectures to target           |ALL    |
+|`CUDF_USE_PER_THREAD_DEFAULT_STREAM`|CUDA per-thread default stream         |ON     |
+|`RMM_LOGGING_LEVEL`                 |RMM logging control                    |OFF    |
+|`USE_GDS`                           |Compile with GPU Direct Storage support|OFF    |
+|`libcudf.build.configure`           |Force libcudf build to configure       |false  |
+|`libcudf.clean.skip`                |Whether to skip cleaning libcudf build |true   |
+|`submodule.check.skip`              |Whether to skip checking git submodules|false  |
+
+### Building on Windows in WSL2
+Building on Windows can be done if your Windows build version supports
+[WSL2](https://docs.microsoft.com/en-us/windows/wsl/install). You can create a minimum
+Ubuntu distro WSL2 instance to be able to run `build/build-in-docker` above.
+```PowerShell
+> wsl --install -d Ubuntu
+> .\build\win\create-wsl2.ps1
+```
+
+Clone spark-rapids-jni inside or outside (convenient but slower filesystem) the distro,
+and build inside WSL2, e.g.
+```PowerShell
+> wsl -d Ubuntu ./build/build-in-docker clean install -DGPU_ACRCHS=NATIVE -Dtest="*,!CuFileTest"
+```
 
 ## Code contributions
 

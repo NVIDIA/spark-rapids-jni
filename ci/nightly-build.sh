@@ -1,5 +1,4 @@
-#!/usr/bin/env bash
-
+#!/bin/bash
 #
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 #
@@ -16,25 +15,15 @@
 # limitations under the License.
 #
 
-# This script generates the build info.
-# Arguments:
-#   version  - The current version of the project
-#   git_path - The path to the repository
-set -e
+set -ex
 
-echo_build_properties() {
-  version=$1
-  git_path=$2
-  shift 2
-  echo version=$version
-  echo user=$USER
-  echo revision=$(cd "$git_path" && git rev-parse HEAD)
-  echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
-  echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  echo url=$(cd "$git_path" && git config --get remote.origin.url)
-  for arg in "$@"; do
-    echo $arg
-  done
-}
+nvidia-smi
 
-echo_build_properties "$@"
+git submodule update --init --recursive
+
+PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
+mvn clean package ${MVN_MIRROR}  \
+  -Psource-javadoc \
+  -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
+  -Dlibcudf.build.configure=true \
+  -DUSE_GDS=ON -Dtest=*,!CuFileTest
