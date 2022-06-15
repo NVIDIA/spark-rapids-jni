@@ -101,7 +101,11 @@ else()
 endif()
 
 # cudf
-rapids_find_package(cudf REQUIRED)
+if(BUILD_TESTS)
+  rapids_find_package(cudf REQUIRED COMPONENTS testing)
+else()
+  rapids_find_package(cudf REQUIRED)
+endif()
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH

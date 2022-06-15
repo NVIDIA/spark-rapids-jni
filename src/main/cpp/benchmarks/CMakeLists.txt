@@ -37,7 +37,7 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD 17
                    CUDA_STANDARD_REQUIRED ON
         )
-    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main cudf_datagen spark_rapids_jni Threads::Threads cudf_benchmark_common)
+    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main cudf::cudf cudf_datagen spark_rapids_jni Threads::Threads cudf_benchmark_common)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
         COMPONENT testing

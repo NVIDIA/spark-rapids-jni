@@ -14,21 +14,20 @@
  * limitations under the License.
  */
 
+#include <row_conversion.hpp>
+
 #include <benchmarks/common/generate_input.hpp>
-#include <benchmarks/fixture/benchmark_fixture.hpp>
-#include <benchmarks/synchronization/synchronization.hpp>
 
 #include <nvbench/nvbench.cuh>
 
 #include <cudf/lists/lists_column_view.hpp>
-#include <cudf/row_conversion/row_conversion.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf_test/column_utilities.hpp>
 
 void fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  bool const to_row = state.get_bool("to_row");
+  bool const to_row = state.get_int64("to_row");
   auto const table = create_random_table(cycle_dtypes({cudf::type_id::INT8,
                                                        cudf::type_id::INT32,
                                                        cudf::type_id::INT16,
@@ -49,15 +48,16 @@ void fixed_width(nvbench::state& state)
     bytes_per_row += cudf::size_of(t);
   }
 
-  auto rows = cudf::jni::convert_to_rows_fixed_width_optimized(table->view());
+  auto rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
 
   state.exec(nvbench::exec_tag::sync,
   [&](nvbench::launch& launch) {
       if (to_row) {
-        auto _rows = cudf::jni::convert_to_rows_fixed_width_optimized(table->view());
+        auto _rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
       } else {
-        for (cudf::lists_column_view const l : rows) {
-          auto out = cudf::jni::convert_from_rows_fixed_width_optimized(l->view(), schema);
+        for (auto const &r : rows) {
+          cudf::lists_column_view const l(r->view());
+          auto out = spark_rapids_jni::convert_from_rows_fixed_width_optimized(l, schema);
         }
       }
   });
@@ -69,9 +69,10 @@ void fixed_width(nvbench::state& state)
 static void variable_or_fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  bool const to_row = state.get_bool("to_row");
-  bool const include_strings = state.get_bool("include_strings");
-  std::vector<cudf::type_id> const table_types = include_strings ? {cudf::type_id::INT8,
+  bool const to_row = state.get_int64("to_row");
+  bool const include_strings = state.get_int64("include_strings");
+  std::vector<cudf::type_id> const table_types = [&]() -> std::vector<cudf::type_id> { if (include_strings) { 
+    return {cudf::type_id::INT8,
                                                        cudf::type_id::INT32,
                                                        cudf::type_id::INT16,
                                                        cudf::type_id::INT64,
@@ -80,8 +81,9 @@ static void variable_or_fixed_width(nvbench::state& state)
                                                        cudf::type_id::STRING,
                                                        cudf::type_id::UINT16,
                                                        cudf::type_id::UINT8,
-                                                       cudf::type_id::UINT64} :
-                                             {cudf::type_id::INT8,
+                                                       cudf::type_id::UINT64};
+  } else {
+    return {cudf::type_id::INT8,
                                                        cudf::type_id::INT32,
                                                        cudf::type_id::INT16,
                                                        cudf::type_id::INT64,
@@ -90,13 +92,16 @@ static void variable_or_fixed_width(nvbench::state& state)
                                                        cudf::type_id::UINT16,
                                                        cudf::type_id::UINT8,
                                                        cudf::type_id::UINT64};
+  }}();
 
-  auto const table = create_random_table(cycle_dtypes(table_types), 155), row_count{n_rows});
+  auto const table = create_random_table(cycle_dtypes(table_types, 155), row_count{n_rows});
 
+  std::vector<cudf::data_type> schema;
   cudf::size_type bytes_per_row = 0;
   cudf::size_type string_bytes  = 0;
   for (int i = 0; i < table->num_columns(); ++i) {
     auto t = table->get_column(i).type();
+    schema.push_back(t);
     if (is_fixed_width(t)) {
       bytes_per_row += cudf::size_of(t);
     } else if (t.id() == cudf::type_id::STRING) {
@@ -105,14 +110,17 @@ static void variable_or_fixed_width(nvbench::state& state)
     }
   }
 
+  auto rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
+
   state.exec(nvbench::exec_tag::sync,
   [&](nvbench::launch& launch) {
-    auto new_rows = cudf::jni::convert_to_rows(table->view());
+    auto new_rows = spark_rapids_jni::convert_to_rows(table->view());
           if (to_row) {
-        auto _rows = cudf::jni::convert_to_rows(table->view());
+        auto _rows = spark_rapids_jni::convert_to_rows(table->view());
       } else {
-        for (cudf::lists_column_view const l : rows) {
-          auto out = cudf::jni::convert_from_rows(l->view(), schema);
+        for (auto const &r : rows) {
+          cudf::lists_column_view const l(r->view());
+          auto out = spark_rapids_jni::convert_from_rows(l, schema);
         }
       }
   });
@@ -121,13 +129,13 @@ static void variable_or_fixed_width(nvbench::state& state)
   state.add_global_memory_reads<int64_t>(bytes_per_row * table->num_rows());
 }
 
-NVBENCH_BENCH(fixed_width_to_row)
+NVBENCH_BENCH(fixed_width)
     .set_name("Fixed Width Only")
-    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024});
-    .add_bool_axis("to_row", {true, false});
+    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
+    .add_int64_axis("to_row", {1, 0});
 
-NVBENCH_BENCH(variable_or_fixed_width_to_row)
+NVBENCH_BENCH(variable_or_fixed_width)
     .set_name("Fixed or Variable Width")
-    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024}
-    .add_bool("to_row", {true, false})
-    .add_bool("include_strings", {true, false}));
+    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
+    .add_int64_axis("to_row", {1, 0})
+    .add_int64_axis("include_strings", {1, 0});

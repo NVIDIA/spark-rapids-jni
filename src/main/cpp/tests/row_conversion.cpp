@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include "cudf/strings/strings_column_view.hpp"
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/lists/lists_column_view.hpp>
+#include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 #include <cudf_test/base_fixture.hpp>
@@ -27,7 +27,7 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <cudf/row_conversion/row_conversion.hpp>
+#include <row_conversion.hpp>
 
 #include <rmm/exec_policy.hpp>
 #include <thrust/iterator/counting_iterator.h>
@@ -46,13 +46,13 @@ TEST_F(ColumnToRowTests, Single)
   cudf::table_view in(std::vector<cudf::column_view>{a});
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32}};
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
@@ -67,7 +67,7 @@ TEST_F(ColumnToRowTests, SimpleString)
   cudf::table_view in(std::vector<cudf::column_view>{a, b});
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32}};
 
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(new_rows[0]->size(), 5);
 }
@@ -84,7 +84,7 @@ TEST_F(ColumnToRowTests, DoubleString)
                                         "dlrow"});
   cudf::table_view in(std::vector<cudf::column_view>{a, b, c});
 
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(new_rows[0]->size(), 5);
 }
@@ -136,7 +136,7 @@ TEST_F(ColumnToRowTests, BigStrings)
   }
 
   cudf::table_view in(views);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(new_rows[0]->size(), num_rows);
 }
@@ -194,7 +194,7 @@ TEST_F(ColumnToRowTests, ManyStrings)
   }
 
   cudf::table_view in(views);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(new_rows[0]->size(), num_rows);
 }
@@ -205,14 +205,14 @@ TEST_F(ColumnToRowTests, Simple)
   cudf::table_view in(std::vector<cudf::column_view>{a});
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32}};
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -226,15 +226,15 @@ TEST_F(ColumnToRowTests, Tall)
   cudf::table_view in(std::vector<cudf::column_view>{a});
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32}};
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -253,14 +253,14 @@ TEST_F(ColumnToRowTests, Wide)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -280,15 +280,15 @@ TEST_F(ColumnToRowTests, SingleByteWide)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -311,15 +311,15 @@ TEST_F(ColumnToRowTests, Non2Power)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     for (int j = 0; j < old_tbl->num_columns(); ++j) {
       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(old_tbl->get_column(j), new_tbl->get_column(j));
@@ -347,15 +347,15 @@ TEST_F(ColumnToRowTests, Big)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     for (int j = 0; j < old_tbl->num_columns(); ++j) {
       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(old_tbl->get_column(j), new_tbl->get_column(j));
@@ -383,14 +383,14 @@ TEST_F(ColumnToRowTests, Bigger)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     for (int j = 0; j < old_tbl->num_columns(); ++j) {
       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(old_tbl->get_column(j), new_tbl->get_column(j));
@@ -418,15 +418,15 @@ TEST_F(ColumnToRowTests, Biggest)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   EXPECT_EQ(old_rows.size(), new_rows.size());
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     for (int j = 0; j < old_tbl->num_columns(); ++j) {
       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(old_tbl->get_column(j), new_tbl->get_column(j));
@@ -441,12 +441,12 @@ TEST_F(RowToColumnTests, Single)
   cudf::test::fixed_width_column_wrapper<int32_t> a({-1});
   cudf::table_view in(std::vector<cudf::column_view>{a});
 
-  auto old_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows(in);
   std::vector<cudf::data_type> schema{cudf::data_type{cudf::type_id::INT32}};
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -457,12 +457,12 @@ TEST_F(RowToColumnTests, Simple)
   cudf::test::fixed_width_column_wrapper<int32_t> a({-1, 0, 1});
   cudf::table_view in(std::vector<cudf::column_view>{a});
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
   std::vector<cudf::data_type> schema{cudf::data_type{cudf::type_id::INT32}};
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -475,16 +475,16 @@ TEST_F(RowToColumnTests, Tall)
   cudf::test::fixed_width_column_wrapper<int32_t> a(r, r + (size_t)4096);
   cudf::table_view in(std::vector<cudf::column_view>{a});
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
   std::vector<cudf::data_type> schema;
   schema.reserve(in.num_columns());
   for (auto col = in.begin(); col < in.end(); ++col) {
     schema.push_back(col->type());
   }
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -501,7 +501,7 @@ TEST_F(RowToColumnTests, Wide)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
   std::vector<cudf::data_type> schema;
   schema.reserve(in.num_columns());
   for (auto col = in.begin(); col < in.end(); ++col) {
@@ -509,9 +509,9 @@ TEST_F(RowToColumnTests, Wide)
   }
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -528,16 +528,16 @@ TEST_F(RowToColumnTests, SingleByteWide)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
   std::vector<cudf::data_type> schema;
   schema.reserve(in.num_columns());
   for (auto col = in.begin(); col < in.end(); ++col) {
     schema.push_back(col->type());
   }
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -572,13 +572,13 @@ TEST_F(RowToColumnTests, AllTypes)
 
   cudf::table_view in({c0, c1, c2, c3, c4, c5, c6, c7});
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -694,13 +694,13 @@ TEST_F(RowToColumnTests, AllTypesLarge)
   std::vector<cudf::column_view> views(cols.begin(), cols.end());
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -723,12 +723,12 @@ TEST_F(RowToColumnTests, Non2Power)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -752,12 +752,12 @@ TEST_F(RowToColumnTests, Big)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -781,12 +781,12 @@ TEST_F(RowToColumnTests, Bigger)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*old_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -810,13 +810,13 @@ TEST_F(RowToColumnTests, Biggest)
   }
   cudf::table_view in(views);
 
-  auto old_rows = cudf::jni::convert_to_rows_fixed_width_optimized(in);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto old_rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (uint i = 0; i < old_rows.size(); ++i) {
-    auto old_tbl = cudf::jni::convert_from_rows_fixed_width_optimized(
+    auto old_tbl = spark_rapids_jni::convert_from_rows_fixed_width_optimized(
       cudf::lists_column_view(*old_rows[i]), schema);
-    auto new_tbl = cudf::jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
+    auto new_tbl = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(*old_tbl, *new_tbl);
   }
@@ -831,10 +831,10 @@ TEST_F(RowToColumnTests, SimpleString)
   std::vector<cudf::data_type> schema = {cudf::data_type{cudf::type_id::INT32},
                                          cudf::data_type{cudf::type_id::STRING}};
 
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
   EXPECT_EQ(new_rows.size(), 1);
   for (auto& row : new_rows) {
-    auto new_cols = cudf::jni::convert_from_rows(cudf::lists_column_view(*row), schema);
+    auto new_cols = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*row), schema);
 
     EXPECT_EQ(row->size(), 5);
     auto const num_columns = new_cols->num_columns();
@@ -867,10 +867,10 @@ TEST_F(RowToColumnTests, DoubleString)
                                          cudf::data_type{cudf::type_id::INT32},
                                          cudf::data_type{cudf::type_id::STRING}};
 
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (uint i = 0; i < new_rows.size(); ++i) {
-    auto new_cols = cudf::jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
+    auto new_cols = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*new_rows[i]), schema);
 
     EXPECT_EQ(new_rows[0]->size(), 5);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in, *new_cols);
@@ -924,10 +924,10 @@ TEST_F(RowToColumnTests, BigStrings)
   }
 
   cudf::table_view in(views);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (auto& i : new_rows) {
-    auto new_cols = cudf::jni::convert_from_rows(cudf::lists_column_view(*i), schema);
+    auto new_cols = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*i), schema);
 
     auto in_view = cudf::slice(in, {0, new_cols->num_rows()});
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_view[0], *new_cols);
@@ -1013,10 +1013,10 @@ TEST_F(RowToColumnTests, ManyStrings)
   }
 
   cudf::table_view in(views);
-  auto new_rows = cudf::jni::convert_to_rows(in);
+  auto new_rows = spark_rapids_jni::convert_to_rows(in);
 
   for (auto& i : new_rows) {
-    auto new_cols = cudf::jni::convert_from_rows(cudf::lists_column_view(*i), schema);
+    auto new_cols = spark_rapids_jni::convert_from_rows(cudf::lists_column_view(*i), schema);
 
     auto in_view = cudf::slice(in, {0, new_cols->num_rows()});
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(in_view[0], *new_cols);
