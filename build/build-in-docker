@@ -20,36 +20,16 @@
 
 set -e
 
-# Base paths relative to this script's location
 SCRIPTDIR=$(cd $(dirname $0); pwd)
-REPODIR=$SCRIPTDIR/..
 
-CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
-CUDA_VERSION=${CUDA_VERSION:-11.5.0}
-DOCKER_CMD=${DOCKER_CMD:-docker}
-LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
-
-SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-centos7"
-WORKSPACE_DIR=/rapids
-WORKSPACE_REPODIR="$WORKSPACE_DIR/spark-rapids-jni"
-WORKSPACE_CCACHE_REPODIR="$WORKSPACE_DIR/.ccache"
-WORKSPACE_MAVEN_REPODIR="$WORKSPACE_DIR/.m2/repository"
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
   exit 1
 fi
-
-# ensure directories exist
-mkdir -p "$LOCAL_CCACHE_DIR" "$LOCAL_MAVEN_REPO"
-
-$DOCKER_CMD build -f $REPODIR/ci/Dockerfile \
-  --build-arg CUDA_VERSION=$CUDA_VERSION \
-  -t $SPARK_IMAGE_NAME \
-  $REPODIR/build
 
 _CUDF_CLEAN_SKIP=""
 # if ccache is enabled and libcudf.clean.skip not provided
@@ -63,32 +43,8 @@ if [[ "$CCACHE_DISABLE" != "1" ]]; then
   fi
 fi
 
-if [[ "$DOCKER_CMD" == "docker" ]]; then
-  DOCKER_GPU_OPTS="--gpus all"
-fi
-
-$DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
-  -v "/etc/group:/etc/group:ro" \
-  -v "/etc/passwd:/etc/passwd:ro" \
-  -v "/etc/shadow:/etc/shadow:ro" \
-  -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
-  -v "$REPODIR:$WORKSPACE_REPODIR:rw" \
-  -v "$LOCAL_CCACHE_DIR:$WORKSPACE_CCACHE_REPODIR:rw" \
-  -v "$LOCAL_MAVEN_REPO:$WORKSPACE_MAVEN_REPODIR:rw" \
-  --workdir "$WORKSPACE_REPODIR" \
-  -e CCACHE_DISABLE \
-  -e CCACHE_DIR="$WORKSPACE_CCACHE_REPODIR" \
-  -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
-  -e CMAKE_CXX_COMPILER_LAUNCHER="ccache" \
-  -e CMAKE_CUDA_COMPILER_LAUNCHER="ccache" \
-  -e CMAKE_CXX_LINKER_LAUNCHER="ccache" \
-  -e CMAKE_GENERATOR="$CMAKE_GENERATOR" \
-  -e CUDA_VISIBLE_DEVICES \
-  -e PARALLEL_LEVEL \
-  -e VERBOSE \
-  $SPARK_IMAGE_NAME \
-  scl enable devtoolset-9 "mvn \
-    -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
+$SCRIPTDIR/run-in-docker "mvn \
+    -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
     -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=$CUDF_USE_PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
     $_CUDF_CLEAN_SKIP \

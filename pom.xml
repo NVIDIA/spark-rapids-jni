@@ -265,7 +265,6 @@
                 <property name="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                 <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                 <property name="USE_GDS" value="${USE_GDS}"/>
-                <property name="BUILD_TESTS" value="${BUILD_TESTS}"/>
                 <property name="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
                 <ant antfile="build-libcudf.xml" target="build-libcudf"/>
               </target>

@@ -49,7 +49,7 @@ message(
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
 message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
-message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (google) benchmarks: ${BUILD_BENCHMARKS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Enable the -lineinfo option for nvcc (useful for cuda-memcheck / profiler: ${CUDA_ENABLE_LINEINFO}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
@@ -101,9 +101,7 @@ else()
 endif()
 
 # cudf
-if (BUILD_BENCHMARKS)
-  rapids_find_package(cudf REQUIRED COMPONENTS cudf_datagen cudf_benchmark_common)
-elseif(BUILD_TESTS)
+if(BUILD_TESTS)
   rapids_find_package(cudf REQUIRED COMPONENTS testing)
 else()
   rapids_find_package(cudf REQUIRED)

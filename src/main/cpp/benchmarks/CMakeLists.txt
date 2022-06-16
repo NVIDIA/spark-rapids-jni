@@ -41,7 +41,8 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD 17
                    CUDA_STANDARD_REQUIRED ON
         )
-    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main ${CUDF_DATAGEN} ${CUDF_BENCHMARK_COMMON} cudf::cudf spark_rapids_jni Threads::Threads)
+    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main ${CUDF_DATAGEN} ${CUDF_BENCHMARK_COMMON}
+                                              cudf::cudf spark_rapids_jni Threads::Threads)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
         COMPONENT testing
@@ -53,9 +54,6 @@ endfunction(ConfigureBench)
 ###################################################################################################
 ### benchmark sources #############################################################################
 ###################################################################################################
-
-###################################################################################################
-# - hausdorff benchmark ---------------------------------------------------------------------------
 
 ConfigureBench(ROW_CONVERSION_BENCH
     row_conversion.cpp)
