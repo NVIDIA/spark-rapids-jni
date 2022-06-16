@@ -101,7 +101,9 @@ else()
 endif()
 
 # cudf
-if(BUILD_TESTS)
+if (BUILD_BENCHMARKS)
+  rapids_find_package(cudf REQUIRED COMPONENTS cudf_datagen cudf_benchmark_common)
+elseif(BUILD_TESTS)
   rapids_find_package(cudf REQUIRED COMPONENTS testing)
 else()
   rapids_find_package(cudf REQUIRED)
@@ -195,8 +197,8 @@ target_link_libraries(
     ${PARQUET_LIB}
     ${THRIFT_LIB}
   -Wl,--no-whole-archive
-  cudf::cudf
 )
+set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
 # all of the code is built into libcudf.so that is statically linked to the CUDA runtime library.
@@ -204,7 +206,7 @@ target_link_libraries(
 set_target_properties(spark_rapids_jni PROPERTIES OUTPUT_NAME "cudf")
 add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
-target_link_libraries(cudfjnistub -Wl,--no-as-needed spark_rapids_jni -Wl,--as-needed)
+target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
 
 # ##################################################################################################
 # * cuFile JNI -------------------------------------------------------------------------------------

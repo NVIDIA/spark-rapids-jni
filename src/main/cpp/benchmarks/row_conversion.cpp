@@ -27,7 +27,7 @@
 void fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  bool const to_row = state.get_int64("to_row");
+  auto const direction = state.get_string("direction");
   auto const table = create_random_table(cycle_dtypes({cudf::type_id::INT8,
                                                        cudf::type_id::INT32,
                                                        cudf::type_id::INT16,
@@ -52,7 +52,7 @@ void fixed_width(nvbench::state& state)
 
   state.exec(nvbench::exec_tag::sync,
   [&](nvbench::launch& launch) {
-      if (to_row) {
+      if (direction == "to row") {
         auto _rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
       } else {
         for (auto const &r : rows) {
@@ -69,30 +69,38 @@ void fixed_width(nvbench::state& state)
 static void variable_or_fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  bool const to_row = state.get_int64("to_row");
-  bool const include_strings = state.get_int64("include_strings");
-  std::vector<cudf::type_id> const table_types = [&]() -> std::vector<cudf::type_id> { if (include_strings) { 
-    return {cudf::type_id::INT8,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::INT16,
-                                                       cudf::type_id::INT64,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::BOOL8,
-                                                       cudf::type_id::STRING,
-                                                       cudf::type_id::UINT16,
-                                                       cudf::type_id::UINT8,
-                                                       cudf::type_id::UINT64};
-  } else {
-    return {cudf::type_id::INT8,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::INT16,
-                                                       cudf::type_id::INT64,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::BOOL8,
-                                                       cudf::type_id::UINT16,
-                                                       cudf::type_id::UINT8,
-                                                       cudf::type_id::UINT64};
-  }}();
+  auto const direction = state.get_string("direction");
+  auto const include_strings = state.get_string("strings");
+
+  if (n_rows > 1 * 1024 * 1024 && include_strings == "include strings") {
+    state.skip("Too many rows for strings will cause memory issues");
+    return;
+  }
+
+  std::vector<cudf::type_id> const table_types = [&]() -> std::vector<cudf::type_id> {
+    if (include_strings == "include strings") {
+      return {cudf::type_id::INT8,
+              cudf::type_id::INT32,
+              cudf::type_id::INT16,
+              cudf::type_id::INT64,
+              cudf::type_id::INT32,
+              cudf::type_id::BOOL8,
+              cudf::type_id::STRING,
+              cudf::type_id::UINT16,
+              cudf::type_id::UINT8,
+              cudf::type_id::UINT64};
+    } else {
+      return {cudf::type_id::INT8,
+              cudf::type_id::INT32,
+              cudf::type_id::INT16,
+              cudf::type_id::INT64,
+              cudf::type_id::INT32,
+              cudf::type_id::BOOL8,
+              cudf::type_id::UINT16,
+              cudf::type_id::UINT8,
+              cudf::type_id::UINT64};
+    }
+  }();
 
   auto const table = create_random_table(cycle_dtypes(table_types, 155), row_count{n_rows});
 
@@ -110,12 +118,12 @@ static void variable_or_fixed_width(nvbench::state& state)
     }
   }
 
-  auto rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
+  auto rows = spark_rapids_jni::convert_to_rows(table->view());
 
   state.exec(nvbench::exec_tag::sync,
   [&](nvbench::launch& launch) {
     auto new_rows = spark_rapids_jni::convert_to_rows(table->view());
-          if (to_row) {
+          if (direction == "to row") {
         auto _rows = spark_rapids_jni::convert_to_rows(table->view());
       } else {
         for (auto const &r : rows) {
@@ -132,10 +140,10 @@ static void variable_or_fixed_width(nvbench::state& state)
 NVBENCH_BENCH(fixed_width)
     .set_name("Fixed Width Only")
     .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
-    .add_int64_axis("to_row", {1, 0});
+    .add_string_axis("direction", {"to row", "from row"});
 
 NVBENCH_BENCH(variable_or_fixed_width)
     .set_name("Fixed or Variable Width")
     .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
-    .add_int64_axis("to_row", {1, 0})
-    .add_int64_axis("include_strings", {1, 0});
+    .add_string_axis("direction", {"to row", "from row"})
+    .add_string_axis("strings", {"include strings", "no strings"});

@@ -14,6 +14,10 @@
 # limitations under the License.
 #=============================================================================
 
+find_library(CUDF_DATAGEN "libcudf_datagen.a" REQUIRED NO_DEFAULT_PATH
+    HINTS "${CUDF_DIR}/cpp/build/benchmarks"
+)
+
 ###################################################################################################
 # - compiler function -----------------------------------------------------------------------------
 
@@ -37,7 +41,7 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD 17
                    CUDA_STANDARD_REQUIRED ON
         )
-    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main cudf::cudf cudf_datagen spark_rapids_jni Threads::Threads cudf_benchmark_common)
+    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main ${CUDF_DATAGEN} ${CUDF_BENCHMARK_COMMON} cudf::cudf spark_rapids_jni Threads::Threads)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
         COMPONENT testing
