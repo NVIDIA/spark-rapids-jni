@@ -48,9 +48,8 @@ message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
-message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
-message(VERBOSE "SPARK_RAPIDS_JNI: Enable the -lineinfo option for nvcc (useful for cuda-memcheck / profiler: ${CUDA_ENABLE_LINEINFO}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
