@@ -218,5 +218,6 @@ if(USE_GDS)
     -Wl,--no-whole-archive
     spark_rapids_jni
     ${cuFile_LIBRARIES}
+    CUDA::cudart_static
   )
 endif()
