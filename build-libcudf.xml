@@ -38,6 +38,9 @@
       <arg value="${cudf.path}/cpp"/>
       <arg value="-DBUILD_SHARED_LIBS=OFF"/>
       <arg value="-DBUILD_TESTS=OFF"/>
+      <!-- benchmarks in cudf have to be built in order to get the library used
+           for data generation to build in cudf so that benchmarks in
+           spark-rapids-jni can link to it. -->
       <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
       <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
