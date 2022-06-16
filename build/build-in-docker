@@ -20,6 +20,7 @@
 
 set -e
 
+# Base paths relative to this script's location
 SCRIPTDIR=$(cd $(dirname $0); pwd)
 
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
