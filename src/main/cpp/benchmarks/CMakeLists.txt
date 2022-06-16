@@ -14,6 +14,7 @@
 # limitations under the License.
 #=============================================================================
 
+# this library isn't exposed by cudf, so we have to grab it this way
 find_library(CUDF_DATAGEN "libcudf_datagen.a" REQUIRED NO_DEFAULT_PATH
     HINTS "${CUDF_DIR}/cpp/build/benchmarks"
 )
