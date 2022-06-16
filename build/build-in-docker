@@ -33,10 +33,6 @@ CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
 
 SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-centos7"
-WORKSPACE_DIR=/rapids
-WORKSPACE_REPODIR="$WORKSPACE_DIR/spark-rapids-jni"
-WORKSPACE_CCACHE_REPODIR="$WORKSPACE_DIR/.ccache"
-WORKSPACE_MAVEN_REPODIR="$WORKSPACE_DIR/.m2/repository"
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
@@ -72,12 +68,12 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \
   -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
-  -v "$REPODIR:$WORKSPACE_REPODIR:rw" \
-  -v "$LOCAL_CCACHE_DIR:$WORKSPACE_CCACHE_REPODIR:rw" \
-  -v "$LOCAL_MAVEN_REPO:$WORKSPACE_MAVEN_REPODIR:rw" \
-  --workdir "$WORKSPACE_REPODIR" \
+  -v "$REPODIR:$REPODIR:rw" \
+  -v "$LOCAL_CCACHE_DIR:$LOCAL_CCACHE_DIR:rw" \
+  -v "$LOCAL_MAVEN_REPO:$LOCAL_MAVEN_REPO:rw" \
+  --workdir "$REPODIR" \
   -e CCACHE_DISABLE \
-  -e CCACHE_DIR="$WORKSPACE_CCACHE_REPODIR" \
+  -e CCACHE_DIR="$LOCAL_CCACHE_REPODIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
   -e CMAKE_CXX_COMPILER_LAUNCHER="ccache" \
   -e CMAKE_CUDA_COMPILER_LAUNCHER="ccache" \
@@ -88,7 +84,7 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
   -e VERBOSE \
   $SPARK_IMAGE_NAME \
   scl enable devtoolset-9 "mvn \
-    -Dmaven.repo.local=$WORKSPACE_MAVEN_REPODIR \
+    -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
     -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=$CUDF_USE_PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
     $_CUDF_CLEAN_SKIP \
