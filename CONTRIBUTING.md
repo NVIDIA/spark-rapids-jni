@@ -74,6 +74,8 @@ to control aspects of the build:
 |`CUDF_USE_PER_THREAD_DEFAULT_STREAM`|CUDA per-thread default stream         |ON     |
 |`RMM_LOGGING_LEVEL`                 |RMM logging control                    |OFF    |
 |`USE_GDS`                           |Compile with GPU Direct Storage support|OFF    |
+|`BUILD_TESTS`                       |Compile tests                          |OFF    |
+|`BUILD_BENCHMARKS`                  |Compile benchmarks                     |OFF    |
 |`libcudf.build.configure`           |Force libcudf build to configure       |false  |
 |`libcudf.clean.skip`                |Whether to skip cleaning libcudf build |true   |
 |`submodule.check.skip`              |Whether to skip checking git submodules|false  |
@@ -93,6 +95,24 @@ and build inside WSL2, e.g.
 > wsl -d Ubuntu ./build/build-in-docker clean install -DGPU_ACRCHS=NATIVE -Dtest="*,!CuFileTest"
 ```
 
+### Testing
+Java tests are in the `src/test` directory and c++ tests are in the `src/main/cpp/tests` directory.
+The c++ tests are built with the `-DBUILD_TESTS` command line option and will build into the
+`target/cmake-build/gtests/` directory. Due to building inside the docker container, it is possible
+that the host environment does not match the container well enough to run these executables, resulting
+in errors finding libraries. The script `build/run-in-docker` was created to help with this
+situation. A test can be run directly using this script or the script can be run without any
+arguments to get into an interactive shell inside the container.
+```build/run-in-docker target/cmake-build/gtests/ROW_CONVERSION```
+### Benchmarks
+Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
+To build these benchmarks requires the `-DBUILD_BENCHMARKS` build option. Once built, the benchmarks
+can be found in the `target/cmake-build/benchmarks/` directory. Due to building inside the docker
+container, it is possible that the host environment does not match the container well enough to
+run these executables, resulting in errors finding libraries. The script `build/run-in-docker`
+was created to help with this situation. A benchmark can be run directly using this script or the
+script can be run without any arguments to get into an interactive shell inside the container.
+```build/run-in-docker target/cmake-build/benchmarks/ROW_CONVERSION_BENCH```
 ## Code contributions
 
 ### Your first issue
