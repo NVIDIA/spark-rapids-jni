@@ -205,6 +205,7 @@ set_target_properties(spark_rapids_jni PROPERTIES OUTPUT_NAME "cudf")
 add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
 target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
+add_dependencies(cudfjnistub spark_rapids_jni)
 
 # ##################################################################################################
 # * cuFile JNI -------------------------------------------------------------------------------------
