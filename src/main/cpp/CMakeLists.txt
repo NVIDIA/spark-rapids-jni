@@ -196,11 +196,12 @@ target_link_libraries(
   -Wl,--no-whole-archive
 )
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
-
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
 # all of the code is built into libcudf.so that is statically linked to the CUDA runtime library.
 # libcudfjni.so is a stub library dynamically-linked to libcudf.so.
 set_target_properties(spark_rapids_jni PROPERTIES OUTPUT_NAME "cudf")
+
+
 add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
 target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
