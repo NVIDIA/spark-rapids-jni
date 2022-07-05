@@ -130,7 +130,7 @@ public class ParquetFooter implements AutoCloseable {
   }
 
   private static void depthFirstNamesHelper(SchemaElement se, String name, boolean makeLowerCase,
-      ArrayList<String> names, ArrayList<Integer> numChildren) {
+      ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
     if (makeLowerCase) {
       name = name.toLowerCase(Locale.ROOT);
     }
@@ -138,12 +138,14 @@ public class ParquetFooter implements AutoCloseable {
     if (se instanceof ValueElement) {
       names.add(name);
       numChildren.add(0);
+      tags.add(0);
     } else if (se instanceof StructElement) {
       StructElement st = (StructElement) se;
       names.add(name);
       numChildren.add(st.children.length);
+      tags.add(1);
       for (ElementWithName child : st.children) {
-        depthFirstNamesHelper(child.element, child.name, makeLowerCase, names, numChildren);
+        depthFirstNamesHelper(child.element, child.name, makeLowerCase, names, numChildren, tags);
       }
     } else if (se instanceof  ListElement) {
       ListElement le = (ListElement) se;
@@ -151,29 +153,27 @@ public class ParquetFooter implements AutoCloseable {
       // API and code.
       names.add(name);
       numChildren.add(1);
-      names.add("list");
-      numChildren.add(1);
-      depthFirstNamesHelper(le.item, "element", makeLowerCase, names, numChildren);
+      tags.add(2);
+      depthFirstNamesHelper(le.item, "element", makeLowerCase, names, numChildren, tags);
     } else if (se instanceof MapElement) {
       MapElement me = (MapElement) se;
       // This follows the conventions of newer parquet. This is just here as a bridge to the new
       // API and code.
       names.add(name);
-      numChildren.add(1);
-      names.add("key_value");
       numChildren.add(2);
-      depthFirstNamesHelper(me.key, "key", makeLowerCase, names, numChildren);
-      depthFirstNamesHelper(me.value, "value", makeLowerCase, names, numChildren);
+      tags.add(3);
+      depthFirstNamesHelper(me.key, "key", makeLowerCase, names, numChildren, tags);
+      depthFirstNamesHelper(me.value, "value", makeLowerCase, names, numChildren, tags);
     } else {
       throw new UnsupportedOperationException(se + " is not a supported schema element type");
     }
   }
 
   private static void depthFirstNames(StructElement schema, boolean makeLowerCase,
-      ArrayList<String> names, ArrayList<Integer> numChildren) {
+      ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
     // Initialize them with a quick length for non-nested values
     for (ElementWithName se: schema.children) {
-      depthFirstNamesHelper(se.element, se.name, makeLowerCase, names, numChildren);
+      depthFirstNamesHelper(se.element, se.name, makeLowerCase, names, numChildren, tags);
     }
   }
 
@@ -195,55 +195,27 @@ public class ParquetFooter implements AutoCloseable {
     int parentNumChildren = schema.children.length;
     ArrayList<String> names = new ArrayList<>();
     ArrayList<Integer> numChildren = new ArrayList<>();
-    depthFirstNames(schema, ignoreCase, names, numChildren);
+    ArrayList<Integer> tags = new ArrayList<>();
+
+    depthFirstNames(schema, ignoreCase, names, numChildren, tags);
     return new ParquetFooter(
         readAndFilter
             (buffer.getAddress(), buffer.getLength(),
                 partOffset, partLength,
                 names.toArray(new String[0]),
                 numChildren.stream().mapToInt(i -> i).toArray(),
+                tags.stream().mapToInt(i -> i).toArray(),
                 parentNumChildren,
                 ignoreCase));
   }
 
-  /**
-   * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
-   * should only include the thrift footer itself. This includes filtering out row groups that do
-   * not fall within the partition and pruning columns that are not needed.
-   * @param buffer the buffer to parse the footer out from.
-   * @param partOffset for a split the start of the split
-   * @param partLength the length of the split
-   * @param names the names of the nodes in the tree to keep, flattened in a depth first way. The
-   *              root node should be skipped and the names of maps and lists needs to match what
-   *              parquet writes in.
-   * @param numChildren the number of children for each item in name.
-   * @param parentNumChildren the number of children in the root nodes
-   * @param ignoreCase should case be ignored when matching column names. If this is true then
-   *                   names should be converted to lower case before being passed to this.
-   * @return a reference to the parsed footer.
-   * @deprecated Use the version that takes a StructElement instead
-   */
-  @Deprecated
-  public static ParquetFooter readAndFilter(HostMemoryBuffer buffer,
-      long partOffset, long partLength,
-      String[] names,
-      int[] numChildren,
-      int parentNumChildren,
-      boolean ignoreCase) {
-    return new ParquetFooter(
-        readAndFilter
-            (buffer.getAddress(), buffer.getLength(),
-            partOffset, partLength,
-            names, numChildren,
-            parentNumChildren,
-            ignoreCase));
-  }
-
   // Native APIS
+
   private static native long readAndFilter(long address, long length,
       long partOffset, long partLength,
       String[] names,
       int[] numChildren,
+      int[] tags,
       int parentNumChildren,
       boolean ignoreCase) throws CudfException;
 
