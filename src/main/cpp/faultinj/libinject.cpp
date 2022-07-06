@@ -213,9 +213,11 @@ void CUPTIAPI
 callbackHandler(void *userdata, CUpti_CallbackDomain domain,
     CUpti_CallbackId cbid, void *cbdata) {
     const CUpti_CallbackData *cbInfo = (CUpti_CallbackData *)cbdata;
-
     // Check last error
     CUPTI_CALL(cuptiGetLastError());
+    if (cbInfo->callbackSite == CUPTI_API_ENTER) {
+        fprintf(stderr, "GERA_DEBUG callbackHandler: cbid=%d domain=%d function=%s\n", cbid, domain, cbInfo->functionName);
+    }
 
     // This code path is taken only when we wish to perform the CUPTI teardown
     if (globalControl.detachCupti) {
@@ -284,6 +286,7 @@ InitializeInjection(void) {
     // Init globalControl
     globalControlInit();
     globalControl.initialized = 1;
+    globalControl.tracingEnabled = 1;
 
 
     //Initialize Mutex
@@ -293,7 +296,6 @@ InitializeInjection(void) {
 
     // Initialize CUPTI
     CUPTI_CALL(cuptiInitialize());
-    globalControl.tracingEnabled = 1;
 
     // Launch the thread
     // PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, NULL, dynamicAttachDetach, NULL));

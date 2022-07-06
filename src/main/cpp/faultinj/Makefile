@@ -31,7 +31,7 @@ ifeq ($(HOST_ARCH), $(TARGET_ARCH))
 endif
 LIBS += $(TARGET_CUDA_PATH) -lcuda -L $(LIB_PATH) -lcupti
 
-NVCCFLAGS :=
+NVCCFLAGS := --debug
 ifneq ($(TARGET_ARCH), $(HOST_ARCH))
     ifeq ($(TARGET_ARCH), aarch64)
         ifeq ($(TARGET_OS), linux)
