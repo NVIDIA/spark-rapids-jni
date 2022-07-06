@@ -48,8 +48,9 @@ message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
-message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
-message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
+message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
+message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
+message(STATUS "SPARK_RAPIDS_JNI: Configure CMake to build faultinjector: ${BUILD_FAULTINJECTOR}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
@@ -57,6 +58,7 @@ set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
+set(SPARK_RAPIDS_JNI_BUILD_FAULTINJECTOR ${BUILD_FAULTINJECTOR})
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -143,6 +145,7 @@ add_library(
   src/RowConversionJni.cpp
   src/NativeParquetJni.cpp
   src/row_conversion.cu
+  src/faultinjector.cu
 )
 
 set_target_properties(

@@ -83,6 +83,7 @@
     <USE_GDS>OFF</USE_GDS>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
+    <BUILD_FAULTINJECTOR>ON</BUILD_FAULTINJECTOR>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
@@ -274,6 +275,7 @@
                 <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                 <property name="USE_GDS" value="${USE_GDS}"/>
                 <property name="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
+                <property name="BUILD_FAULTINJECTOR" value="${BUILD_FAULTINJECTOR}"/>
                 <ant antfile="build-libcudf.xml" target="build-libcudf"/>
               </target>
             </configuration>
@@ -330,6 +332,7 @@
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
                   <arg value="-DBUILD_TESTS=${BUILD_TESTS}"/>
                   <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
+                  <arg value="-DBUILD_FAULTINJECTOR=${BUILD_FAULTINJECTOR}"/>
                 </exec>
                 <exec dir="${native.build.path}"
                       failonerror="true"
