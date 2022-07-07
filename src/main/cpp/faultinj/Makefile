@@ -46,8 +46,8 @@ endif
 
 FINALIZE_LIB = libCuptiFinalize.so
 
-cupti_finalize: libinject.cpp
+cupti_finalize: faultinj.cu
 	$(NVCC) $(NVCC_COMPILER) $(NVCCFLAGS) $(INCLUDES) -o $(FINALIZE_LIB) -Xcompiler -fPIC -shared $< $(LIBS)
 	$(info export CUDA_INJECTION64_PATH=<full_path>/libCuptiFinalize.so and run any CUDA sample with runtime more than 10 seconds(Graphics/Simulations samples) for demonstration)
 clean:
-	rm -f $(FINALIZE_LIB) libinject.o
+	rm -f $(FINALIZE_LIB) faultinj.o
