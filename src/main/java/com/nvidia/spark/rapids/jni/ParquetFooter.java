@@ -185,7 +185,7 @@ public class ParquetFooter implements AutoCloseable {
   }
 
   /**
-   * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
+     * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
    * should only include the thrift footer itself. This includes filtering out row groups that do
    * not fall within the partition and pruning columns that are not needed.
    * @param buffer the buffer to parse the footer out from.
@@ -196,7 +196,9 @@ public class ParquetFooter implements AutoCloseable {
    * @param ignoreCase should case be ignored when matching column names. If this is true then
    *                   names should be converted to lower case before being passed to this.
    * @return a reference to the parsed footer.
+   * @deprecated Use the version that takes a StructElement instead
    */
+  @Deprecated
   public static ParquetFooter readAndFilter(HostMemoryBuffer buffer,
       long partOffset, long partLength, StructElement schema, boolean ignoreCase) {
     int parentNumChildren = schema.children.length;
