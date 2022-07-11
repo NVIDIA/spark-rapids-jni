@@ -26,6 +26,7 @@ SCRIPTDIR=$(cd $(dirname $0); pwd)
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
+export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
