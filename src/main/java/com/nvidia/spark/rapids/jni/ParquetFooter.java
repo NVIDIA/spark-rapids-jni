@@ -129,6 +129,10 @@ public class ParquetFooter implements AutoCloseable {
     }
   }
 
+  /**
+   * Recursive helper function to flatten a SchemaElement, so it can more efficiently be passed
+   * through JNI.
+   */
   private static void depthFirstNamesHelper(SchemaElement se, String name, boolean makeLowerCase,
       ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
     if (makeLowerCase) {
@@ -147,7 +151,7 @@ public class ParquetFooter implements AutoCloseable {
       for (ElementWithName child : st.children) {
         depthFirstNamesHelper(child.element, child.name, makeLowerCase, names, numChildren, tags);
       }
-    } else if (se instanceof  ListElement) {
+    } else if (se instanceof ListElement) {
       ListElement le = (ListElement) se;
       // This follows the conventions of newer parquet. This is just here as a bridge to the new
       // API and code.
@@ -169,6 +173,9 @@ public class ParquetFooter implements AutoCloseable {
     }
   }
 
+  /**
+   * Flatten a SchemaElement, so it can more efficiently be passed through JNI.
+   */
   private static void depthFirstNames(StructElement schema, boolean makeLowerCase,
       ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
     // Initialize them with a quick length for non-nested values
