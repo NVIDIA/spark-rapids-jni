@@ -44,10 +44,10 @@ ifneq ($(TARGET_ARCH), $(HOST_ARCH))
     endif
 endif
 
-FINALIZE_LIB = libCuptiFinalize.so
+FAULT_INJ_LIB = libcuFaultInj.so
 
-cupti_finalize: faultinj.cu
-	$(NVCC) $(NVCC_COMPILER) $(NVCCFLAGS) $(INCLUDES) -o $(FINALIZE_LIB) -Xcompiler -fPIC -shared $< $(LIBS)
-	$(info export CUDA_INJECTION64_PATH=<full_path>/libCuptiFinalize.so and run any CUDA sample with runtime more than 10 seconds(Graphics/Simulations samples) for demonstration)
+fault_inj_lib: faultinj.cu
+	$(NVCC) $(NVCC_COMPILER) $(NVCCFLAGS) $(INCLUDES) -o $(FAULT_INJ_LIB) -Xcompiler -fPIC -shared $< $(LIBS)
+	$(info export CUDA_INJECTION64_PATH=<full_path>/$(FAULT_INJ_LIB) and run any CUDA application)
 clean:
-	rm -f $(FINALIZE_LIB) faultinj.o
+	rm -f $(FAULT_INJ_LIB) faultinj.o
