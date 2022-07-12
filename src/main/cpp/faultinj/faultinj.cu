@@ -97,8 +97,8 @@ globalControlInit(void) {
     globalControl.tracingEnabled = 0;
     globalControl.terminateThread = 0;
     globalControl.kernelsTraced = 0;
-    globalControl.faultInjectionMode = FI_ASSERT;
-    globalControl.functionName = "cudaLaunchKernel";
+    globalControl.faultInjectionMode = FI_RETURN_VALUE;
+    globalControl.functionName = "cuLaunchKernel";
 }
 
 static void
@@ -203,11 +203,12 @@ faultInjectionCallbackHandler(
 
         case FI_RETURN_VALUE:
         default:
+            std::cerr << "GERA_DEBUG: modifying " << cbInfo->functionName;
             switch (domain) {
 
             case CUPTI_CB_DOMAIN_DRIVER_API: {
                 CUresult *cuResPtr = (CUresult *)cbInfo->functionReturnValue;
-                std::cerr << "GERA_DEBUG: modifying function CUresult return value: " << *cuResPtr << std::endl;
+                std::cerr << "'s CUresult return value: " << *cuResPtr << std::endl;
                 *cuResPtr = CUDA_ERROR_INVALID_VALUE;
                 break;
             }
@@ -215,7 +216,7 @@ faultInjectionCallbackHandler(
             case CUPTI_CB_DOMAIN_RUNTIME_API:
             default:
                 cudaError_t *cudaErrPtr = (cudaError_t *)cbInfo->functionReturnValue;
-                std::cerr << "GERA_DEBUG: modifying function cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
+                std::cerr << "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
                 *cudaErrPtr = cudaErrorInvalidValue;
                 break;
             }
