@@ -27,7 +27,7 @@
 
 #include <assert.h>
 #include <stdbool.h>
-#include <stdio.h>
+#include <iostream>
 #include <stdlib.h>
 #include <unistd.h>
 #include <inttypes.h>
@@ -89,7 +89,7 @@ extern int STDCALL InitializeInjection(void);
 
 static void
 globalControlInit(void) {
-    fprintf(stderr, "GERA_DEBUG: globalControlInit of fault injection\n");
+    std::cerr << "GERA_DEBUG: globalControlInit of fault injection" << std::endl;
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
     globalControl.detachCupti = 0;
@@ -111,7 +111,7 @@ registerAtExitHandler(void) {
 static void
 atExitHandler(void) {
     globalControl.terminateThread = 1;
-    fprintf(stderr, "GERA_DEBUG CUPTI exit handler\n");
+    std::cerr <<  "GERA_DEBUG CUPTI atExitHandler" << std::endl;
 }
 
 
@@ -143,7 +143,7 @@ faultInjectionMatch(CUpti_CallbackData *cbd, CUpti_CallbackId cbId) {
 
         if (   cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_ptsz_v7000
             || cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000) {
-              fprintf(stderr, "symbolName=%s\n",  cbd->symbolName);
+              std::cerr << "symbolName=" << cbd->symbolName << std::endl;
               return   !strstr(cbd->symbolName, "faultInjectorKernel")
                     && prefix(globalControl.functionName, cbd->functionName);
             }
@@ -204,15 +204,19 @@ faultInjectionCallbackHandler(
         case FI_RETURN_VALUE:
         default:
             switch (domain) {
-            case CUPTI_CB_DOMAIN_DRIVER_API:
-                fprintf(stderr, "GERA_DEBUG: modifying debug function CUresult return value\n");
-                *((CUresult *)(cbInfo->functionReturnValue)) = CUDA_ERROR_INVALID_VALUE;
+
+            case CUPTI_CB_DOMAIN_DRIVER_API: {
+                CUresult *cuResPtr = (CUresult *)cbInfo->functionReturnValue;
+                std::cerr << "GERA_DEBUG: modifying function CUresult return value: " << *cuResPtr << std::endl;
+                *cuResPtr = CUDA_ERROR_INVALID_VALUE;
                 break;
+            }
 
             case CUPTI_CB_DOMAIN_RUNTIME_API:
             default:
-                fprintf(stderr, "GERA_DEBUG: modifying runtime function cudaError_t return value DOES NOT WORK\n");
-                *((cudaError_t *)(cbInfo->functionReturnValue)) = cudaErrorInvalidValue;
+                cudaError_t *cudaErrPtr = (cudaError_t *)cbInfo->functionReturnValue;
+                std::cerr << "GERA_DEBUG: modifying function cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
+                *cudaErrPtr = cudaErrorInvalidValue;
                 break;
             }
         }
