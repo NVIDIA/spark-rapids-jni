@@ -253,3 +253,5 @@ if(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS)
   rapids_cpm_nvbench()
   add_subdirectory(benchmarks)
 endif()
+
+add_subdirectory(faultinj)

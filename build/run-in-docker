@@ -66,6 +66,7 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS -it -u $(id -u):$(id -g) --rm \
   -e CMAKE_CUDA_COMPILER_LAUNCHER="ccache" \
   -e CMAKE_CXX_LINKER_LAUNCHER="ccache" \
   -e CMAKE_GENERATOR \
+  -e CMAKE_BUILD_TYPE \
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
