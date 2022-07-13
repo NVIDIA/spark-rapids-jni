@@ -25,20 +25,15 @@
  * CUPTI sample
  */
 
-#include <assert.h>
-#include <boost/foreach.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/trivial.hpp>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
 #include <cuda.h>
 #include <cupti.h>
-#include <inttypes.h>
+
 #include <iostream>
 #include <map>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <assert.h>
+
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 #define STDCALL
 inline const std::string FAULT_INJECTOR_CONFIG_PATH{"FAULT_INJECTOR_CONFIG_PATH"};
@@ -95,14 +90,14 @@ extern int STDCALL InitializeInjection(void);
 
 static CUptiResult cuptiInitialize(void);
 static void readFaultInjectorConfig(void);
-static void printPtree(boost::property_tree::ptree const& pTree);
+static void parseConfig(boost::property_tree::ptree const& pTree);
 
 
 // Function Definitions
 
 static void
 globalControlInit(void) {
-    BOOST_LOG_TRIVIAL(info)  <<  "globalControlInit of fault injection" ;
+    std::cerr << "BOOST_LOG_TRIVIAL(info) globalControlInit of fault injection" << std::endl ;
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
     globalControl.frequency = 2; // in seconds
@@ -144,7 +139,7 @@ prefix(const char *pre, const char *str) {
 static bool
 faultInjectionMatch(CUpti_CallbackData *cbd, CUpti_CallbackId cbId) {
     if (cbd->callbackSite == CUPTI_API_ENTER) {
-        BOOST_LOG_TRIVIAL(info)  << "faultInjectionMatch function=" << cbd->functionName;
+        std::cerr << "#### faultInjectionMatch function=" << cbd->functionName << std::endl;
     }
 
     // switch (globalControl.faultInjectionMode) {
@@ -155,7 +150,7 @@ faultInjectionMatch(CUpti_CallbackData *cbd, CUpti_CallbackId cbId) {
 
     //     if (   cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_ptsz_v7000
     //         || cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000) {
-    //           BOOST_LOG_TRIVIAL(info)  <<  "symbolName=" << cbd->symbolName ;
+    //           // std::cerr  <<  "#### symbolName=" << cbd->symbolName << std::endl;
     //           return   !strstr(cbd->symbolName, "faultInjectorKernel")
     //                 && prefix(globalControl.functionName, cbd->functionName);
     //         }
@@ -216,12 +211,12 @@ faultInjectionCallbackHandler(
 
         // case FI_RETURN_VALUE:
         // default:
-            BOOST_LOG_TRIVIAL(info)  << "modifying " << cbInfo->functionName;
+            std::cerr << "#### modifying " << cbInfo->functionName;
             switch (domain) {
 
             case CUPTI_CB_DOMAIN_DRIVER_API: {
                 CUresult *cuResPtr = (CUresult *)cbInfo->functionReturnValue;
-                BOOST_LOG_TRIVIAL(info)  <<  "'s CUresult return value: " << *cuResPtr ;
+                std::cerr << "'s CUresult return value: " << *cuResPtr << std::endl;
                 *cuResPtr = CUDA_ERROR_NO_DEVICE;
                 break;
             }
@@ -229,7 +224,7 @@ faultInjectionCallbackHandler(
             case CUPTI_CB_DOMAIN_RUNTIME_API:
             default:
                 cudaError_t *cudaErrPtr = (cudaError_t *)cbInfo->functionReturnValue;
-                BOOST_LOG_TRIVIAL(info)  <<  "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" ;
+                std::cerr  <<  "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
                 *cudaErrPtr = cudaErrorInvalidValue;
                 break;
             }
@@ -240,19 +235,18 @@ faultInjectionCallbackHandler(
 
 int STDCALL
 InitializeInjection(void) {
-    std::cerr << "##### InitializeInjection logs using BOOST_LOG_TRIVIAL after this #####" << std::endl;
-    // exit(150);
-    // if (globalControl.initialized) {
-    //     return 1;
-    // }
-    // // Init globalControl
-    // globalControlInit();
-    // globalControl.initialized = 1;
+    std::cerr << "##### InitializeInjection logs " << std::endl;
+    if (globalControl.initialized) {
+        return 1;
+    }
+    // Init globalControl
+    globalControlInit();
+    globalControl.initialized = 1;
 
-    // registerAtExitHandler();
+    registerAtExitHandler();
 
-    // // Initialize CUPTI
-    // CUPTI_CALL(cuptiInitialize());
+    // Initialize CUPTI
+    CUPTI_CALL(cuptiInitialize());
 
     return 1;
 }
@@ -262,27 +256,27 @@ static void
 readFaultInjectorConfig(void) {
     const auto configFilePath = std::getenv(FAULT_INJECTOR_CONFIG_PATH.c_str());
     if (!configFilePath) {
-        BOOST_LOG_TRIVIAL(error) << "specify convig via environment " << FAULT_INJECTOR_CONFIG_PATH ;
+        std::cerr << "specify convig via environment " << FAULT_INJECTOR_CONFIG_PATH << std::endl;
         return;
     }
     std::ifstream jsonStream(configFilePath);
     if (!jsonStream.good()){
-        BOOST_LOG_TRIVIAL(info)  <<  "check file exists " << configFilePath ;
+        std::cerr <<  "check file exists " << configFilePath << std::endl;
         return;
     }
 
-    boost::property_tree::ptree pTree;
-    boost::property_tree::read_json(jsonStream, pTree);
-    printPtree(pTree);
+    boost::property_tree::ptree root;
+    boost::property_tree::read_json(jsonStream, root);
     jsonStream.close();
+    parseConfig(root);
 }
 
 static void
-printPtree(boost::property_tree::ptree const& pTree) {
+parseConfig(boost::property_tree::ptree const& pTree) {
     boost::property_tree::ptree::const_iterator end = pTree.end();
     for (boost::property_tree::ptree::const_iterator it = pTree.begin(); it != end; ++it) {
-        BOOST_LOG_TRIVIAL(info)  <<  it->first << ": " << it->second.get_value<std::string>() ;
-        printPtree(it->second);
+        std::cerr <<  it->first << ": " << it->second.get_value<std::string>() << std::endl;
+        parseConfig(it->second);
     }
 }
 
