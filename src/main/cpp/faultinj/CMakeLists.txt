@@ -20,6 +20,11 @@ project(
   LANGUAGES C CXX CUDA
 )
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_BUILD_TYPE Debug)
+
+find_package(Boost REQUIRED)
+
 add_library(
   cupti_faultinj SHARED
   faultinj.cu
