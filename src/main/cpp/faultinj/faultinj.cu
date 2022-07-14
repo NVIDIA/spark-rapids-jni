@@ -31,7 +31,9 @@
 #include <iostream>
 #include <map>
 #include <assert.h>
+#include <pthread.h>
 
+#define BOOST_SPIRIT_THREADSAFE
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
@@ -54,25 +56,34 @@ do {                                                                           \
     }                                                                          \
 } while (0)
 
+#define PTHREAD_CALL(call)                                                         \
+do {                                                                               \
+    int _status = call;                                                            \
+    if (_status != 0) {                                                            \
+        fprintf(stderr, "%s:%d: error: function %s failed with error code %d.\n",  \
+                __FILE__, __LINE__, #call, _status);                               \
+        exit(EXIT_FAILURE);                                                        \
+    }                                                                              \
+} while (0)
+
 typedef enum {
-    FI_ASSERT,
     FI_TRAP,
+    FI_ASSERT,
     FI_RETURN_VALUE
-} FaultInjection_Mode;
-
-typedef struct {
-
-} FaultInjectionConfig;
-
-std::map<std::string,FaultInjectionConfig*> driverFaultConfigs;
-std::map<std::string,FaultInjectionConfig*> runtimeFaultConfigs;
-
+} FaultInjectionType;
 
 typedef struct {
     volatile uint32_t initialized;
     CUpti_SubscriberHandle  subscriber;
     int frequency;
+
     int terminateThread;
+
+    pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
+
+    boost::property_tree::ptree configRoot;
+    boost::optional<boost::property_tree::ptree&> driverFaultConfigs = boost::none;
+    boost::optional<boost::property_tree::ptree&> runtimeFaultConfigs = boost::none;
 } injGlobalControl;
 injGlobalControl globalControl;
 
@@ -97,11 +108,14 @@ static void parseConfig(boost::property_tree::ptree const& pTree);
 
 static void
 globalControlInit(void) {
-    std::cerr << "BOOST_LOG_TRIVIAL(info) globalControlInit of fault injection" << std::endl ;
+    std::cerr << "#### globalControlInit of fault injection" << std::endl ;
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
     globalControl.frequency = 2; // in seconds
     globalControl.terminateThread = 0;
+
+    // TODO threading
+
     readFaultInjectorConfig();
 }
 
@@ -124,45 +138,13 @@ cuptiInitialize(void) {
 
     CUPTI_CALL(cuptiSubscribe(&globalControl.subscriber, (CUpti_CallbackFunc)faultInjectionCallbackHandler, NULL));
 
-    // Subscribe Driver and Runtime callbacks to call cuptiFinalize in the entry/exit callback of these APIs
+    // TODO do this dynamically based on config?
     CUPTI_CALL(cuptiEnableDomain(1, globalControl.subscriber, CUPTI_CB_DOMAIN_RUNTIME_API));
-    // CUPTI_CALL(cuptiEnableDomain(1, globalControl.subscriber, CUPTI_CB_DOMAIN_DRIVER_API));
+    CUPTI_CALL(cuptiEnableDomain(1, globalControl.subscriber, CUPTI_CB_DOMAIN_DRIVER_API));
 
     return status;
 }
 
-static bool
-prefix(const char *pre, const char *str) {
-    return strncmp(pre, str, strlen(pre)) == 0;
-}
-
-static bool
-faultInjectionMatch(CUpti_CallbackData *cbd, CUpti_CallbackId cbId) {
-    if (cbd->callbackSite == CUPTI_API_ENTER) {
-        std::cerr << "#### faultInjectionMatch function=" << cbd->functionName << std::endl;
-    }
-
-    // switch (globalControl.faultInjectionMode) {
-    // case FI_ASSERT:
-    // case FI_TRAP:
-    //     if (cbd->callbackSite != CUPTI_API_EXIT)
-    //         return false;
-
-    //     if (   cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_ptsz_v7000
-    //         || cbId == CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000) {
-    //           // std::cerr  <<  "#### symbolName=" << cbd->symbolName << std::endl;
-    //           return   !strstr(cbd->symbolName, "faultInjectorKernel")
-    //                 && prefix(globalControl.functionName, cbd->functionName);
-    //         }
-    //     return prefix(globalControl.functionName, cbd->functionName);
-
-    // case FI_RETURN_VALUE:
-    // default:
-    //     return cbd->callbackSite == CUPTI_API_EXIT
-    //         && prefix(globalControl.functionName, cbd->functionName);
-    // }
-    return false;
-}
 
 __global__ void
 faultInjectorKernelAssert(void) {
@@ -194,41 +176,89 @@ faultInjectionCallbackHandler(
     CUpti_CallbackId cbid,
     void *cbdata
 ) {
-    CUpti_CallbackData *cbInfo = (CUpti_CallbackData *)cbdata;
+    CUpti_CallbackData *cbInfo = static_cast<CUpti_CallbackData*>(cbdata);
+
+    // TODO maybe allow it in the config but right now CUPTI_API_EXIT is generally preferrable
+    // for inteception, however, it means that the execution has happened.
+    //
+    if (cbInfo->callbackSite != CUPTI_API_EXIT) {
+        return;
+    }
+
+    const std::string faultInjectorKernelPrefix = std::string("faultInjectorKernel");
+    if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
+        return;
+    }
+
     // Check last error
     CUPTI_CALL(cuptiGetLastError());
+    boost::optional<const boost::property_tree::ptree&> matchedFaultConfig = boost::none;
 
-    if (faultInjectionMatch(cbInfo, cbid)) {
-        // switch (globalControl.faultInjectionMode)
-        // {
-        // case FI_ASSERT:
-        //     deviceAssertAndSync();
-        //     break;
+    // TODO make a function, switch to read lock after debugging
+    PTHREAD_CALL(pthread_rwlock_rdlock(&globalControl.configLock));
+    if (domain == CUPTI_CB_DOMAIN_DRIVER_API && globalControl.driverFaultConfigs) {
+        // std::cerr << "#### looking up config for Driver callback: " << cbInfo->functionName << std::endl;
+        matchedFaultConfig = (*globalControl.driverFaultConfigs)
+            .get_child_optional(cbInfo->functionName);
+    }
+    if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
+        // std::cerr << "#### looking up config for Runtime callback: " << cbInfo->functionName << std::endl;
+        matchedFaultConfig = (*globalControl.runtimeFaultConfigs)
+            .get_child_optional(cbInfo->functionName);
+    }
+    PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
 
-        // case FI_TRAP:
-        //     deviceAsmTrapAndSync();
-        //     break;
+    if (!matchedFaultConfig) {
+        return;
+    }
 
-        // case FI_RETURN_VALUE:
-        // default:
-            std::cerr << "#### modifying " << cbInfo->functionName;
-            switch (domain) {
+    const int injectionType = (*matchedFaultConfig)
+        .get_optional<int>("injectionType")
+        .value_or(static_cast<int>(FI_RETURN_VALUE));
 
-            case CUPTI_CB_DOMAIN_DRIVER_API: {
-                CUresult *cuResPtr = (CUresult *)cbInfo->functionReturnValue;
-                std::cerr << "'s CUresult return value: " << *cuResPtr << std::endl;
-                *cuResPtr = CUDA_ERROR_NO_DEVICE;
-                break;
-            }
+    const int substituteReturnCode = (*matchedFaultConfig)
+        .get_optional<int>("substituteReturnCode")
+        .value_or(static_cast<int>(CUDA_SUCCESS));
 
-            case CUPTI_CB_DOMAIN_RUNTIME_API:
-            default:
-                cudaError_t *cudaErrPtr = (cudaError_t *)cbInfo->functionReturnValue;
-                std::cerr  <<  "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
-                *cudaErrPtr = cudaErrorInvalidValue;
-                break;
-            }
-        // }
+    const double injectionProbability = (*matchedFaultConfig)
+        .get_optional<double>("prob")
+        .value_or(0.0);
+
+    std::cerr << "#### matched config domain=" << domain
+              << " function=" << cbInfo->functionName
+              << " injectionType=" << injectionType
+              << " injectionProbability=" << injectionProbability
+              << std::endl;
+
+    // TODO per-config RNG
+    if (injectionProbability == 0) {
+        return;
+    }
+
+    switch (injectionType)
+    {
+    case FI_TRAP:
+        deviceAsmTrapAndSync();
+        break;
+
+    case FI_ASSERT:
+        deviceAssertAndSync();
+        break;
+
+    case FI_RETURN_VALUE:
+        if (domain == CUPTI_CB_DOMAIN_DRIVER_API) {
+            CUresult *cuResPtr = static_cast<CUresult*>(cbInfo->functionReturnValue);
+            std::cerr << "'s CUresult return value: " << *cuResPtr << std::endl;
+            *cuResPtr = static_cast<CUresult>(substituteReturnCode);
+        } else if (domain == CUPTI_CB_DOMAIN_RUNTIME_API) {
+            cudaError_t *cudaErrPtr = static_cast<cudaError_t*>(cbInfo->functionReturnValue);
+            std::cerr  <<  "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
+            *cudaErrPtr = static_cast<cudaError_t>(substituteReturnCode);
+            break;
+        }
+
+    default:
+        break;
     }
 }
 
@@ -265,10 +295,14 @@ readFaultInjectorConfig(void) {
         return;
     }
 
-    boost::property_tree::ptree root;
-    boost::property_tree::read_json(jsonStream, root);
+    PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
+    boost::property_tree::read_json(jsonStream, globalControl.configRoot);
+    parseConfig(globalControl.configRoot);
+    globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
+    globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
+    PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     jsonStream.close();
-    parseConfig(root);
+    std::cerr << "#### readFaultInjectorConfig of fault injection DONE" << std::endl ;
 }
 
 static void

@@ -1,24 +1,27 @@
 {
-    "runtimeFaults": {
+    "cudaRuntimeFaults": {
         "cudaLaunchKernel": {
-            "prob": 0.5,
-            "injectionType": "trap",
-            "count": 100
+            "prob": 0.0,
+            "injectionType": 0,
+            "injectionType_comment": "PTX trap",
+            "interceptionCount": 1
         },
         "cudaFree": {
-            "prob": 1.0,
-            "injectionType": "assert",
-            "count": 1
+            "prob": 0.0,
+            "injectionType": 1,
+            "injectionType_comment": "C assert",
+            "interceptionCount": 1
         }
     },
 
-    "driverFaults": {
-        "cuLaunchKernel": {
-            "prob": 0.5,
-            "injectionType": "substituteReturnCode",
+    "cudaDriverFaults": {
+        "cuCtxGetDevice": {
+            "prob": 0.0,
+            "injectionType": 2,
+            "injectionType_comment": "substitute return code",
             "substituteReturnCode": 909,
             "substituteReturnCode_comment": "CUDA_ERROR_TIMEOUT",
-            "count": 100
+            "interceptionCount": 1
         }
     }
 }
