@@ -345,12 +345,16 @@ readFaultInjectorConfig(void) {
 
     PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
     boost::property_tree::read_json(jsonStream, globalControl.configRoot);
+
+    globalControl.frequency = globalControl.configRoot
+        .get_optional<int>("reloadAfterSeconds")
+        .value_or(static_cast<int>(10));
     // parseConfig(globalControl.configRoot);
     globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
     globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     jsonStream.close();
-    std::cerr << "#### readFaultInjectorConfig of fault injection DONE" << std::endl ;
+    std::cerr << "#### readFaultInjectorConfig " << configFilePath << " DONE" << std::endl ;
 }
 
 static void
@@ -364,9 +368,10 @@ parseConfig(boost::property_tree::ptree const& pTree) {
 
 static void *
 dynamicReconfig(void *args) {
-    while (!globalControl.terminateThread) {
+    while (!globalControl.terminateThread && globalControl.frequency > 0) {
         sleep(globalControl.frequency);
         readFaultInjectorConfig();
     }
+    std::cerr << "#### Exiting dynamic reconfig thread" << std::endl;
     return NULL;
 }
