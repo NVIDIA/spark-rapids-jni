@@ -93,23 +93,26 @@ struct column_pruning_maps {
   std::vector<int> chunk_map;
 };
 
-const int VALUE_TAG = 0;
-const int STRUCT_TAG = 1;
-const int LIST_TAG = 2;
-const int MAP_TAG = 3;
+/**
+ * Tags what type of node is expected in the passed down Spark schema. This
+ * lets us match the Spark schema to the schema in the Parquet file. Different
+ * versions of parquet had different layouts for various nested types.
+ */
+enum class Tag {
+  VALUE = 0,
+  STRUCT,
+  LIST,
+  MAP
+};
 
-const char * get_tag_name(const int tag) {
-  const char * tag_name = "unknown";
-  if (tag == VALUE_TAG) {
-    tag_name = "value";
-  } else if (tag == STRUCT_TAG) {
-    tag_name = "struct";
-  } else if (tag == LIST_TAG) {
-    tag_name = "list";
-  } else if (tag == MAP_TAG) {
-    tag_name = "map";
+std::string get_tag_name(const Tag tag) {
+  switch(tag) {
+   case Tag::VALUE: return "value";
+   case Tag::STRUCT: return "struct";
+   case Tag::LIST: return "list";
+   case Tag::MAP: return "map";
+   default: return "unknown";
   }
-  return tag_name;
 }
 
 /**
@@ -125,15 +128,15 @@ public:
      */
     column_pruner(const std::vector<std::string> & names, 
             const std::vector<int> & num_children, 
-            const std::vector<int> & tags, 
-            int parent_num_children): children(), tag(STRUCT_TAG) {
+            const std::vector<Tag> & tags, 
+            int parent_num_children): children(), tag(Tag::STRUCT) {
       add_depth_first(names, num_children, tags, parent_num_children);
     }
 
-    column_pruner(int in_tag): children(), tag(in_tag) {
+    column_pruner(Tag in_tag): children(), tag(in_tag) {
     }
 
-    column_pruner(): children(), tag(STRUCT_TAG) {
+    column_pruner(): children(), tag(Tag::STRUCT) {
     }
 
     void skip(std::vector<parquet::format::SchemaElement> & schema,
@@ -158,33 +161,16 @@ public:
     }
 
     std::string get_name(parquet::format::SchemaElement & elem, const bool normalize_case = false) {
-      if (normalize_case) {
-        return unicode_to_lower(elem.name);
-      } else {
-        return elem.name;
-      }
+      return normalize_case ? unicode_to_lower(elem.name) : elem.name;
     }
 
     column_pruner * find_child(std::string name) {
       auto found_it = children.find(name);
-      if (found_it != children.end()) {
-        return &(found_it->second);
-      }
-      return nullptr;
+      return (found_it != children.end()) ? &(found_it->second) : nullptr;
     }
 
     int get_num_children(parquet::format::SchemaElement & elem) {
-      if (elem.__isset.num_children) {
-        return elem.num_children;
-      }
-      return 0;
-    }
-
-    parquet::format::SchemaElement & get_schema_item(std::vector<parquet::format::SchemaElement> & schema, const std::size_t index) {
-      if (index >= schema.size()) {
-        throw std::runtime_error("walked off the end of the schema some how...");
-      }
-      return schema[index];
+      return elem.__isset.num_children ? elem.num_children : 0;
     }
 
     /**
@@ -197,22 +183,15 @@ public:
     void filter_schema(std::vector<parquet::format::SchemaElement> & schema, const bool ignore_case,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) {
-      if (current_input_schema_index >= schema.size()) {
-        throw std::runtime_error("walked off the end of the schema some how...");
-      }
-
-      if (tag == STRUCT_TAG) {
+      if (tag == Tag::STRUCT) {
         // First verify that we found a struct, like we expected to find.
-        auto struct_schema_item = get_schema_item(schema, current_input_schema_index);
+        auto struct_schema_item = schema.at(current_input_schema_index);
         bool is_leaf = struct_schema_item.__isset.type;
         if (is_leaf) {
           throw std::runtime_error("Found a leaf node, but expected to find a struct");
         }
 
         int num_children = get_num_children(struct_schema_item);
-        // TODO there is no ConvertedType or LogicalType for a Struct. Need to check what Spark does in cases like this. Probably just
-        //  interprets the map/etc as a struct...
-
         // Now that everything looks good add ourselves into the maps, and move to the next entry to look at.
         schema_map.push_back(current_input_schema_index);
         // We will update the num_children each time we find one...
@@ -223,9 +202,6 @@ public:
         // For a STRUCT we want to look for all of the children that match the name and let each of them handle updating things
         // themselves.
         for (int child_id = 0; child_id < num_children && current_input_schema_index < schema.size(); child_id++) {
-          if (current_input_schema_index >= schema.size()) {
-            throw std::runtime_error("walked off the end of the schema looking for a struct child...");
-          }
           auto schema_item = schema[current_input_schema_index];
           std::string name = get_name(schema_item, ignore_case);
           column_pruner * found = find_child(name);
@@ -239,11 +215,10 @@ public:
             skip(schema, current_input_schema_index, next_input_chunk_index);
           }
         }
-      } else if (tag == VALUE_TAG) {
-        auto schema_item = get_schema_item(schema, current_input_schema_index);
+      } else if (tag == Tag::VALUE) {
+        auto schema_item = schema.at(current_input_schema_index);
         bool is_leaf = schema_item.__isset.type;
         if (!is_leaf) {
-          // TODO check what spark does in this case.
           throw std::runtime_error("found a non-leaf entry when reading a leaf value");
         }
         if (get_num_children(schema_item) != 0) {
@@ -254,12 +229,12 @@ public:
         ++current_input_schema_index;
         chunk_map.push_back(next_input_chunk_index);
         ++next_input_chunk_index;
-      } else if (tag == LIST_TAG) {        
+      } else if (tag == Tag::LIST) {
         // By convention with the java code the child is always called "element"...  
         auto found = find_child("element");
         // A list starts out as a group element(not leaf) with a ConvertedType that is a LIST
         // Under it will be a repeated element
-        auto list_schema_item = get_schema_item(schema, current_input_schema_index);
+        auto list_schema_item = schema.at(current_input_schema_index);
         std::string list_name = list_schema_item.name;
         bool is_group = !list_schema_item.__isset.type;
         if (!is_group) {
@@ -283,7 +258,7 @@ public:
         // 3. If the repeated field is a group with one field and is named either array or uses the LIST-annotated group's name with _tuple appended then the repeated type is the element type and elements are required.
         // 4. Otherwise, the repeated field's type is the element type with the repeated field's repetition.
 
-        auto repeated_field_schema_item = get_schema_item(schema, current_input_schema_index);
+        auto repeated_field_schema_item = schema.at(current_input_schema_index);
         if (!repeated_field_schema_item.__isset.repetition_type || repeated_field_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
           throw std::runtime_error("the structure of the list's child is not standard (non repeating)");
         }
@@ -305,11 +280,11 @@ public:
           // This is for an older format that is some times used where it is just two levels
           found->filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
         }
-      } else if (tag == MAP_TAG) {
+      } else if (tag == Tag::MAP) {
         // By convention with the java code the children are always called "key" and "value"...  
         auto key_found = &(children["key"]);
         auto value_found = &(children["value"]);
-        auto map_schema_item = get_schema_item(schema, current_input_schema_index);
+        auto map_schema_item = schema.at(current_input_schema_index);
 
         // Maps are two levels. An outer group that has a ConvertedType of MAP or MAP_KEY_VALUE
         // and then an inner group that has two fields a key (that is required) and a value, that is optional. 
@@ -333,7 +308,7 @@ public:
         ++current_input_schema_index;
 
         // Now lets look at the repeated child.
-        auto repeated_field_schema_item = get_schema_item(schema, current_input_schema_index);
+        auto repeated_field_schema_item = schema.at(current_input_schema_index);
         if (!repeated_field_schema_item.__isset.repetition_type || repeated_field_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
           throw std::runtime_error("found non repeating map child");
         }
@@ -383,7 +358,7 @@ private:
 
     void add_depth_first(std::vector<std::string> const& names,
             std::vector<int> const& num_children,
-            std::vector<int> const& tags,
+            std::vector<Tag> const& tags,
             int parent_num_children) {
       CUDF_FUNC_RANGE();
       if (parent_num_children == 0) {
@@ -429,7 +404,7 @@ private:
     }
 
     std::map<std::string, column_pruner> children;
-    int tag;
+    Tag tag;
 };
 
 static bool invalid_file_offset(long start_index, long pre_start_index, long pre_compressed_size) {
@@ -583,9 +558,14 @@ JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFil
     cudf::jni::native_jintArray n_num_children(env, num_children);
     cudf::jni::native_jintArray n_tags(env, tags);
 
+    std::vector<rapids::jni::Tag> tags(n_tags.size());
+    for (int i = 0; i < n_tags.size(); i++) {
+      tags[i] = static_cast<rapids::jni::Tag>(n_tags[i]);
+    }
+
     rapids::jni::column_pruner pruner(n_filter_col_names.as_cpp_vector(),
             std::vector(n_num_children.begin(), n_num_children.end()),
-            std::vector(n_tags.begin(), n_tags.end()),
+            tags,
             parent_num_children);
     auto filter = pruner.filter_schema(meta->schema, ignore_case);
 
