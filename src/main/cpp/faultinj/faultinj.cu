@@ -176,6 +176,8 @@ faultInjectionCallbackHandler(
     CUpti_CallbackId cbid,
     void *cbdata
 ) {
+    const std::string faultInjectorKernelPrefix = std::string("faultInjectorKernel");
+
     CUpti_CallbackData *cbInfo = static_cast<CUpti_CallbackData*>(cbdata);
 
     // TODO maybe allow it in the config but right now CUPTI_API_EXIT is generally preferrable
@@ -185,23 +187,63 @@ faultInjectionCallbackHandler(
         return;
     }
 
-    const std::string faultInjectorKernelPrefix = std::string("faultInjectorKernel");
-    if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
-        return;
-    }
-
     // Check last error
     CUPTI_CALL(cuptiGetLastError());
     boost::optional<const boost::property_tree::ptree&> matchedFaultConfig = boost::none;
 
     // TODO make a function, switch to read lock after debugging
     PTHREAD_CALL(pthread_rwlock_rdlock(&globalControl.configLock));
+
+        // check if we are processing the result of our own launch.
+    // symbolName is only valid for launches
+    //
+    // https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_driver_cbid.h
+    // https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_runtime_cbid.h
+    //
     if (domain == CUPTI_CB_DOMAIN_DRIVER_API && globalControl.driverFaultConfigs) {
+        switch (cbid) {
+
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunch:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchGrid:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchGridAsync:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernel:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernel_ptsz:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchCooperativeKernel:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchCooperativeKernel_ptsz:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchCooperativeKernelMultiDevice:
+        case CUPTI_DRIVER_TRACE_CBID_cuGraphLaunch:
+        case CUPTI_DRIVER_TRACE_CBID_cuGraphLaunch_ptsz:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchHostFunc:
+        case CUPTI_DRIVER_TRACE_CBID_cuLaunchHostFunc_ptsz:
+        // 11.7
+        // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx:
+        // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx_ptsz:
+            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
+                return;
+            }
+        }
         // std::cerr << "#### looking up config for Driver callback: " << cbInfo->functionName << std::endl;
         matchedFaultConfig = (*globalControl.driverFaultConfigs)
             .get_child_optional(cbInfo->functionName);
     }
     if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
+        switch (cbid) {
+
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunch_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunch_ptsz_v7000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_ptsz_v7000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchCooperativeKernel_v9000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchCooperativeKernel_ptsz_v9000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchCooperativeKernelMultiDevice_v9000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchHostFunc_v10000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchHostFunc_ptsz_v10000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_v10000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_ptsz_v10000:
+            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
+                return;
+            }
+        }
         // std::cerr << "#### looking up config for Runtime callback: " << cbInfo->functionName << std::endl;
         matchedFaultConfig = (*globalControl.runtimeFaultConfigs)
             .get_child_optional(cbInfo->functionName);
