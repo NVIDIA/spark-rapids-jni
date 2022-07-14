@@ -4,13 +4,7 @@
         "cudaLaunchKernel_ptsz": {
             "prob": 0.00,
             "injectionType": 0,
-            "injectionType_comment": "PTX trap",
-            "interceptionCount": 1
-        },
-        "cudaFree": {
-            "prob": 0.00,
-            "injectionType": 1,
-            "injectionType_comment": "C assert",
+            "injectionType_comment": "PTX trap = 0, C assert = 1",
             "interceptionCount": 1
         }
     },
