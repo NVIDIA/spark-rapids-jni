@@ -14,7 +14,7 @@
             "prob": 0.00,
             "injectionType": 2,
             "injectionType_comment": "substitute return code",
-            "substituteReturnCode": 1,
+            "substituteReturnCode": 2,
             "substituteReturnCode_comment": "CUDA_ERROR_OUT_OF_MEMORY = 2, CUDA_ERROR_INVALID_VALUE = 1",
             "interceptionCount": 1
         }

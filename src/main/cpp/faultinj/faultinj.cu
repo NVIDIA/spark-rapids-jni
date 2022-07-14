@@ -1,28 +1,17 @@
 /*
- * Copyright 2020 NVIDIA Corporation. All rights reserved.
+ * Copyright (c) 2022, NVIDIA CORPORATION.
  *
- * Sample CUPTI based injection to attach and detach CUPTI
- * For detaching, it uses CUPTI API cuptiFinalize().
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * It is recommended to invoke API cuptiFinalize() in the
- * exit callsite of any CUDA Driver/Runtime API.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * API cuptiFinalize() destroys and cleans up all the
- * resources associated with CUPTI in the current process.
- * After CUPTI detaches from the process, the process will
- * keep on running with no CUPTI attached to it.
- *
- * CUPTI can be attached by calling any CUPTI API as CUPTI
- * supports lazy initialization. Any subsequent CUPTI API
- * call will reinitialize the CUPTI.
- *
- * You can attach and detach CUPTI any number of times.
- *
- * After building the sample, set the following environment variable
- * export CUDA_INJECTION64_PATH=<full_path>/libCuptiFinalize.so
- * Add CUPTI library in LD_LIBRARY_PATH and run any CUDA sample
- * with runtime more than 10 sec for demonstration of the
- * CUPTI sample
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include <cuda.h>
