@@ -1,6 +1,6 @@
 {
     "cudaRuntimeFaults": {
-        "cudaLaunchKernel": {
+        "cudaLaunchKernel_ptsz": {
             "prob": 0.0,
             "injectionType": 0,
             "injectionType_comment": "PTX trap",
@@ -15,12 +15,12 @@
     },
 
     "cudaDriverFaults": {
-        "cuCtxGetDevice": {
+        "cuLaunchKernel_ptsz": {
             "prob": 0.0,
             "injectionType": 2,
             "injectionType_comment": "substitute return code",
-            "substituteReturnCode": 909,
-            "substituteReturnCode_comment": "CUDA_ERROR_TIMEOUT",
+            "substituteReturnCode": 2,
+            "substituteReturnCode_comment": "CUDA_ERROR_OUT_OF_MEMORY",
             "interceptionCount": 1
         }
     }

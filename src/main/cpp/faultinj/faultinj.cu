@@ -218,11 +218,13 @@ faultInjectionCallbackHandler(
         // 11.7
         // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx:
         // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx_ptsz:
-            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
+            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
+                std::cerr << "#### GERA_DEBUG rejecting fake launch functionName= " << cbInfo->functionName
+                    << " symbol=" << cbInfo->symbolName
+                    << std::endl;
                 return;
             }
         }
-        // std::cerr << "#### looking up config for Driver callback: " << cbInfo->functionName << std::endl;
         matchedFaultConfig = (*globalControl.driverFaultConfigs)
             .get_child_optional(cbInfo->functionName);
     }
@@ -240,11 +242,13 @@ faultInjectionCallbackHandler(
         case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchHostFunc_ptsz_v10000:
         case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_v10000:
         case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_ptsz_v10000:
-            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix)) {
+            if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
+                std::cerr << "#### GERA_DEBUG rejecting fake launch functionName= " << cbInfo->functionName
+                    << " symbol=" << cbInfo->symbolName
+                    << std::endl;
                 return;
             }
         }
-        // std::cerr << "#### looking up config for Runtime callback: " << cbInfo->functionName << std::endl;
         matchedFaultConfig = (*globalControl.runtimeFaultConfigs)
             .get_child_optional(cbInfo->functionName);
     }
