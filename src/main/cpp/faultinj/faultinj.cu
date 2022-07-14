@@ -75,10 +75,10 @@ typedef enum {
 typedef struct {
     volatile uint32_t initialized;
     CUpti_SubscriberHandle  subscriber;
+
     int frequency;
-
     int terminateThread;
-
+    pthread_t dynamicThread;
     pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
 
     boost::property_tree::ptree configRoot;
@@ -102,7 +102,7 @@ extern int STDCALL InitializeInjection(void);
 static CUptiResult cuptiInitialize(void);
 static void readFaultInjectorConfig(void);
 static void parseConfig(boost::property_tree::ptree const& pTree);
-
+static void *dynamicReconfig(void *args);
 
 // Function Definitions
 
@@ -111,10 +111,8 @@ globalControlInit(void) {
     std::cerr << "#### globalControlInit of fault injection" << std::endl ;
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
-    globalControl.frequency = 2; // in seconds
+    globalControl.frequency = 10; // poll config file every 10 seconds
     globalControl.terminateThread = 0;
-
-    // TODO threading
 
     readFaultInjectorConfig();
 }
@@ -129,6 +127,8 @@ registerAtExitHandler(void) {
 static void
 atExitHandler(void) {
     globalControl.terminateThread = 1;
+    PTHREAD_CALL(pthread_join(globalControl.dynamicThread, NULL));
+    std::cerr << "Reconfig thread shut down ... exiting" << std::endl;
 }
 
 
@@ -270,15 +270,15 @@ faultInjectionCallbackHandler(
         .get_optional<double>("prob")
         .value_or(0.0);
 
-    std::cerr << "#### matched config domain=" << domain
-              << " function=" << cbInfo->functionName
-              << " injectionType=" << injectionType
-              << " injectionProbability=" << injectionProbability
-              << std::endl;
-
-    // TODO per-config RNG
-    if (injectionProbability == 0) {
-        return;
+    // std::cerr << "#### matched config domain=" << domain
+    //           << " function=" << cbInfo->functionName
+    //           << " injectionType=" << injectionType
+    //           << " injectionProbability=" << injectionProbability
+    //           << std::endl;
+    if (injectionProbability < 1.0) {
+        if (injectionProbability == 0.0 || rand() % 10000 >= injectionProbability * 10000) {
+            return;
+        }
     }
 
     switch (injectionType)
@@ -321,6 +321,8 @@ InitializeInjection(void) {
 
     registerAtExitHandler();
 
+    PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, NULL, dynamicReconfig, NULL));
+
     // Initialize CUPTI
     CUPTI_CALL(cuptiInitialize());
 
@@ -343,7 +345,7 @@ readFaultInjectorConfig(void) {
 
     PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
     boost::property_tree::read_json(jsonStream, globalControl.configRoot);
-    parseConfig(globalControl.configRoot);
+    // parseConfig(globalControl.configRoot);
     globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
     globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
@@ -360,4 +362,11 @@ parseConfig(boost::property_tree::ptree const& pTree) {
     }
 }
 
-
+static void *
+dynamicReconfig(void *args) {
+    while (!globalControl.terminateThread) {
+        sleep(globalControl.frequency);
+        readFaultInjectorConfig();
+    }
+    return NULL;
+}
