@@ -99,7 +99,6 @@ that includes changes from the pr2 branch in ~/repos/NVIDIA/spark-rapids-jni and
 We can use use the following method. Once we are done with our changes to the pr1 branch in
 ~/repos/rapidsai/cuDF, we git commit changes locally.
 
-
 Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule temporarily to the pr1
 branch
 
