@@ -80,6 +80,54 @@ to control aspects of the build:
 |`libcudf.clean.skip`                |Whether to skip cleaning libcudf build |true   |
 |`submodule.check.skip`              |Whether to skip checking git submodules|false  |
 
+
+### Local testing of cross-repo contributions cudf, spark-rapids-jni, and spark-rapids
+
+When we work on a feauture a bug fix across repositories, it is beneficial to be able to
+run manual and integration tests end to end on the full stack from Apache Spark
+with spark-rapids Plugin upfront before merging PRs. So we are dealing with a subset of the following:
+
+Local PR branches for
+- ~/repos/rapidsai/cuDF, branch pr1
+- ~/repos/NVIDIA/spark-rapids-jni, branch pr2
+- ~/repos/NVIDIA/spark-rapids, branch pr3
+
+Our end goal is to build rapids-4-spark dist jar in the pr3 branch under ~/repos/NVIDIA/spark-rapids
+that includes changes from the pr2 branch in ~/repos/NVIDIA/spark-rapids-jni and the pr1 branch in
+~/repos/rapidsai/cuDF
+
+We can use use the following method. Once we are done with our changes to the pr1 branch in
+~/repos/rapidsai/cuDF, we git commit changes locally.
+
+
+Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule tempoorarily to the pr1
+branch
+
+```bash
+$ git submodule thirdparty/cudf set-url ~/repos/rapidsai/cudf
+$ git submodule set-branch --branch pr1 thirdparty/cudf
+```
+
+Sync pr1 into our pr2 branch in ~/repos/NVIDIA/spark-rapids-jni
+```bash
+$ git submodule sync --recursive
+$ git submodule update --init --recursive --remote
+```
+
+spark-rapids will consume spark-rapids-jni pr2 changes from the local Maven cache after
+we run `mvn install` via `build/build-in-docker` in ~/repos/NVIDIA/spark-rapids-jni skipping the submodule check.
+
+```bash
+$ ./build/build-in-docker install -Dsubmodule.check.skip=true ...
+```
+
+Now cd to ~/repos/NVIDIA/spark-rapids and build per
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-22.08/CONTRIBUTING.md#building-from-source).
+
+```
+$ ./build/buildall
+```
+
 ### Building on Windows in WSL2
 Building on Windows can be done if your Windows build version supports
 [WSL2](https://docs.microsoft.com/en-us/windows/wsl/install). You can create a minimum
