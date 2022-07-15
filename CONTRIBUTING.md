@@ -104,7 +104,7 @@ Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule tempo
 branch
 
 ```bash
-$ git submodule thirdparty/cudf set-url ~/repos/rapidsai/cudf
+$ git submodule set-url thirdparty/cudf ~/repos/rapidsai/cudf
 $ git submodule set-branch --branch pr1 thirdparty/cudf
 ```
 
@@ -124,8 +124,16 @@ $ ./build/build-in-docker install -Dsubmodule.check.skip=true ...
 Now cd to ~/repos/NVIDIA/spark-rapids and build per
 [spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-22.08/CONTRIBUTING.md#building-from-source).
 
-```
+```bash
 $ ./build/buildall
+```
+
+Prior to switching to another spark-rapids-jni or submiting a PR to NVIDIA/spark-rapids-jni,
+we should undo the cudf submodule modification.
+
+```
+$ cd ~/repos/NVIDIA/spark-rapids-jni
+$ git restore .gitmodules
 ```
 
 ### Building on Windows in WSL2
