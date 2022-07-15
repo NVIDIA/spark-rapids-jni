@@ -210,12 +210,12 @@ private:
         for (int child_id = 0; child_id < num_children && current_input_schema_index < schema.size(); child_id++) {
           auto schema_item = schema[current_input_schema_index];
           std::string name = get_name(schema_item, ignore_case);
-          const column_pruner * found = find_child(name);
+          auto found = children.find(name);
 
-          if (found != nullptr) {
+          if (found != children.end()) {
             // found a match so update the number of children that passed the filter and ask it to filter itself.
             ++schema_num_children[our_num_children_index];
-            found->filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
+            found->second.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
           } else {
             // No match was found so skip the child.
             skip(schema, current_input_schema_index, next_input_chunk_index);
