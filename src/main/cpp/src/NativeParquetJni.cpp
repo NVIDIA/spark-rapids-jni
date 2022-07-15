@@ -154,11 +154,6 @@ private:
       return normalize_case ? unicode_to_lower(elem.name) : elem.name;
     }
 
-    column_pruner const * find_child(std::string name) const {
-      auto found_it = children.find(name);
-      return (found_it != children.end()) ? &(found_it->second) : nullptr;
-    }
-
     int get_num_children(parquet::format::SchemaElement & elem) const {
       return elem.__isset.num_children ? elem.num_children : 0;
     }
