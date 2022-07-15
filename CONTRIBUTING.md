@@ -83,24 +83,24 @@ to control aspects of the build:
 
 ### Local testing of cross-repo contributions cudf, spark-rapids-jni, and spark-rapids
 
-When we work on a feauture a bug fix across repositories, it is beneficial to be able to
+When we work on a feauture or a bug fix across repositories, it is beneficial to be able to
 run manual and integration tests end to end on the full stack from Apache Spark
-with spark-rapids Plugin upfront before merging PRs. So we are dealing with a subset of the following:
+with spark-rapids Plugin upfront before merging the PRs. So we are dealing with a subset of the following:
 
 Local PR branches for
 - ~/repos/rapidsai/cuDF, branch pr1
 - ~/repos/NVIDIA/spark-rapids-jni, branch pr2
 - ~/repos/NVIDIA/spark-rapids, branch pr3
 
-Our end goal is to build rapids-4-spark dist jar in the pr3 branch under ~/repos/NVIDIA/spark-rapids
+Our end goal is to build the rapids-4-spark dist jar in the pr3 branch under ~/repos/NVIDIA/spark-rapids
 that includes changes from the pr2 branch in ~/repos/NVIDIA/spark-rapids-jni and the pr1 branch in
-~/repos/rapidsai/cuDF
+~/repos/rapidsai/cuDF that we will test with Spark.
 
 We can use use the following method. Once we are done with our changes to the pr1 branch in
 ~/repos/rapidsai/cuDF, we git commit changes locally.
 
 
-Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule tempoorarily to the pr1
+Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule temporarily to the pr1
 branch
 
 ```bash
