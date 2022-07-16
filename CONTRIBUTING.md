@@ -83,9 +83,9 @@ to control aspects of the build:
 
 ### Local testing of cross-repo contributions cudf, spark-rapids-jni, and spark-rapids
 
-When we work on a feauture or a bug fix across repositories, it is beneficial to be able to
+When we work on a feature or a bug fix across repositories, it is beneficial to be able to
 run manual and integration tests end to end on the full stack from Apache Spark
-with spark-rapids Plugin upfront before merging the PRs. So we are dealing with a subset of the following:
+with spark-rapids plugin upfront before merging the PRs. So we are dealing with a subset of the following:
 
 Local PR branches for
 - ~/repos/rapidsai/cuDF, branch pr1
