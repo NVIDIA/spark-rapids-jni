@@ -183,7 +183,7 @@ faultInjectionCallbackHandler(
     // TODO make a function, switch to read lock after debugging
     PTHREAD_CALL(pthread_rwlock_rdlock(&globalControl.configLock));
 
-        // check if we are processing the result of our own launch.
+    // check if we are processing the result of our own launch.
     // symbolName is only valid for launches
     //
     // https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_driver_cbid.h
