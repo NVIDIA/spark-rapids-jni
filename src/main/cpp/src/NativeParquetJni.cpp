@@ -132,7 +132,7 @@ public:
     /**
      * Given a schema from a parquet file create a set of pruning maps to prune columns from the rest of the footer
      */
-    column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> & schema, bool const ignore_case) const {
+    column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case) const {
       CUDF_FUNC_RANGE();
 
       // These are the outputs of the computation.
@@ -182,7 +182,7 @@ private:
     /**
      * filter_schema, but specific to Tag::STRUCT.
      */
-    void filter_schema_struct(std::vector<parquet::format::SchemaElement> & schema, bool const ignore_case,
+    void filter_schema_struct(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
         // First verify that we found a struct, like we expected to find.
@@ -221,7 +221,7 @@ private:
     /**
      * filter_schema, but specific to Tag::VALUE.
      */
-    void filter_schema_value(std::vector<parquet::format::SchemaElement> & schema,
+    void filter_schema_value(std::vector<parquet::format::SchemaElement> const & schema,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
         auto schema_item = schema.at(current_input_schema_index);
@@ -242,7 +242,7 @@ private:
     /**
      * filter_schema, but specific to Tag::LIST.
      */
-    void filter_schema_list(std::vector<parquet::format::SchemaElement> & schema, bool const ignore_case,
+    void filter_schema_list(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
         // By convention with the java code the child is always called "element"...  
@@ -301,7 +301,7 @@ private:
     /**
      * filter_schema, but specific to Tag::MAP.
      */
-    void filter_schema_map(std::vector<parquet::format::SchemaElement> & schema, bool const ignore_case,
+    void filter_schema_map(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
         // By convention with the java code the children are always called "key" and "value"...  
@@ -361,7 +361,7 @@ private:
      * current_input_schema_index and next_input_chunk_index are also outputs but are state that is
      * passed to each child and returned when it comsumes comething.
      */
-    void filter_schema(std::vector<parquet::format::SchemaElement> & schema, bool const ignore_case,
+    void filter_schema(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
             std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
             std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
       switch(tag) {
@@ -383,7 +383,7 @@ private:
     }
 
     /**
-     * Do a depth first traversal to build up this.
+     * Do a depth first traversal to build up column_pruner into a tree that matches the schema we want to filter using.
      */
     void add_depth_first(std::vector<std::string> const& names,
             std::vector<int> const& num_children,
