@@ -114,10 +114,12 @@ $ git submodule update --init --recursive --remote
 ```
 
 spark-rapids will consume spark-rapids-jni pr2 changes from the local Maven cache after
-we run `mvn install` via `build/build-in-docker` in ~/repos/NVIDIA/spark-rapids-jni skipping the submodule check.
+we run `mvn install` via `build/build-in-docker` in ~/repos/NVIDIA/spark-rapids-jni.
+Make sure to stage thirdparty/cudf with `git add` to satifsfy build's submodule check.
 
 ```bash
-$ ./build/build-in-docker install -Dsubmodule.check.skip=true ...
+$ git add thirdparty/cudf
+$ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build per
@@ -133,6 +135,7 @@ we should undo the cudf submodule modification.
 ```
 $ cd ~/repos/NVIDIA/spark-rapids-jni
 $ git restore .gitmodules
+$ git restore --staged thirdparty/cudf
 ```
 
 ### Building on Windows in WSL2
