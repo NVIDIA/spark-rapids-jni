@@ -141,9 +141,11 @@ faultInjectorKernelAssert(void) {
 }
 
 static void
-deviceAssertAndSync(void) {
+deviceAssertAndSync(bool isSync) {
     faultInjectorKernelAssert<<<1,1>>>();
-    cudaDeviceSynchronize();
+    if (isSync) {
+        cudaDeviceSynchronize();
+    }
 }
 
 
@@ -153,9 +155,11 @@ faultInjectorKernelTrap(void) {
 }
 
 static void
-deviceAsmTrapAndSync(void) {
+deviceAsmTrapAndSync(bool isSync) {
     faultInjectorKernelTrap<<<1,1>>>();
-    cudaDeviceSynchronize();
+    if (isSync) {
+        cudaDeviceSynchronize();
+    }
 }
 
 
@@ -295,11 +299,11 @@ faultInjectionCallbackHandler(
     switch (injectionType)
     {
     case FI_TRAP:
-        deviceAsmTrapAndSync();
+        deviceAsmTrapAndSync(false);
         break;
 
     case FI_ASSERT:
-        deviceAssertAndSync();
+        deviceAssertAndSync(false);
         break;
 
     case FI_RETURN_VALUE:
