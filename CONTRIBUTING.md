@@ -133,7 +133,7 @@ $ git submodule update --init --recursive --remote
 
 #### Building final spark-rapids artifact with pr1, pr2, and pr3 changes
 Regardless what option we have used to make cuDF changes, we proceed with building
-spark-rapids-jni. The spark-rapids repo will consume spark-rapids-jni pr2 changes
+spark-rapids-jni. The spark-rapids repo will consume spark-rapids-jni with pr1 and pr2 changes
 from the local Maven cache after we run `mvn install` via `build/build-in-docker`
 in ~/repos/NVIDIA/spark-rapids-jni.
 
