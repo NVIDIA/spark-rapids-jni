@@ -221,6 +221,45 @@
         </plugins>
       </build>
     </profile>
+      <profile>
+      <id>test-cpp</id>
+      <activation>
+        <property>
+          <name>BUILD_TESTS</name>
+          <value>ON</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.0.0</version>
+            <executions>
+              <execution>
+                <id>test-sparkrapidsjni</id>
+                <phase>test</phase>
+                <configuration>
+                  <target>
+                    <exec dir="${project.basedir}" 
+                          failonerror="true"
+                          executable="cmake">
+                        <arg value="--build"/>
+                        <arg value="${project.build.directory}/cmake-build"/>
+                        <arg value="--target"/>
+                        <arg value="test"/>
+                    </exec>
+                  </target>
+                </configuration>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <build>
