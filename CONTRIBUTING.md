@@ -85,18 +85,36 @@ to control aspects of the build:
 
 When we work on a feature or a bug fix across repositories, it is beneficial to be able to
 run manual and integration tests end to end on the full stack from Apache Spark
-with spark-rapids plugin upfront before merging the PRs. So we are dealing with a subset of the following:
+with spark-rapids plugin upfront before merging the PRs.
+
+So we are dealing with a subset of the following:
 
 Local PR branches for
-- ~/repos/rapidsai/cuDF, branch pr1
-- ~/repos/NVIDIA/spark-rapids-jni, branch pr2
-- ~/repos/NVIDIA/spark-rapids, branch pr3
+- rapidsai/cuDF, branch pr1
+- NVIDIA/spark-rapids-jni, branch pr2
+- NVIDIA/spark-rapids, branch pr3
 
-Our end goal is to build the rapids-4-spark dist jar in the pr3 branch under ~/repos/NVIDIA/spark-rapids
-that includes changes from the pr2 branch in ~/repos/NVIDIA/spark-rapids-jni and the pr1 branch in
-~/repos/rapidsai/cuDF that we will test with Spark.
+Our end goal is to build the rapids-4-spark dist jar in the pr3 branch under local repo path
+~/repos/NVIDIA/spark-rapids that includes changes from the pr2 branch in
+~/repos/NVIDIA/spark-rapids-jni and the pr1 branch in rapidsai/cuDF that we will test
+with Spark. There are two options for working on pr3.
 
-We can use use the following method. Once we are done with our changes to the pr1 branch in
+#### Option 1: Working on cuDF PR inside the the submodule in spark-rapids-jni
+To avoid retargeting the submodule to the local cuDF repo as below, we might find it easier
+to make changes locally under ~/repos/NVIDIA/spark-rapids-jni/thirdparty/cudf directly.
+
+In order to push pr1 to create a pull request, we need to add a remote to the submodule for the cuDF
+fork in our account
+
+```bash
+$ cd ~/repos/NVIDIA/spark-rapids-jni/thirdparty/cudf
+$ git remote add <user> git@github.com:<user>/cudf.git
+# make and commit changes
+$ git push <user>
+```
+
+#### Option 2: Working on cuDF PR in a conventional local cuDF fork
+Once we are done with our changes to the pr1 branch in
 ~/repos/rapidsai/cuDF, we git commit changes locally.
 
 Then we cd to ~/repos/NVIDIA/spark-rapids-jni and point the cudf submodule temporarily to the pr1
@@ -113,10 +131,13 @@ $ git submodule sync --recursive
 $ git submodule update --init --recursive --remote
 ```
 
-spark-rapids will consume spark-rapids-jni pr2 changes from the local Maven cache after
-we run `mvn install` via `build/build-in-docker` in ~/repos/NVIDIA/spark-rapids-jni.
-Make sure to stage thirdparty/cudf with `git add` to satifsfy build's submodule check.
+#### Building final spark-rapids artifact with pr1, pr2, and pr3 changes
+Regardless what option we have used to make cuDF changes, we proceed with building
+spark-rapids-jni. The spark-rapids repo will consume spark-rapids-jni pr2 changes
+from the local Maven cache after we run `mvn install` via `build/build-in-docker`
+in ~/repos/NVIDIA/spark-rapids-jni.
 
+Make sure to stage thirdparty/cudf with `git add` to satifsfy build's submodule check.
 ```bash
 $ git add thirdparty/cudf
 $ ./build/build-in-docker install ...
@@ -129,9 +150,43 @@ Now cd to ~/repos/NVIDIA/spark-rapids and build per
 $ ./build/buildall
 ```
 
-Prior to switching to another spark-rapids-jni or submiting a PR to NVIDIA/spark-rapids-jni,
-we should undo the cudf submodule modification.
+Since we rely on local Maven cache we need to pay extra attention to make sure that
+the final rapids-4-spark artifact included locally built dependencies as opposed to
+CI-built snapshot dependencies from the remote Maven repo. This may happen if Maven
+is invoked with `--offline` or `--no-snapshot-updates` option due to IDE-Maven
+interactions in the background. To confirm that the artifact is correct we can either enable INFO logging in Spark or directly inspect the resulting jar for build info:
+```bash
+$ unzip -c dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar *version-info.properties
+Archive:  dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar
+  inflating: cudf-java-version-info.properties
+version=22.08.0-SNAPSHOT
+user=
+revision=62657ad6a296ea3547417504652e3b8836b020fb
+branch=testCUDF_pr1
+date=2022-07-19T21:48:15Z
+url=https://github.com/rapidsai/cudf.git
 
+  inflating: spark-rapids-jni-version-info.properties
+version=22.08.0-SNAPSHOT
+user=
+revision=70adcc86a513ad6665968021c669fbca7515a188
+branch=pr/user1/381
+date=2022-07-19T21:48:15Z
+url=git@github.com:NVIDIA/spark-rapids-jni.git
+
+  inflating: rapids4spark-version-info.properties
+version=22.08.0-SNAPSHOT
+cudf_version=22.08.0-SNAPSHOT
+user=user1
+revision=6453047ef479b5ec79384c5150c50af2f50f563e
+branch=aqeFinalPlanOnGPUDoc
+date=2022-07-19T21:51:52Z
+url=https://github.com/NVIDIA/spark-rapids
+```
+and verify that branch names and revisions correspond the local repos.
+
+When we are ready to move on, prior to switching to another spark-rapids-jni branch
+or submiting a PR to NVIDIA/spark-rapids-jni, we should undo the cudf submodule modifications.
 ```
 $ cd ~/repos/NVIDIA/spark-rapids-jni
 $ git restore .gitmodules
