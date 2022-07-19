@@ -97,7 +97,7 @@ Local PR branches for
 Our end goal is to build the rapids-4-spark dist jar in the pr3 branch under local repo path
 ~/repos/NVIDIA/spark-rapids that includes changes from the pr2 branch in
 ~/repos/NVIDIA/spark-rapids-jni and the pr1 branch in rapidsai/cuDF that we will test
-with Spark. There are two options for working on pr3.
+with Spark. There are two options for working on pr1.
 
 #### Option 1: Working on cuDF PR inside the the submodule in spark-rapids-jni
 To avoid retargeting the submodule to the local cuDF repo as below, we might find it easier
