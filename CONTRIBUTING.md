@@ -143,7 +143,7 @@ $ git add thirdparty/cudf
 $ ./build/build-in-docker install ...
 ```
 
-Now cd to ~/repos/NVIDIA/spark-rapids and build per
+Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
 [spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-22.08/CONTRIBUTING.md#building-from-source).
 
 ```bash
@@ -151,10 +151,12 @@ $ ./build/buildall
 ```
 
 Since we rely on local Maven cache we need to pay extra attention to make sure that
-the final rapids-4-spark artifact included locally built dependencies as opposed to
+the final rapids-4-spark artifact includes the locally built dependencies as opposed to
 CI-built snapshot dependencies from the remote Maven repo. This may happen if Maven
 is invoked with `--offline` or `--no-snapshot-updates` option due to IDE-Maven
-interactions in the background. To confirm that the artifact is correct we can either enable INFO logging in Spark or directly inspect the resulting jar for build info:
+interactions in the background. To confirm that the artifact is correct we can either enable
+[INFO logging in Spark](https://github.com/NVIDIA/spark-rapids/blob/4c77f0db58d229b2e6cb75c196934fcc0ae3a485/sql-plugin/src/main/scala/com/nvidia/spark/rapids/Plugin.scala#L73-L83)
+or directly inspect the resulting jar for build info:
 ```bash
 $ unzip -c dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar *version-info.properties
 Archive:  dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar
@@ -183,7 +185,8 @@ branch=aqeFinalPlanOnGPUDoc
 date=2022-07-19T21:51:52Z
 url=https://github.com/NVIDIA/spark-rapids
 ```
-and verify that branch names and revisions correspond the local repos.
+and verify that the branch names and the revisions in the console output
+correspond the local repos.
 
 When we are ready to move on, prior to switching to another spark-rapids-jni branch
 or submiting a PR to NVIDIA/spark-rapids-jni, we should undo the cudf submodule modifications.
