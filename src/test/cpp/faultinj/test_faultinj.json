@@ -10,12 +10,11 @@
     },
 
     "cudaDriverFaults": {
-        "cuLaunchKernel_ptsz": {
-            "prob": 0.00,
-            "injectionType": 2,
+        "cuMemFreeAsync_ptsz": {
+            "prob": 0.01,
+            "injectionType": 1,
             "injectionType_comment": "substitute return code",
-            "substituteReturnCode": 2,
-            "substituteReturnCode_comment": "CUDA_ERROR_OUT_OF_MEMORY = 2, CUDA_ERROR_INVALID_VALUE = 1",
+            "substituteReturnCode": 999,
             "interceptionCount": 1
         }
     }

@@ -158,6 +158,25 @@ deviceAsmTrapAndSync(void) {
     cudaDeviceSynchronize();
 }
 
+
+static boost::optional<boost::property_tree::ptree&>
+lookupConfig(
+    boost::optional<boost::property_tree::ptree&> domainConfigs,
+    const char *key,
+    CUpti_CallbackId cbid
+) {
+    boost::optional<boost::property_tree::ptree&> faultConfig =
+        (*domainConfigs).get_child_optional(std::to_string(cbid));
+    if (!faultConfig) {
+        faultConfig = (*domainConfigs).get_child_optional(key);
+    }
+    if (!faultConfig) {
+        faultConfig = (*domainConfigs).get_child_optional("*");
+    }
+    return faultConfig;
+}
+
+
 static void CUPTIAPI
 faultInjectionCallbackHandler(
     void *userdata,
@@ -214,8 +233,7 @@ faultInjectionCallbackHandler(
                 return;
             }
         }
-        matchedFaultConfig = (*globalControl.driverFaultConfigs)
-            .get_child_optional(cbInfo->functionName);
+        matchedFaultConfig = lookupConfig(globalControl.driverFaultConfigs, cbInfo->functionName, cbid);
     }
     if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
         switch (cbid) {
@@ -238,8 +256,7 @@ faultInjectionCallbackHandler(
                 return;
             }
         }
-        matchedFaultConfig = (*globalControl.runtimeFaultConfigs)
-            .get_child_optional(cbInfo->functionName);
+        matchedFaultConfig = lookupConfig(globalControl.runtimeFaultConfigs, cbInfo->functionName, cbid);
     }
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
 
@@ -259,16 +276,21 @@ faultInjectionCallbackHandler(
         .get_optional<double>("prob")
         .value_or(0.0);
 
-    // std::cerr << "#### matched config domain=" << domain
-    //           << " function=" << cbInfo->functionName
-    //           << " injectionType=" << injectionType
-    //           << " injectionProbability=" << injectionProbability
-    //           << std::endl;
+    std::cerr << "#### considered config domain=" << domain
+              << " function=" << cbInfo->functionName
+              << " injectionType=" << injectionType
+              << " injectionProbability=" << injectionProbability
+              << std::endl;
     if (injectionProbability < 1.0) {
         if (injectionProbability == 0.0 || rand() % 10000 >= injectionProbability * 10000) {
             return;
         }
     }
+    std::cerr << "#### matched config domain=" << domain
+              << " function=" << cbInfo->functionName
+              << " injectionType=" << injectionType
+              << " injectionProbability=" << injectionProbability
+              << std::endl;
 
     switch (injectionType)
     {
