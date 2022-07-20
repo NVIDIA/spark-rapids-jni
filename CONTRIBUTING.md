@@ -152,7 +152,7 @@ $ ./build/buildall
 
 Since we rely on local Maven cache we need to pay extra attention to make sure that
 the final rapids-4-spark artifact includes the locally built dependencies as opposed to
-CI-built snapshot dependencies from the remote Maven repo. This may happen if Maven
+CI-built snapshot dependencies from the remote Maven repo. This may happen even if Maven
 is invoked with `--offline` or `--no-snapshot-updates` option due to IDE-Maven
 interactions in the background. To confirm that the artifact is correct we can either enable
 [INFO logging in Spark](https://github.com/NVIDIA/spark-rapids/blob/4c77f0db58d229b2e6cb75c196934fcc0ae3a485/sql-plugin/src/main/scala/com/nvidia/spark/rapids/Plugin.scala#L73-L83)
