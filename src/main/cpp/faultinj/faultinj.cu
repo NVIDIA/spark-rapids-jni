@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
+#include <assert.h>
 #include <cuda.h>
 #include <cupti.h>
-
 #include <iostream>
 #include <map>
-#include <assert.h>
 #include <pthread.h>
 
 #define BOOST_SPIRIT_THREADSAFE
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+
+#include <spdlog/spdlog.h>
 
 #define STDCALL
 inline const std::string FAULT_INJECTOR_CONFIG_PATH{"FAULT_INJECTOR_CONFIG_PATH"};
@@ -97,7 +98,7 @@ static void *dynamicReconfig(void *args);
 
 static void
 globalControlInit(void) {
-    std::cerr << "#### globalControlInit of fault injection" << std::endl ;
+    spdlog::trace("globalControlInit of fault injection");
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
     globalControl.frequency = 10; // poll config file every 10 seconds
@@ -117,7 +118,7 @@ static void
 atExitHandler(void) {
     globalControl.terminateThread = 1;
     PTHREAD_CALL(pthread_join(globalControl.dynamicThread, NULL));
-    std::cerr << "Reconfig thread shut down ... exiting" << std::endl;
+    spdlog::info("reconfig thread shut down ... exiting");
 }
 
 
@@ -231,9 +232,8 @@ faultInjectionCallbackHandler(
         // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx:
         // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx_ptsz:
             if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
-                std::cerr << "#### GERA_DEBUG rejecting fake launch functionName= " << cbInfo->functionName
-                    << " symbol=" << cbInfo->symbolName
-                    << std::endl;
+                spdlog::debug("rejecting fake launch functionName={} symbol={}",
+                    cbInfo->functionName, cbInfo->symbolName);
                 return;
             }
         }
@@ -254,9 +254,8 @@ faultInjectionCallbackHandler(
         case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_v10000:
         case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_ptsz_v10000:
             if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
-                std::cerr << "#### GERA_DEBUG rejecting fake launch functionName= " << cbInfo->functionName
-                    << " symbol=" << cbInfo->symbolName
-                    << std::endl;
+                spdlog::debug("rejecting fake launch functionName={} symbol={}",
+                    cbInfo->functionName, cbInfo->symbolName);
                 return;
             }
         }
@@ -280,21 +279,15 @@ faultInjectionCallbackHandler(
         .get_optional<double>("prob")
         .value_or(0.0);
 
-    std::cerr << "#### considered config domain=" << domain
-              << " function=" << cbInfo->functionName
-              << " injectionType=" << injectionType
-              << " injectionProbability=" << injectionProbability
-              << std::endl;
+    spdlog::trace("considered config domain={} function={} injectionType={} probability={}",
+        domain, cbInfo->functionName, injectionType, injectionProbability);
     if (injectionProbability < 1.0) {
         if (injectionProbability == 0.0 || rand() % 10000 >= injectionProbability * 10000) {
             return;
         }
     }
-    std::cerr << "#### matched config domain=" << domain
-              << " function=" << cbInfo->functionName
-              << " injectionType=" << injectionType
-              << " injectionProbability=" << injectionProbability
-              << std::endl;
+    spdlog::trace("matched config domain={} function={} injectionType={} probability={}",
+        domain, cbInfo->functionName, injectionType, injectionProbability);
 
     switch (injectionType)
     {
@@ -309,11 +302,10 @@ faultInjectionCallbackHandler(
     case FI_RETURN_VALUE:
         if (domain == CUPTI_CB_DOMAIN_DRIVER_API) {
             CUresult *cuResPtr = static_cast<CUresult*>(cbInfo->functionReturnValue);
-            std::cerr << "'s CUresult return value: " << *cuResPtr << std::endl;
             *cuResPtr = static_cast<CUresult>(substituteReturnCode);
         } else if (domain == CUPTI_CB_DOMAIN_RUNTIME_API) {
             cudaError_t *cudaErrPtr = static_cast<cudaError_t*>(cbInfo->functionReturnValue);
-            std::cerr  <<  "'s cudaError_t return value: " << *cudaErrPtr << " DOES NOT WORK" << std::endl;
+            spdlog::error("updating runtime return value DOES NOT WORK, use trap or assert");
             *cudaErrPtr = static_cast<cudaError_t>(substituteReturnCode);
             break;
         }
@@ -326,7 +318,7 @@ faultInjectionCallbackHandler(
 
 int STDCALL
 InitializeInjection(void) {
-    std::cerr << "##### InitializeInjection logs " << std::endl;
+    spdlog::info("InitializeInjection");
     if (globalControl.initialized) {
         return 1;
     }
@@ -349,12 +341,12 @@ static void
 readFaultInjectorConfig(void) {
     const auto configFilePath = std::getenv(FAULT_INJECTOR_CONFIG_PATH.c_str());
     if (!configFilePath) {
-        std::cerr << "specify convig via environment " << FAULT_INJECTOR_CONFIG_PATH << std::endl;
+        spdlog::error("specify convig via environment {}", FAULT_INJECTOR_CONFIG_PATH);
         return;
     }
     std::ifstream jsonStream(configFilePath);
     if (!jsonStream.good()){
-        std::cerr <<  "check file exists " << configFilePath << std::endl;
+        spdlog::error("check file exists {}", configFilePath);
         return;
     }
 
@@ -364,19 +356,26 @@ readFaultInjectorConfig(void) {
     globalControl.frequency = globalControl.configRoot
         .get_optional<int>("reloadAfterSeconds")
         .value_or(static_cast<int>(10));
-    // parseConfig(globalControl.configRoot);
+
+    const int logLevel = globalControl.configRoot
+        .get_optional<int>("logLevel")
+        .value_or(static_cast<int>(0));
+    const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
+    spdlog::info("changed log level to {}", logLevelEnum);
+    spdlog::set_level(logLevelEnum);
+    parseConfig(globalControl.configRoot);
     globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
     globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     jsonStream.close();
-    std::cerr << "#### readFaultInjectorConfig " << configFilePath << " DONE" << std::endl ;
+    spdlog::debug("readFaultInjectorConfig from {} DONE", configFilePath);
 }
 
 static void
 parseConfig(boost::property_tree::ptree const& pTree) {
     boost::property_tree::ptree::const_iterator end = pTree.end();
     for (boost::property_tree::ptree::const_iterator it = pTree.begin(); it != end; ++it) {
-        std::cerr <<  it->first << ": " << it->second.get_value<std::string>() << std::endl;
+        spdlog::trace("congig key={} value={}",  it->first, it->second.get_value<std::string>());
         parseConfig(it->second);
     }
 }
@@ -387,6 +386,6 @@ dynamicReconfig(void *args) {
         sleep(globalControl.frequency);
         readFaultInjectorConfig();
     }
-    std::cerr << "#### Exiting dynamic reconfig thread" << std::endl;
+    spdlog::info("exiting dynamic reconfig thread: terminateThread={}, frequency={}", globalControl.terminateThread, globalControl.frequency);
     return NULL;
 }

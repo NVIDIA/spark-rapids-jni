@@ -21,7 +21,6 @@ project(
 )
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_BUILD_TYPE Debug)
 
 find_package(Boost REQUIRED)
 
@@ -29,7 +28,12 @@ add_library(
   cupti_faultinj SHARED
   faultinj.cu
 )
+find_path(SPDLOG_INCLUDE "spdlog"
+    HINTS "$ENV{RMM_ROOT}/_deps/spdlog-src/include")
 
+include_directories(
+  "${SPDLOG_INCLUDE}"
+)
 
 target_link_libraries(
   cupti_faultinj CUDA::cupti_static
