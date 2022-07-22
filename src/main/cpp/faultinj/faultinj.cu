@@ -20,15 +20,20 @@
 #include <iostream>
 #include <map>
 #include <pthread.h>
+#include <exception>
 
 #define BOOST_SPIRIT_THREADSAFE
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
 #include <spdlog/spdlog.h>
+#include <sys/inotify.h>
+#include <sys/time.h>
 
 #define STDCALL
 inline const std::string FAULT_INJECTOR_CONFIG_PATH{"FAULT_INJECTOR_CONFIG_PATH"};
+const char *configFilePath = std::getenv(FAULT_INJECTOR_CONFIG_PATH.c_str());
+
 
 #if defined(__cplusplus)
 extern "C" {
@@ -66,7 +71,6 @@ typedef struct {
     volatile uint32_t initialized;
     CUpti_SubscriberHandle  subscriber;
 
-    int frequency;
     int terminateThread;
     pthread_t dynamicThread;
     pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
@@ -101,9 +105,7 @@ globalControlInit(void) {
     spdlog::trace("globalControlInit of fault injection");
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
-    globalControl.frequency = 10; // poll config file every 10 seconds
     globalControl.terminateThread = 0;
-
     readFaultInjectorConfig();
 }
 
@@ -275,14 +277,14 @@ faultInjectionCallbackHandler(
         .get_optional<int>("substituteReturnCode")
         .value_or(static_cast<int>(CUDA_SUCCESS));
 
-    const double injectionProbability = (*matchedFaultConfig)
-        .get_optional<double>("prob")
-        .value_or(0.0);
+    const int injectionProbability = (*matchedFaultConfig)
+        .get_optional<int>("percent")
+        .value_or(0);
 
     spdlog::trace("considered config domain={} function={} injectionType={} probability={}",
         domain, cbInfo->functionName, injectionType, injectionProbability);
-    if (injectionProbability < 1.0) {
-        if (injectionProbability == 0.0 || rand() % 10000 >= injectionProbability * 10000) {
+    if (injectionProbability < 100) {
+        if (injectionProbability <= 0 || rand() % 10000 >= injectionProbability * 10000.0 / 100.0) {
             return;
         }
     }
@@ -339,7 +341,6 @@ InitializeInjection(void) {
 
 static void
 readFaultInjectorConfig(void) {
-    const auto configFilePath = std::getenv(FAULT_INJECTOR_CONFIG_PATH.c_str());
     if (!configFilePath) {
         spdlog::error("specify convig via environment {}", FAULT_INJECTOR_CONFIG_PATH);
         return;
@@ -351,21 +352,20 @@ readFaultInjectorConfig(void) {
     }
 
     PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
-    boost::property_tree::read_json(jsonStream, globalControl.configRoot);
-
-    globalControl.frequency = globalControl.configRoot
-        .get_optional<int>("reloadAfterSeconds")
-        .value_or(static_cast<int>(10));
-
-    const int logLevel = globalControl.configRoot
-        .get_optional<int>("logLevel")
-        .value_or(static_cast<int>(0));
-    const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
-    spdlog::info("changed log level to {}", logLevelEnum);
-    spdlog::set_level(logLevelEnum);
-    parseConfig(globalControl.configRoot);
-    globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
-    globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
+    try {
+        boost::property_tree::read_json(jsonStream, globalControl.configRoot);
+        const int logLevel = globalControl.configRoot
+            .get_optional<int>("logLevel")
+            .value_or(static_cast<int>(0));
+        const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
+        spdlog::info("changed log level to {}", logLevelEnum);
+        spdlog::set_level(logLevelEnum);
+        parseConfig(globalControl.configRoot);
+        globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
+        globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
+    } catch (boost::property_tree::json_parser::json_parser_error& error) {
+        spdlog::error("error parsing fault injector config, still editing? {}", error.what());
+    }
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     jsonStream.close();
     spdlog::debug("readFaultInjectorConfig from {} DONE", configFilePath);
@@ -380,12 +380,66 @@ parseConfig(boost::property_tree::ptree const& pTree) {
     }
 }
 
+static int
+eventCheck(int fd) {
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(fd, &rfds);
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    return select(FD_SETSIZE, &rfds, NULL, NULL, &tv);
+}
+
+
 static void *
 dynamicReconfig(void *args) {
-    while (!globalControl.terminateThread && globalControl.frequency > 0) {
-        sleep(globalControl.frequency);
-        readFaultInjectorConfig();
+    spdlog::debug("config watcher thread: inotify_init()");
+    const int inotifyFd = inotify_init();
+    if (inotifyFd < 0) {
+        spdlog::error("inotify_init() failed");
+        return NULL;
     }
-    spdlog::info("exiting dynamic reconfig thread: terminateThread={}, frequency={}", globalControl.terminateThread, globalControl.frequency);
+    spdlog::debug("config watcher thread: inotify_add_watch {}", configFilePath);
+    const int watchFd = inotify_add_watch(inotifyFd, configFilePath, IN_MODIFY);
+    if (watchFd < 0) {
+        spdlog::error("config watcher thread: inotify_add_watch {} failed", configFilePath);
+        return NULL;
+    }
+
+    constexpr auto MAX_EVENTS = 1024;
+    const auto configFilePathStr = std::string(configFilePath);
+    constexpr auto EVENT_SIZE = sizeof(struct inotify_event);
+    const auto BUF_LEN = MAX_EVENTS * (EVENT_SIZE + configFilePathStr.length());
+    char eventBuffer[BUF_LEN];
+
+    while (!globalControl.terminateThread) {
+        spdlog::debug("about to call eventCheck");
+        const int eventCheckRes = eventCheck(inotifyFd);
+        spdlog::debug("eventCheck returned {}", eventCheckRes);
+        if (eventCheckRes > 0) {
+            const int length = read(inotifyFd, eventBuffer, BUF_LEN);
+            spdlog::debug("config watcher thread: read {} bytes", length);
+            if (length < EVENT_SIZE) {
+                continue;
+            }
+            for (int i = 0; i < length; ) {
+                struct inotify_event *event = (struct inotify_event *)&eventBuffer[i];
+                spdlog::debug("modfiled file detected: {}", event->name);
+                i += EVENT_SIZE + event->len;
+            }
+            readFaultInjectorConfig();
+        }
+    }
+
+    if (watchFd >= 0) {
+        spdlog::debug("config watcher thread: inotify_rm_watch {} {}", inotifyFd, watchFd);
+        inotify_rm_watch(inotifyFd, watchFd);
+    }
+    if (inotifyFd >= 0) {
+        spdlog::debug("config watcher thread: close {}", inotifyFd);
+        close(inotifyFd);
+    }
+    spdlog::info("exiting dynamic reconfig thread: terminateThread={}", globalControl.terminateThread);
     return NULL;
 }

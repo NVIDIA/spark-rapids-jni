@@ -1,19 +1,16 @@
 {
-    "logLevel": 1,
-    "reloadAfterSeconds": 20,
-
+    "logLevel": 0,
     "cudaRuntimeFaults": {
         "cudaLaunchKernel_ptsz": {
-            "prob": 0.00,
+            "percent": 0,
             "injectionType": 0,
             "injectionType_comment": "PTX trap = 0, C assert = 1",
             "interceptionCount": 1
         }
     },
-
     "cudaDriverFaults": {
         "cuMemFreeAsync_ptsz": {
-            "prob": 0.00,
+            "percent": 10,
             "injectionType": 2,
             "injectionType_comment": "substitute return code",
             "substituteReturnCode": 999,
