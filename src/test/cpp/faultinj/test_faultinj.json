@@ -1,20 +1,20 @@
 {
-    "logLevel": 0,
+    "logLevel": "2",
     "cudaRuntimeFaults": {
         "cudaLaunchKernel_ptsz": {
-            "percent": 0,
-            "injectionType": 0,
+            "percent": "0",
+            "injectionType": "0",
             "injectionType_comment": "PTX trap = 0, C assert = 1",
-            "interceptionCount": 1
+            "interceptionCount": "1"
         }
     },
     "cudaDriverFaults": {
         "cuMemFreeAsync_ptsz": {
-            "percent": 10,
-            "injectionType": 2,
+            "percent": "10",
+            "injectionType": "2",
             "injectionType_comment": "substitute return code",
-            "substituteReturnCode": 999,
-            "interceptionCount": 1
+            "substituteReturnCode": "999",
+            "interceptionCount": "1"
         }
     }
 }
