@@ -45,8 +45,7 @@ do {                                                                           \
     if (_status != CUPTI_SUCCESS) {                                            \
         const char *errstr;                                                    \
         cuptiGetResultString(_status, &errstr);                                \
-        fprintf(stderr, "%s:%d: error: function %s failed with error %s.\n",   \
-                __FILE__, __LINE__, #call, errstr);                            \
+        spdlog::error("function {} failed with error {}", #call, errstr);      \
         exit(EXIT_FAILURE);                                                    \
     }                                                                          \
 } while (0)
@@ -55,8 +54,7 @@ do {                                                                           \
 do {                                                                               \
     int _status = call;                                                            \
     if (_status != 0) {                                                            \
-        fprintf(stderr, "%s:%d: error: function %s failed with error code %d.\n",  \
-                __FILE__, __LINE__, #call, _status);                               \
+        spdlog::error("function {} failed with error code {}", #call, _status);    \
         exit(EXIT_FAILURE);                                                        \
     }                                                                              \
 } while (0)
@@ -386,7 +384,7 @@ eventCheck(int fd) {
     FD_ZERO(&rfds);
     FD_SET(fd, &rfds);
     struct timeval tv;
-    tv.tv_sec = 1;
+    tv.tv_sec = 5;
     tv.tv_usec = 0;
     return select(FD_SETSIZE, &rfds, NULL, NULL, &tv);
 }
@@ -414,9 +412,9 @@ dynamicReconfig(void *args) {
     char eventBuffer[BUF_LEN];
 
     while (!globalControl.terminateThread) {
-        spdlog::debug("about to call eventCheck");
+        spdlog::trace("about to call eventCheck");
         const int eventCheckRes = eventCheck(inotifyFd);
-        spdlog::debug("eventCheck returned {}", eventCheckRes);
+        spdlog::trace("eventCheck returned {}", eventCheckRes);
         if (eventCheckRes > 0) {
             const int length = read(inotifyFd, eventBuffer, BUF_LEN);
             spdlog::debug("config watcher thread: read {} bytes", length);
@@ -440,6 +438,10 @@ dynamicReconfig(void *args) {
         spdlog::debug("config watcher thread: close {}", inotifyFd);
         close(inotifyFd);
     }
+
+    spdlog::debug("config watcher thread: about to call cuptiFinalize");
+    CUPTI_CALL(cuptiFinalize());
+
     spdlog::info("exiting dynamic reconfig thread: terminateThread={}", globalControl.terminateThread);
     return NULL;
 }
