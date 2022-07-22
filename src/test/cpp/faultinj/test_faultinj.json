@@ -1,5 +1,6 @@
 {
     "logLevel": 1,
+    "dynamic": true,
     "cudaRuntimeFaults": {
         "cudaLaunchKernel_ptsz": {
             "percent": 0,

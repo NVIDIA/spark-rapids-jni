@@ -69,6 +69,7 @@ typedef struct {
     volatile uint32_t initialized;
     CUpti_SubscriberHandle  subscriber;
 
+    bool dynamic;
     int terminateThread;
     pthread_t dynamicThread;
     pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
@@ -116,9 +117,14 @@ registerAtExitHandler(void) {
 
 static void
 atExitHandler(void) {
-    globalControl.terminateThread = 1;
-    PTHREAD_CALL(pthread_join(globalControl.dynamicThread, NULL));
-    spdlog::info("reconfig thread shut down ... exiting");
+    if (globalControl.dynamic) {
+        globalControl.terminateThread = 1;
+        PTHREAD_CALL(pthread_join(globalControl.dynamicThread, NULL));
+        spdlog::info("reconfig thread shut down ... exiting");
+    }
+
+    spdlog::debug("atExitHandler: cuptiFinalize");
+    CUPTI_CALL(cuptiFinalize());
 }
 
 
@@ -282,12 +288,24 @@ faultInjectionCallbackHandler(
     spdlog::trace("considered config domain={} function={} injectionType={} probability={}",
         domain, cbInfo->functionName, injectionType, injectionProbability);
     if (injectionProbability < 100) {
-        if (injectionProbability <= 0 || rand() % 10000 >= injectionProbability * 10000.0 / 100.0) {
+        if (injectionProbability <= 0) {
             return;
         }
+        const int rand10000 = rand() % 10000;
+        const int skipThreshold = injectionProbability * 10000 / 100;
+        spdlog::trace("rand1000={} skipThreshold={}", rand10000, skipThreshold);
+        if (rand10000 >= skipThreshold) {
+            return;
+        }
+        spdlog::debug(
+            "matched config based on rand10000={} skipThreshold={} "
+            "domain={} function={} injectionType={} probability={}",
+            rand10000, skipThreshold, domain,
+            cbInfo->functionName, injectionType, injectionProbability);
+    } else {
+        spdlog::debug("matched 100% config domain={} function={} injectionType={} probability={}",
+            domain, cbInfo->functionName, injectionType, injectionProbability);
     }
-    spdlog::trace("matched config domain={} function={} injectionType={} probability={}",
-        domain, cbInfo->functionName, injectionType, injectionProbability);
 
     switch (injectionType)
     {
@@ -328,7 +346,10 @@ InitializeInjection(void) {
 
     registerAtExitHandler();
 
-    PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, NULL, dynamicReconfig, NULL));
+    if (globalControl.dynamic) {
+        spdlog::debug("creating a thread to watch the fault injector config interactively");
+        PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, NULL, dynamicReconfig, NULL));
+    }
 
     // Initialize CUPTI
     CUPTI_CALL(cuptiInitialize());
@@ -354,7 +375,12 @@ readFaultInjectorConfig(void) {
         boost::property_tree::read_json(jsonStream, globalControl.configRoot);
         const int logLevel = globalControl.configRoot
             .get_optional<int>("logLevel")
-            .value_or(static_cast<int>(0));
+            .value_or(0);
+
+        globalControl.dynamic = globalControl.configRoot
+            .get_optional<bool>("dynamic")
+            .value_or(false);
+
         const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
         spdlog::info("changed log level to {}", logLevelEnum);
         spdlog::set_level(logLevelEnum);
@@ -438,10 +464,6 @@ dynamicReconfig(void *args) {
         spdlog::debug("config watcher thread: close {}", inotifyFd);
         close(inotifyFd);
     }
-
-    spdlog::debug("config watcher thread: about to call cuptiFinalize");
-    CUPTI_CALL(cuptiFinalize());
-
     spdlog::info("exiting dynamic reconfig thread: terminateThread={}", globalControl.terminateThread);
     return NULL;
 }
