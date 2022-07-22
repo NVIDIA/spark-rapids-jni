@@ -28,6 +28,7 @@ add_library(
   cupti_faultinj SHARED
   faultinj.cu
 )
+
 find_path(SPDLOG_INCLUDE "spdlog"
     HINTS "$ENV{RMM_ROOT}/_deps/spdlog-src/include")
 
