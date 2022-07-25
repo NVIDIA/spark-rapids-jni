@@ -46,7 +46,6 @@ do {                                                                           \
         const char *errstr;                                                    \
         cuptiGetResultString(_status, &errstr);                                \
         spdlog::error("function {} failed with error {}", #call, errstr);      \
-        exit(EXIT_FAILURE);                                                    \
     }                                                                          \
 } while (0)
 
@@ -55,7 +54,6 @@ do {                                                                            
     int _status = call;                                                            \
     if (_status != 0) {                                                            \
         spdlog::error("function {} failed with error code {}", #call, _status);    \
-        exit(EXIT_FAILURE);                                                        \
     }                                                                              \
 } while (0)
 
@@ -94,7 +92,7 @@ extern int STDCALL InitializeInjection(void);
 
 static CUptiResult cuptiInitialize(void);
 static void readFaultInjectorConfig(void);
-static void parseConfig(boost::property_tree::ptree const& pTree);
+static void traceConfig(boost::property_tree::ptree const& pTree);
 static void *dynamicReconfig(void *args);
 
 // Function Definitions
@@ -147,28 +145,11 @@ faultInjectorKernelAssert(void) {
     assert(0 && "faultInjectorKernelAssert triggered");
 }
 
-static void
-deviceAssertAndSync(bool isSync) {
-    faultInjectorKernelAssert<<<1,1>>>();
-    if (isSync) {
-        cudaDeviceSynchronize();
-    }
-}
-
 
 __global__ void
 faultInjectorKernelTrap(void) {
     asm("trap;");
 }
-
-static void
-deviceAsmTrapAndSync(bool isSync) {
-    faultInjectorKernelTrap<<<1,1>>>();
-    if (isSync) {
-        cudaDeviceSynchronize();
-    }
-}
-
 
 static boost::optional<boost::property_tree::ptree&>
 lookupConfig(
@@ -200,7 +181,7 @@ faultInjectionCallbackHandler(
     CUpti_CallbackData *cbInfo = static_cast<CUpti_CallbackData*>(cbdata);
 
     // TODO maybe allow it in the config but right now CUPTI_API_EXIT is generally preferrable
-    // for inteception, however, it means that the execution has happened.
+    // for interception. However, it means that the execution has happened.
     //
     if (cbInfo->callbackSite != CUPTI_API_EXIT) {
         return;
@@ -209,8 +190,6 @@ faultInjectionCallbackHandler(
     // Check last error
     CUPTI_CALL(cuptiGetLastError());
     boost::optional<const boost::property_tree::ptree&> matchedFaultConfig = boost::none;
-
-    // TODO make a function, switch to read lock after debugging
     PTHREAD_CALL(pthread_rwlock_rdlock(&globalControl.configLock));
 
     // check if we are processing the result of our own launch.
@@ -310,11 +289,11 @@ faultInjectionCallbackHandler(
     switch (injectionType)
     {
     case FI_TRAP:
-        deviceAsmTrapAndSync(false);
+        faultInjectorKernelTrap<<<1,1>>>();
         break;
 
     case FI_ASSERT:
-        deviceAssertAndSync(false);
+        faultInjectorKernelAssert<<<1,1>>>();
         break;
 
     case FI_RETURN_VALUE:
@@ -333,7 +312,9 @@ faultInjectionCallbackHandler(
     }
 }
 
-
+/**
+ * cuInit hook entry point
+ */
 int STDCALL
 InitializeInjection(void) {
     spdlog::info("InitializeInjection");
@@ -358,6 +339,9 @@ InitializeInjection(void) {
 }
 
 
+/**
+ * Parse and apply new config
+ */
 static void
 readFaultInjectorConfig(void) {
     if (!configFilePath) {
@@ -384,7 +368,7 @@ readFaultInjectorConfig(void) {
         const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
         spdlog::info("changed log level to {}", logLevelEnum);
         spdlog::set_level(logLevelEnum);
-        parseConfig(globalControl.configRoot);
+        traceConfig(globalControl.configRoot);
         globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
         globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
     } catch (boost::property_tree::json_parser::json_parser_error& error) {
@@ -396,11 +380,11 @@ readFaultInjectorConfig(void) {
 }
 
 static void
-parseConfig(boost::property_tree::ptree const& pTree) {
+traceConfig(boost::property_tree::ptree const& pTree) {
     boost::property_tree::ptree::const_iterator end = pTree.end();
     for (boost::property_tree::ptree::const_iterator it = pTree.begin(); it != end; ++it) {
         spdlog::trace("congig key={} value={}",  it->first, it->second.get_value<std::string>());
-        parseConfig(it->second);
+        traceConfig(it->second);
     }
 }
 

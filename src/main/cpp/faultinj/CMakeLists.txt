@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(Boost REQUIRED)
 
 add_library(
-  cupti_faultinj SHARED
+  cufaultinj SHARED
   faultinj.cu
 )
 
@@ -37,5 +37,5 @@ include_directories(
 )
 
 target_link_libraries(
-  cupti_faultinj CUDA::cupti_static
+  cufaultinj CUDA::cupti_static
 )
