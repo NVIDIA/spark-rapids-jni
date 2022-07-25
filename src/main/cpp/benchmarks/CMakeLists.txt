@@ -14,9 +14,22 @@
 # limitations under the License.
 #=============================================================================
 
-# this library isn't exposed by cudf, so we have to grab it this way
-find_library(CUDF_DATAGEN "libcudf_datagen.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDF_DIR}/cpp/build/benchmarks"
+add_library(CUDF_DATAGEN STATIC common/generate_input.cu)
+target_compile_features(CUDF_DATAGEN PUBLIC cxx_std_17 cuda_std_17)
+
+target_compile_options(
+  CUDF_DATAGEN PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
+                      "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>"
+)
+
+target_link_libraries(
+  CUDF_DATAGEN PUBLIC cudf::cudf 
+)
+
+target_include_directories(
+  CUDF_DATAGEN
+  PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>" "$<BUILD_INTERFACE:${CUDF_DIR}/cpp>"
+         "$<BUILD_INTERFACE:${CUDF_DIR}/cpp/include>"
 )
 
 ###################################################################################################
@@ -42,7 +55,7 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD 17
                    CUDA_STANDARD_REQUIRED ON
         )
-    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main ${CUDF_DATAGEN} ${CUDF_BENCHMARK_COMMON}
+    target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main CUDF_DATAGEN ${CUDF_BENCHMARK_COMMON}
                                               cudf::cudf spark_rapids_jni Threads::Threads)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
