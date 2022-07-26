@@ -22,6 +22,7 @@
 #include <pthread.h>
 #include <exception>
 
+// thread-safe ptree
 #define BOOST_SPIRIT_THREADSAFE
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -31,13 +32,8 @@
 #include <sys/time.h>
 
 #define STDCALL
-inline const std::string FAULT_INJECTOR_CONFIG_PATH{"FAULT_INJECTOR_CONFIG_PATH"};
-const char *configFilePath = std::getenv(FAULT_INJECTOR_CONFIG_PATH.c_str());
 
-
-#if defined(__cplusplus)
 extern "C" {
-#endif
 
 #define CUPTI_CALL(call)                                                       \
 do {                                                                           \
@@ -70,6 +66,7 @@ typedef struct {
     bool dynamic;
     int terminateThread;
     pthread_t dynamicThread;
+    // TODO change to the RAII idiom
     pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
 
     boost::property_tree::ptree configRoot;
@@ -85,10 +82,10 @@ static void CUPTIAPI faultInjectionCallbackHandler(void *userdata, CUpti_Callbac
 
 extern int STDCALL InitializeInjection(void);
 
-
-#if defined(__cplusplus)
 }
-#endif
+
+const std::string configFilePathEnv = "FAULT_INJECTOR_CONFIG_PATH";
+const char *configFilePath = std::getenv(configFilePathEnv.c_str());
 
 static CUptiResult cuptiInitialize(void);
 static void readFaultInjectorConfig(void);
@@ -189,7 +186,7 @@ faultInjectionCallbackHandler(
 
     // Check last error
     CUPTI_CALL(cuptiGetLastError());
-    boost::optional<const boost::property_tree::ptree&> matchedFaultConfig = boost::none;
+    boost::optional<boost::property_tree::ptree&> matchedFaultConfig = boost::none;
     PTHREAD_CALL(pthread_rwlock_rdlock(&globalControl.configLock));
 
     // check if we are processing the result of our own launch.
@@ -219,10 +216,12 @@ faultInjectionCallbackHandler(
             if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
                 spdlog::debug("rejecting fake launch functionName={} symbol={}",
                     cbInfo->functionName, cbInfo->symbolName);
-                return;
+                break;
             }
+            // intentional fallthrough
+        default:
+            matchedFaultConfig = lookupConfig(globalControl.driverFaultConfigs, cbInfo->functionName, cbid);
         }
-        matchedFaultConfig = lookupConfig(globalControl.driverFaultConfigs, cbInfo->functionName, cbid);
     }
     if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
         switch (cbid) {
@@ -241,31 +240,53 @@ faultInjectionCallbackHandler(
             if (std::string(cbInfo->symbolName).compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
                 spdlog::debug("rejecting fake launch functionName={} symbol={}",
                     cbInfo->functionName, cbInfo->symbolName);
-                return;
+                break;
             }
+            // intentional fallthrough
+        default:
+            matchedFaultConfig = lookupConfig(globalControl.runtimeFaultConfigs, cbInfo->functionName, cbid);
         }
-        matchedFaultConfig = lookupConfig(globalControl.runtimeFaultConfigs, cbInfo->functionName, cbid);
     }
+    // unlock we have a copy from the prior parse
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
 
     if (!matchedFaultConfig) {
         return;
     }
 
+    // numeric value of FaultInjectionType: 0 (PTX trap), 1 (device assert), 2 (return code)
+    const std::string injectionTypeKey = "injectionType";
+    const std::string substituteReturnCodeKey = "substituteReturnCode";
+    const std::string percentKey = "percent";
+    const std::string interceptionCountKey = "interceptionCount";
+
     const int injectionType = (*matchedFaultConfig)
-        .get_optional<int>("injectionType")
+        .get_optional<int>(injectionTypeKey)
         .value_or(static_cast<int>(FI_RETURN_VALUE));
 
     const int substituteReturnCode = (*matchedFaultConfig)
-        .get_optional<int>("substituteReturnCode")
+        .get_optional<int>(substituteReturnCodeKey)
         .value_or(static_cast<int>(CUDA_SUCCESS));
 
     const int injectionProbability = (*matchedFaultConfig)
-        .get_optional<int>("percent")
+        .get_optional<int>(percentKey)
         .value_or(0);
 
-    spdlog::trace("considered config domain={} function={} injectionType={} probability={}",
-        domain, cbInfo->functionName, injectionType, injectionProbability);
+    const int interceptionCount = (*matchedFaultConfig)
+        .get_optional<int>(interceptionCountKey)
+        .value_or(INT_MAX);
+
+    spdlog::trace("considered config domain={} function={} injectionType={} probability={} "
+        "interceptionCount={}",
+        domain, cbInfo->functionName, injectionType, injectionProbability, interceptionCount);
+
+    if (interceptionCount <= 0) {
+        spdlog::trace("skipping interception because hit count reached 0, "
+            "domain={} function={} injectionType={} probability={} interceptionCount={}",
+            domain, cbInfo->functionName, injectionType, injectionProbability, interceptionCount);
+        return;
+    }
+
     if (injectionProbability < 100) {
         if (injectionProbability <= 0) {
             return;
@@ -284,6 +305,16 @@ faultInjectionCallbackHandler(
     } else {
         spdlog::debug("matched 100% config domain={} function={} injectionType={} probability={}",
             domain, cbInfo->functionName, injectionType, injectionProbability);
+    }
+
+    // update counter if not unlimited
+    if (interceptionCount != INT_MAX) {
+        spdlog::debug("updating interception count {}: before locking", interceptionCount);
+        // TODO the lock is too coarse-grained.
+        PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
+        const int interceptionCount = (*matchedFaultConfig).get<int>("interceptionCount");
+        (*matchedFaultConfig).put("interceptionCount", interceptionCount - 1);
+        PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     }
 
     switch (injectionType)
@@ -345,7 +376,7 @@ InitializeInjection(void) {
 static void
 readFaultInjectorConfig(void) {
     if (!configFilePath) {
-        spdlog::error("specify convig via environment {}", FAULT_INJECTOR_CONFIG_PATH);
+        spdlog::error("specify convig via environment {}", configFilePathEnv);
         return;
     }
     std::ifstream jsonStream(configFilePath);
@@ -354,23 +385,45 @@ readFaultInjectorConfig(void) {
         return;
     }
 
+    // to retrieve and the numeric value of spdlog:level::level_enum
+    // https://github.com/gabime/spdlog/blob/d546201f127c306ec8a0082d57562a05a049af77/include/spdlog/common.h#L198-L204
+    const std::string logLevelKey = "logLevel";
+
+    // A Boolean flag as to whether to watch for config file modifications
+    // and apply changes after initial boot config.
+    // Currently only file-based config is supported,
+    // TODO add a socket for remote config
+    //
+    const std::string dynamicConfigKey = "dynamic";
+
+    // To retrieve a map of driver/runtime fault configs
+    //   "functionName" -> fault config
+    //   "CUPT callback id" -> fault config
+    //   "*" -> fault config
+    const std::string driverFaultsKey = "cudaDriverFaults";
+    const std::string runtimeFaultsKey = "cudaRuntimeFaults";
+
+
     PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
     try {
         boost::property_tree::read_json(jsonStream, globalControl.configRoot);
         const int logLevel = globalControl.configRoot
-            .get_optional<int>("logLevel")
+            .get_optional<int>(logLevelKey)
             .value_or(0);
 
         globalControl.dynamic = globalControl.configRoot
-            .get_optional<bool>("dynamic")
+            .get_optional<bool>(dynamicConfigKey)
             .value_or(false);
 
         const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
         spdlog::info("changed log level to {}", logLevelEnum);
         spdlog::set_level(logLevelEnum);
         traceConfig(globalControl.configRoot);
-        globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional("cudaDriverFaults");
-        globalControl.runtimeFaultConfigs = globalControl.configRoot.get_child_optional("cudaRuntimeFaults");
+
+        globalControl.driverFaultConfigs = globalControl.configRoot
+            .get_child_optional(driverFaultsKey);
+        globalControl.runtimeFaultConfigs = globalControl.configRoot
+            .get_child_optional(runtimeFaultsKey);
     } catch (boost::property_tree::json_parser::json_parser_error& error) {
         spdlog::error("error parsing fault injector config, still editing? {}", error.what());
     }
