@@ -31,9 +31,7 @@
 #include <sys/inotify.h>
 #include <sys/time.h>
 
-#define STDCALL
-
-extern "C" {
+namespace {
 
 #define CUPTI_CALL(call)                                                       \
 do {                                                                           \
@@ -63,6 +61,8 @@ typedef struct {
     volatile uint32_t initialized;
     CUpti_SubscriberHandle  subscriber;
 
+    std::string configFilePath = std::string();
+
     bool dynamic;
     int terminateThread;
     pthread_t dynamicThread;
@@ -76,45 +76,45 @@ typedef struct {
 injGlobalControl globalControl;
 
 // Function Declarations
-static void atExitHandler(void);
+void atExitHandler(void);
 
-static void CUPTIAPI faultInjectionCallbackHandler(void *userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void *cbInfo);
-
-extern int STDCALL InitializeInjection(void);
-
-}
+void CUPTIAPI faultInjectionCallbackHandler(void *userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void *cbInfo);
 
 const std::string configFilePathEnv = "FAULT_INJECTOR_CONFIG_PATH";
-const char *configFilePath = std::getenv(configFilePathEnv.c_str());
+CUptiResult cuptiInitialize(void);
+void readFaultInjectorConfig(void);
+void traceConfig(boost::property_tree::ptree const& pTree);
+void *dynamicReconfig(void *args);
 
-static CUptiResult cuptiInitialize(void);
-static void readFaultInjectorConfig(void);
-static void traceConfig(boost::property_tree::ptree const& pTree);
-static void *dynamicReconfig(void *args);
-
-// Function Definitions
-
-static void
+void
 globalControlInit(void) {
-    spdlog::trace("globalControlInit of fault injection");
+    spdlog::debug("globalControlInit of fault injection");
     globalControl.initialized = 0;
     globalControl.subscriber = 0;
     globalControl.terminateThread = 0;
+    spdlog::trace("checking environment {}", configFilePathEnv);
+    const char *configFilePath = std::getenv(configFilePathEnv.c_str());
+    spdlog::debug("{} is {}", configFilePathEnv, configFilePath);
+    if (configFilePath) {
+        globalControl.configFilePath = std::string(configFilePath);
+        spdlog::debug("will init config from {}", globalControl.configFilePath);
+    }
     readFaultInjectorConfig();
+    globalControl.initialized = 1;
 }
 
-static void
+void
 registerAtExitHandler(void) {
     // Register atExitHandler
     atexit(&atExitHandler);
 }
 
 
-static void
+void
 atExitHandler(void) {
     if (globalControl.dynamic) {
         globalControl.terminateThread = 1;
-        PTHREAD_CALL(pthread_join(globalControl.dynamicThread, NULL));
+        PTHREAD_CALL(pthread_join(globalControl.dynamicThread, nullptr));
         spdlog::info("reconfig thread shut down ... exiting");
     }
 
@@ -123,11 +123,11 @@ atExitHandler(void) {
 }
 
 
-static CUptiResult
+CUptiResult
 cuptiInitialize(void) {
     CUptiResult status = CUPTI_SUCCESS;
 
-    CUPTI_CALL(cuptiSubscribe(&globalControl.subscriber, (CUpti_CallbackFunc)faultInjectionCallbackHandler, NULL));
+    CUPTI_CALL(cuptiSubscribe(&globalControl.subscriber, (CUpti_CallbackFunc)faultInjectionCallbackHandler, nullptr));
 
     // TODO do this dynamically based on config?
     CUPTI_CALL(cuptiEnableDomain(1, globalControl.subscriber, CUPTI_CB_DOMAIN_RUNTIME_API));
@@ -148,7 +148,7 @@ faultInjectorKernelTrap(void) {
     asm("trap;");
 }
 
-static boost::optional<boost::property_tree::ptree&>
+boost::optional<boost::property_tree::ptree&>
 lookupConfig(
     boost::optional<boost::property_tree::ptree&> domainConfigs,
     const char *key,
@@ -166,9 +166,9 @@ lookupConfig(
 }
 
 
-static void CUPTIAPI
+void CUPTIAPI
 faultInjectionCallbackHandler(
-    void *userdata,
+    void *,
     CUpti_CallbackDomain domain,
     CUpti_CallbackId cbid,
     void *cbdata
@@ -321,10 +321,12 @@ faultInjectionCallbackHandler(
     {
     case FI_TRAP:
         faultInjectorKernelTrap<<<1,1>>>();
+        cudaStreamSynchronize(nullptr);
         break;
 
     case FI_ASSERT:
         faultInjectorKernelAssert<<<1,1>>>();
+        cudaStreamSynchronize(nullptr);
         break;
 
     case FI_RETURN_VALUE:
@@ -344,44 +346,17 @@ faultInjectionCallbackHandler(
 }
 
 /**
- * cuInit hook entry point
- */
-int STDCALL
-InitializeInjection(void) {
-    spdlog::info("InitializeInjection");
-    if (globalControl.initialized) {
-        return 1;
-    }
-    // Init globalControl
-    globalControlInit();
-    globalControl.initialized = 1;
-
-    registerAtExitHandler();
-
-    if (globalControl.dynamic) {
-        spdlog::debug("creating a thread to watch the fault injector config interactively");
-        PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, NULL, dynamicReconfig, NULL));
-    }
-
-    // Initialize CUPTI
-    CUPTI_CALL(cuptiInitialize());
-
-    return 1;
-}
-
-
-/**
  * Parse and apply new config
  */
-static void
+void
 readFaultInjectorConfig(void) {
-    if (!configFilePath) {
+    if (globalControl.configFilePath.empty()) {
         spdlog::error("specify convig via environment {}", configFilePathEnv);
         return;
     }
-    std::ifstream jsonStream(configFilePath);
+    std::ifstream jsonStream(globalControl.configFilePath);
     if (!jsonStream.good()){
-        spdlog::error("check file exists {}", configFilePath);
+        spdlog::error("check file exists {}", globalControl.configFilePath);
         return;
     }
 
@@ -429,10 +404,10 @@ readFaultInjectorConfig(void) {
     }
     PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
     jsonStream.close();
-    spdlog::debug("readFaultInjectorConfig from {} DONE", configFilePath);
+    spdlog::debug("readFaultInjectorConfig from {} DONE", globalControl.configFilePath);
 }
 
-static void
+void
 traceConfig(boost::property_tree::ptree const& pTree) {
     boost::property_tree::ptree::const_iterator end = pTree.end();
     for (boost::property_tree::ptree::const_iterator it = pTree.begin(); it != end; ++it) {
@@ -441,7 +416,7 @@ traceConfig(boost::property_tree::ptree const& pTree) {
     }
 }
 
-static int
+int
 eventCheck(int fd) {
     fd_set rfds;
     FD_ZERO(&rfds);
@@ -449,28 +424,32 @@ eventCheck(int fd) {
     struct timeval tv;
     tv.tv_sec = 5;
     tv.tv_usec = 0;
-    return select(FD_SETSIZE, &rfds, NULL, NULL, &tv);
+    return select(FD_SETSIZE, &rfds, nullptr, nullptr, &tv);
 }
 
 
-static void *
-dynamicReconfig(void *args) {
+void *
+dynamicReconfig(void *) {
     spdlog::debug("config watcher thread: inotify_init()");
     const int inotifyFd = inotify_init();
     if (inotifyFd < 0) {
         spdlog::error("inotify_init() failed");
-        return NULL;
+        return nullptr;
     }
-    spdlog::debug("config watcher thread: inotify_add_watch {}", configFilePath);
-    const int watchFd = inotify_add_watch(inotifyFd, configFilePath, IN_MODIFY);
+    spdlog::debug("config watcher thread: inotify_add_watch {}",
+        globalControl.configFilePath);
+    const int watchFd = inotify_add_watch(inotifyFd,
+        globalControl.configFilePath.c_str(), IN_MODIFY);
     if (watchFd < 0) {
-        spdlog::error("config watcher thread: inotify_add_watch {} failed", configFilePath);
-        return NULL;
+        spdlog::error("config watcher thread: inotify_add_watch {} failed",
+            globalControl.configFilePath);
+        return nullptr;
     }
 
     constexpr auto MAX_EVENTS = 1024;
-    const auto configFilePathStr = std::string(configFilePath);
     constexpr auto EVENT_SIZE = sizeof(struct inotify_event);
+
+    const auto configFilePathStr = std::string(globalControl.configFilePath);
     const auto BUF_LEN = MAX_EVENTS * (EVENT_SIZE + configFilePathStr.length());
     char eventBuffer[BUF_LEN];
 
@@ -502,5 +481,35 @@ dynamicReconfig(void *args) {
         close(inotifyFd);
     }
     spdlog::info("exiting dynamic reconfig thread: terminateThread={}", globalControl.terminateThread);
-    return NULL;
+    return nullptr;
+}
+
+} // end anonymous namespace
+
+/**
+ * cuInit hook entry point
+ */
+extern "C" int
+InitializeInjection(void) {
+    spdlog::info("cuInit entry point for libcufaultinj InitializeInjection");
+    // intial log level is trace until the config is read
+    spdlog::set_level(spdlog::level::trace);
+
+    if (globalControl.initialized) {
+        return 1;
+    }
+    // Init globalControl
+    globalControlInit();
+
+    registerAtExitHandler();
+
+    if (globalControl.dynamic) {
+        spdlog::debug("creating a thread to watch the fault injector config interactively");
+        PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, nullptr, dynamicReconfig, nullptr));
+    }
+
+    // Initialize CUPTI
+    CUPTI_CALL(cuptiInitialize());
+
+    return 1;
 }

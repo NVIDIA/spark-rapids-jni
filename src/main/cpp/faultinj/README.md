@@ -5,10 +5,10 @@ in CUDA applications.
 
 It is especially important when CUDA is embedded in a higher-level fault-tolerant
 framework to ensure that CUDA failures are handled correctly in that
-- fatal errors leaving a GPU in unusable state are detected and such GPUs are
+- Fatal errors leaving a GPU in unusable state are detected and such GPUs are
 prevented from executing retries for a failed computation
-- non-fatal errors are retried without losing valuable compute resources
-- error handling logic does not cause deadlocks and other sort of unresponsiveness.
+- Non-fatal errors are retried without losing valuable compute resources
+- Error handling logic does not cause deadlocks and other sort of unresponsiveness.
 
 This tool allows creating test scenarios and triggering CUDA errors at will
 with some degree of configurability to determine whether an individual CUDA process
@@ -63,9 +63,9 @@ and similar mechanisms. See
 Fault injection configuration is provided via the `FAULT_INJECTOR_CONFIG_PATH`
 environment variable.
 It is a set of rules to apply fault injection when CUDA Drvier or Runtime is matched by either
-- function name such as [`cudaLaunchKernel_ptsz`](https://docs.nvidia.com/nsight-systems/UserGuide/index.html#cuda-default-cli)
-- or callback id such as [`214`](https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_runtime_cbid.h#L224)
-- or wildcard `*` to match all API function names
+- Function name such as [`cudaLaunchKernel_ptsz`](https://docs.nvidia.com/nsight-systems/UserGuide/index.html#cuda-default-cli)
+- Or callback id such as [`214`](https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_runtime_cbid.h#L224)
+- Or wildcard `*` to match all API function names
 with a given probability.
 
 <table>

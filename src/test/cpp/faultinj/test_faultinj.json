@@ -10,7 +10,7 @@
     },
     "cudaDriverFaults": {
         "*": {
-            "percent": 100,
+            "percent": 0,
             "injectionType": 2,
             "substituteReturnCode": 999,
             "interceptionCount": 1
