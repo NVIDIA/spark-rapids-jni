@@ -3,7 +3,7 @@
 The goal of this tool is to increase testability of the failure handling logic
 in CUDA applications.
 
-It's especially important when CUDA is embedded in a higher-level fault-tolerant framework
+It is especially important when CUDA is embedded in a higher-level fault-tolerant framework
 to ensure that CUDA failures are handled correctly in that
 - fatal errors leaving a GPU in unusable state are detected and such GPUs are prevented from executing retries for
 a failed computation
