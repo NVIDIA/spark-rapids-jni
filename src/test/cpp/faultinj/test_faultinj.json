@@ -9,7 +9,7 @@
         }
     },
     "cudaDriverFaults": {
-        "cuMemFreeAsync_ptsz": {
+        "*": {
             "percent": 100,
             "injectionType": 2,
             "substituteReturnCode": 999,

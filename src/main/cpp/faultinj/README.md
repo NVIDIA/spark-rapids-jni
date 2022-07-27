@@ -112,7 +112,8 @@ with a given probability.
         <td>Number</td>
         <td>Numeric value of <code>FaultInjectionType</code>:
         0 (PTX trap), 1 (device assert), 2 (replace CUDA return code by
-        configured <code>substituteReturnCode</code>)</td>
+        configured <code>substituteReturnCode</code>, currently supported only
+        for Driver API).</td>
     </tr>
     <tr>
         <td>interceptionCount</td>
@@ -124,6 +125,18 @@ with a given probability.
         <td>percent</td>
         <td>Number</td>
         <td>Probability in percent whether a failure is injected</td>
+    </tr>
+    <tr>
+        <td>substituteReturnCode</td>
+        <td>Number</td>
+        <td>Error code to inject for the matched API invocation. For the Driver
+        API it is a numeric
+        <a href=https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#group__CUDA__TYPES_1gc6c391505e117393cc2558fff6bfc2e9
+        >CUResult value</a>. For the Runtime API it is a numeric
+        <a href=https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html#group__CUDART__TYPES_1g3f51e3575c2178246db0a94a430e0038
+        >cudaError value</a>. Direct <code>cudaError</code> replacement is
+        not yet supported. <code>cudaError</code> can be indirectly affected
+        by an appropriate <code>CUresult</code> replacement.</td>
     </tr>
  </table>
 
