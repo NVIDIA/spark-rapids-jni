@@ -3,10 +3,10 @@
 The goal of this tool is to increase testability of the failure handling logic
 in CUDA applications.
 
-It is especially important when CUDA is embedded in a higher-level fault-tolerant framework
-to ensure that CUDA failures are handled correctly in that
-- fatal errors leaving a GPU in unusable state are detected and such GPUs are prevented from executing retries for
-a failed computation
+It is especially important when CUDA is embedded in a higher-level fault-tolerant
+framework to ensure that CUDA failures are handled correctly in that
+- fatal errors leaving a GPU in unusable state are detected and such GPUs are
+prevented from executing retries for a failed computation
 - non-fatal errors are retried without losing valuable compute resources
 - error handling logic does not cause deadlocks and other sort of unresponsiveness.
 
@@ -17,13 +17,20 @@ or gracefully exits with an actionable error message when the errors are irrecov
 
 ## Deployment
 
-The tool is designed with automated testing and interactive testing use cases in mind. The tool is a dynamically linked library `libcufaultinj.so` that is loaded by the CUDA process via CUDA Driver API `cuInit` if it's provided via the `CUDA_INJECTION64_PATH` environment variable.
+The tool is designed with automated testing and interactive testing use cases in mind.
+The tool is a dynamically linked library `libcufaultinj.so` that is loaded by
+the CUDA process via CUDA Driver API `cuInit` if it is provided
+via the `CUDA_INJECTION64_PATH` environment variable.
 
-As an example it can be used to test RAPIDS Accelerator for Apache Spark. Consult documentation to find
-how to set these variables correctly in the context of the framework under test.
+As an example it can be used to test RAPIDS Accelerator for Apache Spark.
+Consult documentation to find how to set these variables correctly in the
+context of the framework under test.
+
+Examples for Apache Spark follow:
 
 ### Local Mode
-Spark local mode is a single CUDA process. We can test is as any standalone single-process application.
+Spark local mode is a single CUDA process. We can test is as any standalone
+single-process application.
 
 ```bash
 CUDA_INJECTION64_PATH=$PWD/target/cmake-build/faultinj/libcufaultinj.so \
@@ -45,21 +52,83 @@ $SPARK_HOME/bin/spark-shell \
   --master spark://hostname:7077
 ```
 When we configure the executor environment `spark.executorEnv.CUDA_INJECTION64_PATH`
-we have to use a path separator in the value ./libcufaultinj.so with the leading dot
-to make sure that dlopen loads the library file submitted. Otherwise it will assume a
-locally installed library accessible to the dynamic linker via LD_LIBRARY_PATH and similar mechanisms.
-See [dlopen man page](https://man7.org/linux/man-pages/man3/dlopen.3.html)
+we have to use a path separator in the value `./libcufaultinj.so` with the leading dot
+to make sure that `dlopen` loads the library file submitted. Otherwise, it will assume a
+locally installed library accessible to the dynamic linker via `LD_LIBRARY_PATH`
+and similar mechanisms. See
+[dlopen man page](https://man7.org/linux/man-pages/man3/dlopen.3.html)
 
 ## Fault injection configuration
 
-Fault injection configuration is provided via the `FAULT_INJECTOR_CONFIG_PATH` environment variable.
-It's a set of rules to apply fault injection when CUDA Drvier or Runtime is matched by either
+Fault injection configuration is provided via the `FAULT_INJECTOR_CONFIG_PATH`
+environment variable.
+It is a set of rules to apply fault injection when CUDA Drvier or Runtime is matched by either
 - function name such as [`cudaLaunchKernel_ptsz`](https://docs.nvidia.com/nsight-systems/UserGuide/index.html#cuda-default-cli)
 - or callback id such as [`214`](https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/main/cupti_runtime_cbid.h#L224)
-- or wildcard * to match all API
+- or wildcard `*` to match all API function names
 with a given probability.
 
-Example config:
+<table>
+    <tr>
+        <th>Top level configuration</th>
+        <th>Type</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td>logLevel</td>
+        <td>Number</td>
+        <td>Set numeric
+        <a href=https://github.com/gabime/spdlog/blob/d546201f127c306ec8a0082d57562a05a049af77/include/spdlog/common.h#L198-L204
+        >log level</a></td>
+    </tr>
+    <tr>
+        <td>dynamic</td>
+        <td>Boolean</td>
+        <td>Whether to re-apply config on config-file modification for interactive use</td>
+    </tr>
+    <tr>
+        <td>cudaDriverFaults</td>
+        <td>Object</td>
+        <td>Maps a string Driver function name,
+        <a href=https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/cuda-11.5.1/cupti_driver_cbid.h#L9
+        >CUPTI Driver callback id</a>, "*" to a fault injection config</td>
+    </tr>
+    <tr>
+        <td>cudaRuntimeFaults</td>
+        <td>Object</td><td>Maps a string Runtime function name,
+        <a href=https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/cuda-11.5.1/cupti_runtime_cbid.h#L9
+        >CUPTI Runtime callback id</a>, "*" to a fault injection config</td>
+    </tr>
+</table>
+
+<table>
+    <tr>
+        <th>Fault injection configuration</th>
+        <th>Type</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td>injectionType</td>
+        <td>Number</td>
+        <td>Numeric value of <code>FaultInjectionType</code>:
+        0 (PTX trap), 1 (device assert), 2 (replace CUDA return code by
+        configured <code>substituteReturnCode</code>)</td>
+    </tr>
+    <tr>
+        <td>interceptionCount</td>
+        <td>Number</td>
+        <td>How many consecutive matched callbacks should be sampled for fault
+        injection</td>
+    </tr>
+    <tr>
+        <td>percent</td>
+        <td>Number</td>
+        <td>Probability in percent whether a failure is injected</td>
+    </tr>
+ </table>
+
+
+Example config follows:
 ```json
 {
     "logLevel": 1,
@@ -69,6 +138,11 @@ Example config:
             "percent": 0,
             "injectionType": 0,
             "interceptionCount": 1
+        },
+        "*": {
+            "percent": 1,
+            "injectionType": 0,
+            "interceptionCount": 1000
         }
     },
     "cudaDriverFaults": {
@@ -81,18 +155,3 @@ Example config:
     }
 }
 ```
-
-| Top level configuration | Type | Description |
-|-------------------------|------|-------------|
-| logLevel | Number | Set numeric [log level](https://github.com/gabime/spdlog/blob/d546201f127c306ec8a0082d57562a05a049af77/include/spdlog/common.h#L198-L204) |
-| dynamic | Boolean | Whether to re-apply config on config-file modification for interactive use |
-| cudaDriverFaults | Object | Maps a string Driver function name, [CUPTI Driver callback id](https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/cuda-11.5.1/cupti_driver_cbid.h#L9), "*" to a fault injection config |
-| cudaRuntimeFaults | Object | Maps a string Runtime function name, [CUPTI Runtime callback id](https://gitlab.com/nvidia/headers/cuda-individual/cupti/-/blob/cuda-11.5.1/cupti_driver_cbid.h#L9), "*" to a fault injection config |
-
-
-| Fault injection configuration | Type | Description |
-|-------------------------------|------|-------------|
-| injectionType | Number | Numeric value of FaultInjectionType: 0 (PTX trap), 1 (device assert), 2 (replace CUDA return code by configured `substituteReturnCode`) |
-| interceptionCount | Number | How many consecutive matched callbacks should be sampled for fault injection |
-| percent | Number | Probability in percent whether a failure is injected |
-
