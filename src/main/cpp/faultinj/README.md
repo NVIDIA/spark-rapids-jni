@@ -19,7 +19,7 @@ or gracefully exits with an actionable error message when the errors are irrecov
 
 The tool is designed with automated testing and interactive testing use cases in mind. The tool is a dynamically linked library `libcufaultinj.so` that is loaded by the CUDA process via CUDA Driver API `cuInit` if it's provided via the `CUDA_INJECTION64_PATH` environment variable.
 
-As an example it can be used to test RAPIDS Accelerator for Apache Spark. Consult documnetation to find
+As an example it can be used to test RAPIDS Accelerator for Apache Spark. Consult documentation to find
 how to set these variables correctly in the context of the framework under test.
 
 ### Local Mode
