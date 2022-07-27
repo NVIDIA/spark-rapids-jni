@@ -12,7 +12,7 @@ a failed computation
 
 This tool allows creating test scenarios and triggering CUDA errors at will
 with some degree of configurability to determine whether an individual CUDA process
-or the higher-level framework such as Apache Spark remain usable when it should
+or the higher-level framework such as Apache Spark remains usable when it should,
 or gracefully exits with an actionable error message when the errors are irrecoverable.
 
 ## Deployment
