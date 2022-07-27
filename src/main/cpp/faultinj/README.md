@@ -44,7 +44,7 @@ $SPARK_HOME/bin/spark-shell \
   --conf spark.rapids.memory.gpu.allocFraction=0.2 \
   --master spark://hostname:7077
 ```
-When we configure the executor environment spark.executorEnv.CUDA_INJECTION64_PATH
+When we configure the executor environment `spark.executorEnv.CUDA_INJECTION64_PATH`
 we have to use a path separator in the value ./libcufaultinj.so with the leading dot
 to make sure that dlopen loads the library file submitted. Otherwise it will assume a
 locally installed library accessible to the dynamic linker via LD_LIBRARY_PATH and similar mechanisms.
