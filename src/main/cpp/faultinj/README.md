@@ -5,7 +5,7 @@ in CUDA applications.
 
 It's especially important when CUDA is embedded in a higher-level fault-tolerant framework
 to ensure that CUDA failures are handled correctly in that
-- fatal errors leaving a GPU in unusbale state are detected and such GPUs are prevented from executing retries for
+- fatal errors leaving a GPU in unusable state are detected and such GPUs are prevented from executing retries for
 a failed computation
 - non-fatal errors are retried without losing valuable compute resources
 - error handling logic does not cause deadlocks and other sort of unresponsiveness.
