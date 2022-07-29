@@ -17,10 +17,10 @@
 #include <assert.h>
 #include <cuda.h>
 #include <cupti.h>
+#include <exception>
 #include <iostream>
 #include <map>
 #include <pthread.h>
-#include <exception>
 
 // thread-safe ptree
 #define BOOST_SPIRIT_THREADSAFE
@@ -34,44 +34,42 @@
 namespace {
 
 #define CUPTI_CALL(call)                                                       \
-do {                                                                           \
+  do {                                                                         \
     CUptiResult _status = call;                                                \
     if (_status != CUPTI_SUCCESS) {                                            \
-        const char *errstr;                                                    \
-        cuptiGetResultString(_status, &errstr);                                \
-        spdlog::error("function {} failed with error {}", #call, errstr);      \
+      const char *errstr;                                                      \
+      cuptiGetResultString(_status, &errstr);                                  \
+      spdlog::error("function {} failed with error {}", #call, errstr);        \
     }                                                                          \
-} while (0)
+  } while (0)
 
-#define PTHREAD_CALL(call)                                                         \
-do {                                                                               \
-    int _status = call;                                                            \
-    if (_status != 0) {                                                            \
-        spdlog::error("function {} failed with error code {}", #call, _status);    \
-    }                                                                              \
-} while (0)
+#define PTHREAD_CALL(call)                                                     \
+  do {                                                                         \
+    int _status = call;                                                        \
+    if (_status != 0) {                                                        \
+      spdlog::error("function {} failed with error code {}", #call, _status);  \
+    }                                                                          \
+  } while (0)
 
-typedef enum {
-    FI_TRAP,
-    FI_ASSERT,
-    FI_RETURN_VALUE
-} FaultInjectionType;
+typedef enum { FI_TRAP, FI_ASSERT, FI_RETURN_VALUE } FaultInjectionType;
 
 typedef struct {
-    volatile uint32_t initialized;
-    CUpti_SubscriberHandle  subscriber;
+  volatile uint32_t initialized;
+  CUpti_SubscriberHandle subscriber;
 
-    std::string configFilePath = std::string();
+  std::string configFilePath = std::string();
 
-    bool dynamic;
-    int terminateThread;
-    pthread_t dynamicThread;
-    // TODO change to the RAII idiom
-    pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
+  bool dynamic;
+  int terminateThread;
+  pthread_t dynamicThread;
+  // TODO change to the RAII idiom
+  pthread_rwlock_t configLock = PTHREAD_RWLOCK_INITIALIZER;
 
-    boost::property_tree::ptree configRoot;
-    boost::optional<boost::property_tree::ptree&> driverFaultConfigs = boost::none;
-    boost::optional<boost::property_tree::ptree&> runtimeFaultConfigs = boost::none;
+  boost::property_tree::ptree configRoot;
+  boost::optional<boost::property_tree::ptree &> driverFaultConfigs =
+      boost::none;
+  boost::optional<boost::property_tree::ptree &> runtimeFaultConfigs =
+      boost::none;
 } injGlobalControl;
 injGlobalControl globalControl;
 
@@ -137,16 +135,11 @@ CUptiResult cuptiInitialize(void) {
   return status;
 }
 
-__global__ void
-faultInjectorKernelAssert(void) {
-    assert(0 && "faultInjectorKernelAssert triggered");
+__global__ void faultInjectorKernelAssert(void) {
+  assert(0 && "faultInjectorKernelAssert triggered");
 }
 
-
-__global__ void
-faultInjectorKernelTrap(void) {
-    asm("trap;");
-}
+__global__ void faultInjectorKernelTrap(void) { asm("trap;"); }
 
 boost::optional<boost::property_tree::ptree &>
 lookupConfig(boost::optional<boost::property_tree::ptree &> domainConfigs,
