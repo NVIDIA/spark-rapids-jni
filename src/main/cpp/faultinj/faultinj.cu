@@ -206,8 +206,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
         matchedFaultConfig =
           lookupConfig(globalControl.driverFaultConfigs, cbInfo->functionName, cbid);
     }
-  }
-  if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
+  } else if (domain == CUPTI_CB_DOMAIN_RUNTIME_API && globalControl.runtimeFaultConfigs) {
     switch (cbid) {
       case CUPTI_RUNTIME_TRACE_CBID_cudaLaunch_v3020:
       case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000:
@@ -337,7 +336,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
         break;
       }
 
-    default: break;
+    default: ;
   }
 }
 
@@ -400,8 +399,7 @@ void readFaultInjectorConfig(void)
 
 void traceConfig(boost::property_tree::ptree const& pTree)
 {
-  boost::property_tree::ptree::const_iterator end = pTree.end();
-  for (boost::property_tree::ptree::const_iterator it = pTree.begin(); it != end; ++it) {
+  for (auto it = pTree.begin(); it != pTree.end(); ++it) {
     spdlog::trace("congig key={} value={}", it->first, it->second.get_value<std::string>());
     traceConfig(it->second);
   }
