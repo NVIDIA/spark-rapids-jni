@@ -17,7 +17,7 @@
             "interceptionCount": 1000
         },
         "cuLaunchKernel_ptsz": {
-            "percent": 1,
+            "percent": 0,
             "injectionType": 2,
             "substituteReturnCode": 2,
             "interceptionCount": 1000
