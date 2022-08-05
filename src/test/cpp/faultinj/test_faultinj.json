@@ -1,5 +1,6 @@
 {
     "logLevel": 1,
+    "seed": 12345,
     "dynamic": true,
     "cudaRuntimeFaults": {
         "cudaLaunchKernel_ptsz": {
@@ -12,8 +13,14 @@
         "*": {
             "percent": 0,
             "injectionType": 2,
-            "substituteReturnCode": 999,
-            "interceptionCount": 1
+            "substituteReturnCode": 2,
+            "interceptionCount": 1000
+        },
+        "cuLaunchKernel_ptsz": {
+            "percent": 0,
+            "injectionType": 2,
+            "substituteReturnCode": 2,
+            "interceptionCount": 1000
         }
     }
 }
