@@ -143,6 +143,8 @@ add_library(
   src/RowConversionJni.cpp
   src/NativeParquetJni.cpp
   src/row_conversion.cu
+  src/DecimalUtilsJni.cpp
+  src/decimal_utils.cu
 )
 
 set_target_properties(
