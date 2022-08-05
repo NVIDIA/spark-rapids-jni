@@ -90,6 +90,7 @@ template <std::size_t> using aligned_size_t = size_t; // Local stub for cuda::al
 #endif // ASYNC_MEMCPY_SUPPORTED
 
 namespace spark_rapids_jni {
+namespace detail {
 
 /*
  * This module converts data from row-major to column-major and from column-major to row-major. It
