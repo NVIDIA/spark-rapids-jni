@@ -23,11 +23,12 @@ import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Test;
 
 import java.math.RoundingMode;
+import java.util.stream.IntStream;
 
 public class RowConversionTest {
   @Test
   void fixedWidthRowsRoundTripWide() {
-    TestBuilder tb = new TestBuilder();
+    Table.TestBuilder tb = new Table.TestBuilder();
     IntStream.range(0, 10).forEach(i -> tb.column(3l, 9l, 4l, 2l, 20l, null));
     IntStream.range(0, 10).forEach(i -> tb.column(5.0d, 9.5d, 0.9d, 7.23d, 2.8d, null));
     IntStream.range(0, 10).forEach(i -> tb.column(5, 1, 0, 2, 7, null));
@@ -38,7 +39,7 @@ public class RowConversionTest {
         9.5d, 0.9d, 7.23d, 2.8d, null));
     IntStream.range(0, 10).forEach(i -> tb.decimal64Column(-8, 3L, 9L, 4L, 2L, 20L, null));
     try (Table origTable = tb.build()) {
-      ColumnVector[] rowMajorTable = origTable.convertToRows();
+      ColumnVector[] rowMajorTable = RowConversion.convertToRows(origTable);
       try {
         // We didn't overflow
         assert rowMajorTable.length == 1;
@@ -48,8 +49,8 @@ public class RowConversionTest {
         for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
           types[i] = origTable.getColumn(i).getType();
         }
-        try (Table backAgain = Table.convertFromRows(cv, types)) {
-          assertTablesAreEqual(origTable, backAgain);
+        try (Table backAgain = RowConversion.convertFromRows(cv, types)) {
+          AssertUtils.assertTablesAreEqual(origTable, backAgain);
         }
       } finally {
         for (ColumnVector cv : rowMajorTable) {
@@ -61,7 +62,7 @@ public class RowConversionTest {
 
   @Test
   void fixedWidthRowsRoundTrip() {
-    try (Table origTable = new TestBuilder()
+    try (Table origTable = new Table.TestBuilder()
         .column(3l, 9l, 4l, 2l, 20l, null)
         .column(5.0d, 9.5d, 0.9d, 7.23d, 2.8d, null)
         .column(5, 1, 0, 2, 7, null)
@@ -71,7 +72,7 @@ public class RowConversionTest {
         .decimal32Column(-3, RoundingMode.UNNECESSARY, 5.0d, 9.5d, 0.9d, 7.23d, 2.8d, null)
         .decimal64Column(-8, 3L, 9L, 4L, 2L, 20L, null)
         .build()) {
-      ColumnVector[] rowMajorTable = origTable.convertToRowsFixedWidthOptimized();
+      ColumnVector[] rowMajorTable = RowConversion.convertToRowsFixedWidthOptimized(origTable);
       try {
         // We didn't overflow
         assert rowMajorTable.length == 1;
@@ -81,8 +82,8 @@ public class RowConversionTest {
         for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
           types[i] = origTable.getColumn(i).getType();
         }
-        try (Table backAgain = Table.convertFromRowsFixedWidthOptimized(cv, types)) {
-          assertTablesAreEqual(origTable, backAgain);
+        try (Table backAgain = RowConversion.convertFromRowsFixedWidthOptimized(cv, types)) {
+          AssertUtils.assertTablesAreEqual(origTable, backAgain);
         }
       } finally {
         for (ColumnVector cv : rowMajorTable) {

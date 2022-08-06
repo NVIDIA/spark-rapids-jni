@@ -25,6 +25,23 @@ public class RowConversion {
   }
 
   /**
+   * For details about how this method functions refer to
+   * {@link #convertToRowsFixedWidthOptimized()}.
+   *
+   * The only thing different between this method and {@link #convertToRowsFixedWidthOptimized()}
+   * is that this can handle rougly 250M columns while {@link #convertToRowsFixedWidthOptimized()}
+   * can only handle columns less than 100
+   */
+  public static ColumnVector[] convertToRows(Table table) {
+    long[] ptrs = convertToRows(table.getNativeView());
+    ColumnVector[] ret = new ColumnVector[ptrs.length];
+    for (int i = 0; i < ptrs.length; i++) {
+      ret[i] = new ColumnVector(ptrs[i]);
+    }
+    return ret;
+  }
+
+  /**
    * Convert this table of columns into a row major format that is useful for interacting with other
    * systems that do row major processing of the data. Currently only fixed-width column types are
    * supported.
@@ -98,8 +115,8 @@ public class RowConversion {
    * There are some limits on the size of a single row.  If the row is larger than 1KB this will
    * throw an exception.
    */
-  public static ColumnVector[] convertToRows(Table table) {
-    long[] ptrs = convertToRows(table.getNativeView());
+  public static ColumnVector[] convertToRowsFixedWidthOptimized(Table table) {
+    long[] ptrs = convertToRowsFixedWidthOptimized(table.getNativeView());
     ColumnVector[] ret = new ColumnVector[ptrs.length];
     for (int i = 0; i < ptrs.length; i++) {
       ret[i] = new ColumnVector(ptrs[i]);
@@ -107,9 +124,38 @@ public class RowConversion {
     return ret;
   }
 
+  /**
+   * Convert a column of list of bytes that is formatted like the output from `convertToRows`
+   * and convert it back to a table.
+   *
+   * NOTE: This method doesn't support nested types
+   *
+   * @param vec the row data to process.
+   * @param schema the types of each column.
+   * @return the parsed table.
+   */
   public static Table convertFromRows(ColumnView vec, DType ... schema) {
-    // TODO at some point we need a schema that support nesting so we can support nested types
-    // TODO we will need scale at some point very soon too
+    int[] types = new int[schema.length];
+    int[] scale = new int[schema.length];
+    for (int i = 0; i < schema.length; i++) {
+      types[i] = schema[i].getTypeId().getNativeId();
+      scale[i] = schema[i].getScale();
+
+    }
+    return new Table(convertFromRows(vec.getNativeView(), types, scale));
+  }
+
+  /**
+   * Convert a column of list of bytes that is formatted like the output from `convertToRows`
+   * and convert it back to a table.
+   *
+   * NOTE: This method doesn't support nested types
+   *
+   * @param vec the row data to process.
+   * @param schema the types of each column.
+   * @return the parsed table.
+   */
+  public static Table convertFromRowsFixedWidthOptimized(ColumnView vec, DType ... schema) {
     int[] types = new int[schema.length];
     int[] scale = new int[schema.length];
     for (int i = 0; i < schema.length; i++) {
@@ -121,6 +167,8 @@ public class RowConversion {
   }
 
   private static native long[] convertToRows(long nativeHandle);
+  private static native long[] convertToRowsFixedWidthOptimized(long nativeHandle);
 
   private static native long[] convertFromRows(long nativeColumnView, int[] types, int[] scale);
+  private static native long[] convertFromRowsFixedWidthOptimized(long nativeColumnView, int[] types, int[] scale);
 }
