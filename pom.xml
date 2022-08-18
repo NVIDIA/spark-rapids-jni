@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>22.06.0</version>
+  <version>22.08.0</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -77,11 +77,12 @@
     <arrow.version>0.15.1</arrow.version>
     <CPP_PARALLEL_LEVEL>10</CPP_PARALLEL_LEVEL>
     <GPU_ARCHS>ALL</GPU_ARCHS>
-    <PER_THREAD_DEFAULT_STREAM>ON</PER_THREAD_DEFAULT_STREAM>
-    <CUDF_USE_PER_THREAD_DEFAULT_STREAM>${PER_THREAD_DEFAULT_STREAM}</CUDF_USE_PER_THREAD_DEFAULT_STREAM>
+    <CUDF_USE_PER_THREAD_DEFAULT_STREAM>ON</CUDF_USE_PER_THREAD_DEFAULT_STREAM>
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
+    <BUILD_TESTS>OFF</BUILD_TESTS>
+    <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
@@ -101,6 +102,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
+    <antrun.version>3.0.0</antrun.version>
   </properties>
 
   <dependencies>
@@ -166,11 +168,20 @@
         <plugins>
           <plugin>
             <artifactId>maven-surefire-plugin</artifactId>
-            <configuration>
-              <excludes>
-                <exclude>**/CuFileTest.java</exclude>
-              </excludes>
-            </configuration>
+            <executions>
+              <execution>
+                <id>default-test</id>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <excludes>
+                    <exclude>**/CuFileTest.java</exclude>
+                    <exclude>**/CudaFatalTest.java</exclude>
+                  </excludes>
+                </configuration>
+              </execution>
+            </executions>
           </plugin>
         </plugins>
       </build>
@@ -211,6 +222,45 @@
         </plugins>
       </build>
     </profile>
+      <profile>
+      <id>test-cpp</id>
+      <activation>
+        <property>
+          <name>BUILD_TESTS</name>
+          <value>ON</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>${antrun.version}</version>
+            <executions>
+              <execution>
+                <id>test-sparkrapidsjni</id>
+                <phase>test</phase>
+                <configuration>
+                  <target>
+                    <exec dir="${project.basedir}" 
+                          failonerror="true"
+                          executable="cmake">
+                        <arg value="--build"/>
+                        <arg value="${project.build.directory}/cmake-build"/>
+                        <arg value="--target"/>
+                        <arg value="test"/>
+                    </exec>
+                  </target>
+                </configuration>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <build>
@@ -218,7 +268,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-antrun-plugin</artifactId>
-        <version>3.0.0</version>
+        <version>${antrun.version}</version>
         <executions>
           <execution>
             <id>submodule check</id>
@@ -263,6 +313,7 @@
                 <property name="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                 <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                 <property name="USE_GDS" value="${USE_GDS}"/>
+                <property name="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
                 <ant antfile="build-libcudf.xml" target="build-libcudf"/>
               </target>
             </configuration>
@@ -317,6 +368,8 @@
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
+                  <arg value="-DBUILD_TESTS=${BUILD_TESTS}"/>
+                  <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
                 </exec>
                 <exec dir="${native.build.path}"
                       failonerror="true"
@@ -448,7 +501,36 @@
             <artifactId>junit-jupiter-engine</artifactId>
             <version>${junit.version}</version>
           </dependency>
+          <dependency>
+            <!-- workaround for bug https://github.com/junit-team/junit5/issues/1367 -->
+            <groupId>org.apache.maven.surefire</groupId>
+            <artifactId>surefire-logger-api</artifactId>
+            <version>2.21.0</version>
+          </dependency>
         </dependencies>
+        <executions>
+          <execution>
+            <id>default-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <excludes>
+                <exclude>**/CudaFatalTest.java</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+          <execution>
+            <id>fatal-cuda-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <reuseForks>false</reuseForks>
+              <test>CudaFatalTest</test>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.codehaus.mojo</groupId>

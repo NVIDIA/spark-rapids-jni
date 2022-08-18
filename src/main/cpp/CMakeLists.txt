@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 22.06.00
+  VERSION 22.08.00
   LANGUAGES C CXX CUDA
 )
 
@@ -41,16 +41,22 @@ project(
 
 option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
+option(BUILD_TESTS "Configure CMake to build tests" OFF)
+option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
 set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
+set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
+set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -94,7 +100,11 @@ else()
 endif()
 
 # cudf
-rapids_find_package(cudf REQUIRED)
+if(BUILD_TESTS)
+  rapids_find_package(cudf REQUIRED COMPONENTS testing)
+else()
+  rapids_find_package(cudf REQUIRED)
+endif()
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
@@ -142,6 +152,7 @@ set_target_properties(
              # set target compile options
              CXX_STANDARD 17
              CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
              CUDA_STANDARD 17
              CUDA_STANDARD_REQUIRED ON
              POSITION_INDEPENDENT_CODE ON
@@ -183,16 +194,18 @@ target_link_libraries(
     ${PARQUET_LIB}
     ${THRIFT_LIB}
   -Wl,--no-whole-archive
-  cudf::cudf
 )
-
+set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
 # all of the code is built into libcudf.so that is statically linked to the CUDA runtime library.
 # libcudfjni.so is a stub library dynamically-linked to libcudf.so.
 set_target_properties(spark_rapids_jni PROPERTIES OUTPUT_NAME "cudf")
+
+
 add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
-target_link_libraries(cudfjnistub -Wl,--no-as-needed spark_rapids_jni -Wl,--as-needed)
+target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
+add_dependencies(cudfjnistub spark_rapids_jni)
 
 # ##################################################################################################
 # * cuFile JNI -------------------------------------------------------------------------------------
@@ -218,5 +231,27 @@ if(USE_GDS)
     -Wl,--no-whole-archive
     spark_rapids_jni
     ${cuFile_LIBRARIES}
+    CUDA::cudart_static
   )
 endif()
+
+# ##################################################################################################
+# * add tests -------------------------------------------------------------------------------------
+
+if(SPARK_RAPIDS_JNI_BUILD_TESTS)
+  # include CTest module -- automatically calls enable_testing()
+  include(CTest)
+  add_subdirectory(tests)
+endif()
+
+# ##################################################################################################
+# * add benchmarks --------------------------------------------------------------------------------
+
+if(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS)
+  # Find or install NVBench
+  include(${rapids-cmake-dir}/cpm/nvbench.cmake)
+  rapids_cpm_nvbench()
+  add_subdirectory(benchmarks)
+endif()
+
+add_subdirectory(faultinj)

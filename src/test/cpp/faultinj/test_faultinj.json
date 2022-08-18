@@ -1,0 +1,19 @@
+{
+    "logLevel": 1,
+    "dynamic": true,
+    "cudaRuntimeFaults": {
+        "cudaLaunchKernel_ptsz": {
+            "percent": 0,
+            "injectionType": 0,
+            "interceptionCount": 1
+        }
+    },
+    "cudaDriverFaults": {
+        "*": {
+            "percent": 0,
+            "injectionType": 2,
+            "substituteReturnCode": 999,
+            "interceptionCount": 1
+        }
+    }
+}
