@@ -102,10 +102,6 @@ struct chunked256 {
     }
   }
 
-  inline __device__ bool is_zero() {
-    return chunks[0] == 0 && chunks[1] == 0 && chunks[2] == 0 && chunks[3] == 0;
-  }
-
 private:
   uint64_t chunks[4];
 };
@@ -482,7 +478,6 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
       overflows[i] = true;
       return;
     }
-    float test_scale_div = std::pow(10, exponent);
     __int128_t scale_divisor = std::pow(10, exponent);
 
     // scale and round to target scale
