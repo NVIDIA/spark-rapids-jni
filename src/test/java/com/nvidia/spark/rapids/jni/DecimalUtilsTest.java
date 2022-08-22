@@ -18,14 +18,10 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
-import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.math.MathContext;
-import java.math.RoundingMode;
 
 import static ai.rapids.cudf.AssertUtils.*;
 
@@ -68,6 +64,22 @@ public class DecimalUtilsTest {
              makeDec128Column("1.0", "5.6");
          ColumnVector expectedValid =
              ColumnVector.fromBooleans(false, false);
+         Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void simplePosMultiplyZeroByNegOne() {
+    try (ColumnVector lhs =
+             makeDec128Column("1");
+         ColumnVector rhs =
+             makeDec128Column("1e1");
+         ColumnVector expectedBasic =
+             makeDec128Column("10.0");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
       assertColumnsAreEqual(expectedValid, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
