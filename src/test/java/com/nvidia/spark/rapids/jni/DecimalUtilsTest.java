@@ -174,4 +174,141 @@ public class DecimalUtilsTest {
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
+
+  @Test
+  void simplePosDivOneByZero() {
+    try (ColumnVector lhs =
+             makeDec128Column("1.0", "10.0", "1.0", "1000000000000000000000000000000000000.0");
+         ColumnVector rhs =
+             makeDec128Column("1",   "2",    "0",   "5");
+         ColumnVector expectedBasic =
+             makeDec128Column("1.0", "5.0",  "0",   "200000000000000000000000000000000000.0");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false, false, true, false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void simplePosDivOneByOne() {
+    try (ColumnVector lhs =
+             makeDec128Column("1.0", "3.7", "99.9");
+         ColumnVector rhs =
+             makeDec128Column("1.0", "1.5", "4.5");
+         ColumnVector expectedBasic =
+             makeDec128Column("1.0", "2.5", "22.2");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false, false, false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void simpleNegDivOneByOne() {
+    try (ColumnVector lhs =
+             makeDec128Column("1.0", "-3.7", "-99.9");
+         ColumnVector rhs =
+             makeDec128Column("-1.0", "1.5", "-4.5");
+         ColumnVector expectedBasic =
+             makeDec128Column("-1.0", "-2.5", "22.2");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false, false, false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void divComplex() {
+    try (ColumnVector lhs =
+             makeDec128Column("100000000000000000000000000000000");
+         ColumnVector rhs =
+             makeDec128Column("3.0000000000000000000000000000000000000");
+         ColumnVector expectedBasic =
+             makeDec128Column("33333333333333333333333333333333.333333");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void div17() {
+    try (ColumnVector lhs =
+             makeDec128Column("1454.48287885760884146",
+                 "3655.54438423288356646");
+         ColumnVector rhs =
+             makeDec128Column("100.00000000000000000",
+                 "100.00000000000000000");
+         ColumnVector expectedBasic =
+             makeDec128Column("14.54482878857608841",
+                 "36.55544384232883566");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false, false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -17)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void div17WithPosScale() {
+    try (ColumnVector lhs =
+             makeDec128Column("1454.48287885760884146");
+         ColumnVector rhs =
+             makeDec128Column("1e2");
+         ColumnVector expectedBasic =
+             makeDec128Column("14.54482878857608841");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -17)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void div21WithPosScale() {
+    try (ColumnVector lhs =
+             makeDec128Column("5776949401614362.858115554473103121126");
+         ColumnVector rhs =
+             makeDec128Column("1e2");
+         ColumnVector expectedBasic =
+             makeDec128Column("57769494016143.628581");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void div21() {
+    try (ColumnVector lhs =
+             makeDec128Column("60250054953505368.439892586764888491018",
+                 "91910085134512953.335347579448489062875",
+                 "51312633107598808.869351260608653423886");
+         ColumnVector rhs =
+             makeDec128Column("97982875273794447.385070145919990343867",
+                 "94478503341597285.814104936062234698349",
+                 "92266075543848323.800466593082956765923");
+         ColumnVector expectedBasic =
+             makeDec128Column("0.614904",
+                 "0.972815",
+                 "0.556138");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(false, false, false);
+         Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
 }

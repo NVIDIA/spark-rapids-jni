@@ -41,5 +41,22 @@ public class DecimalUtils {
     return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale));
   }
 
+  /**
+   * Divide two DECIMAL128 columns and produce a DECIMAL128 quotient rounded to the specified
+   * scale with overflow detection.
+   * @param a            factor input, must match row count of the other factor input
+   * @param b            factor input, must match row count of the other factor input
+   * @param quotientScale scale to use for the quotient type
+   * @return table containing a boolean column and a DECIMAL128 quotient column of the specified
+   *         scale. The boolean value will be true if an overflow was detected for that row's
+   *         DECIMAL128 quotient value. A null input row will result in a corresponding null output
+   *         row.
+   */
+  public static Table divide128(ColumnView a, ColumnView b, int quotientScale) {
+    return new Table(divide128(a.getNativeView(), b.getNativeView(), quotientScale));
+  }
+
   private static native long[] multiply128(long viewA, long viewB, int productScale);
+
+  private static native long[] divide128(long viewA, long viewB, int quotientScale);
 }
