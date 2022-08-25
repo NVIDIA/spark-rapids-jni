@@ -142,6 +142,7 @@ add_library(
   spark_rapids_jni SHARED
   src/RowConversionJni.cpp
   src/NativeParquetJni.cpp
+  src/cast_string.cu
   src/row_conversion.cu
 )
 

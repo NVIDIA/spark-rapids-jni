@@ -45,5 +45,9 @@ endfunction(ConfigureTest)
 ### test sources ##################################################################################
 ###################################################################################################
 
+ConfigureTest(CAST_STRING
+    cast_string.cpp)
+
 ConfigureTest(ROW_CONVERSION
     row_conversion.cpp)
+
