@@ -105,6 +105,15 @@ struct chunked256 {
     }
   }
 
+  inline __device__ bool fits_in_128_bits() const {
+    // check for overflow by ensuring no significant bits will be lost when truncating to 128-bits
+    int64_t sign = static_cast<int64_t>(chunks[1]) >> 63;
+    return sign == static_cast<int64_t>(chunks[2]) && sign == static_cast<int64_t>(chunks[3]);
+  }
+
+  inline __device__ __int128_t as_128_bits() const {
+    return (static_cast<__int128_t>(chunks[1]) << 64) | chunks[0];
+  }
 private:
   uint64_t chunks[4];
 };
@@ -139,7 +148,7 @@ __device__ chunked256 multiply(chunked256 const &a, chunked256 const &b) {
 __device__ divmod256 divide_unsigned(chunked256 const &n, __int128_t const &d) {
   // TODO: FIXME this is long division, and so it is likely very slow...
   chunked256 q(0);
-  __int128_t r = 0;
+  __uint128_t r = 0;
 
   for (int i = 255; i >= 0; i--) {
     int block = i / 64;
@@ -150,30 +159,68 @@ __device__ divmod256 divide_unsigned(chunked256 const &n, __int128_t const &d) {
 
     if (r >= d) {
       r = r - d;
-
       int64_t bit_set = 1L << bit;
       q[block] = q[block] | bit_set;
     }
   }
-  return divmod256{q, r};
+  return divmod256{q, static_cast<__int128_t>(r)};
 }
 
 __device__ divmod256 divide(chunked256 const &n, __int128_t const &d) {
-  // TODO for now we are going to assume that d is not 0 and d is not negative
-  //   This is because it fits with how we currently use this divide and it can be added in later.
-  if (n.sign() >= 0) {
-    return divide_unsigned(n, d);
-  } else {
-    chunked256 tmp_n = n;
-    tmp_n.negate();
-
-    auto tmp_ret = divide_unsigned(tmp_n, d);
-      
-    tmp_ret.quotient.negate();
-    tmp_ret.remainder = -tmp_ret.remainder;
-
-    return tmp_ret;
+  // We assume that d is not 0. This is because we do the zero check,
+  // if needed before calling divide so we can set an overflow properly.
+  bool const is_n_neg = n.sign() < 0;
+  bool const is_d_neg = d < 0;
+  // When computing the absolute value we don't need to worry about overflowing
+  // beause we are dealing with decimal numbers that should not go to
+  // the maximum value that can be held by d or n
+  chunked256 abs_n = n;
+  if (is_n_neg) {
+    abs_n.negate();
   }
+
+  __int128_t abs_d = is_d_neg ? -d : d;
+  divmod256 result = divide_unsigned(abs_n, abs_d);
+
+  if (is_d_neg != is_n_neg) {
+    result.quotient.negate();
+  }
+
+  if (is_n_neg) {
+    result.remainder = -result.remainder;
+  }
+
+  return result;
+}
+
+__device__ chunked256 round_from_remainder(chunked256 const &q, __int128_t const &r, 
+        chunked256 const & n, __int128_t const &d) {
+  // We are going to round if the abs value of the remainder is >= half of the divisor
+  // but if we divide the divisor in half, we can lose data so instead we are going to
+  // multiply the remainder by 2
+  __int128_t const double_remainder = r << 1;
+
+  // But this too can lose data if multiplying by 2 pushes off the top bit, it is a
+  // little more complicated than that because of negative numbers. That is okay
+  // because if we lose information when multiplying, then we know that the number
+  // is in a range that would have us round because the divisor has to fit within
+  // an __int128_t.
+
+  bool const need_inc = ((double_remainder >> 1) != r) || // if we lost info or
+      (double_remainder < 0 ? -double_remainder : double_remainder) >= // abs remainder is >=
+      (d < 0 ? -d : d); // abs divisor
+
+  // To know which way to round, more specifically when the quotient is 0
+  // we keed to know what the sign of the quotient would have been. In this
+  // case that happens if only one of the inputs was negative (xor)
+  bool const is_n_neg = n.sign() < 0;
+  bool const is_d_neg = d < 0;
+  bool const round_down = is_n_neg != is_d_neg;
+
+  int const round_inc = (need_inc ? (round_down ? -1 : 1) : 0);
+  chunked256 ret = q;
+  ret.add(round_inc);
+  return ret;
 }
 
 /**
@@ -182,12 +229,7 @@ __device__ divmod256 divide(chunked256 const &n, __int128_t const &d) {
 __device__ chunked256 divide_and_round(chunked256 const &n, __int128_t const &d) {
   divmod256 div_result = divide(n, d);
 
-  bool const needIncrement = (div_result.remainder < 0 ? -div_result.remainder : div_result.remainder) 
-      >= (d >> 1);
-  int64_t const sign = div_result.quotient.sign();
-  int const roundIncrement = (needIncrement ? (sign < 0 ? -1 : 1) : 0);
-  div_result.quotient.add(roundIncrement);
-  return div_result.quotient;
+  return round_from_remainder(div_result.quotient, div_result.remainder, n, d);
 }
 
 inline __device__ chunked256 pow_ten(int exp) {
@@ -487,7 +529,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         prod_scale(product_view.type().scale()) {}
 
-  __device__ __int128_t operator()(cudf::size_type i) const {
+  __device__ __int128_t operator()(cudf::size_type const i) const {
     chunked256 const a(a_data[i]);
     chunked256 const b(b_data[i]);
 
@@ -503,8 +545,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
 
     int mult_scale = a_scale + b_scale;
     if (first_div_precision > 0) {
-      //TODO would be great to have this reuse the look up table for pow10 for chunked256
-      __int128_t first_div_scale_divisor = std::pow(10, first_div_precision);
+      auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
       product = divide_and_round(product, first_div_scale_divisor);
 
       // a_scale and b_scale are negative. first_div_precision is not
@@ -520,13 +561,11 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
         overflows[i] = true;
         return;
       } else {
-        //TODO would be great to have this reuse the look up table for pow10 for chunked256
-        __int128_t scale_mult = std::pow(10, -exponent);
+        auto const scale_mult = pow_ten( -exponent).as_128_bits();
         product = multiply(product, chunked256(scale_mult));
       }
     } else {
-      //TODO would be great to have this reuse the look up table for pow10 for chunked256
-      __int128_t scale_divisor = std::pow(10, exponent);
+      auto const scale_divisor = pow_ten(exponent).as_128_bits();
 
       // scale and round to target scale
       if (scale_divisor != 1) {
@@ -534,10 +573,8 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
       }
     }
 
-    // check for overflow by ensuring no significant bits will be lost when truncating to 128-bits
-    int64_t sign = static_cast<int64_t>(product[1]) >> 63;
-    overflows[i] = !(sign == static_cast<int64_t>(product[2]) && sign == static_cast<int64_t>(product[3]));
-    product_data[i] = (static_cast<__int128_t>(product[1]) << 64) | product[0];
+    overflows[i] = !product.fits_in_128_bits();
+    product_data[i] = product.as_128_bits();
   }
 
 private:
@@ -552,6 +589,98 @@ private:
   int const a_scale;
   int const b_scale;
   int const prod_scale;
+};
+
+// Functor to divide two DECIMAL128 columns with rounding and overflow detection.
+struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_t> {
+  dec128_divider(bool *overflows, cudf::mutable_column_view const &quotient_view,
+                    cudf::column_view const &a_col, cudf::column_view const &b_col)
+      : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
+        quotient_data(quotient_view.data<__int128_t>()),
+        a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
+        quot_scale(quotient_view.type().scale()) {}
+
+  __device__ __int128_t operator()(cudf::size_type const i) const {
+    chunked256 n(a_data[i]);
+    __int128_t const d(b_data[i]);
+
+    // Divide by zero, not sure if we care or not, but...
+    if (d == 0) {
+      overflows[i] = true;
+      quotient_data[i] = 0;
+      return;
+    }
+
+    // The output scale of a divide is a_scale - b_scale. But we want an output scale of
+    // quot_scale, so we need to multiply a by a set amount before we can do the divide.
+
+    int n_shift_exp = quot_scale - (a_scale - b_scale);
+
+    if (n_shift_exp > 0) {
+      // In this case we have to divide twice to get the answer we want.
+      // The first divide is a regular divide
+      divmod256 const first_div_result = divide(n, d);
+
+      // Ignore the remainder because we don't need it.
+      auto const scale_divisor = pow_ten(n_shift_exp).as_128_bits();
+
+      // The second divide gets the result into the scale that we care about and does the rounding.
+      auto const result = divide_and_round(first_div_result.quotient, scale_divisor);
+
+      overflows[i] = !result.fits_in_128_bits();
+      quotient_data[i] = result.as_128_bits();
+    } else if (n_shift_exp < -38) {
+      // We need to do a multiply before we can divide, but the multiply might
+      // overflow so we do a multiply then a divide and shift the result and
+      // remainder over by the amount left to multiply. It is kind of like long
+      // division, but base 10.
+
+      // First multiply by 10^38 and divide to get a remainder
+      n = multiply(n, chunked256(pow_ten(38)));
+
+      auto const first_div_result = divide(n, d);
+      chunked256 const first_div_r(first_div_result.remainder);
+
+      //now we have to multiply each of these by how much is left
+      int const remaining_exp = (-n_shift_exp) - 38;
+      auto const scale_mult = pow_ten(remaining_exp);
+      auto result = multiply(first_div_result.quotient, scale_mult);
+      auto const scaled_div_r = multiply(first_div_r, scale_mult);
+
+      // Now do a second divide on what is left
+      auto const second_div_result = divide(scaled_div_r, d);
+      result.add(second_div_result.quotient);
+
+      // and finally round
+      result = round_from_remainder(result, second_div_result.remainder, scaled_div_r, d);
+
+      overflows[i] = !result.fits_in_128_bits();
+      quotient_data[i] = result.as_128_bits();
+    } else {
+      // Regular multiply followed by a divide
+      if (n_shift_exp < 0) {
+        n = multiply(n, pow_ten(-n_shift_exp));
+      }
+
+      auto const result = divide_and_round(n, d);
+
+      overflows[i] = !result.fits_in_128_bits();
+      quotient_data[i] = result.as_128_bits();
+    }
+  }
+
+private:
+
+  // output column for overflow detected
+  bool * const overflows;
+
+  // input data for multiply
+  __int128_t const * const a_data;
+  __int128_t const * const b_data;
+  __int128_t * const quotient_data;
+  int const a_scale;
+  int const b_scale;
+  int const quot_scale;
 };
 
 } // anonymous namespace
@@ -578,6 +707,28 @@ multiply_decimal128(cudf::column_view const &a, cudf::column_view const &b, int3
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
                     product_view.begin<__int128_t>(),
                     dec128_multiplier(overflows_view.begin<bool>(), product_view, a, b));
+  return std::make_unique<cudf::table>(std::move(columns));
+}
+
+std::unique_ptr<cudf::table>
+divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
+                  rmm::cuda_stream_view stream) {
+  CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  auto const num_rows = a.size();
+  CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  std::vector<std::unique_ptr<cudf::column>> columns;
+  // copy the null mask here, as it will be used again later
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
+                                                  rmm::device_buffer(result_null_mask, stream), result_null_count, stream));
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, quotient_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
+  auto overflows_view = columns[0]->mutable_view();
+  auto quotient_view = columns[1]->mutable_view();
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                    quotient_view.begin<__int128_t>(),
+                    dec128_divider(overflows_view.begin<bool>(), quotient_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
