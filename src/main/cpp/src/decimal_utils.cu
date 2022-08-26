@@ -105,10 +105,6 @@ struct chunked256 {
     }
   }
 
-  inline __device__ bool is_zero() const {
-    return chunks[0] == 0 && chunks[1] == 0 && chunks[2] == 0 && chunks[3] == 0;
-  }
-
   inline __device__ bool fits_in_128_bits() const {
     // check for overflow by ensuring no significant bits will be lost when truncating to 128-bits
     int64_t sign = static_cast<int64_t>(chunks[1]) >> 63;
@@ -202,7 +198,7 @@ __device__ chunked256 round_from_remainder(chunked256 const &q, __int128_t const
   // We are going to round if the abs value of the remainder is >= half of the divisor
   // but if we divide the divisor in half, we can lose data so instead we are going to
   // multiply the remainder by 2
-  __int128_t double_remainder = r << 1;
+  __int128_t const double_remainder = r << 1;
 
   // But this too can lose data if multiplying by 2 pushes off the top bit, it is a
   // little more complicated than that because of negative numbers. That is okay
@@ -533,7 +529,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         prod_scale(product_view.type().scale()) {}
 
-  __device__ __int128_t operator()(cudf::size_type i) const {
+  __device__ __int128_t operator()(cudf::size_type const i) const {
     chunked256 const a(a_data[i]);
     chunked256 const b(b_data[i]);
 
@@ -549,7 +545,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
 
     int mult_scale = a_scale + b_scale;
     if (first_div_precision > 0) {
-      __int128_t first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
+      auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
       product = divide_and_round(product, first_div_scale_divisor);
 
       // a_scale and b_scale are negative. first_div_precision is not
@@ -565,11 +561,11 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
         overflows[i] = true;
         return;
       } else {
-        __int128_t scale_mult = pow_ten( -exponent).as_128_bits();
+        auto const scale_mult = pow_ten( -exponent).as_128_bits();
         product = multiply(product, chunked256(scale_mult));
       }
     } else {
-      __int128_t scale_divisor = pow_ten(exponent).as_128_bits();
+      auto const scale_divisor = pow_ten(exponent).as_128_bits();
 
       // scale and round to target scale
       if (scale_divisor != 1) {
@@ -604,7 +600,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         quot_scale(quotient_view.type().scale()) {}
 
-  __device__ __int128_t operator()(cudf::size_type i) const {
+  __device__ __int128_t operator()(cudf::size_type const i) const {
     chunked256 n(a_data[i]);
     __int128_t const d(b_data[i]);
 
@@ -623,52 +619,50 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
     if (n_shift_exp > 0) {
       // In this case we have to divide twice to get the answer we want.
       // The first divide is a regular divide
-      divmod256 first_div_result = divide(n, d);
+      divmod256 const first_div_result = divide(n, d);
 
       // Ignore the remainder because we don't need it.
-      __int128_t scale_divisor = pow_ten(n_shift_exp).as_128_bits();
+      auto const scale_divisor = pow_ten(n_shift_exp).as_128_bits();
 
       // The second divide gets the result into the scale that we care about and does the rounding.
-      chunked256 result = divide_and_round(first_div_result.quotient, scale_divisor);
+      auto const result = divide_and_round(first_div_result.quotient, scale_divisor);
 
       overflows[i] = !result.fits_in_128_bits();
       quotient_data[i] = result.as_128_bits();
     } else if (n_shift_exp < -38) {
       // We need to do a multiply before we can divide, but the multiply might
       // overflow so we do a multiply then a divide and shift the result and
-      // remainder over by the amout left to multiply. It is kind of like long
+      // remainder over by the amount left to multiply. It is kind of like long
       // division, but base 10.
 
       // First multiply by 10^38 and divide to get a remainder
-      chunked256 scale_mult = pow_ten(38);
-      n = multiply(n, chunked256(scale_mult));
+      n = multiply(n, chunked256(pow_ten(38)));
 
-      divmod256 first_div_result = divide(n, d);
-      chunked256 first_div_r(first_div_result.remainder);
+      auto const first_div_result = divide(n, d);
+      chunked256 const first_div_r(first_div_result.remainder);
 
       //now we have to multiply each of these by how much is left
-      int remaining_exp = (-n_shift_exp) - 38;
-      scale_mult = pow_ten(remaining_exp);
-      chunked256 result = multiply(first_div_result.quotient, scale_mult);
-      first_div_r = multiply(first_div_r, scale_mult);
+      int const remaining_exp = (-n_shift_exp) - 38;
+      auto const scale_mult = pow_ten(remaining_exp);
+      auto result = multiply(first_div_result.quotient, scale_mult);
+      auto const scaled_div_r = multiply(first_div_r, scale_mult);
 
       // Now do a second divide on what is left
-      divmod256 second_div_result = divide(first_div_r, d);
+      auto const second_div_result = divide(scaled_div_r, d);
       result.add(second_div_result.quotient);
 
       // and finally round
-      result = round_from_remainder(result, second_div_result.remainder, first_div_r, d);
+      result = round_from_remainder(result, second_div_result.remainder, scaled_div_r, d);
 
       overflows[i] = !result.fits_in_128_bits();
       quotient_data[i] = result.as_128_bits();
     } else {
       // Regular multiply followed by a divide
       if (n_shift_exp < 0) {
-        chunked256 scale_mult = pow_ten(-n_shift_exp);
-        n = multiply(n, scale_mult);
+        n = multiply(n, pow_ten(-n_shift_exp));
       }
 
-      chunked256 result = divide_and_round(n, d);
+      auto const result = divide_and_round(n, d);
 
       overflows[i] = !result.fits_in_128_bits();
       quotient_data[i] = result.as_128_bits();
