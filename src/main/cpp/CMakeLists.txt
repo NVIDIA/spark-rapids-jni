@@ -145,6 +145,8 @@ add_library(
   src/NativeParquetJni.cpp
   src/cast_string.cu
   src/row_conversion.cu
+  src/DecimalUtilsJni.cpp
+  src/decimal_utils.cu
 )
 
 set_target_properties(
