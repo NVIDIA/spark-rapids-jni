@@ -31,15 +31,15 @@ public class CastStringsTest {
   @Test
   void castToIntegerTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.column(3l, 9l, 4l, 2l, 20l, null);
-    tb.column(5, 1, 0, 2, 7, null);
-    tb.column(new Byte[]{2, 3, 4, 5, 9, null});
+    tb.column(3l, 9l, 4l, 2l, 20l, null, null);
+    tb.column(5, 1, 0, 2, 7, null, null);
+    tb.column(new Byte[]{2, 3, 4, 5, 9, null, null});
     Table expected = tb.build();
 
     Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column("3", "9", "4", "2", "20", null);
-    tb2.column("5", "1", "0", "2", "7", null);
-    tb2.column("2", "3", "4", "5", "9", null);
+    tb2.column("3", "9", "4", "2", "20", null, "7.6asd");
+    tb2.column("5", "1", "0", "2", "7", null, "asdf");
+    tb2.column("2", "3", "4", "5", "9", null, "7.8.3");
 
     List<ColumnVector> result = new ArrayList<>();
 
@@ -47,6 +47,33 @@ public class CastStringsTest {
       for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
         ColumnVector string_col = origTable.getColumn(i);
         result.add(CastStrings.toInteger(string_col, false, 
+                   expected.getColumn(i).getType()));
+      }
+      Table result_tbl = new Table(
+        result.toArray(new ColumnVector[result.size()]));
+      AssertUtils.assertTablesAreEqual(expected, result_tbl);
+    }
+  }
+
+  @Test
+  void castToIntegerAnsiTest() {
+    Table.TestBuilder tb = new Table.TestBuilder();
+    tb.column(3l, 9l, 4l, 2l, 20l);
+    tb.column(5, 1, 0, 2, 7);
+    tb.column(new Byte[]{2, 3, 4, 5, 9});
+    Table expected = tb.build();
+
+    Table.TestBuilder tb2 = new Table.TestBuilder();
+    tb2.column("3", "9", "4", "2", "20");
+    tb2.column("5", "1", "0", "2", "7");
+    tb2.column("2", "3", "4", "5", "9");
+
+    List<ColumnVector> result = new ArrayList<>();
+
+    try (Table origTable = tb2.build()) {
+      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+        ColumnVector string_col = origTable.getColumn(i);
+        result.add(CastStrings.toInteger(string_col, true, 
                    expected.getColumn(i).getType()));
       }
       Table result_tbl = new Table(
