@@ -35,7 +35,7 @@ RUN scl enable rh-python38 "pip install requests"
 RUN mkdir /usr/local/rapids && mkdir /rapids && chmod 777 /usr/local/rapids && chmod 777 /rapids
 
 # 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
-ARG CMAKE_VERSION=3.22.3
+ARG CMAKE_VERSION=3.23.3
 
 RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
    tar zxf cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
