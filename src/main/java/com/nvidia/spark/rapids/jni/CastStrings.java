@@ -24,9 +24,9 @@ public class CastStrings {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static ColumnVector stringToInteger(ColumnView cv, boolean ansiMode, DType type) {
-    return new ColumnVector(stringToInteger(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
+  public static ColumnVector toInteger(ColumnView cv, boolean ansiMode, DType type) {
+    return new ColumnVector(toInteger(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
   }
 
-  private static native long stringToInteger(long nativeColumnView, boolean ansi_enabled, int dtype);
+  private static native long toInteger(long nativeColumnView, boolean ansi_enabled, int dtype);
 }

@@ -22,7 +22,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_CastStrings_stringToInteger(JNIEnv *env, jclass, jlong input_column, jboolean ansi_enabled, jint j_dtype)
+Java_com_nvidia_spark_rapids_jni_CastStrings_toInteger(JNIEnv *env, jclass, jlong input_column, jboolean ansi_enabled, jint j_dtype)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 

@@ -85,20 +85,30 @@ __global__ void string_to_integer_kernel(T* out,
     }
 
     bool truncating = false;
+    bool trailing_whitespace = false;
     for (int c = i; c < len; ++c) {
       auto const chr = chars[c + row_start];
-      if (chr == '.') {
+      // only whitespace is allowed after we find trailing whitespace
+      if (trailing_whitespace && !is_whitespace(chr)) {
+        valid = false;
+        break;
+      } else if (!truncating && chr == '.') {
         // Values are truncated after a decimal point. However, invalid characters AFTER this
         // decimal point will still invalidate this entry.
         truncating = true;
       } else {
         if (chr > '9' || chr < '0') {
-          // invalid character in string!
-          valid = false;
+          if (is_whitespace(chr)) {
+            trailing_whitespace = true;
+          } else {
+            // invalid character in string!
+            valid = false;
+            break;
+          }
         }
       }
 
-      if (!truncating) {
+      if (!truncating && !trailing_whitespace) {
         if (c != i) thread_val *= 10;
         thread_val += chr - '0';
       }
