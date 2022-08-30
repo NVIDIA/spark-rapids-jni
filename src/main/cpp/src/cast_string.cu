@@ -72,16 +72,21 @@ __global__ void string_to_integer_kernel(T* out,
 
   if (valid) {
     // skip leading whitespace
-    while (is_whitespace(chars[i + row_start])) {
+    while (i < len && is_whitespace(chars[i + row_start])) {
       i++;
     }
 
     // check for leading +-
     if constexpr (is_signed) {
-      if (chars[i + row_start] == '+' || chars[i + row_start] == '-') {
+      if (i < len && (chars[i + row_start] == '+' || chars[i + row_start] == '-')) {
         if (chars[i + row_start] == '-') { sign = -1; }
         i++;
       }
+    }
+
+    // if there is no data left, this is invalid
+    if (i == len) {
+      valid = false;
     }
 
     bool truncating = false;
