@@ -7,4 +7,4 @@ repos:
               - id: clang-format
                 files: \.(cu|cuh|h|hpp|cpp|inl)$
                 types_or: [file]
-                args: ['-fallback-style=none', '-style=file', '-i']
+                args: ['-fallback-style=none', '-style=file:thirdparty/cudf/cpp/.clang-format', '-i']
