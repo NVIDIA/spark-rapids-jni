@@ -25,7 +25,7 @@ public class CastStrings {
   }
 
   /**
-   * Convert a string column to an integer column of type type
+   * Convert a string column to an integer column of a specified type.
    *
    * @param cv the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
