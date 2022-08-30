@@ -53,6 +53,7 @@ __global__ void string_to_integer_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
                                          offset_type const* offsets,
+                                         bitmask_type const *incoming_null_mask,
                                          size_type num_rows)
 {
   auto const group = cooperative_groups::this_thread_block();
@@ -64,7 +65,8 @@ __global__ void string_to_integer_kernel(T* out,
   auto const active        = cooperative_groups::coalesced_threads();
   auto const row_start     = offsets[row];
   auto const len           = offsets[row + 1] - row_start;
-  bool valid               = len > 0;
+  bool const valid_entry   = incoming_null_mask == nullptr || bit_is_set(incoming_null_mask, row);
+  bool valid               = valid_entry && len > 0;
   T thread_val             = 0;
   int i                    = 0;
   T sign                   = 1;
@@ -129,8 +131,9 @@ __global__ void string_to_integer_kernel(T* out,
 }
 
 struct row_valid_fn {
-  bool __device__ operator()(size_type const row) { return not col.is_valid(row); }
-  column_device_view col;
+  bool __device__ operator()(size_type const row) { return not bit_is_set(null_mask, row) && bit_is_set(string_col_null_mask, row); }
+  bitmask_type const *null_mask;
+  bitmask_type const *string_col_null_mask;
 };
 
 struct string_to_integer_impl {
@@ -140,9 +143,9 @@ struct string_to_integer_impl {
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
-    rmm::device_uvector<T> data(string_col.size(), stream);
+    rmm::device_uvector<T> data(string_col.size(), stream, mr);
     auto const num_words = bitmask_allocation_size_bytes(string_col.size()) / sizeof(bitmask_type);
-    rmm::device_uvector<bitmask_type> null_mask(num_words, stream);
+    rmm::device_uvector<bitmask_type> null_mask(num_words, stream, mr);
 
     dim3 const blocks(util::div_rounding_up_unsafe(string_col.size(), detail::NUM_THREADS));
     dim3 const threads{detail::NUM_THREADS};
@@ -152,6 +155,7 @@ struct string_to_integer_impl {
       null_mask.data(),
       string_col.chars().data<char const>(),
       string_col.offsets().data<offset_type>(),
+      string_col.null_mask(),
       string_col.size());
 
     auto col = std::make_unique<column>(
@@ -159,12 +163,13 @@ struct string_to_integer_impl {
 
     if (ansi_mode) {
       auto const num_nulls = col->null_count();
-      if (num_nulls > 0) {
-        auto const cdv         = column_device_view::create(*col, stream);
+      auto const incoming_nulls = string_col.null_count();
+      auto const num_errors = num_nulls - incoming_nulls;
+      if (num_errors > 0) {
         auto const first_error = thrust::find_if(rmm::exec_policy(stream),
                                                  thrust::make_counting_iterator(0),
                                                  thrust::make_counting_iterator(col->size()),
-                                                 row_valid_fn{*cdv});
+                                                 row_valid_fn{col->view().null_mask(), string_col.null_mask()});
 
         offset_type string_bounds[2];
         cudaMemcpyAsync(&string_bounds,
@@ -185,7 +190,7 @@ struct string_to_integer_impl {
         stream.synchronize();
 
         CUDF_EXPECTS(num_nulls == 0,
-                     "String column had " + std::to_string(num_nulls) +
+                     "String column had " + std::to_string(num_errors) +
                        " parse errors, first error was line " + std::to_string(*first_error + 1) +
                        ": '" + dest + "'!");
       }
@@ -206,6 +211,17 @@ struct string_to_integer_impl {
 
 }  // namespace detail
 
+/**
+ * @brief Convert a string column into an integer column.
+ * 
+ * @param dtype Type of column to return.
+ * @param string_col Incoming string column to convert to integers.
+ * @param ansi_mode If true, strict conversion and throws on erorr.
+ *                  If false, null invalid entries.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> Integer column that was created from string_col.
+ */
 std::unique_ptr<column> string_to_integer(data_type dtype,
                                           strings_column_view const& string_col,
                                           bool ansi_mode,

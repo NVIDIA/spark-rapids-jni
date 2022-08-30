@@ -47,7 +47,9 @@ TYPED_TEST(StringToIntegerTests, Simple)
 TYPED_TEST(StringToIntegerTests, Ansi)
 {
   auto const strings =
-    test::strings_column_wrapper({"+1",
+    test::strings_column_wrapper({"",
+                                  "null",
+                                  "+1",
                                   "-0",
                                   "4.2",
                                   "asdf",
@@ -61,7 +63,6 @@ TYPED_TEST(StringToIntegerTests, Ansi)
                                   "+1.2",
                                   "\n123\n456\n",
                                   "1 2",
-                                  "null",
                                   "123",
                                   "",
                                   "1. 2",
@@ -75,7 +76,7 @@ TYPED_TEST(StringToIntegerTests, Ansi)
                                   "c0",
                                   "\r\r",
                                   "    "},
-                                 {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1});
+                                 {0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1});
   strings_column_view scv{strings};
 
   constexpr bool is_signed = std::is_signed_v<TypeParam>;
@@ -89,9 +90,9 @@ TYPED_TEST(StringToIntegerTests, Ansi)
     // compare last n chars
     const char* expected_end = [&]() {
       if constexpr (is_signed) {
-        return "String column had 15 parse errors, first error was line 4: 'asdf'!";
+        return "String column had 14 parse errors, first error was line 6: 'asdf'!";
       } else {
-        return "String column had 19 parse errors, first error was line 1: '+1'!";
+        return "String column had 18 parse errors, first error was line 3: '+1'!";
       }
     }();
     auto const expected_end_len = strlen(expected_end);
@@ -105,12 +106,12 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   test::fixed_width_column_wrapper<TypeParam> expected = []() {
     if constexpr (is_signed) {
       return test::fixed_width_column_wrapper<TypeParam>(
-        {1, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 1, 0, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
-        {1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
+        {0, 0, 1, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 1, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
+        {0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
     } else {
       return test::fixed_width_column_wrapper<TypeParam>(
-        {0, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 0, 0, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
-        {0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
+        {0, 0, 0, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 0, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
+        {0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
     }
   }();
 
