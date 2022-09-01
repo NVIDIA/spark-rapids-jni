@@ -123,7 +123,12 @@ __global__ void string_to_integer_kernel(T* out,
             break;
           }
         }
+        auto const original_val = thread_val;
         thread_val += chr - '0';
+        if (thread_val < original_val) {
+          valid = false;
+          break;
+        }
       }
     }
 
