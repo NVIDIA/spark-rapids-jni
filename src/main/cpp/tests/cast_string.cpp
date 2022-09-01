@@ -46,37 +46,14 @@ TYPED_TEST(StringToIntegerTests, Simple)
 
 TYPED_TEST(StringToIntegerTests, Ansi)
 {
-  auto const strings =
-    test::strings_column_wrapper({"",
-                                  "null",
-                                  "+1",
-                                  "-0",
-                                  "4.2",
-                                  "asdf",
-                                  "98fe",
-                                  "  00012",
-                                  ".--e-37602.n",
-                                  "\r\r\t\n11.12380",
-                                  "-.2",
-                                  ".3",
-                                  ".",
-                                  "+1.2",
-                                  "\n123\n456\n",
-                                  "1 2",
-                                  "123",
-                                  "",
-                                  "1. 2",
-                                  "+    7.6",
-                                  "  12  ",
-                                  "7.6.2",
-                                  "15  ",
-                                  "7  2  ",
-                                  " 8.2  ",
-                                  "3..14",
-                                  "c0",
-                                  "\r\r",
-                                  "    "},
-                                 {0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1});
+  auto const strings = test::strings_column_wrapper(
+    {"",       "null",  "+1",      "-0",           "4.2",
+     "asdf",   "98fe",  "  00012", ".--e-37602.n", "\r\r\t\n11.12380",
+     "-.2",    ".3",    ".",       "+1.2",         "\n123\n456\n",
+     "1 2",    "123",   "",        "1. 2",         "+    7.6",
+     "  12  ", "7.6.2", "15  ",    "7  2  ",       " 8.2  ",
+     "3..14",  "c0",    "\r\r",    "    "},
+    {0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1});
   strings_column_view scv{strings};
 
   constexpr bool is_signed = std::is_signed_v<TypeParam>;
@@ -84,20 +61,24 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   try {
     spark_rapids_jni::string_to_integer(
       data_type{type_to_id<TypeParam>()}, scv, true, rmm::cuda_stream_default);
-  } catch (logic_error& e) {
-    auto const error_msg = e.what();
-    auto const len       = strlen(error_msg);
-    // compare last n chars
-    const char* expected_end = [&]() {
+  } catch (spark_rapids_jni::cast_error& e) {
+    auto const row = [&]() {
       if constexpr (is_signed) {
-        return "String column had 14 parse errors, first error was line 6: 'asdf'!";
+        return 5;
       } else {
-        return "String column had 18 parse errors, first error was line 3: '+1'!";
+        return 2;
       }
     }();
-    auto const expected_end_len = strlen(expected_end);
+    auto const first_error_string = [&]() {
+      if constexpr (is_signed) {
+        return "asdf";
+      } else {
+        return "+1";
+      }
+    }();
 
-    EXPECT_STREQ(error_msg + (len - expected_end_len), expected_end);
+    EXPECT_EQ(e.get_row_number(), row);
+    EXPECT_STREQ(e.get_string_with_error(), first_error_string);
   }
 
   auto const result = spark_rapids_jni::string_to_integer(
@@ -106,11 +87,13 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   test::fixed_width_column_wrapper<TypeParam> expected = []() {
     if constexpr (is_signed) {
       return test::fixed_width_column_wrapper<TypeParam>(
-        {0, 0, 1, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 1, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
+        {0, 0,   1, 0, 4, 0,  0, 12, 0, 11, 0, 0, 0, 1, 0,
+         0, 123, 0, 0, 0, 12, 0, 15, 0, 8,  0, 0, 0, 0},
         {0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
     } else {
       return test::fixed_width_column_wrapper<TypeParam>(
-        {0, 0, 0, 0, 4, 0, 0, 12, 0, 11, 0, 0, 0, 0, 0, 0, 123, 0, 0, 0, 12, 0, 15, 0, 8, 0, 0, 0, 0},
+        {0, 0,   0, 0, 4, 0,  0, 12, 0, 11, 0, 0, 0, 0, 0,
+         0, 123, 0, 0, 0, 12, 0, 15, 0, 8,  0, 0, 0, 0},
         {0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0});
     }
   }();

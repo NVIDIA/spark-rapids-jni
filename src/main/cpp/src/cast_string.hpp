@@ -23,6 +23,38 @@
 
 namespace spark_rapids_jni {
 
+struct cast_error : public std::runtime_error {
+  /**
+   * @brief Constructs a cast_error with the error message.
+   *
+   * @param message Message to be associated with the exception
+   */
+  cast_error(cudf::size_type row_number, std::string const& string_with_error)
+    : std::runtime_error("casting error"),
+      _row_number(row_number),
+      _string_with_error(string_with_error)
+  {
+  }
+
+  /**
+   * @brief Get the row number of the error
+   *
+   * @return cudf::size_type row number
+   */
+  [[nodiscard]] cudf::size_type get_row_number() const { return _row_number; }
+
+  /**
+   * @brief Get the string that caused a parsing error
+   *
+   * @return char const* const problematic string
+   */
+  [[nodiscard]] char const* get_string_with_error() const { return _string_with_error.c_str(); }
+
+ private:
+  cudf::size_type _row_number;
+  std::string _string_with_error;
+};
+
 std::unique_ptr<cudf::column> string_to_integer(
   cudf::data_type dtype,
   cudf::strings_column_view const& string_col,
@@ -30,4 +62,4 @@ std::unique_ptr<cudf::column> string_to_integer(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-}
+}  // namespace spark_rapids_jni

@@ -53,7 +53,7 @@ __global__ void string_to_integer_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
                                          offset_type const* offsets,
-                                         bitmask_type const *incoming_null_mask,
+                                         bitmask_type const* incoming_null_mask,
                                          size_type num_rows)
 {
   auto const group = cooperative_groups::this_thread_block();
@@ -87,11 +87,9 @@ __global__ void string_to_integer_kernel(T* out,
     }
 
     // if there is no data left, this is invalid
-    if (i == len) {
-      valid = false;
-    }
+    if (i == len) { valid = false; }
 
-    bool truncating = false;
+    bool truncating          = false;
     bool trailing_whitespace = false;
     for (int c = i; c < len; ++c) {
       auto const chr = chars[c + row_start];
@@ -131,9 +129,14 @@ __global__ void string_to_integer_kernel(T* out,
 }
 
 struct row_valid_fn {
-  bool __device__ operator()(size_type const row) { return not bit_is_set(null_mask, row) && bit_is_set(string_col_null_mask, row); }
-  bitmask_type const *null_mask;
-  bitmask_type const *string_col_null_mask;
+  bool __device__ operator()(size_type const row)
+  {
+    return not bit_is_set(null_mask, row) &&
+           (string_col_null_mask == nullptr || bit_is_set(string_col_null_mask, row));
+  }
+
+  bitmask_type const* null_mask;
+  bitmask_type const* string_col_null_mask;
 };
 
 struct string_to_integer_impl {
@@ -162,14 +165,15 @@ struct string_to_integer_impl {
       data_type{type_to_id<T>()}, string_col.size(), data.release(), null_mask.release());
 
     if (ansi_mode) {
-      auto const num_nulls = col->null_count();
+      auto const num_nulls      = col->null_count();
       auto const incoming_nulls = string_col.null_count();
-      auto const num_errors = num_nulls - incoming_nulls;
+      auto const num_errors     = num_nulls - incoming_nulls;
       if (num_errors > 0) {
-        auto const first_error = thrust::find_if(rmm::exec_policy(stream),
-                                                 thrust::make_counting_iterator(0),
-                                                 thrust::make_counting_iterator(col->size()),
-                                                 row_valid_fn{col->view().null_mask(), string_col.null_mask()});
+        auto const first_error =
+          thrust::find_if(rmm::exec_policy(stream),
+                          thrust::make_counting_iterator(0),
+                          thrust::make_counting_iterator(col->size()),
+                          row_valid_fn{col->view().null_mask(), string_col.null_mask()});
 
         offset_type string_bounds[2];
         cudaMemcpyAsync(&string_bounds,
@@ -189,10 +193,7 @@ struct string_to_integer_impl {
                         stream.value());
         stream.synchronize();
 
-        CUDF_EXPECTS(num_nulls == 0,
-                     "String column had " + std::to_string(num_errors) +
-                       " parse errors, first error was line " + std::to_string(*first_error + 1) +
-                       ": '" + dest + "'!");
+        throw cast_error(*first_error, dest);
       }
     }
 
@@ -213,7 +214,7 @@ struct string_to_integer_impl {
 
 /**
  * @brief Convert a string column into an integer column.
- * 
+ *
  * @param dtype Type of column to return.
  * @param string_col Incoming string column to convert to integers.
  * @param ansi_mode If true, strict conversion and throws on erorr.

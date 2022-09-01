@@ -20,12 +20,15 @@ import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Table;
+import com.nvidia.spark.rapids.jni.CastException;
 import org.junit.jupiter.api.Test;
 
 import java.math.RoundingMode;
 import java.util.stream.IntStream;
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 public class CastStringsTest {
   @Test
@@ -79,6 +82,19 @@ public class CastStringsTest {
       Table result_tbl = new Table(
         result.toArray(new ColumnVector[result.size()]));
       AssertUtils.assertTablesAreEqual(expected, result_tbl);
+    }
+
+    Table.TestBuilder fail = new Table.TestBuilder();
+    fail.column("asdf", "9.0.2", "- 4e", "b2", "20-fe");
+
+    try {
+        Table failTable = fail.build();
+        CastStrings.toInteger(failTable.getColumn(0), true,
+                              expected.getColumn(0).getType());
+        fail("Should have thrown");
+      } catch (CastException e) {
+        assertEquals("asdf", e.getStringWithError());
+        assertEquals(0, e.getRowWithError());
     }
   }
 }
