@@ -103,7 +103,7 @@ __global__ void string_to_integer_kernel(T* out,
         truncating = true;
       } else {
         if (chr > '9' || chr < '0') {
-          if (is_whitespace(chr)) {
+          if (is_whitespace(chr) && c != i) {
             trailing_whitespace = true;
           } else {
             // invalid character in string!
@@ -114,7 +114,15 @@ __global__ void string_to_integer_kernel(T* out,
       }
 
       if (!truncating && !trailing_whitespace) {
-        if (c != i) thread_val *= 10;
+        if (c != i) {
+          auto const original_val = thread_val;
+          thread_val *= 10;
+          if (thread_val < original_val) {
+            // overflow
+            valid = false;
+            break;
+          }
+        }
         thread_val += chr - '0';
       }
     }
