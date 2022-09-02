@@ -62,15 +62,15 @@ __global__ void string_to_integer_kernel(T* out,
   // each thread takes a row and marches it and builds the integer for that row
   auto const row = blockIdx.x * blockDim.x + threadIdx.x;
   if (row >= num_rows) { return; }
-  auto const active        = cooperative_groups::coalesced_threads();
-  auto const row_start     = offsets[row];
-  auto const len           = offsets[row + 1] - row_start;
-  bool const valid_entry   = incoming_null_mask == nullptr || bit_is_set(incoming_null_mask, row);
-  bool valid               = valid_entry && len > 0;
-  T thread_val             = 0;
-  int i                    = 0;
-  T sign                   = 1;
-  constexpr bool is_signed = std::is_signed_v<T>;
+  auto const active      = cooperative_groups::coalesced_threads();
+  auto const row_start   = offsets[row];
+  auto const len         = offsets[row + 1] - row_start;
+  bool const valid_entry = incoming_null_mask == nullptr || bit_is_set(incoming_null_mask, row);
+  bool valid             = valid_entry && len > 0;
+  T thread_val           = 0;
+  int i                  = 0;
+  T sign                 = 1;
+  constexpr bool is_signed_type = std::is_signed_v<T>;
 
   if (valid) {
     // skip leading whitespace
@@ -79,7 +79,7 @@ __global__ void string_to_integer_kernel(T* out,
     }
 
     // check for leading +-
-    if constexpr (is_signed) {
+    if constexpr (is_signed_type) {
       if (i < len && (chars[i + row_start] == '+' || chars[i + row_start] == '-')) {
         if (chars[i + row_start] == '-') { sign = -1; }
         i++;
@@ -113,26 +113,90 @@ __global__ void string_to_integer_kernel(T* out,
         }
       }
 
+      bool constexpr debug = std::is_same_v<int32_t, T>;
       if (!truncating && !trailing_whitespace) {
         if (c != i) {
-          auto const original_val = thread_val;
+          if (is_signed_type && sign < 0) {
+            auto constexpr minval = std::numeric_limits<T>::min() / 10;
+            if (debug)
+              printf(
+                "%d %d - minval %d theadval is %d\n", threadIdx.x, blockIdx.x, minval, thread_val);
+            if (thread_val < minval) {
+              // overflow
+              valid = false;
+              break;
+            }
+          } else {
+            auto constexpr maxval = std::numeric_limits<T>::max() / 10;
+            if (debug)
+              printf(
+                "%d %d - maxval %d theadval is %d\n", threadIdx.x, blockIdx.x, maxval, thread_val);
+            if (thread_val > maxval) {
+              // overflow
+              valid = false;
+              break;
+            }
+          }
+
           thread_val *= 10;
+        }
+        T original_val = thread_val;
+        if (is_signed_type && sign < 0) {
+          thread_val -= (chr - '0');
+          if (debug)
+            printf(
+              "%d %d - original_val %d(unsigned %u) thread_val %d(unsigned %u), (thread_val > "
+              "orig_val)==%s, (int comparison)==%s \n",
+              threadIdx.x,
+              blockIdx.x,
+              original_val,
+              original_val,
+              thread_val,
+              thread_val,
+              (thread_val > original_val ? "true" : "false"),
+              (static_cast<int32_t>(thread_val) > static_cast<int32_t>(original_val) ? "true"
+                                                                                     : "false"));
+          if ((T)thread_val > (T)original_val) {
+            if (debug)
+              printf("%d %d - overflow because %d is > %d\n",
+                     threadIdx.x,
+                     blockIdx.x,
+                     thread_val,
+                     original_val);
+            // overflow
+            valid = false;
+            break;
+          } else {
+            if (debug)
+              printf("%d %d - no overflow if is %s\n",
+                     threadIdx.x,
+                     blockIdx.x,
+                     thread_val > original_val ? "true" : "false");
+          }
+        } else {
+          thread_val += (chr - '0');
+          if (debug)
+            printf("%d %d - original_val %d thread_val %d\n",
+                   threadIdx.x,
+                   blockIdx.x,
+                   original_val,
+                   thread_val);
           if (thread_val < original_val) {
+            if (debug)
+              printf("%d %d - overflow because %d is < %d\n",
+                     threadIdx.x,
+                     blockIdx.x,
+                     thread_val,
+                     original_val);
             // overflow
             valid = false;
             break;
           }
         }
-        auto const original_val = thread_val;
-        thread_val += chr - '0';
-        if (thread_val < original_val) {
-          valid = false;
-          break;
-        }
       }
     }
 
-    out[row] = is_signed && sign < 1 ? thread_val * sign : thread_val;
+    out[row] = thread_val;
   }
 
   auto const validity_int32 = warp.ballot(static_cast<int>(valid));

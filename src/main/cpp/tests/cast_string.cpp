@@ -21,6 +21,7 @@
 #include <cudf_test/table_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
+#include <limits>
 #include <rmm/device_uvector.hpp>
 
 using namespace cudf;
@@ -56,21 +57,21 @@ TYPED_TEST(StringToIntegerTests, Ansi)
     {0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1});
   strings_column_view scv{strings};
 
-  constexpr bool is_signed = std::is_signed_v<TypeParam>;
+  constexpr bool is_signed_type = std::is_signed_v<TypeParam>;
 
   try {
     spark_rapids_jni::string_to_integer(
       data_type{type_to_id<TypeParam>()}, scv, true, rmm::cuda_stream_default);
   } catch (spark_rapids_jni::cast_error& e) {
     auto const row = [&]() {
-      if constexpr (is_signed) {
+      if constexpr (is_signed_type) {
         return 5;
       } else {
         return 2;
       }
     }();
     auto const first_error_string = [&]() {
-      if constexpr (is_signed) {
+      if constexpr (is_signed_type) {
         return "asdf";
       } else {
         return "+1";
@@ -85,7 +86,7 @@ TYPED_TEST(StringToIntegerTests, Ansi)
     data_type{type_to_id<TypeParam>()}, scv, false, rmm::cuda_stream_default);
 
   test::fixed_width_column_wrapper<TypeParam> expected = []() {
-    if constexpr (is_signed) {
+    if constexpr (is_signed_type) {
       return test::fixed_width_column_wrapper<TypeParam>(
         {0, 0,   1, 0, 4, 0,  0, 12, 0, 11, 0, 0, 0, 1, 0,
          0, 123, 0, 0, 0, 12, 0, 15, 0, 8,  0, 0, 0, 0, 0},
@@ -95,6 +96,135 @@ TYPED_TEST(StringToIntegerTests, Ansi)
         {0, 0,   0, 0, 4, 0,  0, 12, 0, 11, 0, 0, 0, 0, 0,
          0, 123, 0, 0, 0, 12, 0, 15, 0, 8,  0, 0, 0, 0, 0},
         {0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0});
+    }
+  }();
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TYPED_TEST(StringToIntegerTests, Overflow)
+{
+  auto const strings = test::strings_column_wrapper({"127",
+                                                     "128",
+                                                     "-128",
+                                                     "-129",
+                                                     "256",
+                                                     "257",
+                                                     "32767",
+                                                     "32768",
+                                                     "-32768",
+                                                     "-32769",
+                                                     "65525",
+                                                     "65536",
+                                                     "2147483647",
+                                                     "2147483648",
+                                                     "-2147483648",
+                                                     "-2147483649",
+                                                     "4294967295",
+                                                     "4294967296",
+                                                     "-9223372036854775808",
+                                                     "-9223372036854775809",
+                                                     "9223372036854775807",
+                                                     "9223372036854775808",
+                                                     "18446744073709551615",
+                                                     "18446744073709551616"});
+  strings_column_view scv{strings};
+
+  auto result = spark_rapids_jni::string_to_integer(
+    data_type{type_to_id<TypeParam>()}, scv, false, rmm::cuda_stream_default);
+
+  auto const expected = [&]() {
+    if constexpr (std::is_same_v<TypeParam, int8_t>) {
+      return test::fixed_width_column_wrapper<int8_t>(
+        {127, 0, -128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, uint8_t>) {
+      return test::fixed_width_column_wrapper<uint8_t>(
+        {127, 128, 0, 0, 256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, int16_t>) {
+      return test::fixed_width_column_wrapper<int16_t>(
+        {127, 128, -128, -129, 256, 257, 32767, 0, -32768, 0, 0, 0,
+         0,   0,   0,    0,    0,   0,   0,     0, 0,      0, 0, 0},
+        {1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, uint16_t>) {
+      return test::fixed_width_column_wrapper<uint16_t>(
+        {127, 128, 0, 0, 256, 257, 32767, 32768, 0, 0, 65525, 0,
+         0,   0,   0, 0, 0,   0,   0,     0,     0, 0, 0,     0},
+        {1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, int32_t>) {
+      auto ret = test::fixed_width_column_wrapper<int32_t>(
+        {127,   128,   -128,       -129,   256,
+         257,   32767, 32768,      -32768, -32769,
+         65525, 65536, 2147483647, 0,      std::numeric_limits<int32_t>::min(),
+         0,     0,     0,          0,      0,
+         0,     0,     0,          0},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+      printf("expected:\n");
+      cudf::test::print(ret);
+      printf("result:\n");
+      cudf::test::print(result->view());
+      return ret;
+    } else if constexpr (std::is_same_v<TypeParam, uint32_t>) {
+      return test::fixed_width_column_wrapper<uint32_t>(
+        {127u,        128u, 0u,     0u,     256u,        257u,        32767u, 32768u,
+         0u,          0u,   65525u, 65536u, 2147483647u, 2147483648u, 0u,     0u,
+         4294967295u, 0u,   0u,     0u,     0u,          0u,          0u,     0u},
+        {1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, int64_t>) {
+      return test::fixed_width_column_wrapper<int64_t>(
+        {127L,
+         128L,
+         -128L,
+         -129L,
+         256L,
+         257L,
+         32767L,
+         32768L,
+         -32768L,
+         -32769L,
+         65525L,
+         65536L,
+         2147483647L,
+         2147483648L,
+         -2147483648L,
+         -2147483649L,
+         4294967295L,
+         4294967296L,
+         std::numeric_limits<int64_t>::min(),
+         0L,
+         9223372036854775807L,
+         0L,
+         0L,
+         0L},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0});
+    } else if constexpr (std::is_same_v<TypeParam, uint64_t>) {
+      return test::fixed_width_column_wrapper<uint64_t>(
+        {127UL,
+         128UL,
+         0UL,
+         0UL,
+         256UL,
+         257UL,
+         32767UL,
+         32768UL,
+         0UL,
+         0UL,
+         65525UL,
+         65536UL,
+         2147483647UL,
+         2147483648UL,
+         0UL,
+         0UL,
+         4294967295UL,
+         4294967296UL,
+         0UL,
+         0UL,
+         9223372036854775807UL,
+         9223372036854775808UL,
+         18446744073709551615UL,
+         0UL},
+        {1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0});
     }
   }();
 
