@@ -136,7 +136,7 @@ __global__ void string_to_integer_kernel(T* out,
         if (is_signed_type && sign < 0) {
           auto const c       = chr - '0';
           auto const min_val = std::numeric_limits<T>::min() + c;
-          if (min_val > thread_val) {
+          if (thread_val < min_val) {
             // overflow
             valid = false;
             break;
@@ -145,7 +145,7 @@ __global__ void string_to_integer_kernel(T* out,
         } else {
           auto const c       = chr - '0';
           auto const max_val = std::numeric_limits<T>::max() - c;
-          if (max_val < thread_val) {
+          if (thread_val > max_val) {
             // overflow
             valid = false;
             break;
