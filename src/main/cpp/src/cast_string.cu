@@ -113,14 +113,10 @@ __global__ void string_to_integer_kernel(T* out,
         }
       }
 
-      bool constexpr debug = std::is_same_v<int32_t, T>;
       if (!truncating && !trailing_whitespace) {
         if (c != i) {
           if (is_signed_type && sign < 0) {
             auto constexpr minval = std::numeric_limits<T>::min() / 10;
-            if (debug)
-              printf(
-                "%d %d - minval %d theadval is %d\n", threadIdx.x, blockIdx.x, minval, thread_val);
             if (thread_val < minval) {
               // overflow
               valid = false;
@@ -128,9 +124,6 @@ __global__ void string_to_integer_kernel(T* out,
             }
           } else {
             auto constexpr maxval = std::numeric_limits<T>::max() / 10;
-            if (debug)
-              printf(
-                "%d %d - maxval %d theadval is %d\n", threadIdx.x, blockIdx.x, maxval, thread_val);
             if (thread_val > maxval) {
               // overflow
               valid = false;
@@ -140,58 +133,24 @@ __global__ void string_to_integer_kernel(T* out,
 
           thread_val *= 10;
         }
-        T original_val = thread_val;
         if (is_signed_type && sign < 0) {
-          thread_val -= (chr - '0');
-          if (debug)
-            printf(
-              "%d %d - original_val %d(unsigned %u) thread_val %d(unsigned %u), (thread_val > "
-              "orig_val)==%s, (int comparison)==%s \n",
-              threadIdx.x,
-              blockIdx.x,
-              original_val,
-              original_val,
-              thread_val,
-              thread_val,
-              (thread_val > original_val ? "true" : "false"),
-              (static_cast<int32_t>(thread_val) > static_cast<int32_t>(original_val) ? "true"
-                                                                                     : "false"));
-          if ((T)thread_val > (T)original_val) {
-            if (debug)
-              printf("%d %d - overflow because %d is > %d\n",
-                     threadIdx.x,
-                     blockIdx.x,
-                     thread_val,
-                     original_val);
+          auto const c       = chr - '0';
+          auto const min_val = std::numeric_limits<T>::min() + c;
+          if (min_val > thread_val) {
             // overflow
             valid = false;
             break;
-          } else {
-            if (debug)
-              printf("%d %d - no overflow if is %s\n",
-                     threadIdx.x,
-                     blockIdx.x,
-                     thread_val > original_val ? "true" : "false");
           }
+          thread_val -= c;
         } else {
-          thread_val += (chr - '0');
-          if (debug)
-            printf("%d %d - original_val %d thread_val %d\n",
-                   threadIdx.x,
-                   blockIdx.x,
-                   original_val,
-                   thread_val);
-          if (thread_val < original_val) {
-            if (debug)
-              printf("%d %d - overflow because %d is < %d\n",
-                     threadIdx.x,
-                     blockIdx.x,
-                     thread_val,
-                     original_val);
+          auto const c       = chr - '0';
+          auto const max_val = std::numeric_limits<T>::max() - c;
+          if (max_val < thread_val) {
             // overflow
             valid = false;
             break;
           }
+          thread_val += c;
         }
       }
     }
