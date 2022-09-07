@@ -108,8 +108,8 @@ TYPED_TEST(StringToIntegerTests, Overflow)
                                                      "128",
                                                      "-128",
                                                      "-129",
+                                                     "255",
                                                      "256",
-                                                     "257",
                                                      "32767",
                                                      "32768",
                                                      "-32768",
@@ -140,22 +140,22 @@ TYPED_TEST(StringToIntegerTests, Overflow)
         {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
     } else if constexpr (std::is_same_v<TypeParam, uint8_t>) {
       return test::fixed_width_column_wrapper<uint8_t>(
-        {127, 128, 0, 0, 256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {127, 128, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
         {1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
     } else if constexpr (std::is_same_v<TypeParam, int16_t>) {
       return test::fixed_width_column_wrapper<int16_t>(
-        {127, 128, -128, -129, 256, 257, 32767, 0, -32768, 0, 0, 0,
+        {127, 128, -128, -129, 255, 256, 32767, 0, -32768, 0, 0, 0,
          0,   0,   0,    0,    0,   0,   0,     0, 0,      0, 0, 0},
         {1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
     } else if constexpr (std::is_same_v<TypeParam, uint16_t>) {
       return test::fixed_width_column_wrapper<uint16_t>(
-        {127, 128, 0, 0, 256, 257, 32767, 32768, 0, 0, 65525, 0,
+        {127, 128, 0, 0, 255, 256, 32767, 32768, 0, 0, 65525, 0,
          0,   0,   0, 0, 0,   0,   0,     0,     0, 0, 0,     0},
         {1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
     } else if constexpr (std::is_same_v<TypeParam, int32_t>) {
       auto ret = test::fixed_width_column_wrapper<int32_t>(
-        {127,   128,   -128,       -129,   256,
-         257,   32767, 32768,      -32768, -32769,
+        {127,   128,   -128,       -129,   255,
+         256,   32767, 32768,      -32768, -32769,
          65525, 65536, 2147483647, 0,      std::numeric_limits<int32_t>::min(),
          0,     0,     0,          0,      0,
          0,     0,     0,          0},
@@ -167,7 +167,7 @@ TYPED_TEST(StringToIntegerTests, Overflow)
       return ret;
     } else if constexpr (std::is_same_v<TypeParam, uint32_t>) {
       return test::fixed_width_column_wrapper<uint32_t>(
-        {127u,        128u, 0u,     0u,     256u,        257u,        32767u, 32768u,
+        {127u,        128u, 0u,     0u,     255u,        256u,        32767u, 32768u,
          0u,          0u,   65525u, 65536u, 2147483647u, 2147483648u, 0u,     0u,
          4294967295u, 0u,   0u,     0u,     0u,          0u,          0u,     0u},
         {1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
@@ -177,8 +177,8 @@ TYPED_TEST(StringToIntegerTests, Overflow)
          128L,
          -128L,
          -129L,
+         255L,
          256L,
-         257L,
          32767L,
          32768L,
          -32768L,
@@ -204,8 +204,8 @@ TYPED_TEST(StringToIntegerTests, Overflow)
          128UL,
          0UL,
          0UL,
+         255UL,
          256UL,
-         257UL,
          32767UL,
          32768UL,
          0UL,
