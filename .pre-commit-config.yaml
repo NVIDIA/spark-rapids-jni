@@ -1,0 +1,10 @@
+# Copyright (c) 2022, NVIDIA CORPORATION.
+
+repos:
+      - repo: https://github.com/pre-commit/mirrors-clang-format
+        rev: v14.0.6
+        hooks:
+              - id: clang-format
+                files: \.(cu|cuh|h|hpp|cpp|inl)$
+                types_or: [file]
+                args: ['-fallback-style=none', '-style=file:thirdparty/cudf/cpp/.clang-format']
