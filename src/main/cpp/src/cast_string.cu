@@ -54,7 +54,8 @@ __global__ void string_to_integer_kernel(T* out,
                                          const char* const chars,
                                          offset_type const* offsets,
                                          bitmask_type const* incoming_null_mask,
-                                         size_type num_rows)
+                                         size_type num_rows,
+                                         bool ansi_mode)
 {
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
@@ -97,7 +98,7 @@ __global__ void string_to_integer_kernel(T* out,
       if (trailing_whitespace && !is_whitespace(chr)) {
         valid = false;
         break;
-      } else if (!truncating && chr == '.') {
+      } else if (!truncating && chr == '.' && !ansi_mode) {
         // Values are truncated after a decimal point. However, invalid characters AFTER this
         // decimal point will still invalidate this entry.
         truncating = true;
@@ -195,7 +196,8 @@ struct string_to_integer_impl {
       string_col.chars().data<char const>(),
       string_col.offsets().data<offset_type>(),
       string_col.null_mask(),
-      string_col.size());
+      string_col.size(),
+      ansi_mode);
 
     auto col = std::make_unique<column>(
       data_type{type_to_id<T>()}, string_col.size(), data.release(), null_mask.release());

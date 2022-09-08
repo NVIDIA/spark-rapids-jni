@@ -65,14 +65,14 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   } catch (spark_rapids_jni::cast_error& e) {
     auto const row = [&]() {
       if constexpr (is_signed_type) {
-        return 5;
+        return 4;
       } else {
         return 2;
       }
     }();
     auto const first_error_string = [&]() {
       if constexpr (is_signed_type) {
-        return "asdf";
+        return "4.2";
       } else {
         return "+1";
       }
