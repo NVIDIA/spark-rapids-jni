@@ -21,8 +21,9 @@ nvidia-smi
 
 git submodule update --init --recursive
 
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
-mvn clean package ${MVN_MIRROR}  \
+${MVN} clean package ${MVN_MIRROR}  \
   -Psource-javadoc \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
