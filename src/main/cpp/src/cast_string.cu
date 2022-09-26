@@ -334,18 +334,16 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
   processing_state state = ST_DIGITS;
 
   // skip leading whitespace
-  while (i < len && is_whitespace(chars[i + row_start])) {
+  while (i < len && is_whitespace(chars[i])) {
     i++;
   }
 
-  if (i < len) {
-    // check for leading +-
-    if (chars[i] == '-') {
-      positive = false;
-      i++;
-    } else if (chars[i] == '+') {
-      i++;
-    }
+  // check for leading +-
+  if (chars[i] == '-') {
+    positive = false;
+    i++;
+  } else if (chars[i] == '+') {
+    i++;
   }
 
   // if there is no data left, this is invalid
@@ -462,11 +460,10 @@ __global__ void string_to_decimal_kernel(T* out,
     // number of precise digits we have encountered
     int num_precise_digits = 0;
     // number of digits we have encountered, even leading 0's
-    int total_digits = 0;
-
-    T thread_val = 0;
-
+    int total_digits     = 0;
+    T thread_val         = 0;
     bool found_sig_digit = false;
+    int rounding_digits  = 0;
 
     // march string starting at first_digit and build value
     for (int i = first_digit; i < len && valid; ++i) {
@@ -482,6 +479,7 @@ __global__ void string_to_decimal_kernel(T* out,
       if (num_precise_digits + 1 > precision || total_digits + 1 > last_digit) {
         // more digits than required, but we need to round
         if (new_digit >= 5) {
+          auto const orig_val = thread_val;
           if (will_overflow(thread_val, static_cast<T>(1), positive)) {
             valid = false;
             break;
@@ -489,6 +487,29 @@ __global__ void string_to_decimal_kernel(T* out,
             thread_val++;
           } else {
             thread_val--;
+          }
+          // we need to know if the first digit overflowed and added a new digit
+          // this can only happen if the first digit is lower now than before
+          // rounding added a digit. There may be a faster route, but it has to work
+          // with __int128_t as well.
+          auto count_digits = [](T val) {
+            int count = 0;
+            while (val != 0) {
+              count++;
+              val /= 10;
+            }
+            return count;
+          };
+
+          auto before_digits = count_digits(orig_val);
+          auto after_digits  = count_digits(thread_val);
+
+          if (count_digits(thread_val) > count_digits(orig_val)) {
+            // more digits now than before rounding
+            total_digits++;
+            num_precise_digits++;
+            decimal_location++;
+            rounding_digits++;
           }
         }
         break;
@@ -509,17 +530,13 @@ __global__ void string_to_decimal_kernel(T* out,
     auto const significant_preceeding_zeros = decimal_location < 0 ? abs(decimal_location) : 0;
     auto const zeros_to_decimal             = std::max(0, decimal_location - total_digits);
     auto const significant_digits_before_decimal =
-      significant_digits_before_decimal_in_string + zeros_to_decimal;
+      significant_digits_before_decimal_in_string + zeros_to_decimal + rounding_digits;
 
-    if (max_digits_before_decimal < significant_digits_before_decimal) {
-      // precision - scale gives us the maximum number of digits before the
-      // decimal before we need more precision to store the entire value.
-      // since scale is inverted, we add scale here.
-      valid = false;
-    }
+    // too many digits required to store decimal
+    if (max_digits_before_decimal < significant_digits_before_decimal) { valid = false; }
 
     // at this point we have the precise digits we need, but we might need trailing zeros on this
-    // value
+    // value both before and after the decimal
 
     // add zero pad until we hit the decimal location
     // decimal(6,-2)
@@ -777,11 +794,11 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
 {
   data_type dtype = [precision, scale]() {
     if (precision <= cuda::std::numeric_limits<int32_t>::digits10)
-      return data_type(type_id::DECIMAL32, -scale);
+      return data_type(type_id::DECIMAL32, scale);
     else if (precision <= cuda::std::numeric_limits<int64_t>::digits10)
-      return data_type(type_id::DECIMAL64, -scale);
+      return data_type(type_id::DECIMAL64, scale);
     else if (precision <= cuda::std::numeric_limits<__int128_t>::digits10)
-      return data_type(type_id::DECIMAL128, -scale);
+      return data_type(type_id::DECIMAL128, scale);
     else
       CUDF_FAIL("Unable to support decimal with precision " + std::to_string(precision));
   }();

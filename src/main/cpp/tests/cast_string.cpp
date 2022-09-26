@@ -21,6 +21,8 @@
 #include <cudf_test/table_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
+#include <cudf/io/parquet.hpp>
+
 #include <limits>
 #include <rmm/device_uvector.hpp>
 
@@ -162,10 +164,6 @@ TYPED_TEST(StringToIntegerTests, Overflow)
          0,     0,     0,          0,      0,
          0,     0,     0,          0},
         {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0});
-      printf("expected:\n");
-      cudf::test::print(ret);
-      printf("result:\n");
-      cudf::test::print(result->view());
       return ret;
     } else if constexpr (std::is_same_v<TypeParam, uint32_t>) {
       return test::fixed_width_column_wrapper<uint32_t>(
@@ -243,8 +241,6 @@ TEST_F(StringToDecimalTests, Simple)
 
   test::fixed_point_column_wrapper<int32_t> expected({1, 0, -1}, {1, 1, 1}, numeric::scale_type{0});
 
-  test::print(result->view());
-
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
 
@@ -257,9 +253,7 @@ TEST_F(StringToDecimalTests, OverPrecise)
     spark_rapids_jni::string_to_decimal(5, 0, scv, false, rmm::cuda_stream_default);
 
   test::fixed_point_column_wrapper<int32_t> expected(
-    {12346, 100000, -12346, -100000}, {0, 0, 0, 0}, numeric::scale_type{0});
-
-  test::print(result->view());
+    {0, 0, 0, 0}, {0, 0, 0, 0}, numeric::scale_type{0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
@@ -270,12 +264,10 @@ TEST_F(StringToDecimalTests, Rounding)
   strings_column_view scv{strings};
 
   auto const result =
-    spark_rapids_jni::string_to_decimal(5, 4, scv, false, rmm::cuda_stream_default);
+    spark_rapids_jni::string_to_decimal(5, -4, scv, false, rmm::cuda_stream_default);
 
   test::fixed_point_column_wrapper<int32_t> expected(
-    {12346, 100000, -12346, -100000}, {1, 1, 1, 1}, numeric::scale_type{-4});
-
-  test::print(result->view());
+    {12346, 100000, -12346, -100000}, {1, 0, 1, 0}, numeric::scale_type{-4});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
@@ -287,12 +279,10 @@ TEST_F(StringToDecimalTests, DecimalValues)
   strings_column_view scv{strings};
 
   auto const result =
-    spark_rapids_jni::string_to_decimal(6, 5, scv, false, rmm::cuda_stream_default);
+    spark_rapids_jni::string_to_decimal(6, -5, scv, false, rmm::cuda_stream_default);
 
   test::fixed_point_column_wrapper<int32_t> expected(
     {123400, 12345, -103400, -123}, {1, 1, 1, 1}, numeric::scale_type{-5});
-
-  test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
@@ -304,12 +294,25 @@ TEST_F(StringToDecimalTests, ExponentalNotation)
   strings_column_view scv{strings};
 
   auto const result =
-    spark_rapids_jni::string_to_decimal(6, 5, scv, false, rmm::cuda_stream_default);
+    spark_rapids_jni::string_to_decimal(6, -5, scv, false, rmm::cuda_stream_default);
 
   test::fixed_point_column_wrapper<int32_t> expected(
     {12340, 123450, -1034, -12346}, {1, 1, 1, 1}, numeric::scale_type{-5});
 
-  test::print(result->view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, PositiveScale)
+{
+  auto const strings =
+    test::strings_column_wrapper({"1234e-1", "12345e1", "-1234.5678", "-0.001234567890123456e6"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(6, 2, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {100, 123500, -1200, -1200}, {1, 1, 1, 1}, numeric::scale_type{2});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
@@ -321,10 +324,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(15, 1, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(15, -1, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int64_t> expected({0}, {0}, numeric::scale_type{-1});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -334,11 +335,9 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(16, 1, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(16, -1, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int64_t> expected(
       {-1'000'000'000'000'000}, {1}, numeric::scale_type{-1});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -348,10 +347,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(15, 1, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(15, -1, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int64_t> expected({8575859000}, {1}, numeric::scale_type{-1});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -361,10 +358,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(3, 1, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(3, -1, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({100}, {1}, numeric::scale_type{-1});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -374,10 +369,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(9, -8, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({171428573}, {1}, numeric::scale_type{-8});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -387,17 +380,15 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(9, -8, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({171428573}, {1}, numeric::scale_type{-8});
 
-    test::print(result->view());
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 
     auto const fail_result =
-      spark_rapids_jni::string_to_decimal(9, 9, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(9, -9, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> null_col({0}, {0}, numeric::scale_type{-9});
 
-    test::print(fail_result->view());
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(fail_result->view(), null_col);
   }
 
@@ -406,10 +397,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(9, -8, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({0}, {0}, numeric::scale_type{-8});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -419,10 +408,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(6, 6, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(6, -6, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({123457}, {1}, numeric::scale_type{-6});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
@@ -432,10 +419,8 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(6, 6, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(6, -6, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({0}, {0}, numeric::scale_type{-6});
-
-    test::print(result->view());
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
