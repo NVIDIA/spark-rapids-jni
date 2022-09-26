@@ -30,6 +30,8 @@ template <typename T>
 struct StringToIntegerTests : public test::BaseFixture {
 };
 
+struct StringToDecimalTests : public test::BaseFixture {};
+
 TYPED_TEST_SUITE(StringToIntegerTests, cudf::test::IntegralTypesNotBool);
 
 TYPED_TEST(StringToIntegerTests, Simple)
@@ -229,4 +231,212 @@ TYPED_TEST(StringToIntegerTests, Overflow)
   }();
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, Simple)
+{
+  auto const strings = test::strings_column_wrapper({"1", "0", "-1"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(1, 0, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected({1, 0, -1}, {1, 1, 1}, numeric::scale_type{0});
+
+  test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, OverPrecise)
+{
+  auto const strings = test::strings_column_wrapper({"123456", "999999", "-123456", "-999999"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(5, 0, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {12346, 100000, -12346, -100000}, {0, 0, 0, 0}, numeric::scale_type{0});
+
+  test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, Rounding)
+{
+  auto const strings = test::strings_column_wrapper({"1.23456", "9.99999", "-1.23456", "-9.99999"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(5, 4, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {12346, 100000, -12346, -100000}, {1, 1, 1, 1}, numeric::scale_type{-4});
+
+  test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, DecimalValues)
+{
+  auto const strings =
+    test::strings_column_wrapper({"1.234", "0.12345", "-1.034", "-0.001234567890123456"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(6, 5, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {123400, 12345, -103400, -123}, {1, 1, 1, 1}, numeric::scale_type{-5});
+
+  test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, ExponentalNotation)
+{
+  auto const strings =
+    test::strings_column_wrapper({"1.234e-1", "0.12345e1", "-1.034e-2", "-0.001234567890123456e2"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(6, 5, scv, false, rmm::cuda_stream_default);
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {12340, 123450, -1034, -12346}, {1, 1, 1, 1}, numeric::scale_type{-5});
+
+  test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TEST_F(StringToDecimalTests, Edges)
+{
+  {
+    auto const str = test::strings_column_wrapper({"-1.0E14"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(15, 1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int64_t> expected({0}, {0}, numeric::scale_type{-1});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"-1.0E14"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(16, 1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int64_t> expected(
+      {-1'000'000'000'000'000}, {1}, numeric::scale_type{-1});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"8.575859E8"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(15, 1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int64_t> expected({8575859000}, {1}, numeric::scale_type{-1});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"10.0"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(3, 1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({100}, {1}, numeric::scale_type{-1});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"1.7142857343"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({171428573}, {1}, numeric::scale_type{-8});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"1.71428573437482136712623"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({171428573}, {1}, numeric::scale_type{-8});
+
+    test::print(result->view());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+
+    auto const fail_result =
+      spark_rapids_jni::string_to_decimal(9, 9, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> null_col({0}, {0}, numeric::scale_type{-9});
+
+    test::print(fail_result->view());
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(fail_result->view(), null_col);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"12.345678901"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(9, 8, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({0}, {0}, numeric::scale_type{-8});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"0.12345678901"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(6, 6, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({123457}, {1}, numeric::scale_type{-6});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"1.2345678901"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(6, 6, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({0}, {0}, numeric::scale_type{-6});
+
+    test::print(result->view());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
 }
