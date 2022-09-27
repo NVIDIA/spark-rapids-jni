@@ -320,6 +320,28 @@ TEST_F(StringToDecimalTests, PositiveScale)
 TEST_F(StringToDecimalTests, Edges)
 {
   {
+    auto const str = test::strings_column_wrapper({"8.483315330475049E-4"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(15, -1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int64_t> expected({0}, {1}, numeric::scale_type{-1});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"8.483315330475049E-2"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(15, -1, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int64_t> expected({1}, {1}, numeric::scale_type{-1});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
     auto const str = test::strings_column_wrapper({"-1.0E14"});
     strings_column_view scv{str};
 
@@ -421,6 +443,17 @@ TEST_F(StringToDecimalTests, Edges)
     auto const result =
       spark_rapids_jni::string_to_decimal(6, -6, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected({0}, {0}, numeric::scale_type{-6});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const str = test::strings_column_wrapper({"NaN", "inf", "-inf", "0"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(6, 0, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({0, 0, 0, 0}, {0, 0, 0, 1}, numeric::scale_type{0});
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
