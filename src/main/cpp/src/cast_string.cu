@@ -357,6 +357,10 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
     auto const last_state = state;
     state                 = validate_char(state, chr, char_num);
 
+    if (state == ST_INVALID) {
+      return thrust::nullopt;
+    }
+
     if (last_state == ST_DIGITS && state != ST_DIGITS && state != ST_DECIMAL_POINT) {
       // past digits, save location
       last_digit = c;
@@ -465,65 +469,69 @@ __global__ void string_to_decimal_kernel(T* out,
     bool found_sig_digit = false;
     int rounding_digits  = 0;
 
-    // march string starting at first_digit and build value
-    for (int i = first_digit; i < len && valid; ++i) {
-      auto const chr = chars[row_start + i];
-      if (chr == '.') {
-        continue;
-      } else if (chr > '9' || chr < '0') {
-        // finished processing
-        break;
-      }
-
-      T const new_digit = chr - '0';
-      if (num_precise_digits + 1 > precision || total_digits + 1 > last_digit) {
-        // more digits than required, but we need to round
-        if (new_digit >= 5) {
-          auto const orig_val = thread_val;
-          if (will_overflow(thread_val, static_cast<T>(1), positive)) {
-            valid = false;
-            break;
-          } else if (positive) {
-            thread_val++;
-          } else {
-            thread_val--;
-          }
-          // we need to know if the first digit overflowed and added a new digit
-          // this can only happen if the first digit is lower now than before
-          // rounding added a digit. There may be a faster route, but it has to work
-          // with __int128_t as well.
-          auto count_digits = [](T val) {
-            int count = 0;
-            while (val != 0) {
-              count++;
-              val /= 10;
-            }
-            return count;
-          };
-
-          auto before_digits = count_digits(orig_val);
-          auto after_digits  = count_digits(thread_val);
-
-          if (count_digits(thread_val) > count_digits(orig_val)) {
-            // more digits now than before rounding
-            total_digits++;
-            num_precise_digits++;
-            decimal_location++;
-            rounding_digits++;
-          }
+    if (last_digit >= 0) {
+      // march string starting at first_digit and build value
+      for (int i = first_digit; i < len && valid; ++i) {
+        auto const chr = chars[row_start + i];
+        if (chr == '.') {
+          continue;
+        } else if (chr > '9' || chr < '0') {
+          // finished processing
+          break;
         }
-        break;
-      }
 
-      total_digits++;
-      if (found_sig_digit || total_digits > decimal_location || new_digit != 0) {
-        found_sig_digit = true;
-        num_precise_digits++;
-      }
+        T const new_digit = chr - '0';
+        if (num_precise_digits + 1 > precision || total_digits + 1 > last_digit) {
+          // more digits than required, but we need to round
+          if (new_digit >= 5) {
+            auto const orig_val = thread_val;
+            if (will_overflow(thread_val, static_cast<T>(1), positive)) {
+              valid = false;
+              break;
+            } else if (positive) {
+              thread_val++;
+            } else {
+              thread_val--;
+            }
+            // we need to know if the first digit overflowed and added a new digit
+            // this can only happen if the first digit is lower now than before
+            // rounding added a digit. There may be a faster route, but it has to work
+            // with __int128_t as well.
+            auto count_digits = [](T val) {
+              int count = 0;
+              while (val != 0) {
+                count++;
+                val /= 10;
+              }
+              return count;
+            };
 
-      if (!process_value(i == first_digit, thread_val, new_digit, positive)) {
-        valid = false;
-        break;
+            auto before_digits = count_digits(orig_val);
+            auto after_digits  = count_digits(thread_val);
+
+            // if original value is 0, we can round to 1 without adding a digit, but
+            // count_digits will detect the change.
+            if (orig_val != 0 && count_digits(thread_val) > count_digits(orig_val)) {
+              // more digits now than before rounding
+              total_digits++;
+              num_precise_digits++;
+              decimal_location++;
+              rounding_digits++;
+            }
+          }
+          break;
+        }
+
+        total_digits++;
+        if (found_sig_digit || total_digits > decimal_location || new_digit != 0) {
+          found_sig_digit = true;
+          num_precise_digits++;
+        }
+
+        if (!process_value(i == first_digit, thread_val, new_digit, positive)) {
+          valid = false;
+          break;
+        }
       }
     }
 
