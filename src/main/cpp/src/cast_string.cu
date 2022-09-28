@@ -357,9 +357,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
     auto const last_state = state;
     state                 = validate_char(state, chr, char_num);
 
-    if (state == ST_INVALID) {
-      return thrust::nullopt;
-    }
+    if (state == ST_INVALID) { return thrust::nullopt; }
 
     if (last_state == ST_DIGITS && state != ST_DIGITS && state != ST_DECIMAL_POINT) {
       // past digits, save location

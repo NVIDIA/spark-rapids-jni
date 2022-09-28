@@ -320,6 +320,22 @@ TEST_F(StringToDecimalTests, PositiveScale)
 TEST_F(StringToDecimalTests, Edges)
 {
   {
+    auto const str = test::strings_column_wrapper({"123456789012345678901234567890123456.01"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(38, -2, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<__int128_t> expected(
+      {(static_cast<__int128_t>(123456789012345678ull) * 1000000000000000ull +
+        static_cast<__int128_t>(901234567890123ull)) *
+         100000 +
+       45601},
+      {1},
+      numeric::scale_type{-2});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+  {
     auto const str = test::strings_column_wrapper({"8.483315330475049E-4"});
     strings_column_view scv{str};
 
@@ -453,7 +469,8 @@ TEST_F(StringToDecimalTests, Edges)
 
     auto const result =
       spark_rapids_jni::string_to_decimal(6, 0, scv, false, rmm::cuda_stream_default);
-    test::fixed_point_column_wrapper<int32_t> expected({0, 0, 0, 0}, {0, 0, 0, 1}, numeric::scale_type{0});
+    test::fixed_point_column_wrapper<int32_t> expected(
+      {0, 0, 0, 0}, {0, 0, 0, 1}, numeric::scale_type{0});
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
