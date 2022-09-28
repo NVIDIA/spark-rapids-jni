@@ -21,8 +21,6 @@
 #include <cudf_test/table_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
-#include <cudf/io/parquet.hpp>
-
 #include <limits>
 #include <rmm/device_uvector.hpp>
 
