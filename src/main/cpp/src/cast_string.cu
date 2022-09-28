@@ -102,22 +102,13 @@ bool __device__ will_overflow(T const lhs, T const rhs, bool adding)
 {
   if constexpr (std::is_signed_v<T>) {
     if (!adding) {
-      auto const min_val = cuda::std::numeric_limits<T>::min() + rhs;
-      if (lhs < min_val) {
-        // overflow
-        return true;
-      }
-      return false;
+      auto const minval = cuda::std::numeric_limits<T>::min() + rhs;
+      return lhs < minval;
     }
   }
 
-  auto const max_val = cuda::std::numeric_limits<T>::max() - rhs;
-  if (lhs > max_val) {
-    // overflow
-    return true;
-  }
-
-  return false;
+  auto const maxval = cuda::std::numeric_limits<T>::max() - rhs;
+  return lhs > maxval;
 }
 
 /**
@@ -131,15 +122,16 @@ bool __device__ will_overflow(T const lhs, T const rhs, bool adding)
  * @return true if success, false if overflow
  */
 template <typename T>
-bool __device__ process_value(bool first_value, T& current_val, T const new_digit, bool adding)
+thrust::pair<bool, T> __device__
+process_value(bool first_value, T current_val, T const new_digit, bool adding)
 {
   if (!first_value) {
-    if (will_overflow(current_val, adding)) { return false; }
+    if (will_overflow(current_val, adding)) { return {false, current_val}; }
 
     current_val *= 10;
   }
 
-  if (will_overflow(current_val, new_digit, adding)) { return false; }
+  if (will_overflow(current_val, new_digit, adding)) { return {false, current_val}; }
 
   if (adding) {
     current_val += new_digit;
@@ -147,7 +139,7 @@ bool __device__ process_value(bool first_value, T& current_val, T const new_digi
     current_val -= new_digit;
   }
 
-  return true;
+  return {true, current_val};
 }
 
 /**
@@ -229,11 +221,13 @@ void __global__ string_to_integer_kernel(T* out,
       }
 
       if (!truncating && !trailing_whitespace) {
-        T const new_digit = chr - '0';
-        if (!process_value(c == i, thread_val, new_digit, sign > 0)) {
+        T const new_digit             = chr - '0';
+        auto const [success, new_val] = process_value(c == i, thread_val, new_digit, sign > 0);
+        if (!success) {
           valid = false;
           break;
         }
+        thread_val = new_val;
       }
     }
 
@@ -356,9 +350,10 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
 
     if (state == ST_EXPONENT) {
       T const new_digit = chr - '0';
-      if (!process_value(exponent_val == 0, exponent_val, new_digit, exponent_positive)) {
-        return thrust::nullopt;
-      }
+      auto const [success, new_val] =
+        process_value(exponent_val == 0, exponent_val, new_digit, exponent_positive);
+      if (!success) { return thrust::nullopt; }
+      exponent_val = new_val;
     }
   }
 
@@ -516,10 +511,13 @@ __global__ void string_to_decimal_kernel(T* out,
           num_precise_digits++;
         }
 
-        if (!process_value(i == first_digit, thread_val, new_digit, positive)) {
+        auto const [success, new_val] =
+          process_value(i == first_digit, thread_val, new_digit, positive);
+        if (!success) {
           valid = false;
           break;
         }
+        thread_val = new_val;
       }
     }
 
