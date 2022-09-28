@@ -38,7 +38,7 @@ namespace detail {
 constexpr auto NUM_THREADS{256};
 
 /**
- * @brief identifies if a character is whitespace
+ * @brief Identify if a character is whitespace.
  *
  * @param chr character to test
  * @return true if character is a whitespace character
@@ -67,8 +67,7 @@ constexpr T __device__ generic_abs(T value)
 }
 
 /**
- * @brief determines if overflow will occur when multiplying
- * a value by 10
+ * @brief Determine if overflow will occur when multiplying a value by 10.
  *
  * @tparam T type of the values
  * @param val value to test
@@ -81,25 +80,16 @@ bool __device__ will_overflow(T const val, bool adding)
   if constexpr (std::is_signed_v<T>) {
     if (!adding) {
       auto constexpr minval = cuda::std::numeric_limits<T>::min() / 10;
-      if (val < minval) {
-        // overflow
-        return true;
-      }
-      return false;
+      return val < minval;
     }
   }
 
   auto constexpr maxval = cuda::std::numeric_limits<T>::max() / 10;
-  if (val > maxval) {
-    // overflow
-    return true;
-  }
-
-  return false;
+  return val > maxval;
 }
 
 /**
- * @brief determines if overflow will occur when adding or subtracting values
+ * @brief Determine if overflow will occur when adding or subtracting values.
  *
  * @tparam T type of the values
  * @param lhs left hand side of the operation
