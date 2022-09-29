@@ -1,4 +1,4 @@
 [submodule "thirdparty/cudf"]
 	path = thirdparty/cudf
 	url = https://github.com/rapidsai/cudf.git
-	branch = branch-22.10 # TODO: update to branch-22.12 when https://github.com/rapidsai/cudf/pull/11764 is merged
+	branch = branch-22.12
