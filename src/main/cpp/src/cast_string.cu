@@ -389,8 +389,7 @@ __global__ void string_to_decimal_kernel(T* out,
                                          bitmask_type const* incoming_null_mask,
                                          size_type num_rows,
                                          int32_t scale,
-                                         int32_t precision,
-                                         bool ansi_mode)
+                                         int32_t precision)
 {
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
@@ -718,8 +717,7 @@ struct string_to_decimal_impl {
       string_col.null_mask(),
       string_col.size(),
       dtype.scale(),
-      precision,
-      ansi_mode);
+      precision);
 
     auto col =
       std::make_unique<column>(dtype, string_col.size(), data.release(), null_mask.release());
