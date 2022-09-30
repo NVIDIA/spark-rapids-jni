@@ -52,7 +52,7 @@ else
   DOCKER_ARGS="$*"
 fi
 
-$DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -it -u $(id -u):$(id -g) --rm \
+$DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \
