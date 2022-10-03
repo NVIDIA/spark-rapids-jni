@@ -36,5 +36,18 @@ public class CastStrings {
     return new ColumnVector(toInteger(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
   }
 
+  /**
+   * Convert a string column to an integer column of a specified type.
+   *
+   * @param cv the column data to process.
+   * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param type the type of the return column.
+   * @return the converted column.
+   */
+  public static ColumnVector toDecimal(ColumnView cv, boolean ansiMode, int precision, int scale) {
+    return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, precision, scale));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, int dtype);
+  private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, int precision, int scale);
 }
