@@ -55,6 +55,17 @@ struct cast_error : public std::runtime_error {
   std::string _string_with_error;
 };
 
+/**
+ * @brief Convert a string column into an integer column.
+ *
+ * @param dtype Type of column to return.
+ * @param string_col Incoming string column to convert to integers.
+ * @param ansi_mode If true, strict conversion and throws on erorr.
+ *                  If false, null invalid entries.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> Integer column that was created from string_col.
+ */
 std::unique_ptr<cudf::column> string_to_integer(
   cudf::data_type dtype,
   cudf::strings_column_view const& string_col,
@@ -62,4 +73,23 @@ std::unique_ptr<cudf::column> string_to_integer(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+/**
+ * @brief Convert a string column into an decimal column.
+ *
+ * @param precision precision of input data
+ * @param scale scale of input data
+ * @param string_col Incoming string column to convert to decimals.
+ * @param ansi_mode If true, strict conversion and throws on erorr.
+ *                  If false, null invalid entries.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> Decimal column that was created from string_col.
+ */
+std::unique_ptr<cudf::column> string_to_decimal(
+  int32_t precision,
+  int32_t scale,
+  cudf::strings_column_view const& string_col,
+  bool ansi_mode,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 }  // namespace spark_rapids_jni
