@@ -92,4 +92,23 @@ std::unique_ptr<cudf::column> string_to_decimal(
   bool ansi_mode,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Convert a string column into an float column.
+ *
+ * @param dtype Type of column to return.
+ * @param string_col Incoming string column to convert to integers.
+ * @param ansi_mode If true, strict conversion and throws on erorr.
+ *                  If false, null invalid entries.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> Integer column that was created from string_col.
+ */
+std::unique_ptr<cudf::column> string_to_float(
+  cudf::data_type dtype,
+  cudf::strings_column_view const& string_col,
+  bool ansi_mode,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

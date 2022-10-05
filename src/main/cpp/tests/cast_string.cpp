@@ -21,18 +21,23 @@
 #include <cudf_test/table_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
+#include <cudf/strings/convert/convert_floats.hpp>
+
 #include <limits>
 #include <rmm/device_uvector.hpp>
 
 using namespace cudf;
 
 template <typename T>
-struct StringToIntegerTests : public test::BaseFixture {
-};
+struct StringToIntegerTests : public test::BaseFixture {};
 
 struct StringToDecimalTests : public test::BaseFixture {};
 
+template <typename T>
+struct StringToFloatTests : public test::BaseFixture {};
+
 TYPED_TEST_SUITE(StringToIntegerTests, cudf::test::IntegralTypesNotBool);
+TYPED_TEST_SUITE(StringToFloatTests, cudf::test::FloatingPointTypes);
 
 TYPED_TEST(StringToIntegerTests, Simple)
 {
@@ -472,4 +477,35 @@ TEST_F(StringToDecimalTests, Edges)
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
+}
+
+TYPED_TEST(StringToFloatTests, Simple)
+{
+  cudf::test::strings_column_wrapper in{"-1.8946e-10",
+                                        "0001", "0000.123", "123", "123.45", "45.123", "-45.123", "0.45123", "-0.45123",
+                                        "999999999999999999999",
+                                        "99999999999999999999",
+                                        "9999999999999999999",
+                                        "18446744073709551609",
+                                        "18446744073709551610",
+                                        "18446744073709551619999999999999",
+                                        "-18446744073709551609",
+                                        "-18446744073709551610",
+                                        "-184467440737095516199999999999997"
+                                        };
+  
+  std::vector<bool> valids{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+  auto expected = cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_id::FLOAT32});
+  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
+
+printf("Expected:\n");
+cudf::test::print(expected->view());
+
+  auto const result = spark_rapids_jni::string_to_float(data_type{type_id::FLOAT32}, strings_column_view{in}, false, rmm::cuda_stream_default);
+
+printf("Result:\n");
+cudf::test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected->view());
 }

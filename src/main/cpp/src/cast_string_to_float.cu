@@ -30,6 +30,10 @@
 
 using namespace cudf;
 
+namespace spark_rapids_jni {
+
+namespace detail {
+  
 __device__ __inline__ bool is_digit(char c)
 {
   return c >= '0' && c <= '9';
@@ -244,8 +248,6 @@ private:
     bool decimal = false;       // whether or not we have a decimal
     int decimal_pos = 0;        // absolute decimal pos 
 
-    int count = 0;
-    
     constexpr int max_safe_digits = 19;
     do {    
       int num_chars = min(max_safe_digits, blen - bpos);    
@@ -407,9 +409,9 @@ private:
         }
         // read the next batch
         bpos = 0;
-        blen = min(32, len - bstart);            
-        char c = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
+        blen = min(32, len - bstart);
         /*
+        char c = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
         if(warp_lane == 0){
           printf("B: bpos(%d), blen(%d), bstart(%d), len(%d)\n", bpos, blen, bstart, len);
         }
@@ -591,65 +593,62 @@ __global__ void string_to_float_kernel(T* out,
   convert();
 }
 
-void process_one(column_view const& in, 
-                 column_view const& expected,                                      
-                 rmm::cuda_stream_view stream,
-                 rmm::mr::device_memory_resource* mr)
-{      
-  strings_column_view scv(in);
+} // namespace detail
 
-  auto out = cudf::make_numeric_column(data_type{type_id::FLOAT32}, in.size(), mask_state::UNINITIALIZED, stream, mr);
+/**
+ * @brief Convert a string column into an float column.
+ *
+ * @param dtype Type of column to return.
+ * @param string_col Incoming string column to convert to integers.
+ * @param ansi_mode If true, strict conversion and throws on erorr.
+ *                  If false, null invalid entries.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> Integer column that was created from string_col.
+ */
+ std::unique_ptr<column> string_to_float(data_type dtype,
+  strings_column_view const& string_col,
+  bool ansi_mode,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
+{
+  if (dtype != data_type{type_id::FLOAT32} && dtype != data_type{type_id::FLOAT64}) {
+    return {};
+  }
+
+  auto out = cudf::make_numeric_column(dtype, string_col.size(), mask_state::UNINITIALIZED, stream, mr);
 
   using ScalarType = cudf::scalar_type_t<size_type>;
   auto valid_count = cudf::make_numeric_scalar(cudf::data_type(cudf::type_id::INT32));
+  auto ansi_count = cudf::make_numeric_scalar(cudf::data_type(cudf::type_id::INT32));
   static_cast<ScalarType*>(valid_count.get())->set_value(0);
+  if (ansi_mode) { static_cast<ScalarType*>(ansi_count.get())->set_value(0); }
 
   constexpr auto warps_per_block = 8;
   constexpr auto rows_per_block = warps_per_block;
-  auto const num_blocks = cudf::util::div_rounding_up_safe(in.size(), rows_per_block);  
-  string_to_float_kernel<float, warps_per_block * 32><<<num_blocks, warps_per_block * 32>>>(
-    out->mutable_view().begin<float>(), 
-    out->mutable_view().null_mask(),
-    nullptr,
-    static_cast<ScalarType*>(valid_count.get())->data(),    
-    scv.chars().begin<char>(),
-    scv.offsets().begin<offset_type>(),
-    in.size());
+  auto const num_blocks = cudf::util::div_rounding_up_safe(string_col.size(), rows_per_block);
 
-  stream.synchronize();
-
-  printf("result:\n");
-  cudf::test::print(*out);
-  printf("\nexpected:\n");
-  cudf::test::print(expected);
-
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*out, expected);
-}
-
-void casting_test_simple()
-{
-  {            
-    cudf::test::strings_column_wrapper in{"-1.8946e-10",
-                                          "0001", "0000.123", "123", "123.45", "45.123", "-45.123", "0.45123", "-0.45123",
-                                          "999999999999999999999",
-                                          "99999999999999999999",
-                                          "9999999999999999999",
-                                          "18446744073709551609",
-                                          "18446744073709551610",
-                                          "18446744073709551619999999999999",
-                                          "-18446744073709551609",
-                                          "-18446744073709551610",
-                                          "-184467440737095516199999999999997"
-                                          };
-    
-    std::vector<bool> valids{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-
-    auto expected2 = cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_id::FLOAT32});
-    expected2->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
-
-    process_one(in,
-                *expected2,
-                rmm::cuda_stream_default, 
-                rmm::mr::get_current_device_resource());
+  if (dtype == data_type{type_id::FLOAT32}) {
+    detail::string_to_float_kernel<float, warps_per_block * 32><<<num_blocks, warps_per_block * 32>>>(
+      out->mutable_view().begin<float>(), 
+      out->mutable_view().null_mask(),
+      ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
+      static_cast<ScalarType*>(valid_count.get())->data(),    
+      string_col.chars().begin<char>(),
+      string_col.offsets().begin<offset_type>(),
+      string_col.size());
+  } else {
+    detail::string_to_float_kernel<double, warps_per_block * 32><<<num_blocks, warps_per_block * 32>>>(
+      out->mutable_view().begin<double>(), 
+      out->mutable_view().null_mask(),
+      ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
+      static_cast<ScalarType*>(valid_count.get())->data(),    
+      string_col.chars().begin<char>(),
+      string_col.offsets().begin<offset_type>(),
+      string_col.size());
   }
+
+  return out;
 }
+
+} // namespace spark_rapids_jni

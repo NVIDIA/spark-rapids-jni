@@ -48,6 +48,19 @@ public class CastStrings {
     return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, precision, scale));
   }
 
+    /**
+   * Convert a string column to an float column of a specified type.
+   *
+   * @param cv the column data to process.
+   * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param type the type of the return column.
+   * @return the converted column.
+   */
+  public static ColumnVector toFloat(ColumnView cv, boolean ansiMode, DType type) {
+    return new ColumnVector(toFloat(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, int precision, int scale);
+  private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
 }
