@@ -302,17 +302,38 @@ TEST_F(StringToDecimalTests, ExponentalNotation)
 
 TEST_F(StringToDecimalTests, PositiveScale)
 {
-  auto const strings =
-    test::strings_column_wrapper({"1234e-1", "12345e1", "-1234.5678", "-0.001234567890123456e6"});
-  strings_column_view scv{strings};
+  {
+    auto const strings =
+      test::strings_column_wrapper({"1234e-1", "12345e1", "-1234.5678", "-0.001234567890123456e6"});
+    strings_column_view scv{strings};
 
-  auto const result =
-    spark_rapids_jni::string_to_decimal(6, 2, scv, false, rmm::cuda_stream_default);
+    auto const result =
+      spark_rapids_jni::string_to_decimal(6, 2, scv, false, rmm::cuda_stream_default);
 
-  test::fixed_point_column_wrapper<int32_t> expected(
-    {100, 123500, -1200, -1200}, {1, 1, 1, 1}, numeric::scale_type{2});
+    test::fixed_point_column_wrapper<int32_t> expected(
+      {1, 1235, -12, -12}, {1, 1, 1, 1}, numeric::scale_type{2});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+
+  {
+    auto const strings = test::strings_column_wrapper(
+      {"813847339", "043469773", "548977048", "985946604", "325679554", "null",      "957413342",
+       "541903389", "150050891", "663968655", "976832602", "757172936", "968693314", "106046331",
+       "965120263", "354546567", "108127101", "339513621", "980338159", "593267777"});
+    strings_column_view scv{strings};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(8, 3, scv, false, rmm::cuda_stream_default);
+
+    test::fixed_point_column_wrapper<int32_t> expected(
+      {813847, 43470,  548977, 985947, 325680, 0,      957413, 541903, 150051, 663969,
+       976833, 757173, 968693, 106046, 965120, 354547, 108127, 339514, 980338, 593268},
+      {1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+      numeric::scale_type{3});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
 }
 
 TEST_F(StringToDecimalTests, Edges)
@@ -469,6 +490,27 @@ TEST_F(StringToDecimalTests, Edges)
       spark_rapids_jni::string_to_decimal(6, 0, scv, false, rmm::cuda_stream_default);
     test::fixed_point_column_wrapper<int32_t> expected(
       {0, 0, 0, 0}, {0, 0, 0, 1}, numeric::scale_type{0});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+  {
+    auto const str = test::strings_column_wrapper({"1234567809"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(8, 3, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected({1234568}, {1}, numeric::scale_type{3});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+  }
+  {
+    auto const str = test::strings_column_wrapper({"4347202159", "4347802159"});
+    strings_column_view scv{str};
+
+    auto const result =
+      spark_rapids_jni::string_to_decimal(4, 6, scv, false, rmm::cuda_stream_default);
+    test::fixed_point_column_wrapper<int32_t> expected(
+      {4347, 4348}, {1, 1}, numeric::scale_type{6});
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
