@@ -520,7 +520,7 @@ __global__ void string_to_decimal_kernel(T* out,
       }
     }
 
-    auto const significant_preceding_zeros = decimal_location < 0 ? abs(decimal_location) : 0;
+    auto const significant_preceding_zeros = decimal_location < 0 ? -decimal_location : 0;
     auto const zeros_to_decimal            = std::max(
       0, scale > 0 ? decimal_location - total_digits - scale : decimal_location - total_digits);
     auto const significant_digits_before_decimal =
