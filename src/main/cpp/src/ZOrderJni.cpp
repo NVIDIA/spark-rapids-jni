@@ -23,7 +23,7 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_ZOrder_interleaveBits(JNIEnv *env, jclass, jlongArray input_columns) {
-  //JNI_NULL_CHECK(env, input_table, "input table is null", 0);
+  JNI_NULL_CHECK(env, input_columns, "input is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);

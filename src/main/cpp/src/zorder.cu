@@ -46,7 +46,7 @@ std::unique_ptr<cudf::column> interleave_bits(
     std::all_of(tbl.begin(),
                 tbl.end(),
                 [type_id](cudf::column_view const& col) { return col.type().id() == type_id; }),
-    "All columns of the input table must be the same type column type.");
+    "All columns of the input table must be the same type.");
 
   // Because the input is a table we know that they all have the same length.
   auto num_rows = tbl.num_rows();
