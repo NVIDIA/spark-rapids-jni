@@ -29,12 +29,14 @@
 using namespace cudf;
 
 template <typename T>
-struct StringToIntegerTests : public test::BaseFixture {};
+struct StringToIntegerTests : public test::BaseFixture {
+};
 
 struct StringToDecimalTests : public test::BaseFixture {};
 
 template <typename T>
-struct StringToFloatTests : public test::BaseFixture {};
+struct StringToFloatTests : public test::BaseFixture {
+};
 
 TYPED_TEST_SUITE(StringToIntegerTests, cudf::test::IntegralTypesNotBool);
 TYPED_TEST_SUITE(StringToFloatTests, cudf::test::FloatingPointTypes);
@@ -69,6 +71,7 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   try {
     spark_rapids_jni::string_to_integer(
       data_type{type_to_id<TypeParam>()}, scv, true, rmm::cuda_stream_default);
+    EXPECT_EQ(0, 1);
   } catch (spark_rapids_jni::cast_error& e) {
     auto const row = [&]() {
       if constexpr (is_signed_type) {
@@ -482,7 +485,14 @@ TEST_F(StringToDecimalTests, Edges)
 TYPED_TEST(StringToFloatTests, Simple)
 {
   cudf::test::strings_column_wrapper in{"-1.8946e-10",
-                                        "0001", "0000.123", "123", "123.45", "45.123", "-45.123", "0.45123", "-0.45123",
+                                        "0001",
+                                        "0000.123",
+                                        "123",
+                                        "123.45",
+                                        "45.123",
+                                        "-45.123",
+                                        "0.45123",
+                                        "-0.45123",
                                         "999999999999999999999",
                                         "99999999999999999999",
                                         "9999999999999999999",
@@ -491,21 +501,83 @@ TYPED_TEST(StringToFloatTests, Simple)
                                         "18446744073709551619999999999999",
                                         "-18446744073709551609",
                                         "-18446744073709551610",
-                                        "-184467440737095516199999999999997"
-                                        };
-  
+                                        "-184467440737095516199999999999997"};
+
   std::vector<bool> valids{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
-  auto expected = cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_id::FLOAT32});
+  auto expected =
+    cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
   expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
 
-printf("Expected:\n");
-cudf::test::print(expected->view());
-
-  auto const result = spark_rapids_jni::string_to_float(data_type{type_id::FLOAT32}, strings_column_view{in}, false, rmm::cuda_stream_default);
-
-printf("Result:\n");
-cudf::test::print(result->view());
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected->view());
+}
+
+TYPED_TEST(StringToFloatTests, InfNaN)
+{
+  cudf::test::strings_column_wrapper in{
+    "NaN", "-Infinity", "inf", "Infinity", "-inf", "-nan"};
+
+  std::vector<bool> valids{1, 1, 1, 1, 1, 0};
+
+  auto expected =
+    cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
+  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
+
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected->view());
+}
+
+TYPED_TEST(StringToFloatTests, InvalidValues)
+{
+  cudf::test::strings_column_wrapper in{
+    "A", "null", "na7.62", "e", ".", "", "f"};
+
+  std::vector<bool> valids{0, 0, 0, 0, 0, 0, 0, 0};
+
+  auto expected =
+    cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
+  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
+
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected->view());
+}
+
+TYPED_TEST(StringToFloatTests, ANSIInvalids)
+{
+  cudf::test::strings_column_wrapper in{"A", "1.3", "43.54"};
+
+  std::vector<bool> valids{0, 0};
+
+  auto expected =
+    cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
+  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
+
+try {
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, true, rmm::cuda_stream_default);
+  } catch (spark_rapids_jni::cast_error& e) {
+    EXPECT_EQ(e.get_row_number(), 0);
+//    EXPECT_STREQ(e.get_string_with_error(), "1.3");
+    return;
+  }
+}
+
+TYPED_TEST(StringToFloatTests, TrickyValues)
+{
+  cudf::test::strings_column_wrapper in{"7f", "\riNf", "1.3e5ef", "1.3e+7f", "9\n"};
+
+  test::fixed_width_column_wrapper<TypeParam> expected(
+    {static_cast<TypeParam>(7), std::numeric_limits<TypeParam>::infinity(), static_cast<TypeParam>(0), static_cast<TypeParam>(13000000), static_cast<TypeParam>(9)}, {1, 1, 0, 1, 1});
+
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
