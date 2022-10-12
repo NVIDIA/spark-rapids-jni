@@ -762,6 +762,8 @@ std::unique_ptr<column> string_to_integer(data_type dtype,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
+  if (string_col.size() == 0) { return std::make_unique<column>(); }
+
   return type_dispatcher(
     dtype, detail::string_to_integer_impl{}, string_col, ansi_mode, stream, mr);
 }
@@ -785,6 +787,7 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
+  if (string_col.size() == 0) { return std::make_unique<column>(); }
   data_type dtype = [precision, scale]() {
     if (precision <= cuda::std::numeric_limits<int32_t>::digits10)
       return data_type(type_id::DECIMAL32, scale);
