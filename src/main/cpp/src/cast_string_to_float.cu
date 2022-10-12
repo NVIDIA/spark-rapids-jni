@@ -92,8 +92,6 @@ class string_to_float {
     bpos   = 0;             // current position within the current batch of chars for the warp
     c      = warp_lane < blen ? chars[row_start + warp_lane] : 0;
 
-    // printf("(%d): bstart(%d), blen(%d), bpos(%d), c(%c)\n", tid, bstart, blen, bpos, c);
-
     if (incoming_null_mask != nullptr && !bit_is_set(incoming_null_mask, row)) {
       valid = false;
       compute_validity(valid, except);
@@ -101,7 +99,6 @@ class string_to_float {
     }
 
     remove_leading_whitespace();
-    // if (threadIdx.x % 32 == 0) printf("%d - removed whitespace\n", threadIdx.x / 32);
 
     // check for + or -
     int sign = check_for_sign();
@@ -123,8 +120,6 @@ class string_to_float {
       return;
     }
 
-    // if (threadIdx.x % 32 == 0) printf("%d %d - parsing digits\n", threadIdx.x / 32, blockIdx.x);
-
     // parse the remainder as floating point.
     auto const [digits, exp_base] = parse_digits();
     if (!valid) {
@@ -135,8 +130,6 @@ class string_to_float {
     // 0 / -0.
     if (digits == 0) {
       remove_leading_whitespace();
-      // if (threadIdx.x % 32 == 0) printf("%d %d - bpos %d, blen %d\n", threadIdx.x / 32,
-      // blockIdx.x, bpos, blen);
       if (bpos < blen) {
         valid  = false;
         except = true;
@@ -150,18 +143,12 @@ class string_to_float {
     // parse any manual exponent
     auto const manual_exp = parse_manual_exp();
     if (!valid) {
-      // if (threadIdx.x % 32 == 0) printf("%d %d - parse exp failed\n", threadIdx.x/32,
-      // blockIdx.x);
-
       compute_validity(valid, except);
       return;
     }
 
     check_trailing_bytes();
     if (!valid) {
-      // if (threadIdx.x % 32 == 0) printf("%d %d - trailing bytes failed\n", threadIdx.x/32,
-      // blockIdx.x);
-
       compute_validity(valid, except);
       return;
     }
@@ -196,12 +183,6 @@ class string_to_float {
         double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
         double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
-        /*
-        if(warp_lane == 0){
-          printf("row(%d), %lf, %d, %lf\n", row, digitsf, exp_ten, exponent);
-        }
-        */
-
         out[row] = result;
       }
     }
@@ -220,24 +201,15 @@ class string_to_float {
         __ballot_sync(0xffffffff, warp_lane < chars_left && !is_whitespace(c));
       auto const first_non_whitespace = __ffs(non_whitespace_mask) - 1;
 
-      // if (threadIdx.x % 32 == 0) printf("%d - %d chars left from %d to %d generated mask 0x%x\n",
-      // threadIdx.x / 32 + blockIdx.x*8, chars_left, bpos, blen, non_whitespace_mask);
-
       if (first_non_whitespace > 0) {
         bpos += first_non_whitespace;
-        // if (threadIdx.x % 32 == 0) printf("%d - skipping %d whitespace chars out of %d\n",
-        // threadIdx.x / 32 + blockIdx.x*8, first_non_whitespace, chars_left);
         c = __shfl_down_sync(0xffffffff, c, first_non_whitespace);
       } else if (non_whitespace_mask == 0) {
-        // if (threadIdx.x % 32 == 0) printf("%d - skipping %d whitespace chars\n", threadIdx.x / 32
-        // + blockIdx.x*8, chars_left);
         //  all whitespace
         bpos += chars_left;
       }
 
       if (bpos == blen) {
-        // if (threadIdx.x % 32 == 0) printf("%d - slurping next group from %d\n", threadIdx.x / 32
-        // + blockIdx.x*8, bstart + blen);
         bstart += blen;
         // nothing left to read?
         if (bstart == len) { break; }
@@ -343,11 +315,6 @@ class string_to_float {
     do {
       int num_chars = min(max_safe_digits, blen - bpos);
 
-      /*if(warp_lane == 0){
-        printf("NC: %d - %d (%d, %d, %d)\n", threadIdx.x/32 + blockIdx.x * 8, num_chars, blen,
-      bstart, bpos);
-      }*/
-
       // have we seen a valid digit yet?
       bool seen_valid_digit = false;
 
@@ -358,8 +325,6 @@ class string_to_float {
         auto const zero_mask = __ballot_sync(0xffffffff, warp_lane < num_chars && c != '0');
         auto const nz_pos    = __ffs(zero_mask) - 1;
         if (nz_pos > 0) {
-          // if (threadIdx.x % 32 == 0) printf("%d %d - stripping %d zeros\n", threadIdx.x / 32,
-          // blockIdx.x, nz_pos);
           num_chars -= nz_pos;
           bpos += nz_pos;
           c                = __shfl_down_sync(0xffffffff, c, nz_pos);
@@ -377,46 +342,22 @@ class string_to_float {
           return {0, 0};
         }
         auto const dpos = __ffs(decimal_mask) - 1;  // 0th bit is reported as 1 by __ffs
-        // if (threadIdx.x % 32 == 0) printf("%d %d - decimal position %d\n", threadIdx.x / 32,
-        // blockIdx.x, dpos);
-        decimal_pos = (dpos + real_digits);
-        decimal     = true;
+        decimal_pos     = (dpos + real_digits);
+        decimal         = true;
 
         // strip the decimal char out
         if (warp_lane >= dpos) { c = __shfl_down_sync(~((1 << dpos) - 1), c, 1); }
         num_chars--;
       }
-      /*
-      if (threadIdx.x % 32 == 0) printf("%d %d - %d chars and have%s seen a valid digit\n",
-      threadIdx.x / 32, blockIdx.x, num_chars, seen_valid_digit ? "" : " not"); if (num_chars == 0)
-      { if (!seen_valid_digit) { valid = false; except = true;
-        }
-        return {0, 0};
-      }*/
 
       // handle any chars that are not actually digits
       //
       auto const non_digit_mask  = __ballot_sync(0xffffffff, warp_lane < num_chars && !is_digit(c));
       auto const first_non_digit = __ffs(non_digit_mask);
-      /*
-      if(first_non_digit && warp_lane == 0){
-        printf("FND: %d\n", first_non_digit);
-      }
-      if(first_non_digit){
-        printf("(%d)%c\n", tid, c);
-      }
-      */
+
       num_chars = min(num_chars, first_non_digit > 0 ? first_non_digit - 1 : num_chars);
-      /*if (threadIdx.x % 32 == 0) {
-        printf("%d %d - string has %d digits before a non-digit\n", threadIdx.x / 32, blockIdx.x,
-      num_chars);
-      }*/
 
       if (decimal_pos > 0 && decimal_pos > num_chars + real_digits) {
-        /*if (threadIdx.x % 32 == 0) {
-          printf("%d %d - decimal(%d) after valid digits(%d + %d), so invalid\n", threadIdx.x / 32,
-        blockIdx.x, decimal_pos, num_chars, real_digits);
-        }*/
         valid  = false;
         except = true;
         return {0, 0};
@@ -424,15 +365,8 @@ class string_to_float {
 
       if (num_chars == 0 && blen == len) {
         if (!seen_valid_digit) {
-          /* if (threadIdx.x % 32 == 0) {
-             printf("%d %d - no valid digit, so invalid\n", threadIdx.x / 32, blockIdx.x);
-           }*/
           valid  = false;
           except = true;
-        } else {
-          /*if (threadIdx.x % 32 == 0) {
-            printf("%d %d - valid digit, so not invalid\n", threadIdx.x / 32, blockIdx.x);
-          }*/
         }
         return {0, 0};
       }
@@ -459,42 +393,21 @@ class string_to_float {
       // if we're already past the max_holding, just truncate.
       // eg:    9,999,999,999,999,999,999
       if (digits > max_holding) {
-        /*
-        if(warp_lane == 0){
-          printf("A\n");
-        }
-        */
         truncated_digits += num_chars;
       } else {
         // add as many digits to the running sum as we can.
         int const safe_count = min(max_safe_digits - real_digits, num_chars);
-        /*
-        if(warp_lane == 0){
-          printf("SC: %d, %d\n", safe_count, num_chars);
-        }
-        */
         if (safe_count > 0) {
           // only lane 0 will have the real value so we need to shfl it to the rest of the threads.
           digits = (digits * ipow[safe_count]) +
                    __shfl_sync(0xffffffff, WarpReduce(temp_storage).Sum(digit, safe_count), 0);
           real_digits += safe_count;
-
-          /*
-          if(warp_lane == 0){
-            printf("B: real_digits(%d)\n", real_digits);
-          }
-          */
         }
 
         // if we have more digits
         if (safe_count < num_chars) {
           // we're already past max_holding so we have to start truncating
           if (digits > max_holding) {
-            /*
-            if(warp_lane == 0){
-              printf("C\n");
-            }
-            */
             truncated_digits += num_chars - safe_count;
           }
           // we may be able to add one more digit.
@@ -504,40 +417,16 @@ class string_to_float {
             if ((digits * 10) + last_digit <= max_holding) {
               // we can add this final digit
               digits = (digits * 10) + last_digit;
-
-              /*
-              if(warp_lane == 0){
-                printf("D\n");
-              }
-              */
               truncated_digits += num_chars - (safe_count - 1);
             }
             // everything else gets truncated
             else {
-              /*
-              if(warp_lane == 0){
-                printf("E\n");
-              }
-              */
               truncated_digits += num_chars - safe_count;
             }
           }
         }
       }
       bpos += num_chars + (decimal_mask > 0);
-
-      /*
-      if(warp_lane == 0){
-        printf("EXPT: %d (%d, %d, %d, %d)\n", exp_ten, decimal ? 1 : 0, num_chars, decimal_mask,
-      decimal_pos);
-      }
-      */
-
-      /*
-      if(warp_lane == 0){
-        printf("A: bpos(%d), blen(%d), bstart(%d), len(%d)\n", bpos, blen, bstart, len);
-      }
-      */
 
       // read the next batch of chars.
       if (bpos == blen) {
@@ -548,21 +437,8 @@ class string_to_float {
         bpos = 0;
         blen = min(32, len - bstart);
         c    = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
-        /*
-        char c = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
-        if(warp_lane == 0){
-          printf("B: bpos(%d), blen(%d), bstart(%d), len(%d)\n", bpos, blen, bstart, len);
-        }
-        */
       } else {
-        // printf("A(%d)%c\n", tid, c);
-        /*
-        if(warp_lane == 0){
-          printf("bpos: %d\n", bpos);
-        }
-        */
         c = __shfl_down_sync(0xffffffff, c, num_chars);
-        // printf("B(%d)%c\n", tid, c);
 
         // if we encountered a non-digit, we're done
         if (first_non_digit) { break; }
@@ -580,7 +456,6 @@ class string_to_float {
     int exp_ten = (truncated_digits
                    // if we've got a decimal, shift left by it's position
                    - (decimal ? (total_digits - decimal_pos) : 0));
-    // printf("Digits:, %d + %d = %d\n", real_digits, truncated_digits, total_digits);
     return {digits, exp_ten};
   }
 
@@ -595,11 +470,6 @@ class string_to_float {
     // eg:  E-10
     //
     int manual_exp = 0;
-    /*
-    if(warp_lane == 0){
-      printf("eee %d: %d, %d, %d\n", threadIdx.x / 32, bstart, bpos, len);
-    }
-    */
     if (bpos < blen) {
       // read some trailing chars.
 
@@ -635,7 +505,6 @@ class string_to_float {
       manual_exp           = WarpReduce(temp_storage).Sum(digit, num_digits) * exp_sign;
       c                    = __shfl_down_sync(0xffffffff, c, num_digits);
       bpos += num_digits;
-      // printf("Manual EXP: %d\n", manual_exp);
     }
 
     return manual_exp;
@@ -679,10 +548,7 @@ class string_to_float {
     if (threadIdx.x == 0) {
       atomicAdd(valid_count, block_valid_count);
 
-      if (ansi_except && except) {
-        // printf("ansi exception! on row %d, which is ec %d\n", row, num_rows - row);
-        atomicMax(ansi_except, num_rows - row);
-      }
+      if (ansi_except && except) { atomicMax(ansi_except, num_rows - row); }
     }
 
     // 0th thread in each warp updates the validity
@@ -778,7 +644,7 @@ __global__ void string_to_float_kernel(T* out,
  *
  * @param dtype Type of column to return.
  * @param string_col Incoming string column to convert to integers.
- * @param ansi_mode If true, strict conversion and throws on erorr.
+ * @param ansi_mode If true, strict conversion and throws on error.
  *                  If false, null invalid entries.
  * @param stream Stream on which to operate.
  * @param mr Memory resource for returned column
