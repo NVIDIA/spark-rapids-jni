@@ -71,29 +71,31 @@ std::unique_ptr<cudf::column> interleave_bits(
      num_columns,
      data_type_size,
      input = *input_dv] __device__ (cudf::size_type ret_idx) {
-       // Flip the "endianness" of the output based off of the number of columns
+       // The most significant byte needs to come from the most significant column, so we switch the order of the output
+       // bytes to match that
        cudf::size_type const flipped_start_byte_index = (ret_idx / num_columns) * num_columns;
        cudf::size_type const flipped_ret_idx = flipped_start_byte_index + (num_columns - 1 - (ret_idx - flipped_start_byte_index));
 
-       // Start with the highest bit for output
        uint8_t ret_byte = 0;
-       for (cudf::size_type ret_bit = 7; ret_bit >= 0; ret_bit--) {
-         int64_t const total_output_bit = flipped_ret_idx * 8L + ret_bit;
+       for (cudf::size_type output_bit_offset = 7; output_bit_offset >= 0; output_bit_offset--) {
+         // The index (in bits) of the output bit we are computing right now
+         int64_t const output_bit_index = flipped_ret_idx * 8L + output_bit_offset;
 
-         // The order of the columns needs to be [0 to N] for the highest bit, so flip them too
-         cudf::size_type const column_idx = num_columns - 1 - (total_output_bit % num_columns);
+         // The most significant bit should come from the most significant column, but 0 is
+         // our most significant column, so switch the order of the columns.
+         cudf::size_type const column_idx = num_columns - 1 - (output_bit_index % num_columns);
          auto column = input.column(column_idx);
 
          // Also we need to convert the endian byte order when we read the bytes.
-         int64_t const bit_within_column = total_output_bit / num_columns;
-         cudf::size_type const le_read_byte_index = bit_within_column / 8;
-         cudf::size_type const bit_offset = bit_within_column % 8;
-         cudf::size_type const input_row_number = le_read_byte_index / data_type_size;
-         cudf::size_type const start_item_byte_index = input_row_number * data_type_size;
-         cudf::size_type const read_byte_index = start_item_byte_index + (data_type_size - 1 - (le_read_byte_index - start_item_byte_index));
+         int64_t const bit_index_within_column = output_bit_index / num_columns;
+         cudf::size_type const little_endian_read_byte_index = bit_index_within_column / 8;
+         cudf::size_type const read_bit_offset = bit_index_within_column % 8;
+         cudf::size_type const input_row_number = little_endian_read_byte_index / data_type_size;
+         cudf::size_type const start_row_byte_index = input_row_number * data_type_size;
+         cudf::size_type const read_byte_index = start_row_byte_index + (data_type_size - 1 - (little_endian_read_byte_index - start_row_byte_index));
 
          uint32_t const byte_data = column.is_valid(input_row_number) ? column.data<uint8_t>()[read_byte_index] : 0;
-         uint32_t const tmp = ((byte_data >> bit_offset) & 1) << ret_bit;
+         uint32_t const tmp = ((byte_data >> read_bit_offset) & 1) << output_bit_offset;
          ret_byte = static_cast<uint8_t>(ret_byte | tmp);
        }
        col.data<uint8_t>()[ret_idx] = ret_byte;

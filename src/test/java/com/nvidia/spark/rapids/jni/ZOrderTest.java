@@ -175,45 +175,6 @@ public class ZOrderTest {
   public static HostColumnVector.DataType outputType =
       new HostColumnVector.ListType(true, new HostColumnVector.BasicType(false, DType.UINT8));
 
-  public static String toHexString(byte[] input) {
-    StringBuffer buff = new StringBuffer();
-    buff.append("[");
-    boolean first = true;
-    for (Byte i : input) {
-      if (!first) {
-        buff.append(", ");
-      }
-      first = false;
-      if (i == null) {
-        buff.append("NULL");
-      } else {
-        buff.append("0x");
-        buff.append(Integer.toHexString(i & 0xFF));
-      }
-    }
-    buff.append("]");
-    return buff.toString();
-  }
-
-  public static String toHexString(ColumnVector cv) {
-    StringBuffer buff = new StringBuffer();
-    try (HostColumnVector hcv = cv.copyToHost()) {
-      buff.append("[");
-      for (int i = 0; i < hcv.getRowCount(); i++) {
-        if (i > 0) {
-          buff.append(", ");
-        }
-        if (hcv.isNull(i)) {
-          buff.append("null");
-        } else {
-          buff.append(toHexString(hcv.getBytesFromList(i)));
-        }
-      }
-      buff.append("]");
-    }
-    return buff.toString();
-  }
-
   public static void doIntTest(int numRows, Integer[]... inputs) {
     List<Byte>[] expected = getExpected(numRows, inputs);
     ColumnVector[] cvInputs = new ColumnVector[inputs.length];
@@ -223,8 +184,6 @@ public class ZOrderTest {
       }
       try (ColumnVector results = ZOrder.interleaveBits(numRows, cvInputs);
            ColumnVector expectedCv = ColumnVector.fromLists(outputType, expected)) {
-        //System.err.println("EXPECTED: " + toHexString(expectedCv));
-        //System.err.println("   FOUND: " + toHexString(results));
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
@@ -245,8 +204,6 @@ public class ZOrderTest {
       }
       try (ColumnVector results = ZOrder.interleaveBits(numRows, cvInputs);
            ColumnVector expectedCv = ColumnVector.fromLists(outputType, expected)) {
-        //System.err.println("EXPECTED: " + toHexString(expectedCv));
-        //System.err.println("   FOUND: " + toHexString(results));
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
@@ -267,8 +224,6 @@ public class ZOrderTest {
       }
       try (ColumnVector results = ZOrder.interleaveBits(numRows, cvInputs);
            ColumnVector expectedCv = ColumnVector.fromLists(outputType, expected)) {
-        //System.err.println("EXPECTED: " + toHexString(expectedCv));
-        //System.err.println("   FOUND: " + toHexString(results));
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
