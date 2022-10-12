@@ -643,6 +643,10 @@ struct string_to_integer_impl {
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
+    if (string_col.size() == 0) {
+      return std::make_unique<column>(data_type{type_to_id<T>()}, 0, rmm::device_buffer{});
+    }
+
     rmm::device_uvector<T> data(string_col.size(), stream, mr);
     auto const num_words = bitmask_allocation_size_bytes(string_col.size()) / sizeof(bitmask_type);
     rmm::device_uvector<bitmask_type> null_mask(num_words, stream, mr);
@@ -762,8 +766,6 @@ std::unique_ptr<column> string_to_integer(data_type dtype,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
-  if (string_col.size() == 0) { return std::make_unique<column>(); }
-
   return type_dispatcher(
     dtype, detail::string_to_integer_impl{}, string_col, ansi_mode, stream, mr);
 }
@@ -787,7 +789,6 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
-  if (string_col.size() == 0) { return std::make_unique<column>(); }
   data_type dtype = [precision, scale]() {
     if (precision <= cuda::std::numeric_limits<int32_t>::digits10)
       return data_type(type_id::DECIMAL32, scale);
@@ -798,6 +799,9 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
     else
       CUDF_FAIL("Unable to support decimal with precision " + std::to_string(precision));
   }();
+
+  if (string_col.size() == 0) { return std::make_unique<column>(dtype, 0, rmm::device_buffer{}); }
+
   return type_dispatcher(
     dtype, detail::string_to_decimal_impl{}, dtype, precision, string_col, ansi_mode, stream, mr);
 }

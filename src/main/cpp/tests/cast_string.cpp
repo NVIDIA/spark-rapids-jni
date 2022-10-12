@@ -239,6 +239,7 @@ TYPED_TEST(StringToIntegerTests, Empty)
                                                     rmm::cuda_stream_default);
 
   EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result->type().id(), type_to_id<TypeParam>());
 }
 
 TEST_F(StringToDecimalTests, Simple)
@@ -536,4 +537,6 @@ TEST_F(StringToDecimalTests, Empty)
     8, 2, strings_column_view{empty->view()}, false, rmm::cuda_stream_default);
 
   EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result->type().id(), type_id::DECIMAL32);
+  EXPECT_EQ(result->type().scale(), 2);
 }
