@@ -229,6 +229,19 @@ TYPED_TEST(StringToIntegerTests, Overflow)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
 
+TYPED_TEST(StringToIntegerTests, Empty)
+{
+  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{});
+
+  auto result = spark_rapids_jni::string_to_integer(data_type{type_to_id<TypeParam>()},
+                                                    strings_column_view{empty->view()},
+                                                    false,
+                                                    rmm::cuda_stream_default);
+
+  EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result->type().id(), type_to_id<TypeParam>());
+}
+
 TEST_F(StringToDecimalTests, Simple)
 {
   auto const strings = test::strings_column_wrapper({"1", "0", "-1"});
@@ -514,4 +527,16 @@ TEST_F(StringToDecimalTests, Edges)
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
   }
+}
+
+TEST_F(StringToDecimalTests, Empty)
+{
+  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{});
+
+  auto const result = spark_rapids_jni::string_to_decimal(
+    8, 2, strings_column_view{empty->view()}, false, rmm::cuda_stream_default);
+
+  EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result->type().id(), type_id::DECIMAL32);
+  EXPECT_EQ(result->type().scale(), 2);
 }
