@@ -16,7 +16,6 @@
 
 #include <cast_string.hpp>
 
-#include <cstdio>
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -72,7 +71,7 @@ TYPED_TEST(StringToIntegerTests, Ansi)
   try {
     spark_rapids_jni::string_to_integer(
       data_type{type_to_id<TypeParam>()}, scv, true, rmm::cuda_stream_default);
-    EXPECT_EQ(0, 1);
+    CUDF_EXPECTS(false, "expected exception!");
   } catch (spark_rapids_jni::cast_error& e) {
     auto const row = [&]() {
       if constexpr (is_signed_type) {
