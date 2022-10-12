@@ -16,6 +16,7 @@
 
 #include <cast_string.hpp>
 
+#include <cstdio>
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
@@ -517,8 +518,7 @@ TYPED_TEST(StringToFloatTests, Simple)
 
 TYPED_TEST(StringToFloatTests, InfNaN)
 {
-  cudf::test::strings_column_wrapper in{
-    "NaN", "-Infinity", "inf", "Infinity", "-inf", "-nan"};
+  cudf::test::strings_column_wrapper in{"NaN", "-Infinity", "inf", "Infinity", "-inf", "-nan"};
 
   std::vector<bool> valids{1, 1, 1, 1, 1, 0};
 
@@ -534,8 +534,7 @@ TYPED_TEST(StringToFloatTests, InfNaN)
 
 TYPED_TEST(StringToFloatTests, InvalidValues)
 {
-  cudf::test::strings_column_wrapper in{
-    "A", "null", "na7.62", "e", ".", "", "f"};
+  cudf::test::strings_column_wrapper in{"A", "null", "na7.62", "e", ".", "", "f"};
 
   std::vector<bool> valids{0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -551,33 +550,70 @@ TYPED_TEST(StringToFloatTests, InvalidValues)
 
 TYPED_TEST(StringToFloatTests, ANSIInvalids)
 {
-  cudf::test::strings_column_wrapper in{"A", "1.3", "43.54"};
+  cudf::test::strings_column_wrapper in[] = {{"A"}, {"."}, {"e"}};
 
-  std::vector<bool> valids{0, 0};
+  std::vector<bool> valids{0};
 
-  auto expected =
-    cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
-  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
-
-try {
-  auto const result = spark_rapids_jni::string_to_float(
-    data_type{type_to_id<TypeParam>()}, strings_column_view{in}, true, rmm::cuda_stream_default);
-  } catch (spark_rapids_jni::cast_error& e) {
-    EXPECT_EQ(e.get_row_number(), 0);
-//    EXPECT_STREQ(e.get_string_with_error(), "1.3");
-    return;
+  for (auto& col : in) {
+    try {
+      auto const result = spark_rapids_jni::string_to_float(data_type{type_to_id<TypeParam>()},
+                                                            strings_column_view{col},
+                                                            true,
+                                                            rmm::cuda_stream_default);
+      CUDF_EXPECTS(false, "expected exception!");
+    } catch (spark_rapids_jni::cast_error& e) {
+      EXPECT_EQ(e.get_row_number(), 0);
+    }
   }
 }
 
 TYPED_TEST(StringToFloatTests, TrickyValues)
 {
-  cudf::test::strings_column_wrapper in{"7f", "\riNf", "1.3e5ef", "1.3e+7f", "9\n"};
+  cudf::test::strings_column_wrapper in{"7f",
+                                        "\riNf",
+                                        "1.3e5ef",
+                                        "1.3e+7f",
+                                        "9\n",
+                                        "46037e\t",
+                                        "8d",
+                                        "0\n",
+                                        ".\r",
+                                        "2F.",
+                                        "                                    7d",
+                                        "                            98392.5e-1f",
+                                        ".",
+                                        "e"};
 
-  test::fixed_width_column_wrapper<TypeParam> expected(
-    {static_cast<TypeParam>(7), std::numeric_limits<TypeParam>::infinity(), static_cast<TypeParam>(0), static_cast<TypeParam>(13000000), static_cast<TypeParam>(9)}, {1, 1, 0, 1, 1});
+  test::fixed_width_column_wrapper<TypeParam> expected({static_cast<TypeParam>(7),
+                                                        std::numeric_limits<TypeParam>::infinity(),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(13000000),
+                                                        static_cast<TypeParam>(9),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(8),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(7),
+                                                        static_cast<TypeParam>(9839.25),
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(0)},
+                                                       {1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0});
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
+TYPED_TEST(StringToFloatTests, Empty)
+{
+  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{});
+
+  auto const result = spark_rapids_jni::string_to_float(data_type{type_to_id<TypeParam>()},
+                                                        strings_column_view{empty->view()},
+                                                        false,
+                                                        rmm::cuda_stream_default);
+
+  EXPECT_EQ(result->size(), 0);
 }
