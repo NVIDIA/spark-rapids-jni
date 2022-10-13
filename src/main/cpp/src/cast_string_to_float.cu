@@ -25,10 +25,6 @@
 #include <cudf/strings/convert/convert_floats.hpp>
 #include <cudf/utilities/bit.hpp>
 
-#include <cudf_test/base_fixture.hpp>
-#include <cudf_test/column_utilities.hpp>
-#include <cudf_test/column_wrapper.hpp>
-
 using namespace cudf;
 
 namespace spark_rapids_jni {
@@ -57,44 +53,41 @@ constexpr bool is_whitespace(char const chr)
 template <typename T, size_type block_size>
 class string_to_float {
  public:
-  __device__ string_to_float(T* _out,
-                             bitmask_type* _validity,
-                             int32_t* _ansi_except,
-                             size_type* _valid_count,
-                             const char* const _chars,
-                             offset_type const* _offsets,
-                             int _warp_id,
-                             uint64_t const* const _ipow,
-                             bitmask_type const* _incoming_null_mask,
-                             size_type const _num_rows)
-    : out(_out),
-      validity(_validity),
-      ansi_except(_ansi_except),
-      valid_count(_valid_count),
-      chars(_chars),
-      offsets(_offsets),
-      tid(threadIdx.x + (blockDim.x * blockIdx.x)),
-      warp_id(tid / 32),
-      row(warp_id),
-      warp_lane(tid % 32),
-      row_start(offsets[row]),
-      len(offsets[row + 1] - row_start),
-      ipow(_ipow),
-      incoming_null_mask(_incoming_null_mask),
-      num_rows(_num_rows)
+  __device__ string_to_float(T* out,
+                             bitmask_type* validity,
+                             int32_t* ansi_except,
+                             size_type* valid_count,
+                             const char* const chars,
+                             offset_type const* offsets,
+                             uint64_t const* const ipow,
+                             bitmask_type const* incoming_null_mask,
+                             size_type const num_rows)
+    : _out(out),
+      _validity(validity),
+      _ansi_except(ansi_except),
+      _valid_count(valid_count),
+      _chars(chars),
+      _warp_id((threadIdx.x + (blockDim.x * blockIdx.x)) / 32),
+      _row(_warp_id),
+      _warp_lane((threadIdx.x + (blockDim.x * blockIdx.x)) % 32),
+      _row_start(offsets[_row]),
+      _len(offsets[_row + 1] - _row_start),
+      _ipow(ipow),
+      _incoming_null_mask(incoming_null_mask),
+      _num_rows(num_rows)
   {
   }
 
   __device__ void operator()()
   {
-    bstart = 0;             // start position of the current batch
-    blen   = min(32, len);  // length of the batch
-    bpos   = 0;             // current position within the current batch of chars for the warp
-    c      = warp_lane < blen ? chars[row_start + warp_lane] : 0;
+    _bstart = 0;              // start position of the current batch
+    _blen   = min(32, _len);  // length of the batch
+    _bpos   = 0;              // current position within the current batch of chars for the warp
+    _c      = _warp_lane < _blen ? _chars[_row_start + _warp_lane] : 0;
 
-    if (incoming_null_mask != nullptr && !bit_is_set(incoming_null_mask, row)) {
-      valid = false;
-      compute_validity(valid, except);
+    if (_incoming_null_mask != nullptr && !bit_is_set(_incoming_null_mask, _row)) {
+      _valid = false;
+      compute_validity(_valid, _except);
       return;
     }
 
@@ -105,56 +98,56 @@ class string_to_float {
 
     // check for leading nan
     if (check_for_nan()) {
-      out[row] = NAN;
-      compute_validity(valid, except);
+      _out[_row] = NAN;
+      compute_validity(_valid, _except);
       return;
     }
 
     // check for inf / infinity
     if (check_for_inf()) {
-      if (warp_lane == 0) {
-        out[row] =
+      if (_warp_lane == 0) {
+        _out[_row] =
           sign > 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
       }
-      compute_validity(valid, except);
+      compute_validity(_valid, _except);
       return;
     }
 
     // parse the remainder as floating point.
     auto const [digits, exp_base] = parse_digits();
-    if (!valid) {
-      compute_validity(valid, except);
+    if (!_valid) {
+      compute_validity(_valid, _except);
       return;
     }
 
     // 0 / -0.
     if (digits == 0) {
       remove_leading_whitespace();
-      if (bpos < blen) {
-        valid  = false;
-        except = true;
+      if (_bpos < _blen) {
+        _valid  = false;
+        _except = true;
       }
 
-      if (warp_lane == 0) { out[row] = sign * static_cast<double>(0); }
-      compute_validity(valid, except);
+      if (_warp_lane == 0) { _out[_row] = sign * static_cast<double>(0); }
+      compute_validity(_valid, _except);
       return;
     }
 
     // parse any manual exponent
     auto const manual_exp = parse_manual_exp();
-    if (!valid) {
-      compute_validity(valid, except);
+    if (!_valid) {
+      compute_validity(_valid, _except);
       return;
     }
 
     check_trailing_bytes();
-    if (!valid) {
-      compute_validity(valid, except);
+    if (!_valid) {
+      compute_validity(_valid, _except);
       return;
     }
 
     // construct the final float value
-    if (warp_lane == 0) {
+    if (_warp_lane == 0) {
       // base value
       double digitsf = sign * static_cast<double>(digits);
 
@@ -163,8 +156,8 @@ class string_to_float {
 
       // final value
       if (exp_ten > std::numeric_limits<double>::max_exponent10) {
-        out[row] = sign > 0 ? std::numeric_limits<double>::infinity()
-                            : -std::numeric_limits<double>::infinity();
+        _out[_row] = sign > 0 ? std::numeric_limits<double>::infinity()
+                              : -std::numeric_limits<double>::infinity();
       } else {
         // make sure we don't produce a subnormal number.
         // - a normal number is one where the leading digit of the floating point rep is not zero.
@@ -183,10 +176,10 @@ class string_to_float {
         double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
         double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
-        out[row] = result;
+        _out[_row] = result;
       }
     }
-    compute_validity(valid, except);
+    compute_validity(_valid, _except);
   }
 
  private:
@@ -196,27 +189,27 @@ class string_to_float {
     do {
       // skip any leading whitespace
       //
-      auto const chars_left = blen - bpos;
+      auto const chars_left = _blen - _bpos;
       auto const non_whitespace_mask =
-        __ballot_sync(0xffffffff, warp_lane < chars_left && !is_whitespace(c));
+        __ballot_sync(0xffffffff, _warp_lane < chars_left && !is_whitespace(_c));
       auto const first_non_whitespace = __ffs(non_whitespace_mask) - 1;
 
       if (first_non_whitespace > 0) {
-        bpos += first_non_whitespace;
-        c = __shfl_down_sync(0xffffffff, c, first_non_whitespace);
+        _bpos += first_non_whitespace;
+        _c = __shfl_down_sync(0xffffffff, _c, first_non_whitespace);
       } else if (non_whitespace_mask == 0) {
         //  all whitespace
-        bpos += chars_left;
+        _bpos += chars_left;
       }
 
-      if (bpos == blen) {
-        bstart += blen;
+      if (_bpos == _blen) {
+        _bstart += _blen;
         // nothing left to read?
-        if (bstart == len) { break; }
+        if (_bstart == _len) { break; }
         // read the next batch
-        bpos = 0;
-        blen = min(32, len - bstart);
-        c    = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
+        _bpos = 0;
+        _blen = min(32, _len - _bstart);
+        _c    = _warp_lane < _blen ? _chars[_row_start + _bstart + _warp_lane] : 0;
       } else {
         break;
       }
@@ -228,17 +221,17 @@ class string_to_float {
   __device__ bool check_for_nan()
   {
     auto const nan_mask = __ballot_sync(0xffffffff,
-                                        (warp_lane == 0 && (c == 'N' || c == 'n')) ||
-                                          (warp_lane == 1 && (c == 'A' || c == 'a')) ||
-                                          (warp_lane == 2 && (c == 'N' || c == 'n')));
+                                        (_warp_lane == 0 && (_c == 'N' || _c == 'n')) ||
+                                          (_warp_lane == 1 && (_c == 'A' || _c == 'a')) ||
+                                          (_warp_lane == 2 && (_c == 'N' || _c == 'n')));
     if (nan_mask == 0x7) {
       // if we start with 'nan', then even if we have other garbage character, this is a null row.
       //
       // if we're in ansi mode and this is not -precisely- nan, report that so that we can throw
       // an exception later.
-      if (len != 3) {
-        valid  = false;
-        except = len != 3;
+      if (_len != 3) {
+        _valid  = false;
+        _except = _len != 3;
       }
       return true;
     }
@@ -248,15 +241,15 @@ class string_to_float {
   // returns 1 or -1 to indicate sign
   __device__ int check_for_sign()
   {
-    auto const sign_mask = __ballot_sync(0xffffffff, warp_lane == 0 && (c == '+' || c == '-'));
+    auto const sign_mask = __ballot_sync(0xffffffff, _warp_lane == 0 && (_c == '+' || _c == '-'));
     int sign             = 1;
     if (sign_mask) {
       // NOTE: warp lane 0 is the only thread that ever reads `sign`, so technically it would be
       // valid to just check if(c == '-'), but that would leave other threads with an incorrect
       // value. if this code ever changes, that could lead to hard-to-find bugs.
-      if (__ballot_sync(0xffffffff, warp_lane == 0 && c == '-')) { sign = -1; }
-      bpos++;
-      c = __shfl_down_sync(0xffffffff, c, 1);
+      if (__ballot_sync(0xffffffff, _warp_lane == 0 && _c == '-')) { sign = -1; }
+      _bpos++;
+      _c = __shfl_down_sync(0xffffffff, _c, 1);
     }
     return sign;
   }
@@ -267,31 +260,32 @@ class string_to_float {
   {
     // check for inf or infinity
     auto const inf_mask = __ballot_sync(0xffffffff,
-                                        (warp_lane == 0 && (c == 'I' || c == 'i')) ||
-                                          (warp_lane == 1 && (c == 'N' || c == 'n')) ||
-                                          (warp_lane == 2 && (c == 'F' || c == 'f')));
+                                        (_warp_lane == 0 && (_c == 'I' || _c == 'i')) ||
+                                          (_warp_lane == 1 && (_c == 'N' || _c == 'n')) ||
+                                          (_warp_lane == 2 && (_c == 'F' || _c == 'f')));
     if (inf_mask == 0x7) {
-      bpos += 3;
-      c = __shfl_down_sync(0xffffffff, c, 3);
+      _bpos += 3;
+      _c = __shfl_down_sync(0xffffffff, _c, 3);
 
       // if we're at the end
-      if (bpos == len) { return true; }
+      if (_bpos == _len) { return true; }
 
       // see if we have the whole word
-      auto const infinity_mask = __ballot_sync(
-        0xffffffff,
-        (warp_lane == 0 && (c == 'I' || c == 'i')) || (warp_lane == 1 && (c == 'N' || c == 'n')) ||
-          (warp_lane == 2 && (c == 'I' || c == 'i')) ||
-          (warp_lane == 3 && (c == 'T' || c == 't')) || (warp_lane == 4 && (c == 'Y' || c == 'y')));
+      auto const infinity_mask = __ballot_sync(0xffffffff,
+                                               (_warp_lane == 0 && (_c == 'I' || _c == 'i')) ||
+                                                 (_warp_lane == 1 && (_c == 'N' || _c == 'n')) ||
+                                                 (_warp_lane == 2 && (_c == 'I' || _c == 'i')) ||
+                                                 (_warp_lane == 3 && (_c == 'T' || _c == 't')) ||
+                                                 (_warp_lane == 4 && (_c == 'Y' || _c == 'y')));
       if (infinity_mask == 0x1f) {
-        bpos += 5;
+        _bpos += 5;
         // if we're at the end
-        if (bpos == len) { return true; }
+        if (_bpos == _len) { return true; }
       }
 
       // if we reach here for any reason, it means we have "inf" or "infinity" at the start of the
       // string but also have additional characters, making this whole thing bogus/null
-      valid = false;
+      _valid = false;
       return true;
     }
     return false;
@@ -313,7 +307,7 @@ class string_to_float {
 
     constexpr int max_safe_digits = 19;
     do {
-      int num_chars = min(max_safe_digits, blen - bpos);
+      int num_chars = min(max_safe_digits, _blen - _bpos);
 
       // have we seen a valid digit yet?
       bool seen_valid_digit = false;
@@ -322,23 +316,23 @@ class string_to_float {
       // zeros.  handling cases such as
       // 0000001
       if (!decimal && digits == 0) {
-        auto const zero_mask = __ballot_sync(0xffffffff, warp_lane < num_chars && c != '0');
+        auto const zero_mask = __ballot_sync(0xffffffff, _warp_lane < num_chars && _c != '0');
         auto const nz_pos    = __ffs(zero_mask) - 1;
         if (nz_pos > 0) {
           num_chars -= nz_pos;
-          bpos += nz_pos;
-          c                = __shfl_down_sync(0xffffffff, c, nz_pos);
+          _bpos += nz_pos;
+          _c               = __shfl_down_sync(0xffffffff, _c, nz_pos);
           seen_valid_digit = true;
         }
       }
 
       // handle a decimal point
-      auto const decimal_mask = __ballot_sync(0xffffffff, warp_lane < num_chars && c == '.');
+      auto const decimal_mask = __ballot_sync(0xffffffff, _warp_lane < num_chars && _c == '.');
       if (decimal_mask) {
         // if we have more than one decimal, this is an invalid value
         if (decimal || __popc(decimal_mask) > 1) {
-          valid  = false;
-          except = true;
+          _valid  = false;
+          _except = true;
           return {0, 0};
         }
         auto const dpos = __ffs(decimal_mask) - 1;  // 0th bit is reported as 1 by __ffs
@@ -346,35 +340,36 @@ class string_to_float {
         decimal         = true;
 
         // strip the decimal char out
-        if (warp_lane >= dpos) { c = __shfl_down_sync(~((1 << dpos) - 1), c, 1); }
+        if (_warp_lane >= dpos) { _c = __shfl_down_sync(~((1 << dpos) - 1), _c, 1); }
         num_chars--;
       }
 
       // handle any chars that are not actually digits
       //
-      auto const non_digit_mask  = __ballot_sync(0xffffffff, warp_lane < num_chars && !is_digit(c));
+      auto const non_digit_mask =
+        __ballot_sync(0xffffffff, _warp_lane < num_chars && !is_digit(_c));
       auto const first_non_digit = __ffs(non_digit_mask);
 
       num_chars = min(num_chars, first_non_digit > 0 ? first_non_digit - 1 : num_chars);
 
       if (decimal_pos > 0 && decimal_pos > num_chars + real_digits) {
-        valid  = false;
-        except = true;
+        _valid  = false;
+        _except = true;
         return {0, 0};
       }
 
-      if (num_chars == 0 && blen == len) {
+      if (num_chars == 0 && _blen == _len) {
         if (!seen_valid_digit) {
-          valid  = false;
-          except = true;
+          _valid  = false;
+          _except = true;
         }
         return {0, 0};
       }
 
       // our local digit
-      uint64_t const digit = warp_lane < num_chars
-                               ? static_cast<uint64_t>(c - '0') * ipow[(num_chars - warp_lane) - 1]
-                               : 0;
+      uint64_t const digit = _warp_lane < num_chars ? static_cast<uint64_t>(_c - '0') *
+                                                        _ipow[(num_chars - _warp_lane) - 1]
+                                                    : 0;
 
       // we may have to start truncating because we'd go past the 64 bit limit by adding the new
       // digits
@@ -399,7 +394,7 @@ class string_to_float {
         int const safe_count = min(max_safe_digits - real_digits, num_chars);
         if (safe_count > 0) {
           // only lane 0 will have the real value so we need to shfl it to the rest of the threads.
-          digits = (digits * ipow[safe_count]) +
+          digits = (digits * _ipow[safe_count]) +
                    __shfl_sync(0xffffffff, WarpReduce(temp_storage).Sum(digit, safe_count), 0);
           real_digits += safe_count;
         }
@@ -413,7 +408,7 @@ class string_to_float {
           // we may be able to add one more digit.
           else {
             auto const last_digit =
-              static_cast<uint64_t>(__shfl_sync(0xffffffff, c, safe_count) - '0');
+              static_cast<uint64_t>(__shfl_sync(0xffffffff, _c, safe_count) - '0');
             if ((digits * 10) + last_digit <= max_holding) {
               // we can add this final digit
               digits = (digits * 10) + last_digit;
@@ -426,19 +421,19 @@ class string_to_float {
           }
         }
       }
-      bpos += num_chars + (decimal_mask > 0);
+      _bpos += num_chars + (decimal_mask > 0);
 
       // read the next batch of chars.
-      if (bpos == blen) {
-        bstart += blen;
+      if (_bpos == _blen) {
+        _bstart += _blen;
         // nothing left to read?
-        if (bstart == len) { break; }
+        if (_bstart == _len) { break; }
         // read the next batch
-        bpos = 0;
-        blen = min(32, len - bstart);
-        c    = warp_lane < blen ? chars[row_start + bstart + warp_lane] : 0;
+        _bpos = 0;
+        _blen = min(32, _len - _bstart);
+        _c    = _warp_lane < _blen ? _chars[_row_start + _bstart + _warp_lane] : 0;
       } else {
-        c = __shfl_down_sync(0xffffffff, c, num_chars);
+        _c = __shfl_down_sync(0xffffffff, _c, num_chars);
 
         // if we encountered a non-digit, we're done
         if (first_non_digit) { break; }
@@ -470,41 +465,43 @@ class string_to_float {
     // eg:  E-10
     //
     int manual_exp = 0;
-    if (bpos < blen) {
+    if (_bpos < _blen) {
       // read some trailing chars.
 
-      auto const exp_mask = __ballot_sync(0xffffffff, (warp_lane == 0 && (c == 'E' || c == 'e')));
+      auto const exp_mask =
+        __ballot_sync(0xffffffff, (_warp_lane == 0 && (_c == 'E' || _c == 'e')));
       if (!exp_mask) { return 0; }
       auto const exp_sign_mask =
-        __ballot_sync(0xffffffff, (warp_lane == 1 && (c == '-' || c == '+')));
+        __ballot_sync(0xffffffff, (_warp_lane == 1 && (_c == '-' || _c == '+')));
       auto const exp_sign =
-        exp_sign_mask ? __ballot_sync(0xffffffff, warp_lane == 1 && c == '-') ? -1 : 1 : 1;
+        exp_sign_mask ? __ballot_sync(0xffffffff, _warp_lane == 1 && _c == '-') ? -1 : 1 : 1;
       auto const chars_to_skip = exp_sign_mask ? 2 : 1;
-      c                        = __shfl_down_sync(0xffffffff, c, chars_to_skip);
-      bpos += chars_to_skip;
+      _c                       = __shfl_down_sync(0xffffffff, _c, chars_to_skip);
+      _bpos += chars_to_skip;
 
       // the largest valid exponent for a double is 4 digits (3 for floats).
-      int const num_chars = min(4, blen - bpos);
+      int const num_chars = min(4, _blen - _bpos);
 
       // handle any chars that are not actually digits
       //
-      auto const non_digit_mask  = __ballot_sync(0xffffffff, warp_lane < num_chars && !is_digit(c));
+      auto const non_digit_mask =
+        __ballot_sync(0xffffffff, _warp_lane < num_chars && !is_digit(_c));
       auto const first_non_digit = __ffs(non_digit_mask);
 
       int const num_digits = first_non_digit > 0 ? first_non_digit - 1 : num_chars;
 
       if (num_digits == 0) {
-        valid  = false;
-        except = true;
+        _valid  = false;
+        _except = true;
         return 0;
       }
 
-      uint64_t const digit = warp_lane < num_digits
-                               ? static_cast<uint64_t>(c - '0') * ipow[(num_digits - warp_lane) - 1]
-                               : 0;
+      uint64_t const digit = _warp_lane < num_digits ? static_cast<uint64_t>(_c - '0') *
+                                                         _ipow[(num_digits - _warp_lane) - 1]
+                                                     : 0;
       manual_exp           = WarpReduce(temp_storage).Sum(digit, num_digits) * exp_sign;
-      c                    = __shfl_down_sync(0xffffffff, c, num_digits);
-      bpos += num_digits;
+      _c                   = __shfl_down_sync(0xffffffff, _c, num_digits);
+      _bpos += num_digits;
     }
 
     return manual_exp;
@@ -512,27 +509,27 @@ class string_to_float {
 
   __device__ void check_trailing_bytes()
   {
-    if (blen - bpos > 0) {
+    if (_blen - _bpos > 0) {
       // strip trailing f if it exists
       // f is a valid character at the end of a float string
       auto const f_mask = __ballot_sync(
-        0xffffffff, (warp_lane == 0 && (c == 'F' || c == 'f' || c == 'd' || c == 'D')));
+        0xffffffff, (_warp_lane == 0 && (_c == 'F' || _c == 'f' || _c == 'd' || _c == 'D')));
       if (f_mask > 0) {
-        c = __shfl_down_sync(0xffffffff, c, 1);
-        bpos++;
+        _c = __shfl_down_sync(0xffffffff, _c, 1);
+        _bpos++;
       }
     }
 
     // nothing trailing
-    if (blen - bpos == 0) { return; }
+    if (_blen - _bpos == 0) { return; }
 
     // strip any whitespace
     remove_leading_whitespace();
 
     // invalid characters in string
-    if (blen - bpos > 0) {
-      valid  = false;
-      except = true;
+    if (_blen - _bpos > 0) {
+      _valid  = false;
+      _except = true;
     }
   }
 
@@ -546,42 +543,40 @@ class string_to_float {
       cudf::detail::single_lane_block_sum_reduce<block_size, 0>(valid ? 1 : 0);
     // 0th thread in each block updates the validity count and (optionally) the ansi_except flag
     if (threadIdx.x == 0) {
-      atomicAdd(valid_count, block_valid_count);
+      atomicAdd(_valid_count, block_valid_count);
 
-      if (ansi_except && except) { atomicMax(ansi_except, num_rows - row); }
+      if (_ansi_except && except) { atomicMax(_ansi_except, _num_rows - _row); }
     }
 
     // 0th thread in each warp updates the validity
-    size_type const row_id = warp_id;
+    size_type const row_id = _warp_id;
     if (threadIdx.x % 32 == 0 && valid) {
       // uses atomics
-      cudf::set_bit(validity, row_id);
+      cudf::set_bit(_validity, row_id);
     }
   }
 
-  T* out;
-  bitmask_type* validity;
-  int32_t* ansi_except;
-  size_type* valid_count;
-  const char* const chars;
-  offset_type const* offsets;
-  size_type const tid;
-  size_type const warp_id;
-  size_type const row;
-  size_type const warp_lane;
-  size_type const row_start;
-  size_type const len;
-  size_type const num_rows;
-  uint64_t const* const ipow;
-  bitmask_type const* incoming_null_mask;
+  T* _out;
+  bitmask_type* _validity;
+  int32_t* _ansi_except;
+  size_type* _valid_count;
+  const char* const _chars;
+  size_type const _warp_id;
+  size_type const _row;
+  size_type const _warp_lane;
+  size_type const _row_start;
+  size_type const _len;
+  size_type const _num_rows;
+  uint64_t const* const _ipow;
+  bitmask_type const* _incoming_null_mask;
 
   // shared/modified by the various parsing functions
-  size_type bstart;  // batch start within the entire string
-  size_type bpos;    // position with current batch
-  size_type blen;    // batch length;
-  char c;            // current character
-  bool valid  = true;
-  bool except = false;
+  size_type _bstart;  // batch start within the entire string
+  size_type _bpos;    // position with current batch
+  size_type _blen;    // batch length;
+  char _c;            // current character
+  bool _valid  = true;
+  bool _except = false;
 };
 
 template <typename T, size_type block_size>
@@ -594,9 +589,8 @@ __global__ void string_to_float_kernel(T* out,
                                        bitmask_type const* incoming_null_mask,
                                        size_type const num_rows)
 {
-  size_type const tid     = threadIdx.x + (blockDim.x * blockIdx.x);
-  size_type const warp_id = tid / 32;
-  size_type const row     = warp_id;
+  size_type const tid = threadIdx.x + (blockDim.x * blockIdx.x);
+  size_type const row = tid / 32;
   if (row >= num_rows) { return; }
 
   __shared__ uint64_t ipow[19];
@@ -624,16 +618,8 @@ __global__ void string_to_float_kernel(T* out,
   __syncthreads();
 
   // convert
-  string_to_float<T, block_size> convert(out,
-                                         validity,
-                                         ansi_except,
-                                         valid_count,
-                                         chars,
-                                         offsets,
-                                         warp_id,
-                                         ipow,
-                                         incoming_null_mask,
-                                         num_rows);
+  string_to_float<T, block_size> convert(
+    out, validity, ansi_except, valid_count, chars, offsets, ipow, incoming_null_mask, num_rows);
   convert();
 }
 
