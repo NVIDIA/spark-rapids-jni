@@ -48,8 +48,8 @@ public class CastStrings {
     return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, precision, scale));
   }
 
-    /**
-   * Convert a string column to an float column of a specified type.
+  /**
+   * Convert a string column to a float column of a specified type.
    *
    * @param cv the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
