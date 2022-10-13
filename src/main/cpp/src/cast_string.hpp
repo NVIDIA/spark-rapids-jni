@@ -97,7 +97,7 @@ std::unique_ptr<cudf::column> string_to_decimal(
  * @brief Convert a string column into an float column.
  *
  * @param dtype Type of column to return.
- * @param string_col Incoming string column to convert to integers.
+ * @param string_col Incoming string column to convert to floating point.
  * @param ansi_mode If true, strict conversion and throws on error.
  *                  If false, null invalid entries.
  * @param stream Stream on which to operate.
