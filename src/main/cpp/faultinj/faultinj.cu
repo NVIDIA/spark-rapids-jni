@@ -281,7 +281,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
 
   if (injectionProbability < 100) {
     if (injectionProbability <= 0) { return; }
-    const int rand10000     = rand() % 10000;
+    const int rand10000     = std::rand() % 10000;
     const int skipThreshold = injectionProbability * 10000 / 100;
     spdlog::trace("rand1000={} skipThreshold={}", rand10000, skipThreshold);
     if (rand10000 >= skipThreshold) { return; }
@@ -336,7 +336,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
         break;
       }
 
-    default: ;
+    default:;
   }
 }
 
@@ -366,6 +366,11 @@ void readFaultInjectorConfig(void)
   //
   const std::string dynamicConfigKey = "dynamic";
 
+  // An unsigned int to seed the random number generator to deterministically
+  // recreate a fault sequence
+  //
+  const std::string seedKey = "seed";
+
   // To retrieve a map of driver/runtime fault configs
   //   "functionName" -> fault config
   //   "CUPT callback id" -> fault config
@@ -380,6 +385,11 @@ void readFaultInjectorConfig(void)
 
     globalControl.dynamic =
       globalControl.configRoot.get_optional<bool>(dynamicConfigKey).value_or(false);
+
+    const unsigned seed =
+      globalControl.configRoot.get_optional<unsigned>(seedKey).value_or(std::time(0));
+    spdlog::info("Seeding std::srand with {}", seed);
+    std::srand(seed);
 
     const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
     spdlog::info("changed log level to {}", logLevelEnum);
