@@ -64,8 +64,9 @@ sha=$(git rev-parse HEAD)
 
 echo "Test against ${cudf_sha}..."
 
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 set +e
-mvn verify ${MVN_MIRROR} \
+${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest

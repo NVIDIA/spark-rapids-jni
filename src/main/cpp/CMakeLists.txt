@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 22.08.00
+  VERSION 22.10.00
   LANGUAGES C CXX CUDA
 )
 
@@ -141,8 +141,12 @@ set(CUDFJNI_INCLUDE_DIRS
 add_library(
   spark_rapids_jni SHARED
   src/RowConversionJni.cpp
+  src/CastStringJni.cpp
   src/NativeParquetJni.cpp
+  src/cast_string.cu
   src/row_conversion.cu
+  src/DecimalUtilsJni.cpp
+  src/decimal_utils.cu
 )
 
 set_target_properties(

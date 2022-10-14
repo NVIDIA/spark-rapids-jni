@@ -61,11 +61,12 @@ FIRST_FILE=${CLASS_FILES%%,*}
 cp -f "$FIRST_FILE" "$FPATH.jar"
 
 ###### Build the deploy command ######
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -DretryFailedDeploymentCount=3 -B"
 if [ "$SIGN_FILE" == true ]; then
-    DEPLOY_CMD="mvn -B gpg:sign-and-deploy-file -s ci/settings.xml \
+    DEPLOY_CMD="$MVN -B gpg:sign-and-deploy-file -s ci/settings.xml \
       -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar -Dgpg.passphrase=$GPG_PASSPHRASE"
 else
-    DEPLOY_CMD="mvn -B deploy:deploy-file -s ci/settings.xml \
+    DEPLOY_CMD="$MVN -B deploy:deploy-file -s ci/settings.xml \
       -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar"
 fi
 echo "Deploy CMD: $DEPLOY_CMD"

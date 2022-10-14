@@ -21,8 +21,9 @@ nvidia-smi
 
 git submodule update --init --recursive
 
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
-mvn verify ${MVN_MIRROR} \
+${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest \

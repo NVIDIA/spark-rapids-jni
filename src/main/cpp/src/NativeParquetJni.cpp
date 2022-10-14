@@ -252,8 +252,21 @@ private:
         auto list_schema_item = schema.at(current_input_schema_index);
         std::string list_name = list_schema_item.name;
         bool is_group = !list_schema_item.__isset.type;
+
+        // Rules for how to parse lists from the parquet format docs
+        // 1. If the repeated field is not a group, then its type is the element type and elements are required.
+        // 2. If the repeated field is a group with multiple fields, then its type is the element type and elements are required.
+        // 3. If the repeated field is a group with one field and is named either array or uses the LIST-annotated group's name
+        //    with _tuple appended then the repeated type is the element type and elements are required.
+        // 4. Otherwise, the repeated field's type is the element type with the repeated field's repetition.
+
         if (!is_group) {
-          throw std::runtime_error("expected a list item, but found a single value");
+          if (!list_schema_item.__isset.repetition_type ||
+              list_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
+            throw std::runtime_error("expected list item to be repeating");
+          }
+          return filter_schema_value(schema, current_input_schema_index, next_input_chunk_index,
+                                     chunk_map, schema_map, schema_num_children);
         }
         if (!list_schema_item.__isset.converted_type || list_schema_item.converted_type != parquet::format::ConvertedType::LIST) {
           throw std::runtime_error("expected a list type, but it was not found.");
@@ -266,13 +279,6 @@ private:
         schema_map.push_back(current_input_schema_index);
         schema_num_children.push_back(1);
         ++current_input_schema_index;
-
-        // Rules for how to parse lists from the parquet format docs
-        // 1. If the repeated field is not a group, then its type is the element type and elements are required.
-        // 2. If the repeated field is a group with multiple fields, then its type is the element type and elements are required.
-        // 3. If the repeated field is a group with one field and is named either array or uses the LIST-annotated group's name 
-        //    with _tuple appended then the repeated type is the element type and elements are required.
-        // 4. Otherwise, the repeated field's type is the element type with the repeated field's repetition.
 
         auto repeated_field_schema_item = schema.at(current_input_schema_index);
         if (!repeated_field_schema_item.__isset.repetition_type || repeated_field_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
