@@ -29,4 +29,10 @@ std::unique_ptr<cudf::column> interleave_bits(
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<cudf::column> hilbert_index(
+  int32_t const num_bits,
+  cudf::table_view const& tbl,
+  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 } // namespace spark_rapids_jni
