@@ -31,14 +31,14 @@ namespace {
 
 // pretends to be an array of uint32_t, but really only stores
 // the data in a long with a set number of bits allocated for
-// each item
+// each item (num_bits_per_entry)
 struct long_backed_array {
   long_backed_array() = delete;
   ~long_backed_array() = default;
   long_backed_array(long_backed_array const&) = default;  ///< Copy constructor
   long_backed_array(long_backed_array&&) = default;  ///< Move constructor
-  inline __device__ explicit long_backed_array(int32_t num_bits): data(0), 
-    num_bits(num_bits),  mask(static_cast<uint64_t>((1L << num_bits) - 1)) {}
+  inline __device__ explicit long_backed_array(int32_t num_bits_per_entry): data(0),
+    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<uint64_t>((1L << num_bits_per_entry) - 1)) {}
 
   /**
    * @brief Copy assignment operator
@@ -54,19 +54,19 @@ struct long_backed_array {
   long_backed_array& operator=(long_backed_array&&) = default;
 
   inline __device__ uint32_t operator[](int i) const {
-    int32_t offset = num_bits * i;
+    int32_t offset = num_bits_per_entry * i;
     return (data >> offset) & mask;
   }
 
   inline __device__ void set(int i, uint32_t value) {
-    int32_t offset = i * num_bits;
+    int32_t offset = i * num_bits_per_entry;
     uint64_t masked_data = data & ~(static_cast<uint64_t>(mask) << offset);
     data = masked_data | (static_cast<uint64_t>(value & mask) << offset);
   }
 
 private:
   uint64_t data;
-  int32_t num_bits;
+  int32_t num_bits_per_entry;
   uint32_t mask;
 };
 
@@ -79,12 +79,12 @@ private:
 // With thanks also to Paul Chernoch who published a C# algorithm for Skilling's
 // work on StackOverflow and
 // <a href="https://github.com/paulchernoch/HilbertTransformation">GitHub</a>.
-__device__ uint64_t to_hilbert_index(const long_backed_array & transposed_index, const int num_bits, const int num_dimensions) {
+__device__ uint64_t to_hilbert_index(const long_backed_array & transposed_index, const int num_bits_per_entry, const int num_dimensions) {
   uint64_t b = 0;
-  int32_t length = num_bits * num_dimensions;
+  int32_t length = num_bits_per_entry * num_dimensions;
   int32_t b_index = length - 1;
-  uint64_t mask = 1L << (num_bits - 1);
-  for (int i = 0; i < num_bits; i++) {
+  uint64_t mask = 1L << (num_bits_per_entry - 1);
+  for (int i = 0; i < num_bits_per_entry; i++) {
     for (int j = 0; j < num_dimensions; j++) {
       if ((transposed_index[j] & mask) != 0) {
         b |= 1L << b_index;
@@ -97,8 +97,8 @@ __device__ uint64_t to_hilbert_index(const long_backed_array & transposed_index,
   return b;
 }
 
-__device__ long_backed_array hilbert_transposed_index(const long_backed_array & point, const int num_bits, const int num_dimensions) {
-  uint32_t const M = 1L << (num_bits - 1);
+__device__ long_backed_array hilbert_transposed_index(const long_backed_array & point, const int num_bits_per_entry, const int num_dimensions) {
+  uint32_t const M = 1L << (num_bits_per_entry - 1);
   int32_t const n = num_dimensions;
   long_backed_array x = point;
 
@@ -227,7 +227,7 @@ std::unique_ptr<cudf::column> interleave_bits(
 }
 
 std::unique_ptr<cudf::column> hilbert_index(
-  int32_t const num_bits,
+  int32_t const num_bits_per_entry,
   cudf::table_view const& tbl,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr) {
@@ -235,8 +235,8 @@ std::unique_ptr<cudf::column> hilbert_index(
   auto num_rows = tbl.num_rows();
   auto num_columns = tbl.num_columns();
 
-  CUDF_EXPECTS(num_bits > 0 && num_bits <= 32, "the number of bits must be >0 and <= 32.");
-  CUDF_EXPECTS(num_bits * num_columns <= 64, "we only support up to 64 bits of output right now.");
+  CUDF_EXPECTS(num_bits_per_entry > 0 && num_bits_per_entry <= 32, "the number of bits must be >0 and <= 32.");
+  CUDF_EXPECTS(num_bits_per_entry * num_columns <= 64, "we only support up to 64 bits of output right now.");
   CUDF_EXPECTS(num_columns > 0, "at least one column is required.");
 
   CUDF_EXPECTS(
@@ -257,18 +257,19 @@ std::unique_ptr<cudf::column> hilbert_index(
     thrust::make_counting_iterator<cudf::size_type>(0),
     num_rows,
     [output_col = *output_dv_ptr,
-     num_bits,
+     num_bits_per_entry,
      num_columns,
      input = *input_dv] __device__ (cudf::size_type row_index) {
-       long_backed_array row(num_bits);
+       long_backed_array row(num_bits_per_entry);
        for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
          auto const column = input.column(column_index);
          uint32_t const data = column.is_valid(row_index) ? column.data<uint32_t>()[row_index] : 0;
          row.set(column_index, data);
        }
 
-       auto transposed_index = hilbert_transposed_index(row, num_bits, num_columns);
-       output_col.data<uint64_t>()[row_index] = to_hilbert_index(transposed_index, num_bits, num_columns);
+       auto transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
+       output_col.data<uint64_t>()[row_index] =
+         to_hilbert_index(transposed_index, num_bits_per_entry, num_columns);
      });
 
   return output_data_col;
