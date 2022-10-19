@@ -255,12 +255,12 @@ std::unique_ptr<cudf::column> hilbert_index(
 
   auto const output_dv_ptr = cudf::mutable_column_device_view::create(*output_data_col, stream);
 
-  thrust::for_each_n(
+  thrust::transform(
     rmm::exec_policy(stream),
     thrust::make_counting_iterator<cudf::size_type>(0),
-    num_rows,
-    [output_col = *output_dv_ptr,
-     num_bits_per_entry,
+    thrust::make_counting_iterator<cudf::size_type>(0) + num_rows,
+    output_dv_ptr->begin<int64_t>(),
+    [num_bits_per_entry,
      num_columns,
      input = *input_dv] __device__ (cudf::size_type row_index) {
        long_backed_array row(num_bits_per_entry);
@@ -271,8 +271,8 @@ std::unique_ptr<cudf::column> hilbert_index(
        }
 
        auto const transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
-       output_col.data<uint64_t>()[row_index] =
-         to_hilbert_index(transposed_index, num_bits_per_entry, num_columns);
+       return static_cast<int64_t>(
+         to_hilbert_index(transposed_index, num_bits_per_entry, num_columns));
      });
 
   return output_data_col;
