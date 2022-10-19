@@ -35,24 +35,8 @@ namespace {
 struct long_backed_array {
   using data_type = uint64_t;
   long_backed_array() = delete;
-  ~long_backed_array() = default;
-  long_backed_array(long_backed_array const&) = default;  ///< Copy constructor
-  long_backed_array(long_backed_array&&) = default;  ///< Move constructor
   __device__ explicit long_backed_array(int32_t num_bits_per_entry): data(0),
     num_bits_per_entry(num_bits_per_entry),  mask(static_cast<data_type>((1L << num_bits_per_entry) - 1)) {}
-
-  /**
-   * @brief Copy assignment operator
-   *
-   * @return Reference to this object
-   */
-  long_backed_array& operator=(long_backed_array const&) = default;
-  /**
-   * @brief Move assignment operator
-   *
-   * @return Reference to this object (after transferring ownership)
-   */
-  long_backed_array& operator=(long_backed_array&&) = default;
 
   __device__ uint32_t operator[](int32_t i) const {
     int32_t offset = num_bits_per_entry * i;
