@@ -30,13 +30,13 @@
 namespace {
 
 // pretends to be an array of uint32_t, but really only stores
-// the data in a long with a set number of bits allocated for
+// the data in an int type with a set number of bits allocated for
 // each item (num_bits_per_entry)
-struct long_backed_array {
-  using data_type = uint64_t;
-  long_backed_array() = delete;
-  __device__ explicit long_backed_array(int32_t num_bits_per_entry): data(0),
-    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<data_type>((1L << num_bits_per_entry) - 1)) {}
+template <typename data_type>
+struct uint_backed_array {
+  uint_backed_array() = delete;
+  __device__ explicit uint_backed_array(int32_t num_bits_per_entry): data(0),
+    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<uint32_t>((1L << num_bits_per_entry) - 1)) {}
 
   __device__ uint32_t operator[](int32_t i) const {
     int32_t offset = num_bits_per_entry * i;
@@ -50,7 +50,7 @@ struct long_backed_array {
   }
 
 private:
-  uint64_t data;
+  data_type data;
   int32_t const num_bits_per_entry;
   uint32_t const mask;
 };
@@ -64,7 +64,7 @@ private:
 // With thanks also to Paul Chernoch who published a C# algorithm for Skilling's
 // work on StackOverflow and
 // <a href="https://github.com/paulchernoch/HilbertTransformation">GitHub</a>.
-__device__ uint64_t to_hilbert_index(long_backed_array const & transposed_index,
+__device__ uint64_t to_hilbert_index(uint_backed_array<uint64_t> const & transposed_index,
         int32_t const num_bits_per_entry, int32_t const num_dimensions) {
   uint64_t b = 0;
   int32_t const length = num_bits_per_entry * num_dimensions;
@@ -83,7 +83,7 @@ __device__ uint64_t to_hilbert_index(long_backed_array const & transposed_index,
   return b;
 }
 
-__device__ long_backed_array hilbert_transposed_index(long_backed_array const & point,
+__device__ uint_backed_array<uint64_t> hilbert_transposed_index(uint_backed_array<uint64_t> const & point,
         int32_t const num_bits_per_entry, int32_t const num_dimensions) {
   uint32_t const M = 1L << (num_bits_per_entry - 1);
   int32_t const n = num_dimensions;
@@ -247,7 +247,7 @@ std::unique_ptr<cudf::column> hilbert_index(
     [num_bits_per_entry,
      num_columns,
      input = *input_dv] __device__ (cudf::size_type row_index) {
-       long_backed_array row(num_bits_per_entry);
+       uint_backed_array<uint64_t> row(num_bits_per_entry);
        for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
          auto const column = input.column(column_index);
          uint32_t const data = column.is_valid(row_index) ? column.data<uint32_t>()[row_index] : 0;
