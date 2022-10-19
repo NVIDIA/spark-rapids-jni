@@ -33,12 +33,13 @@ namespace {
 // the data in a long with a set number of bits allocated for
 // each item (num_bits_per_entry)
 struct long_backed_array {
+  using data_type = uint64_t;
   long_backed_array() = delete;
   ~long_backed_array() = default;
   long_backed_array(long_backed_array const&) = default;  ///< Copy constructor
   long_backed_array(long_backed_array&&) = default;  ///< Move constructor
-  inline __device__ explicit long_backed_array(int32_t num_bits_per_entry): data(0),
-    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<uint64_t>((1L << num_bits_per_entry) - 1)) {}
+  __device__ explicit long_backed_array(int32_t num_bits_per_entry): data(0),
+    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<data_type>((1L << num_bits_per_entry) - 1)) {}
 
   /**
    * @brief Copy assignment operator
@@ -53,21 +54,21 @@ struct long_backed_array {
    */
   long_backed_array& operator=(long_backed_array&&) = default;
 
-  inline __device__ uint32_t operator[](int i) const {
+  __device__ uint32_t operator[](int32_t i) const {
     int32_t offset = num_bits_per_entry * i;
     return (data >> offset) & mask;
   }
 
-  inline __device__ void set(int i, uint32_t value) {
+  __device__ void set(int32_t i, uint32_t value) {
     int32_t offset = i * num_bits_per_entry;
-    uint64_t masked_data = data & ~(static_cast<uint64_t>(mask) << offset);
-    data = masked_data | (static_cast<uint64_t>(value & mask) << offset);
+    data_type masked_data = data & ~(static_cast<data_type>(mask) << offset);
+    data = masked_data | (static_cast<data_type>(value & mask) << offset);
   }
 
 private:
   uint64_t data;
-  int32_t num_bits_per_entry;
-  uint32_t mask;
+  int32_t const num_bits_per_entry;
+  uint32_t const mask;
 };
 
 
@@ -79,13 +80,14 @@ private:
 // With thanks also to Paul Chernoch who published a C# algorithm for Skilling's
 // work on StackOverflow and
 // <a href="https://github.com/paulchernoch/HilbertTransformation">GitHub</a>.
-__device__ uint64_t to_hilbert_index(const long_backed_array & transposed_index, const int num_bits_per_entry, const int num_dimensions) {
+__device__ uint64_t to_hilbert_index(long_backed_array const & transposed_index,
+        int32_t const num_bits_per_entry, int32_t const num_dimensions) {
   uint64_t b = 0;
-  int32_t length = num_bits_per_entry * num_dimensions;
+  int32_t const length = num_bits_per_entry * num_dimensions;
   int32_t b_index = length - 1;
   uint64_t mask = 1L << (num_bits_per_entry - 1);
-  for (int i = 0; i < num_bits_per_entry; i++) {
-    for (int j = 0; j < num_dimensions; j++) {
+  for (int32_t i = 0; i < num_bits_per_entry; i++) {
+    for (int32_t j = 0; j < num_dimensions; j++) {
       if ((transposed_index[j] & mask) != 0) {
         b |= 1L << b_index;
       }
@@ -97,10 +99,11 @@ __device__ uint64_t to_hilbert_index(const long_backed_array & transposed_index,
   return b;
 }
 
-__device__ long_backed_array hilbert_transposed_index(const long_backed_array & point, const int num_bits_per_entry, const int num_dimensions) {
+__device__ long_backed_array hilbert_transposed_index(long_backed_array const & point,
+        int32_t const num_bits_per_entry, int32_t const num_dimensions) {
   uint32_t const M = 1L << (num_bits_per_entry - 1);
   int32_t const n = num_dimensions;
-  long_backed_array x = point;
+  auto x = point;
 
   uint32_t p, q, t;
   uint32_t i;
@@ -232,8 +235,8 @@ std::unique_ptr<cudf::column> hilbert_index(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr) {
  
-  auto num_rows = tbl.num_rows();
-  auto num_columns = tbl.num_columns();
+  auto const num_rows = tbl.num_rows();
+  auto const num_columns = tbl.num_columns();
 
   CUDF_EXPECTS(num_bits_per_entry > 0 && num_bits_per_entry <= 32, "the number of bits must be >0 and <= 32.");
   CUDF_EXPECTS(num_bits_per_entry * num_columns <= 64, "we only support up to 64 bits of output right now.");
@@ -245,12 +248,12 @@ std::unique_ptr<cudf::column> hilbert_index(
                 [](cudf::column_view const& col) { return col.type().id() == cudf::type_id::INT32; }),
     "All columns of the input table must be INT32.");
 
-  auto input_dv = cudf::table_device_view::create(tbl, stream);
+  auto const input_dv = cudf::table_device_view::create(tbl, stream);
 
   auto output_data_col = cudf::make_numeric_column(
       cudf::data_type{cudf::type_id::INT64}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
 
-  auto output_dv_ptr = cudf::mutable_column_device_view::create(*output_data_col, stream);
+  auto const output_dv_ptr = cudf::mutable_column_device_view::create(*output_data_col, stream);
 
   thrust::for_each_n(
     rmm::exec_policy(stream),
@@ -267,7 +270,7 @@ std::unique_ptr<cudf::column> hilbert_index(
          row.set(column_index, data);
        }
 
-       auto transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
+       auto const transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
        output_col.data<uint64_t>()[row_index] =
          to_hilbert_index(transposed_index, num_bits_per_entry, num_columns);
      });

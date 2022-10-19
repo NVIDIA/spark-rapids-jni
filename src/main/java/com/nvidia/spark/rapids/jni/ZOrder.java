@@ -58,6 +58,7 @@ public class ZOrder {
    * Yes a hilbertIndex is not technically used in zorder, but it is an alternative way to
    * cluster the data that databricks uses, and that is why we have it here. Please note that
    * this currently only supports indexes where numBits * inputColumns.length <= 64.
+   *
    * @param numBits the number of bits in the input columns to use. Typically, this is log2(max)
    *                for the values in all the inputColumns.
    * @param numRows the number of rows. Used if inputColumns is empty. I think this is also a corner
