@@ -26,7 +26,7 @@ import java.util.List;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-public class ZOrderTest {
+public class InterleaveBitsTest {
 
   // The following source of truth comes from deltalake, but translated to java, and uses a List
   // to make our tests simpler. Deltalake only supports ints. For completeness and better

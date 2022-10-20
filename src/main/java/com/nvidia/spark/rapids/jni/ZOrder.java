@@ -54,5 +54,35 @@ public class ZOrder {
     return new ColumnVector(interleaveBits(addrs));
   }
 
+  /**
+   * Yes a hilbertIndex is not technically used in zorder, but it is an alternative way to
+   * cluster the data that databricks uses, and that is why we have it here. Please note that
+   * this currently only supports indexes where numBits * inputColumns.length <= 64.
+   *
+   * @param numBits the number of bits in the input columns to use. Typically, this is log2(max)
+   *                for the values in all the inputColumns.
+   * @param numRows the number of rows. Used if inputColumns is empty. I think this is also a corner
+   *                case that can never happen in practice, but I am just covering my bases here.
+   *                a column of 0 is returned in this case.
+   * @param inputColumns The columns to intermix.
+   * @return the corresponding indexes stored as long values.
+   */
+  public static ColumnVector hilbertIndex(int numBits, int numRows, ColumnVector ... inputColumns) {
+    if (inputColumns.length == 0) {
+      try (Scalar zero = Scalar.fromLong(0)) {
+        return ColumnVector.fromScalar(zero, numRows);
+      }
+    }
+    long[] addrs = new long[inputColumns.length];
+    for (int index = 0; index < inputColumns.length; index++) {
+      ColumnVector cv = inputColumns[index];
+      addrs[index] = cv.getNativeView();
+    }
+
+    return new ColumnVector(hilbertIndex(numBits, addrs));
+  }
+
+  private static native long hilbertIndex(int numBits, long[] handles);
+
   private static native long interleaveBits(long[] handles);
 }

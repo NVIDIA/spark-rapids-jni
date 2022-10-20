@@ -27,6 +27,105 @@
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 
+namespace {
+
+// pretends to be an array of uint32_t, but really only stores
+// the data in an int type with a set number of bits allocated for
+// each item (num_bits_per_entry)
+template <typename data_type>
+struct uint_backed_array {
+  uint_backed_array() = delete;
+  __device__ explicit uint_backed_array(int32_t num_bits_per_entry): data(0),
+    num_bits_per_entry(num_bits_per_entry),  mask(static_cast<uint32_t>((1L << num_bits_per_entry) - 1)) {}
+
+  __device__ uint32_t operator[](int32_t i) const {
+    int32_t offset = num_bits_per_entry * i;
+    return (data >> offset) & mask;
+  }
+
+  __device__ void set(int32_t i, uint32_t value) {
+    int32_t offset = i * num_bits_per_entry;
+    data_type masked_data = data & ~(static_cast<data_type>(mask) << offset);
+    data = masked_data | (static_cast<data_type>(value & mask) << offset);
+  }
+
+private:
+  data_type data;
+  int32_t const num_bits_per_entry;
+  uint32_t const mask;
+};
+
+
+// Most of the hilbert index code is based off of the work done by David Moten at
+// https://github.com/davidmoten/hilbert-curve, which has the following Note in
+// the code too
+// This algorithm is derived from work done by John Skilling and published
+// in "Programming the Hilbert curve". (c) 2004 American Institute of Physics.
+// With thanks also to Paul Chernoch who published a C# algorithm for Skilling's
+// work on StackOverflow and
+// <a href="https://github.com/paulchernoch/HilbertTransformation">GitHub</a>.
+__device__ uint64_t to_hilbert_index(uint_backed_array<uint64_t> const & transposed_index,
+        int32_t const num_bits_per_entry, int32_t const num_dimensions) {
+  uint64_t b = 0;
+  int32_t const length = num_bits_per_entry * num_dimensions;
+  int32_t b_index = length - 1;
+  uint64_t mask = 1L << (num_bits_per_entry - 1);
+  for (int32_t i = 0; i < num_bits_per_entry; i++) {
+    for (int32_t j = 0; j < num_dimensions; j++) {
+      if ((transposed_index[j] & mask) != 0) {
+        b |= 1L << b_index;
+      }
+      b_index--;
+    }
+    mask >>= 1;
+  }
+  // b is expected to be BigEndian
+  return b;
+}
+
+__device__ uint_backed_array<uint64_t> hilbert_transposed_index(uint_backed_array<uint64_t> const & point,
+        int32_t const num_bits_per_entry, int32_t const num_dimensions) {
+  uint32_t const M = 1L << (num_bits_per_entry - 1);
+  int32_t const n = num_dimensions;
+  auto x = point;
+
+  uint32_t p, q, t;
+  uint32_t i;
+  // Inverse undo
+  for (q = M; q > 1; q >>= 1) {
+    p = q - 1;
+    for (i = 0; i < n; i++) {
+      if ((x[i] & q) != 0) {
+        x.set(0, x[0] ^ p); // invert
+      } else {
+        t = (x[0] ^ x[i]) & p;
+        x.set(0, x[0] ^ t);
+        x.set(i, x[i] ^ t);
+      }
+    }
+  } // exchange
+
+  // Gray encode
+  for (i = 1; i < n; i++) {
+    x.set(i, x[i] ^ x[i - 1]);
+  }
+  t = 0;
+  for (q = M; q > 1; q >>= 1) {
+    if ((x[n - 1] & q) != 0) {
+      t ^= q - 1;
+    }
+  }
+
+  for (i = 0; i < n; i++) {
+    x.set(i, x[i] ^ t);
+  }
+
+  return x;
+}
+
+
+} // namespace
+
 namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> interleave_bits(
@@ -112,6 +211,55 @@ std::unique_ptr<cudf::column> interleave_bits(
     rmm::device_buffer(),
     stream,
     mr);
+}
+
+std::unique_ptr<cudf::column> hilbert_index(
+  int32_t const num_bits_per_entry,
+  cudf::table_view const& tbl,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr) {
+ 
+  auto const num_rows = tbl.num_rows();
+  auto const num_columns = tbl.num_columns();
+
+  CUDF_EXPECTS(num_bits_per_entry > 0 && num_bits_per_entry <= 32, "the number of bits must be >0 and <= 32.");
+  CUDF_EXPECTS(num_bits_per_entry * num_columns <= 64, "we only support up to 64 bits of output right now.");
+  CUDF_EXPECTS(num_columns > 0, "at least one column is required.");
+
+  CUDF_EXPECTS(
+    std::all_of(tbl.begin(),
+                tbl.end(),
+                [](cudf::column_view const& col) { return col.type().id() == cudf::type_id::INT32; }),
+    "All columns of the input table must be INT32.");
+
+  auto const input_dv = cudf::table_device_view::create(tbl, stream);
+
+  auto output_data_col = cudf::make_numeric_column(
+      cudf::data_type{cudf::type_id::INT64}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+
+  auto const output_dv_ptr = cudf::mutable_column_device_view::create(*output_data_col, stream);
+
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(0) + num_rows,
+    output_dv_ptr->begin<int64_t>(),
+    [num_bits_per_entry,
+     num_columns,
+     input = *input_dv] __device__ (cudf::size_type row_index) {
+       uint_backed_array<uint64_t> row(num_bits_per_entry);
+       for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
+         auto const column = input.column(column_index);
+         uint32_t const data = column.is_valid(row_index) ? column.data<uint32_t>()[row_index] : 0;
+         row.set(column_index, data);
+       }
+
+       auto const transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
+       return static_cast<int64_t>(
+         to_hilbert_index(transposed_index, num_bits_per_entry, num_columns));
+     });
+
+  return output_data_col;
 }
 
 } // namespace spark_rapids_jni
