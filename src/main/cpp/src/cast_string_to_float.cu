@@ -176,7 +176,7 @@ class string_to_float {
         double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
         double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
-        _out[_row] = result;
+        _out[_row] = static_cast<T>(result);
       }
     }
     compute_validity(_valid, _except);
@@ -641,10 +641,9 @@ std::unique_ptr<column> string_to_float(data_type dtype,
                                         rmm::cuda_stream_view stream,
                                         rmm::mr::device_memory_resource* mr)
 {
-  if ((string_col.size() == 0) ||
-      (dtype != data_type{type_id::FLOAT32} && dtype != data_type{type_id::FLOAT64})) {
-    return std::make_unique<column>();
-  }
+  CUDF_EXPECTS(dtype == data_type{type_id::FLOAT32} || dtype == data_type{type_id::FLOAT64},
+               "invalid float data type");
+  if (string_col.size() == 0) { return std::make_unique<column>(); }
 
   auto out = cudf::make_numeric_column(dtype, string_col.size(), mask_state::ALL_NULL, stream, mr);
 
