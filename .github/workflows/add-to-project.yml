@@ -12,23 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A workflow to check if PR got sign-off
-name: signoff check
+name: Add new issues and pull requests to project
 
 on:
+  issues:
+    types:
+      - opened
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types:
+      - opened
 
 jobs:
-  signoff-check:
+  add-to-project:
+    if: github.repository == 'NVIDIA/spark-rapids-jni'
+    name: Add new issues and pull requests to project
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: sigoff-check job
-        uses: ./.github/workflows/signoff-check
-        env:
-          OWNER: NVIDIA
-          REPO_NAME: spark-rapids-jni
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PULL_NUMBER: ${{ github.event.number }}
+      # TODO: update project version when new release supports node 16 instead of 12
+      - uses: actions/add-to-project@v0.3.0
+        with:
+          project-url: https://github.com/orgs/NVIDIA/projects/4
+          github-token: ${{ secrets.PROJECT_TOKEN }}

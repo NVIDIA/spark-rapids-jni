@@ -148,6 +148,8 @@ add_library(
   src/row_conversion.cu
   src/DecimalUtilsJni.cpp
   src/decimal_utils.cu
+  src/ZOrderJni.cpp
+  src/zorder.cu
 )
 
 set_target_properties(
