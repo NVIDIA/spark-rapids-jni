@@ -643,7 +643,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
 {
   CUDF_EXPECTS(dtype == data_type{type_id::FLOAT32} || dtype == data_type{type_id::FLOAT64},
                "invalid float data type");
-  if (string_col.size() == 0) { return std::make_unique<column>(); }
+  if (string_col.size() == 0) { return cudf::make_empty_column(dtype); }
 
   auto out = cudf::make_numeric_column(dtype, string_col.size(), mask_state::ALL_NULL, stream, mr);
 
