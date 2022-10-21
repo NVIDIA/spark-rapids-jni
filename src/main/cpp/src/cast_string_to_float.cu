@@ -618,9 +618,8 @@ __global__ void string_to_float_kernel(T* out,
   __syncthreads();
 
   // convert
-  string_to_float<T, block_size> convert(
-    out, validity, ansi_except, valid_count, chars, offsets, ipow, incoming_null_mask, num_rows);
-  convert();
+  string_to_float<T, block_size>{
+    out, validity, ansi_except, valid_count, chars, offsets, ipow, incoming_null_mask, num_rows}();
 }
 
 }  // namespace detail
@@ -650,8 +649,8 @@ std::unique_ptr<column> string_to_float(data_type dtype,
   auto out = cudf::make_numeric_column(dtype, string_col.size(), mask_state::ALL_NULL, stream, mr);
 
   using ScalarType = cudf::scalar_type_t<size_type>;
-  auto valid_count = cudf::make_numeric_scalar(cudf::data_type(cudf::type_id::INT32));
-  auto ansi_count  = cudf::make_numeric_scalar(cudf::data_type(cudf::type_id::INT32));
+  auto valid_count = cudf::make_numeric_scalar(cudf::data_type(cudf::type_to_id<size_type>()));
+  auto ansi_count  = cudf::make_numeric_scalar(cudf::data_type(cudf::type_to_id<size_type>()));
   static_cast<ScalarType*>(valid_count.get())->set_value(0, stream);
   if (ansi_mode) { static_cast<ScalarType*>(ansi_count.get())->set_value(-1, stream); }
 

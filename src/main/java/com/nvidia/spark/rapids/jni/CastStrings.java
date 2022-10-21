@@ -49,7 +49,7 @@ public class CastStrings {
   }
 
   /**
-   * Convert a string column to a float column of a specified type.
+   * Convert a string column to a given floating-point type column.
    *
    * @param cv the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.

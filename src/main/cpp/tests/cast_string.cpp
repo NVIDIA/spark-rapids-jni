@@ -503,11 +503,10 @@ TYPED_TEST(StringToFloatTests, Simple)
                                         "-18446744073709551610",
                                         "-184467440737095516199999999999997"};
 
-  std::vector<bool> valids{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
-
+  auto const valid_iter = cudf::test::iterators::no_nulls();
   auto expected =
     cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
-  expected->set_null_mask(cudf::test::detail::make_null_mask(valids.begin(), valids.end()));
+  expected->set_null_mask(cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size()));
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, rmm::cuda_stream_default);
