@@ -144,6 +144,7 @@ add_library(
   src/CastStringJni.cpp
   src/NativeParquetJni.cpp
   src/cast_string.cu
+  src/cast_string_to_float.cu
   src/row_conversion.cu
   src/DecimalUtilsJni.cpp
   src/decimal_utils.cu

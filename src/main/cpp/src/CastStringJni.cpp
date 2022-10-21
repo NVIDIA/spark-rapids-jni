@@ -74,4 +74,19 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toDecimal(
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toFloat(
+  JNIEnv* env, jclass, jlong input_column, jboolean ansi_enabled, jint j_dtype)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    return cudf::jni::release_as_jlong(spark_rapids_jni::string_to_float(
+      cudf::jni::make_data_type(j_dtype, 0), scv, ansi_enabled, cudf::default_stream_value));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
 }
