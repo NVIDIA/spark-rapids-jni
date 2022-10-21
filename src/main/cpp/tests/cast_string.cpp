@@ -245,7 +245,7 @@ TYPED_TEST(StringToIntegerTests, Empty)
   auto result = spark_rapids_jni::string_to_integer(data_type{type_to_id<TypeParam>()},
                                                     strings_column_view{empty->view()},
                                                     false,
-                                                    rmm::cuda_stream_default);
+                                                    cudf::default_stream_value);
 
   EXPECT_EQ(result->size(), 0);
   EXPECT_EQ(result->type().id(), type_to_id<TypeParam>());
@@ -346,7 +346,7 @@ TEST_F(StringToDecimalTests, PositiveScale)
     strings_column_view scv{strings};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(8, 3, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(8, 3, scv, false, cudf::default_stream_value);
 
     test::fixed_point_column_wrapper<int32_t> expected(
       {813847, 43470,  548977, 985947, 325680, 0,      957413, 541903, 150051, 663969,
@@ -520,7 +520,7 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(8, 3, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(8, 3, scv, false, cudf::default_stream_value);
     test::fixed_point_column_wrapper<int32_t> expected({1234568}, {1}, numeric::scale_type{3});
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
@@ -530,7 +530,7 @@ TEST_F(StringToDecimalTests, Edges)
     strings_column_view scv{str};
 
     auto const result =
-      spark_rapids_jni::string_to_decimal(4, 6, scv, false, rmm::cuda_stream_default);
+      spark_rapids_jni::string_to_decimal(4, 6, scv, false, cudf::default_stream_value);
     test::fixed_point_column_wrapper<int32_t> expected(
       {4347, 4348}, {1, 1}, numeric::scale_type{6});
 
@@ -543,7 +543,7 @@ TEST_F(StringToDecimalTests, Empty)
   auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{});
 
   auto const result = spark_rapids_jni::string_to_decimal(
-    8, 2, strings_column_view{empty->view()}, false, rmm::cuda_stream_default);
+    8, 2, strings_column_view{empty->view()}, false, cudf::default_stream_value);
 
   EXPECT_EQ(result->size(), 0);
   EXPECT_EQ(result->type().id(), type_id::DECIMAL32);
