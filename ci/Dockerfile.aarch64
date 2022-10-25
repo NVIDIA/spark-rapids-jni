@@ -11,7 +11,12 @@ update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 900
 
 RUN gcc -v
 
-RUN apt install -y zlib1g-dev maven wget ninja-build git
+RUN apt install -y zlib1g-dev maven wget ninja-build git openjdk-8-jdk
+
+ENV JAVA_HOME /usr/lib/jvm/java-1.8.0-openjdk-arm64
+
+# set to use java8 by default
+RUN update-java-alternatives --set $JAVA_HOME
 
 # 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
 ARG CMAKE_VERSION=3.23.3
