@@ -1,4 +1,4 @@
-ARG CUDA_VERSION=11.5.0
+ARG CUDA_VERSION=11.5.2
 FROM --platform=arm64 nvidia/cuda:$CUDA_VERSION-devel-ubuntu18.04
 
 RUN apt update && \
