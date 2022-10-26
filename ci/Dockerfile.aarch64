@@ -11,7 +11,7 @@ update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 900
 
 RUN gcc -v
 
-RUN apt install -y zlib1g-dev maven wget ninja-build git openjdk-8-jdk
+RUN apt install -y zlib1g-dev maven wget ninja-build git openjdk-8-jdk rsync
 RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
 
 ENV JAVA_HOME /usr/lib/jvm/java-1.8.0-openjdk-arm64
