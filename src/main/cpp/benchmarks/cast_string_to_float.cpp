@@ -33,7 +33,7 @@ void string_to_float(nvbench::state& state)
 
   state.exec(nvbench::exec_tag::sync,
   [&](nvbench::launch& launch) {
-      auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT32}, string_col->view(), false, cudf::default_stream_value);
+      auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT32}, string_col->view(), false, cudf::get_default_stream());
   });
 }
 
