@@ -71,3 +71,6 @@ endfunction(ConfigureBench)
 
 ConfigureBench(ROW_CONVERSION_BENCH
     row_conversion.cpp)
+
+ConfigureBench(STRING_TO_FLOAT_BENCH
+  cast_string_to_float.cpp)
