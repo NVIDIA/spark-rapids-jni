@@ -36,6 +36,8 @@ include_directories(
   "${SPDLOG_INCLUDE}"
 )
 
-target_link_libraries(
-  cufaultinj CUDA::cupti_static
-)
+if (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
+    target_link_libraries(cufaultinj CUDA::cupti)
+else ()
+    target_link_libraries(cufaultinj CUDA::cupti_static)
+endif()
