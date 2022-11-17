@@ -35,6 +35,8 @@ Maven `package` goal can be used to build the RAPIDS Accelerator JNI jar. After 
 build the RAPIDS Accelerator JNI jar will be in the `spark-rapids-jni/target/` directory.
 Be sure to select the jar with the CUDA classifier.
 
+Note: To build the target on ARM64, please refer to the [instructions](./docs/build_for_arm64.md).
+
 ### Building in the Docker Container
 
 The `build/build-in-docker` script will build the spark-rapids-jni artifact within a Docker
