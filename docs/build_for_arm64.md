@@ -9,7 +9,7 @@ Note: the instance must contains GPU device, so the type must be `g5g.*xlarge` f
 
 ## Prepare build environment
 
-### install devtoolset-9
+### Install devtoolset-9
 ```bash
 sudo yum-config-manager --add-repo http://mirror.centos.org/altarch/7/sclo/aarch64/rh/
 sudo yum install glibc
