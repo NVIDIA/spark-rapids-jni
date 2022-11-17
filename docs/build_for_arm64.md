@@ -50,7 +50,7 @@ cd /usr/local/
 export CMAKE_VERSION=3.23.3
 sudo wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
 sudo tar zxf cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
-sudo  rm cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
+sudo rm cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
 sudo yum groupinstall -y "Development Tools"
 export PATH=/usr/local/cmake-${CMAKE_VERSION}-linux-aarch64/bin:$PATH
 
