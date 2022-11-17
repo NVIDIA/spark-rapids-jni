@@ -48,7 +48,7 @@ export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.342.b07-1.amzn2.0.1.aarch
 # cmake
 cd /usr/local/
 export CMAKE_VERSION=3.23.3
-sudo wget  https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
+sudo wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
 sudo tar zxf cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
 sudo  rm cmake-${CMAKE_VERSION}-linux-aarch64.tar.gz
 sudo yum groupinstall -y "Development Tools"
