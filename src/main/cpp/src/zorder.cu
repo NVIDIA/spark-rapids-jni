@@ -17,8 +17,9 @@
 #include "zorder.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/copy.cuh>
 #include <cudf/strings/detail/utilities.cuh>
+#include <cudf/table/table_device_view.cuh>
+#include <cudf/types.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
