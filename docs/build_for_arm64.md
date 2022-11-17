@@ -104,7 +104,7 @@ scl enable devtoolset-9 "mvn clean package \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=OFF -Dtest=*,!CuFileTest,!CudaFatalTest" \
-  -DBUILD_TESTS=ON -DskipTests
+  -DBUILD_TESTS=ON
 ```
 
 Then you can find the target jar file under `spark-rapids-jni/target/` directory.
