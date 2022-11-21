@@ -23,9 +23,10 @@ git submodule update --init --recursive
 
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
+USE_GDS=${USE_GDS:-ON}
 ${MVN} clean package ${MVN_MIRROR}  \
   -Psource-javadoc \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest \
+  -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest \
   -DBUILD_TESTS=ON
