@@ -550,12 +550,6 @@ struct dec128_add: public thrust::unary_function<cudf::size_type, __int128_t> {
     chunked256 working_a = a;
     chunked256 working_b = b;
 
-    /*
-    * The way Spark 3.4 does add is first it rescales the original numbers
-    * and if there is no overflow then we are finished.
-    * Otherwise there is an overflow so we add the number with the original scale
-    * and set the target scale on the result
-    */
     int intermediate_scale = min(a_scale, b_scale);
     if (a_scale != intermediate_scale) {
     printf("converting a_scale \n");
