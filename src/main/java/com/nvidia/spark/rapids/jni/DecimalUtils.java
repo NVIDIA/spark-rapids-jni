@@ -56,7 +56,28 @@ public class DecimalUtils {
     return new Table(divide128(a.getNativeView(), b.getNativeView(), quotientScale));
   }
 
+  /**
+   * Add two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
+   * scale with overflow detection.
+   *
+   * NOTE: This is very specific to Spark 3.4. This method won't work with previous versions
+   * of Spark. We don't need this for versions prior to Spark 3.4
+   *
+   * @param a            input, must match row count of the other input
+   * @param b            input, must match row count of the other input
+   * @param targetScale scale to use for the sum
+   * @return table containing a boolean column and a DECIMAL128 sum column of the specified
+   *         scale. The boolean value will be true if an overflow was detected for that row's
+   *         DECIMAL128 result value. A null input row will result in a corresponding null output
+   *         row.
+   */
+  public static Table add128(ColumnView a, ColumnView b, int targetScale) {
+    return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
+  }
+
   private static native long[] multiply128(long viewA, long viewB, int productScale);
 
   private static native long[] divide128(long viewA, long viewB, int quotientScale);
+
+  private static native long[] add128(long viewA, long viewB, int targetScale);
 }

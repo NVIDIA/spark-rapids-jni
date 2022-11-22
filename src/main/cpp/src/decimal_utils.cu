@@ -520,6 +520,111 @@ inline __device__ int precision10(chunked256 value) {
     return -1;
 }
 
+// Perform a 256-bit add in 64-bit chunks
+__device__ chunked256 add(chunked256 const &a, chunked256 const &b) {
+  chunked256 r;
+  __uint128_t add;
+  uint64_t carry = 0;
+  for (int idx = 0; idx < 4; ++idx) {
+      add = static_cast<__uint128_t>(a[idx]) + b[idx] + carry;
+      r[idx] = static_cast<uint64_t>(add);
+      carry = static_cast<uint64_t>(add >> 64);
+  }
+  return r;
+}
+
+// Functor to add two DECIMAL128 columns with rounding and overflow detection.
+struct dec128_add: public thrust::unary_function<cudf::size_type, __int128_t> {
+  dec128_add(bool *overflows, cudf::mutable_column_view const &product_view,
+                    cudf::column_view const &a_col, cudf::column_view const &b_col)
+      : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
+        add_data(product_view.data<__int128_t>()),
+        a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
+        sum_scale(product_view.type().scale()) {}
+
+  __device__ __int128_t operator()(cudf::size_type const i) const {
+    chunked256 const a(a_data[i]);
+    chunked256 const b(b_data[i]);
+
+    chunked256 working_a(a_data[i]);
+    chunked256 working_b(b_data[i]);
+
+    /*
+    * The way Spark 3.4 does add is first it rescales the original numbers
+    * and if there is no overflow then we are finished.
+    * Otherwise there is an overflow so we add the number with the original scale
+    * and set the target scale on the result
+    */
+    int old_scale = a_scale;
+    if (old_scale != sum_scale) {
+        if (sum_scale < old_scale) {
+            int raise = old_scale - sum_scale;
+            int multiplier = pow_ten(raise).as_128_bits();
+            working_a = multiply(a, chunked256(multiplier));
+            working_b = multiply(b, chunked256(multiplier));
+        } else {
+            int drop = sum_scale - old_scale;
+            auto const diviser = pow_ten(drop).as_128_bits();
+            working_a = divide_and_round(working_a, chunked256(diviser).as_128_bits());
+            working_b = divide_and_round(working_b, chunked256(diviser).as_128_bits());
+        }
+    }
+
+    chunked256 sum = add(working_a, working_b);
+
+    if (!sum.fits_in_128_bits()) {
+        // There was an overflow, lets add the original numbers and then rescale the result
+        sum = add(a, b);
+
+        int dec_precision = precision10(sum);
+        int overflowing_precision = dec_precision - 38;
+
+        int current_sum_scale = a_scale;
+        if (overflowing_precision > 0) {
+          auto const divisor_to_fit_in_128_bit = pow_ten(overflowing_precision).as_128_bits();
+          sum = divide_and_round(sum, divisor_to_fit_in_128_bit);
+
+          current_sum_scale += overflowing_precision;
+        }
+
+        int exp = current_sum_scale - sum_scale;
+        // if target scale is not equal to current scale
+        if (exp != 0) {
+            if (exp > 0) {
+                // Check overflow
+                if (exp + precision10(sum) > 38) {
+                    // overflows
+                    overflows[i] = true;
+                    return;
+                } else {
+                    auto const scale_mult = pow_ten(exp).as_128_bits();
+                    sum = multiply(sum, chunked256(scale_mult));
+                }
+            } else {
+                // Going from a bigger scale to a smaller scale
+                auto const scale_div = pow_ten(-exp).as_128_bits();
+                sum = divide_and_round(sum, chunked256(scale_div).as_128_bits());
+            }
+        }
+    }
+    overflows[i] = !sum.fits_in_128_bits();
+    add_data[i] = sum.as_128_bits();
+  }
+
+private:
+
+  // output column for overflow detected
+  bool * const overflows;
+
+  // input data for add
+  __int128_t const * const a_data;
+  __int128_t const * const b_data;
+  __int128_t * const add_data;
+  int const a_scale;
+  int const b_scale;
+  int const sum_scale;
+};
+
 // Functor to multiply two DECIMAL128 columns with rounding and overflow detection.
 struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int128_t> {
   dec128_multiplier(bool *overflows, cudf::mutable_column_view const &product_view,
@@ -732,4 +837,25 @@ divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
+std::unique_ptr<cudf::table>
+add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t target_scale,
+                  rmm::cuda_stream_view stream) {
+  CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  auto const num_rows = a.size();
+  CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  std::vector<std::unique_ptr<cudf::column>> columns;
+  // copy the null mask here, as it will be used again later
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
+                                                  rmm::device_buffer(result_null_mask, stream), result_null_count, stream));
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, target_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
+  auto overflows_view = columns[0]->mutable_view();
+  auto sum_view = columns[1]->mutable_view();
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                    sum_view.begin<__int128_t>(),
+                    dec128_add(overflows_view.begin<bool>(), sum_view, a, b));
+  return std::make_unique<cudf::table>(std::move(columns));
+}
 } // namespace cudf::jni
