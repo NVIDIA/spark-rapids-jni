@@ -82,7 +82,6 @@ struct chunked256 {
     return false;
   }
 
-
   inline __device__ bool gte_unsigned(chunked256 const &other) const {
       return !lt_unsigned(other);
   }
@@ -520,34 +519,36 @@ inline __device__ int precision10(chunked256 value) {
     return -1;
 }
 
-// Perform a 256-bit add in 64-bit chunks
-__device__ chunked256 add(chunked256 const &a, chunked256 const &b) {
-  chunked256 r;
-  __uint128_t add;
-  uint64_t carry = 0;
-  for (int idx = 0; idx < 4; ++idx) {
-      add = static_cast<__uint128_t>(a[idx]) + b[idx] + carry;
-      r[idx] = static_cast<uint64_t>(add);
-      carry = static_cast<uint64_t>(add >> 64);
-  }
-  return r;
+__device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int new_scale) {
+    if (old_scale != new_scale) {
+        if (new_scale < old_scale) {
+            int raise = old_scale - new_scale;
+            int multiplier = pow_ten(raise).as_128_bits();
+            data = multiply(data, chunked256(multiplier));
+        } else {
+            int drop = new_scale - old_scale;
+            auto const diviser = pow_ten(drop).as_128_bits();
+            data = divide_and_round(data, chunked256(diviser).as_128_bits());
+        }
+    }
+    return data;
 }
 
 // Functor to add two DECIMAL128 columns with rounding and overflow detection.
 struct dec128_add: public thrust::unary_function<cudf::size_type, __int128_t> {
-  dec128_add(bool *overflows, cudf::mutable_column_view const &product_view,
+  dec128_add(bool *overflows, cudf::mutable_column_view const &sum_view,
                     cudf::column_view const &a_col, cudf::column_view const &b_col)
       : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
-        add_data(product_view.data<__int128_t>()),
+        add_data(sum_view.data<__int128_t>()),
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
-        sum_scale(product_view.type().scale()) {}
+        sum_scale(sum_view.type().scale()) {}
 
   __device__ __int128_t operator()(cudf::size_type const i) const {
     chunked256 const a(a_data[i]);
     chunked256 const b(b_data[i]);
 
-    chunked256 working_a(a_data[i]);
-    chunked256 working_b(b_data[i]);
+    chunked256 working_a = a;
+    chunked256 working_b = b;
 
     /*
     * The way Spark 3.4 does add is first it rescales the original numbers
@@ -555,58 +556,23 @@ struct dec128_add: public thrust::unary_function<cudf::size_type, __int128_t> {
     * Otherwise there is an overflow so we add the number with the original scale
     * and set the target scale on the result
     */
-    int old_scale = a_scale;
-    if (old_scale != sum_scale) {
-        if (sum_scale < old_scale) {
-            int raise = old_scale - sum_scale;
-            int multiplier = pow_ten(raise).as_128_bits();
-            working_a = multiply(a, chunked256(multiplier));
-            working_b = multiply(b, chunked256(multiplier));
-        } else {
-            int drop = sum_scale - old_scale;
-            auto const diviser = pow_ten(drop).as_128_bits();
-            working_a = divide_and_round(working_a, chunked256(diviser).as_128_bits());
-            working_b = divide_and_round(working_b, chunked256(diviser).as_128_bits());
-        }
+    int intermediate_scale = min(a_scale, b_scale);
+    if (a_scale != intermediate_scale) {
+    printf("converting a_scale \n");
+        working_a = set_scale_and_round(working_a, a_scale, intermediate_scale);
+    }
+    if (b_scale != intermediate_scale) {
+    printf("converting b_scale \n");
+        working_b = set_scale_and_round(working_b, b_scale, intermediate_scale);
     }
 
-    chunked256 sum = add(working_a, working_b);
+    chunked256 sum = working_a;
+    sum.add(working_b);
 
-    if (!sum.fits_in_128_bits()) {
-        // There was an overflow, lets add the original numbers and then rescale the result
-        sum = add(a, b);
-
-        int dec_precision = precision10(sum);
-        int overflowing_precision = dec_precision - 38;
-
-        int current_sum_scale = a_scale;
-        if (overflowing_precision > 0) {
-          auto const divisor_to_fit_in_128_bit = pow_ten(overflowing_precision).as_128_bits();
-          sum = divide_and_round(sum, divisor_to_fit_in_128_bit);
-
-          current_sum_scale += overflowing_precision;
-        }
-
-        int exp = current_sum_scale - sum_scale;
-        // if target scale is not equal to current scale
-        if (exp != 0) {
-            if (exp > 0) {
-                // Check overflow
-                if (exp + precision10(sum) > 38) {
-                    // overflows
-                    overflows[i] = true;
-                    return;
-                } else {
-                    auto const scale_mult = pow_ten(exp).as_128_bits();
-                    sum = multiply(sum, chunked256(scale_mult));
-                }
-            } else {
-                // Going from a bigger scale to a smaller scale
-                auto const scale_div = pow_ten(-exp).as_128_bits();
-                sum = divide_and_round(sum, chunked256(scale_div).as_128_bits());
-            }
-        }
+    if (sum_scale != intermediate_scale) {
+        sum = set_scale_and_round(sum, intermediate_scale, sum_scale);
     }
+
     overflows[i] = !sum.fits_in_128_bits();
     add_data[i] = sum.as_128_bits();
   }
