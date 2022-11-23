@@ -520,18 +520,18 @@ inline __device__ int precision10(chunked256 value) {
 }
 
 __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int new_scale) {
-    if (old_scale != new_scale) {
-        if (new_scale < old_scale) {
-            int raise = old_scale - new_scale;
-            int multiplier = pow_ten(raise).as_128_bits();
-            data = multiply(data, chunked256(multiplier));
-        } else {
-            int drop = new_scale - old_scale;
-            auto const diviser = pow_ten(drop).as_128_bits();
-            data = divide_and_round(data, chunked256(diviser).as_128_bits());
-        }
+  if (old_scale != new_scale) {
+    if (new_scale < old_scale) {
+      int raise = old_scale - new_scale;
+      int multiplier = pow_ten(raise).as_128_bits();
+      data = multiply(data, chunked256(multiplier));
+    } else {
+      int drop = new_scale - old_scale;
+      auto const divisor = pow_ten(drop).as_128_bits();
+      data = divide_and_round(data, divisor);
     }
-    return data;
+  }
+  return data;
 }
 
 // Functor to add two DECIMAL128 columns with rounding and overflow detection.
@@ -544,27 +544,22 @@ struct dec128_add: public thrust::unary_function<cudf::size_type, __int128_t> {
         sum_scale(sum_view.type().scale()) {}
 
   __device__ __int128_t operator()(cudf::size_type const i) const {
-    chunked256 const a(a_data[i]);
-    chunked256 const b(b_data[i]);
-
-    chunked256 working_a = a;
-    chunked256 working_b = b;
+    chunked256 a(a_data[i]);
+    chunked256 b(b_data[i]);
 
     int intermediate_scale = min(a_scale, b_scale);
     if (a_scale != intermediate_scale) {
-    printf("converting a_scale \n");
-        working_a = set_scale_and_round(working_a, a_scale, intermediate_scale);
+      a = set_scale_and_round(a, a_scale, intermediate_scale);
     }
     if (b_scale != intermediate_scale) {
-    printf("converting b_scale \n");
-        working_b = set_scale_and_round(working_b, b_scale, intermediate_scale);
+      b = set_scale_and_round(b, b_scale, intermediate_scale);
     }
 
-    chunked256 sum = working_a;
-    sum.add(working_b);
+    chunked256 sum = a;
+    sum.add(b);
 
     if (sum_scale != intermediate_scale) {
-        sum = set_scale_and_round(sum, intermediate_scale, sum_scale);
+      sum = set_scale_and_round(sum, intermediate_scale, sum_scale);
     }
 
     overflows[i] = !sum.fits_in_128_bits();
