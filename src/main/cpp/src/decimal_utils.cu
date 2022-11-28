@@ -522,12 +522,12 @@ inline __device__ int precision10(chunked256 value) {
 __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int new_scale) {
   if (old_scale != new_scale) {
     if (new_scale < old_scale) {
-      int raise = old_scale - new_scale;
-      int multiplier = pow_ten(raise).as_128_bits();
+      int const raise = old_scale - new_scale;
+      int const multiplier = pow_ten(raise).as_128_bits();
       data = multiply(data, chunked256(multiplier));
     } else {
-      int drop = new_scale - old_scale;
-      auto const divisor = pow_ten(drop).as_128_bits();
+      int const drop = new_scale - old_scale;
+      int const divisor = pow_ten(drop).as_128_bits();
       data = divide_and_round(data, divisor);
     }
   }
