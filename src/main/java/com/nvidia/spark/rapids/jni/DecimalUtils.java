@@ -63,8 +63,8 @@ public class DecimalUtils {
    * NOTE: This is very specific to Spark 3.4. This method won't work with previous versions
    * of Spark. We don't need this for versions prior to Spark 3.4
    *
-   * @param a            input, must match row count of the other input
-   * @param b            input, must match row count of the other input
+   * @param a input, must match row count of the other input
+   * @param b input, must match row count of the other input
    * @param targetScale scale to use for the result
    * @return table containing a boolean column and a DECIMAL128 result column of the specified
    *         scale. The boolean value will be true if an overflow was detected for that row's
@@ -82,8 +82,8 @@ public class DecimalUtils {
    * NOTE: This is very specific to Spark 3.4. This method won't work with previous versions
    * of Spark. We don't need this for versions prior to Spark 3.4
    *
-   * @param a            input, must match row count of the other input
-   * @param b            input, must match row count of the other input
+   * @param a input, must match row count of the other input
+   * @param b input, must match row count of the other input
    * @param targetScale scale to use for the sum
    * @return table containing a boolean column and a DECIMAL128 sum column of the specified
    *         scale. The boolean value will be true if an overflow was detected for that row's

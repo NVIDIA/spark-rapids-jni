@@ -849,8 +849,8 @@ add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, target_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto sum_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(num_rows),
                     sum_view.begin<__int128_t>(),
                     dec128_add(overflows_view.begin<bool>(), sum_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
@@ -871,8 +871,8 @@ sub_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, target_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto sub_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(num_rows),
                     sub_view.begin<__int128_t>(),
                     dec128_sub(overflows_view.begin<bool>(), sub_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));

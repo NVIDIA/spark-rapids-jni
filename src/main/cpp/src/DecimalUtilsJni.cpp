@@ -61,9 +61,9 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_add12
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto view_a = reinterpret_cast<cudf::column_view const *>(j_view_a);
-    auto view_b = reinterpret_cast<cudf::column_view const *>(j_view_b);
-    auto scale = static_cast<int>(j_target_scale);
+    auto const view_a= reinterpret_cast<cudf::column_view const *>(j_view_a);
+    auto const view_b= reinterpret_cast<cudf::column_view const *>(j_view_b);
+    auto const scale = static_cast<int>(j_target_scale);
     return cudf::jni::convert_table_for_return(env, cudf::jni::add_decimal128(*view_a, *view_b,
                                                                                  scale));
   }
@@ -78,9 +78,9 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_sub12
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto view_a = reinterpret_cast<cudf::column_view const *>(j_view_a);
-    auto view_b = reinterpret_cast<cudf::column_view const *>(j_view_b);
-    auto scale = static_cast<int>(j_target_scale);
+    auto const view_a = reinterpret_cast<cudf::column_view const *>(j_view_a);
+    auto const view_b = reinterpret_cast<cudf::column_view const *>(j_view_b);
+    auto const scale = static_cast<int>(j_target_scale);
     return cudf::jni::convert_table_for_return(env, cudf::jni::sub_decimal128(*view_a, *view_b,
                                                                                  scale));
   }
