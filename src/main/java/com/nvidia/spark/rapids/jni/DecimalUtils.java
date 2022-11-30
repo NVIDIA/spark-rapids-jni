@@ -28,9 +28,10 @@ public class DecimalUtils {
 
   /**
    * Multiply two DECIMAL128 columns together into a DECIMAL128 product rounded to the specified
-   * scale with overflow detection.
-   * @param a            factor input, must match row count of the other factor input
-   * @param b            factor input, must match row count of the other factor input
+   * scale with overflow detection. This method considers a precision greater than 38 as overflow
+   * even if the number still fits in a 128-bit representation.
+   * @param a factor input, must match row count of the other factor input
+   * @param b factor input, must match row count of the other factor input
    * @param productScale scale to use for the product type
    * @return table containing a boolean column and a DECIMAL128 product column of the specified
    *         scale. The boolean value will be true if an overflow was detected for that row's
@@ -43,9 +44,10 @@ public class DecimalUtils {
 
   /**
    * Divide two DECIMAL128 columns and produce a DECIMAL128 quotient rounded to the specified
-   * scale with overflow detection.
-   * @param a            factor input, must match row count of the other factor input
-   * @param b            factor input, must match row count of the other factor input
+   * scale with overflow detection. This method considers a precision greater than 38 as overflow
+   * even if the number still fits in a 128-bit representation.
+   * @param a factor input, must match row count of the other factor input
+   * @param b factor input, must match row count of the other factor input
    * @param quotientScale scale to use for the quotient type
    * @return table containing a boolean column and a DECIMAL128 quotient column of the specified
    *         scale. The boolean value will be true if an overflow was detected for that row's
@@ -58,9 +60,10 @@ public class DecimalUtils {
 
   /**
    * Subtract two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
-   * scale with overflow detection.
+   * scale with overflow detection. This method considers a precision greater than 38 as overflow
+   * even if the number still fits in a 128-bit representation.
    *
-   * NOTE: This is very specific to Spark 3.4. This method won't work with previous versions
+   * NOTE: This is very specific to Spark 3.4. This method is incompatible with previous versions
    * of Spark. We don't need this for versions prior to Spark 3.4
    *
    * @param a input, must match row count of the other input
@@ -77,9 +80,10 @@ public class DecimalUtils {
   }
   /**
    * Add two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
-   * scale with overflow detection.
+   * scale with overflow detection. This method considers a precision greater than 38 as overflow
+   * even if the number still fits in a 128-bit representation.
    *
-   * NOTE: This is very specific to Spark 3.4. This method won't work with previous versions
+   * NOTE: This is very specific to Spark 3.4. This method is incompatible with previous versions
    * of Spark. We don't need this for versions prior to Spark 3.4
    *
    * @param a input, must match row count of the other input
