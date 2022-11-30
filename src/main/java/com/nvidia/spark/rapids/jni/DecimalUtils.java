@@ -72,8 +72,8 @@ public class DecimalUtils {
    *         row.
    */
 
-  public static Table sub128(ColumnView a, ColumnView b, int targetScale) {
-    return new Table(sub128(a.getNativeView(), b.getNativeView(), targetScale));
+  public static Table subtract128(ColumnView a, ColumnView b, int targetScale) {
+    return new Table(subtract128(a.getNativeView(), b.getNativeView(), targetScale));
   }
   /**
    * Add two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
@@ -100,5 +100,5 @@ public class DecimalUtils {
 
   private static native long[] add128(long viewA, long viewB, int targetScale);
 
-  private static native long[] sub128(long viewA, long viewB, int targetScale);
+  private static native long[] subtract128(long viewA, long viewB, int targetScale);
 }

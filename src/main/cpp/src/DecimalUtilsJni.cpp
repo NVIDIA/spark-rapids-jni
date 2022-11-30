@@ -70,7 +70,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_add12
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_sub128(JNIEnv *env, jclass,
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtract128(JNIEnv *env, jclass,
                                                                                      jlong j_view_a,
                                                                                      jlong j_view_b,
                                                                                      jint j_target_scale) {

@@ -519,6 +519,14 @@ inline __device__ int precision10(chunked256 value) {
     return -1;
 }
 
+__device__ bool is_greater_than_decimal_38(chunked256 a) {
+  auto const max_number_for_precision = pow_ten(38);
+  if (a.sign() != 0) {
+    a.negate();
+  }
+  return a.gte_unsigned(max_number_for_precision);
+}
+
 __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int new_scale) {
   if (old_scale != new_scale) {
     if (new_scale < old_scale) {
@@ -599,7 +607,7 @@ struct dec128_add: public dec128_add_sub {
     chunked256 &sum = a;
     add(a, b);
 
-    overflows[i] = !sum.fits_in_128_bits();
+    overflows[i] = is_greater_than_decimal_38(sum);
     result_data[i] = sum.as_128_bits();
   }
 };
@@ -614,11 +622,11 @@ struct dec128_sub: public dec128_add_sub {
     chunked256 a(a_data[i]);
     chunked256 b(b_data[i]);
 
-    chunked256 &sum = a;
+    chunked256 &res = a;
     sub(a, b);
 
-    overflows[i] = !sum.fits_in_128_bits();
-    result_data[i] = sum.as_128_bits();
+    overflows[i] = is_greater_than_decimal_38(res);
+    result_data[i] = res.as_128_bits();
   }
 };
 
@@ -675,7 +683,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
       }
     }
 
-    overflows[i] = !product.fits_in_128_bits();
+    overflows[i] = is_greater_than_decimal_38(product);
     product_data[i] = product.as_128_bits();
   }
 
@@ -729,7 +737,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
       // The second divide gets the result into the scale that we care about and does the rounding.
       auto const result = divide_and_round(first_div_result.quotient, scale_divisor);
 
-      overflows[i] = !result.fits_in_128_bits();
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = result.as_128_bits();
     } else if (n_shift_exp < -38) {
       // We need to do a multiply before we can divide, but the multiply might
@@ -756,7 +764,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
       // and finally round
       result = round_from_remainder(result, second_div_result.remainder, scaled_div_r, d);
 
-      overflows[i] = !result.fits_in_128_bits();
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = result.as_128_bits();
     } else {
       // Regular multiply followed by a divide
@@ -766,7 +774,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
 
       auto const result = divide_and_round(n, d);
 
-      overflows[i] = !result.fits_in_128_bits();
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = result.as_128_bits();
     }
   }

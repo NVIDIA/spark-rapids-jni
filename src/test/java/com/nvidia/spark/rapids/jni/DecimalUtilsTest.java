@@ -459,6 +459,39 @@ public class DecimalUtilsTest {
   }
 
   @Test
+  void mulTestOverflow() {
+    try (
+        ColumnVector lhs = makeDec128Column("50000000000000000000000000000000000000");
+        ColumnVector rhs = makeDec128Column("2");
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
+      Table result = DecimalUtils.multiply128(lhs, rhs, 0);
+      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+    }
+  }
+
+  @Test
+  void addTestOverflow() {
+    try (
+        ColumnVector lhs = makeDec128Column("99999999999999999999999999999999999999");
+        ColumnVector rhs = makeDec128Column("1");
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
+      Table result = DecimalUtils.add128(lhs, rhs, 0);
+      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+    }
+  }
+
+  @Test
+  void subTestOverflow() {
+    try (
+        ColumnVector lhs = makeDec128Column("-99999999999999999999999999999999999999");
+        ColumnVector rhs = makeDec128Column("1");
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
+      Table result = DecimalUtils.subtract128(lhs, rhs, 0);
+      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+    }
+  }
+
+  @Test
   void subDifferentScales() {
     try (
         ColumnVector lhs = makeDec128Column(
@@ -497,7 +530,7 @@ public class DecimalUtilsTest {
             "-154984298778579123337137056.852506370");
         ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
             false, false, false, false, false, false)) {
-      Table result = DecimalUtils.sub128(lhs, rhs, -9);
+      Table result = DecimalUtils.subtract128(lhs, rhs, -9);
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
