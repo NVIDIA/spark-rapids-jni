@@ -76,6 +76,10 @@ public class DecimalUtils {
    */
 
   public static Table subtract128(ColumnView a, ColumnView b, int targetScale) {
+    if (java.lang.Math.abs(a.getType().getScale() - b.getType().getScale()) > 77) {
+      throw new IllegalArgumentException("The intermediate scale for calculating the result " +
+          "exceeds 256-bit representation");
+    }
     return new Table(subtract128(a.getNativeView(), b.getNativeView(), targetScale));
   }
   /**
@@ -95,6 +99,10 @@ public class DecimalUtils {
    *         row.
    */
   public static Table add128(ColumnView a, ColumnView b, int targetScale) {
+    if (java.lang.Math.abs(a.getType().getScale() - b.getType().getScale()) > 77) {
+      throw new IllegalArgumentException("The intermediate scale for calculating the result " +
+          "exceeds 256-bit representation");
+    }
     return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
   }
 
