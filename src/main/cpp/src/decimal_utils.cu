@@ -104,12 +104,6 @@ struct chunked256 {
     }
   }
 
-  inline __device__ bool fits_in_128_bits() const {
-    // check for overflow by ensuring no significant bits will be lost when truncating to 128-bits
-    int64_t sign = static_cast<int64_t>(chunks[1]) >> 63;
-    return sign == static_cast<int64_t>(chunks[2]) && sign == static_cast<int64_t>(chunks[3]);
-  }
-
   inline __device__ __int128_t as_128_bits() const {
     return (static_cast<__int128_t>(chunks[1]) << 64) | chunks[0];
   }
