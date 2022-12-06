@@ -161,7 +161,8 @@ void __global__ string_to_integer_kernel(T* out,
                                          offset_type const* offsets,
                                          bitmask_type const* incoming_null_mask,
                                          size_type num_rows,
-                                         bool ansi_mode)
+                                         bool ansi_mode,
+                                         bool strip)
 {
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
@@ -180,9 +181,11 @@ void __global__ string_to_integer_kernel(T* out,
   constexpr bool is_signed_type = std::is_signed_v<T>;
 
   if (valid) {
-    // skip leading whitespace
-    while (i < len && is_whitespace(chars[i + row_start])) {
-      i++;
+    if (strip) {
+      // skip leading whitespace
+      while (i < len && is_whitespace(chars[i + row_start])) {
+        i++;
+      }
     }
 
     // check for leading +-
@@ -210,7 +213,7 @@ void __global__ string_to_integer_kernel(T* out,
         truncating = true;
       } else {
         if (chr > '9' || chr < '0') {
-          if (is_whitespace(chr) && c != i) {
+          if (is_whitespace(chr) && c != i && strip) {
             trailing_whitespace = true;
           } else {
             // invalid character in string!
@@ -242,7 +245,8 @@ void __global__ string_to_integer_kernel(T* out,
 
 template <typename T>
 __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent(const char* chars,
-                                                                                 const int len)
+                                                                                 const int len,
+                                                                                 bool strip)
 {
   T exponent_val         = 0;
   int i                  = 0;
@@ -264,7 +268,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
     ST_INVALID,              // invalid data
   };
 
-  auto validate_char = [&decimal_location, &exponent_positive](
+  auto validate_char = [&decimal_location, &exponent_positive, &strip](
                          processing_state const state, const char chr, int chr_idx) {
     switch (state) {
       case ST_TRAILING_WHITESPACE:
@@ -278,7 +282,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
             return ST_DECIMAL_POINT;
           } else if (chr == 'e' || chr == 'E') {
             return ST_EXPONENT_OR_SIGN;
-          } else if (is_whitespace(chr) && chr_idx != 0) {
+          } else if (strip && is_whitespace(chr) && chr_idx != 0) {
             return ST_TRAILING_WHITESPACE;
           } else {
             // invalid character
@@ -293,7 +297,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
         } else if (chr == '-') {
           exponent_positive = false;
           return ST_EXPONENT_SIGN;
-        } else if (is_whitespace(chr) && chr_idx != 0) {
+        } else if (strip && is_whitespace(chr) && chr_idx != 0) {
           return ST_TRAILING_WHITESPACE;
         } else if (chr > '9' || chr < '0') {
           return ST_INVALID;
@@ -317,9 +321,11 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
 
   processing_state state = ST_DIGITS;
 
-  // skip leading whitespace
-  while (i < len && is_whitespace(chars[i])) {
-    i++;
+  if (strip) {
+    // skip leading whitespace
+    while (i < len && is_whitespace(chars[i])) {
+      i++;
+    }
   }
 
   // check for leading +-
@@ -389,7 +395,8 @@ __global__ void string_to_decimal_kernel(T* out,
                                          bitmask_type const* incoming_null_mask,
                                          size_type num_rows,
                                          int32_t scale,
-                                         int32_t precision)
+                                         int32_t precision,
+                                         bool strip)
 {
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
@@ -402,7 +409,7 @@ __global__ void string_to_decimal_kernel(T* out,
   auto const len         = offsets[row + 1] - row_start;
   bool const valid_entry = incoming_null_mask == nullptr || bit_is_set(incoming_null_mask, row);
 
-  auto ret   = validate_and_exponent<T>(&chars[row_start], len);
+  auto ret   = validate_and_exponent<T>(&chars[row_start], len, strip);
   bool valid = ret.has_value();
   bool positive;
   int decimal_location;
@@ -640,6 +647,7 @@ struct string_to_integer_impl {
   template <typename T, typename std::enable_if_t<is_numeric<T>()>* = nullptr>
   std::unique_ptr<column> operator()(strings_column_view const& string_col,
                                      bool ansi_mode,
+                                     bool strip,
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
@@ -661,7 +669,8 @@ struct string_to_integer_impl {
       string_col.offsets().data<offset_type>(),
       string_col.null_mask(),
       string_col.size(),
-      ansi_mode);
+      ansi_mode,
+      strip);
 
     auto col = std::make_unique<column>(
       data_type{type_to_id<T>()}, string_col.size(), data.release(), null_mask.release());
@@ -677,6 +686,7 @@ struct string_to_integer_impl {
   template <typename T, typename std::enable_if_t<!is_numeric<T>()>* = nullptr>
   std::unique_ptr<column> operator()(strings_column_view const& string_col,
                                      bool ansi_mode,
+                                     bool strip,
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
@@ -693,6 +703,7 @@ struct string_to_decimal_impl {
    * @param precision precision of incoming string data
    * @param string_col strings to convert to decimal
    * @param ansi_mode strict ansi mode checking of incoming data, can throw
+   * @param strip remove leading and trailing whitespace.
    * @param stream stream on which to operate
    * @param mr memory resource to use for allocations
    * @return std::unique_ptr<column> decimal column created from strings
@@ -702,6 +713,7 @@ struct string_to_decimal_impl {
                                      int32_t precision,
                                      strings_column_view const& string_col,
                                      bool ansi_mode,
+                                     bool strip,
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
@@ -722,7 +734,8 @@ struct string_to_decimal_impl {
       string_col.null_mask(),
       string_col.size(),
       dtype.scale(),
-      precision);
+      precision,
+      strip);
 
     auto col =
       std::make_unique<column>(dtype, string_col.size(), data.release(), null_mask.release());
@@ -740,6 +753,7 @@ struct string_to_decimal_impl {
                                      int32_t precision,
                                      strings_column_view const& string_col,
                                      bool ansi_mode,
+                                     bool strip,
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
@@ -756,6 +770,7 @@ struct string_to_decimal_impl {
  * @param string_col Incoming string column to convert to integers.
  * @param ansi_mode If true, strict conversion and throws on erorr.
  *                  If false, null invalid entries.
+ * @param strip if true leading and trailing white space is ignored.
  * @param stream Stream on which to operate.
  * @param mr Memory resource for returned column
  * @return std::unique_ptr<column> Integer column that was created from string_col.
@@ -763,11 +778,12 @@ struct string_to_decimal_impl {
 std::unique_ptr<column> string_to_integer(data_type dtype,
                                           strings_column_view const& string_col,
                                           bool ansi_mode,
+                                          bool strip,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
   return type_dispatcher(
-    dtype, detail::string_to_integer_impl{}, string_col, ansi_mode, stream, mr);
+    dtype, detail::string_to_integer_impl{}, string_col, ansi_mode, strip, stream, mr);
 }
 
 /**
@@ -778,6 +794,7 @@ std::unique_ptr<column> string_to_integer(data_type dtype,
  * @param string_col Incoming string column to convert to decimals.
  * @param ansi_mode If true, strict conversion and throws on erorr.
  *                  If false, null invalid entries.
+ * @param strip if true leading and trailing white space is ignored.
  * @param stream Stream on which to operate.
  * @param mr Memory resource for returned column
  * @return std::unique_ptr<column> Decimal column that was created from string_col.
@@ -786,6 +803,7 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
                                           int32_t scale,
                                           strings_column_view const& string_col,
                                           bool ansi_mode,
+                                          bool strip,
                                           rmm::cuda_stream_view stream,
                                           rmm::mr::device_memory_resource* mr)
 {
@@ -803,7 +821,7 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
   if (string_col.size() == 0) { return std::make_unique<column>(dtype, 0, rmm::device_buffer{}); }
 
   return type_dispatcher(
-    dtype, detail::string_to_decimal_impl{}, dtype, precision, string_col, ansi_mode, stream, mr);
+    dtype, detail::string_to_decimal_impl{}, dtype, precision, string_col, ansi_mode, strip, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
