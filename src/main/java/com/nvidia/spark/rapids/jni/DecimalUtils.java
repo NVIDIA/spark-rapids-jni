@@ -55,9 +55,23 @@ public class DecimalUtils {
    *         row.
    */
   public static Table divide128(ColumnView a, ColumnView b, int quotientScale) {
-    return new Table(divide128(a.getNativeView(), b.getNativeView(), quotientScale));
+    return new Table(divide128(a.getNativeView(), b.getNativeView(), quotientScale, false));
   }
 
+  /**
+   * Divide two DECIMAL128 columns and produce a INT64 quotient with overflow detection.
+   * This method considers a precision greater than 19 as overflow even if the number still fits in
+   * a 64-bit representation.
+   * @param a factor input, must match row count of the other factor input
+   * @param b factor input, must match row count of the other factor input
+   * @return table containing a boolean column and a INT64 quotient column.
+   *         The boolean value will be true if an overflow was detected for that row's
+   *         INT64 quotient value. A null input row will result in a corresponding null output
+   *         row.
+   */
+  public static Table integerDivide128(ColumnView a, ColumnView b) {
+    return new Table(divide128(a.getNativeView(), b.getNativeView(), 0, true));
+  }
   /**
    * Subtract two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
    * scale with overflow detection. This method considers a precision greater than 38 as overflow
@@ -108,7 +122,7 @@ public class DecimalUtils {
 
   private static native long[] multiply128(long viewA, long viewB, int productScale);
 
-  private static native long[] divide128(long viewA, long viewB, int quotientScale);
+  private static native long[] divide128(long viewA, long viewB, int quotientScale, boolean isIntegerDivide);
 
   private static native long[] add128(long viewA, long viewB, int targetScale);
 
