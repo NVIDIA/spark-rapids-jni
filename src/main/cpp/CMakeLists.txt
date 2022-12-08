@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 22.10.00
+  VERSION 22.12.00
   LANGUAGES C CXX CUDA
 )
 
@@ -144,9 +144,12 @@ add_library(
   src/CastStringJni.cpp
   src/NativeParquetJni.cpp
   src/cast_string.cu
+  src/cast_string_to_float.cu
   src/row_conversion.cu
   src/DecimalUtilsJni.cpp
   src/decimal_utils.cu
+  src/ZOrderJni.cpp
+  src/zorder.cu
 )
 
 set_target_properties(
