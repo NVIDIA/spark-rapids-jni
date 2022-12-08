@@ -206,6 +206,23 @@ public class DecimalUtilsTest {
   }
 
   @Test
+  void intDivideNotOverflow() {
+    // Spark doesn't report this as an overflow even though this has obviously overflowed.
+    // Incase of integral divide, it still bases whether a column has overflown by checking the
+    // 128-bit value and not the returned 64-bit value
+    try (ColumnVector lhs =
+             makeDec128Column("451635271134476686911387864.48", "5313675970270560086329837153.18");
+         ColumnVector rhs =
+             makeDec128Column("-961.110", "181.958");
+         ColumnVector expectedBasic = ColumnVector.fromLongs(2284624887606872042L, -2928582767902049472L);
+         ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
+         Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
   void intDivideOverflow() {
     try (ColumnVector lhs =
              makeDec128Column("3396191716868766147341919609.06", "-6893798181986328848375556144.67");

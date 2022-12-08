@@ -60,7 +60,15 @@ public class DecimalUtils {
 
   /**
    * Divide two DECIMAL128 columns and produce a INT64 quotient with overflow detection.
-   * This method considers an overflow if a number is cannot be represented in 64-bit.
+   * This method considers an overflow if the 128-bit quotient of the original numbers overflows
+   * and doesn't base the decision on the 64-bit number.
+   * Example:
+   * 451635271134476686911387864.48 div -961.110 = 2284624887606872042L
+   * A positive number divided by a negative number resulting in a positive result is clearly
+   * an overflow but Spark doesn't consider this an overflow as the 128-bit
+   * answer (-469910073908789510993942.27973) is still within the expected 38 digits of
+   * precision
+   *
    * @param a factor input, must match row count of the other factor input
    * @param b factor input, must match row count of the other factor input
    * @return table containing a boolean column and a INT64 quotient column.

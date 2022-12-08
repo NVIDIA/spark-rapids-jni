@@ -104,13 +104,6 @@ struct chunked256 {
     }
   }
 
-  inline __device__ bool fits_in_64_bits() const {
-    // check for overflow by ensuring no significant bits will be lost when truncating to 64-bits
-    int64_t sign = static_cast<int64_t>(chunks[0]) >> 63;
-    return sign == static_cast<int64_t>(chunks[1]) && sign == static_cast<int64_t>(chunks[2])
-       && sign == static_cast<int64_t>(chunks[3]);
-  }
-
   inline __device__ __int128_t as_128_bits() const {
     return (static_cast<__int128_t>(chunks[1]) << 64) | chunks[0];
   }
@@ -118,6 +111,7 @@ struct chunked256 {
   inline __device__ uint64_t as_64_bits() const {
     return chunks[0];
   }
+
 private:
   uint64_t chunks[4];
 };
@@ -755,7 +749,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
       auto const result = is_int_div ? integer_divide(first_div_result.quotient, scale_divisor)
                             : divide_and_round(first_div_result.quotient, scale_divisor);
 
-      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     } else if (n_shift_exp < -38) {
       // We need to do a multiply before we can divide, but the multiply might
@@ -784,7 +778,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
         result = round_from_remainder(result, second_div_result.remainder, scaled_div_r, d);
       }
 
-      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     } else {
       // Regular multiply followed by a divide
@@ -794,7 +788,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
 
       auto const result = is_int_div ? integer_divide(n, d) : divide_and_round(n, d);
 
-      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      overflows[i] = is_greater_than_decimal_38(result);
       quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     }
   }
