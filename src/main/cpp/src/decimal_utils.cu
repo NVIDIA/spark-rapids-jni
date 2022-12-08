@@ -228,10 +228,11 @@ __device__ chunked256 round_from_remainder(chunked256 const &q, __int128_t const
 }
 
 /**
- * Divide n by d and do half up rounding based off of the remainder returned
+ * Divide n by d and do half up rounding based off of the remainder returned.
  */
 __device__ chunked256 divide_and_round(chunked256 const &n, __int128_t const &d) {
   divmod256 div_result = divide(n, d);
+
   return round_from_remainder(div_result.quotient, div_result.remainder, n, d);
 }
 
@@ -802,6 +803,7 @@ private:
 
   // output column for overflow detected
   bool * const overflows;
+
   bool const is_int_div;
   // input data for multiply
   __int128_t const * const a_data;

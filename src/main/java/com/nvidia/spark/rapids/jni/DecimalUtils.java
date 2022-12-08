@@ -60,8 +60,7 @@ public class DecimalUtils {
 
   /**
    * Divide two DECIMAL128 columns and produce a INT64 quotient with overflow detection.
-   * This method considers a precision greater than 19 as overflow even if the number still fits in
-   * a 64-bit representation.
+   * This method considers an overflow if a number is cannot be represented in 64-bit.
    * @param a factor input, must match row count of the other factor input
    * @param b factor input, must match row count of the other factor input
    * @return table containing a boolean column and a INT64 quotient column.
