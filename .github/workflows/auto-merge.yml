@@ -18,12 +18,12 @@ name: auto-merge HEAD to BASE
 on:
   pull_request_target:
     branches:
-      - branch-22.10
+      - branch-22.12
     types: [closed]
 
 env:
-  HEAD: branch-22.10
-  BASE: branch-22.12
+  HEAD: branch-22.12
+  BASE: branch-23.02
 
 jobs:
   auto-merge:
@@ -31,9 +31,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           ref: ${{ env.HEAD }} # force to fetch from latest upstream instead of PR ref
+          token: ${{ secrets.AUTOMERGE_TOKEN }} # workaround auto-merge token to avoid GITHUB_TOKEN insufficient permission
 
       - name: push intermediate branch for auto-merge
         run: |
