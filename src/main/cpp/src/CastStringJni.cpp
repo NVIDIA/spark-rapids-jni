@@ -46,7 +46,8 @@ constexpr char const* JNI_CAST_ERROR_CLASS = "com/nvidia/spark/rapids/jni/CastEx
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toInteger(
-  JNIEnv* env, jclass, jlong input_column, jboolean ansi_enabled, jint j_dtype)
+  JNIEnv* env, jclass, jlong input_column, jboolean ansi_enabled, jboolean strip,
+  jint j_dtype)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
@@ -55,13 +56,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toInteger(
 
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(spark_rapids_jni::string_to_integer(
-      cudf::jni::make_data_type(j_dtype, 0), scv, ansi_enabled, cudf::get_default_stream()));
+      cudf::jni::make_data_type(j_dtype, 0), scv, ansi_enabled, strip, 
+      cudf::get_default_stream()));
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toDecimal(
-  JNIEnv* env, jclass, jlong input_column, jboolean ansi_enabled, jint precision, jint scale)
+  JNIEnv* env, jclass, jlong input_column, jboolean ansi_enabled, jboolean strip,
+  jint precision, jint scale)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
@@ -70,7 +73,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toDecimal(
 
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(spark_rapids_jni::string_to_decimal(
-      precision, scale, scv, ansi_enabled, cudf::get_default_stream()));
+      precision, scale, scv, ansi_enabled, strip, cudf::get_default_stream()));
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }

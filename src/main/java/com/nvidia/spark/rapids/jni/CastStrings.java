@@ -25,7 +25,8 @@ public class CastStrings {
   }
 
   /**
-   * Convert a string column to an integer column of a specified type.
+   * Convert a string column to an integer column of a specified type stripping away leading and
+   * trailing spaces.
    *
    * @param cv the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
@@ -33,7 +34,7 @@ public class CastStrings {
    * @return the converted column.
    */
   public static ColumnVector toInteger(ColumnView cv, boolean ansiMode, DType type) {
-    return new ColumnVector(toInteger(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
+    return toInteger(cv, ansiMode, true, type);
   }
 
   /**
@@ -41,11 +42,42 @@ public class CastStrings {
    *
    * @param cv the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param strip true if leading and trailing spaces should be ignored when parsing.
    * @param type the type of the return column.
    * @return the converted column.
    */
+  public static ColumnVector toInteger(ColumnView cv, boolean ansiMode, boolean strip, DType type) {
+    return new ColumnVector(toInteger(cv.getNativeView(), ansiMode, strip,
+        type.getTypeId().getNativeId()));
+  }
+
+  /**
+   * Convert a string column to an integer column of a specified type stripping away leading and
+   * trailing whitespace.
+   *
+   * @param cv the column data to process.
+   * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param precision the output precision.
+   * @param scale the output scale.
+   * @return the converted column.
+   */
   public static ColumnVector toDecimal(ColumnView cv, boolean ansiMode, int precision, int scale) {
-    return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, precision, scale));
+    return toDecimal(cv, ansiMode, true, precision, scale);
+  }
+
+  /**
+   * Convert a string column to an integer column of a specified type.
+   *
+   * @param cv the column data to process.
+   * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param strip true if leading and trailing white space should be stripped.
+   * @param precision the output precision.
+   * @param scale the output scale.
+   * @return the converted column.
+   */
+  public static ColumnVector toDecimal(ColumnView cv, boolean ansiMode, boolean strip,
+      int precision, int scale) {
+    return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, strip, precision, scale));
   }
 
   /**
@@ -60,7 +92,9 @@ public class CastStrings {
     return new ColumnVector(toFloat(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
   }
 
-  private static native long toInteger(long nativeColumnView, boolean ansi_enabled, int dtype);
-  private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, int precision, int scale);
+  private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
+      int dtype);
+  private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
+      int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
 }
