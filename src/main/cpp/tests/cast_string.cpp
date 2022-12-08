@@ -649,7 +649,8 @@ TYPED_TEST(StringToFloatTests, TrickyValues)
                                         "                                    7d",
                                         "                            98392.5e-1f",
                                         ".",
-                                        "e"};
+                                        "e",
+                                        "-1.6721969836937668E-304"};
 
   test::fixed_width_column_wrapper<TypeParam> expected({static_cast<TypeParam>(7),
                                                         std::numeric_limits<TypeParam>::infinity(),
@@ -664,8 +665,9 @@ TYPED_TEST(StringToFloatTests, TrickyValues)
                                                         static_cast<TypeParam>(7),
                                                         static_cast<TypeParam>(9839.25),
                                                         static_cast<TypeParam>(0),
-                                                        static_cast<TypeParam>(0)},
-                                                       {1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0});
+                                                        static_cast<TypeParam>(0),
+                                                        static_cast<TypeParam>(-1.6721969836937666E-304l)},
+                                                       {1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1});
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, cudf::get_default_stream());
