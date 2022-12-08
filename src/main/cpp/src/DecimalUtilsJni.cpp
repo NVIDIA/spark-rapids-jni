@@ -49,8 +49,11 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_divid
     auto view_b = reinterpret_cast<cudf::column_view const *>(j_view_b);
     auto scale = static_cast<int>(j_quotient_scale);
     auto is_int_division = static_cast<bool>(j_is_int_div);
-    return cudf::jni::convert_table_for_return(env, cudf::jni::divide_decimal128(*view_a, *view_b,
-                                                                                 scale, is_int_division));
+    if (is_int_division) {
+      return cudf::jni::convert_table_for_return(env, cudf::jni::integer_divide_decimal128(*view_a, *view_b, scale));
+    } else {
+      return cudf::jni::convert_table_for_return(env, cudf::jni::divide_decimal128(*view_a, *view_b, scale));
+    }
   }
   CATCH_STD(env, 0);
 }

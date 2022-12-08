@@ -28,13 +28,17 @@ multiply_decimal128(cudf::column_view const &a, cudf::column_view const &b, int3
 
 std::unique_ptr<cudf::table>
 divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
-                  bool &is_int_div, rmm::cuda_stream_view stream = rmm::cuda_stream_default);
-
-std::unique_ptr<cudf::table>
-add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
                   rmm::cuda_stream_view stream = rmm::cuda_stream_default);
 
 std::unique_ptr<cudf::table>
+integer_divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
+                          rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+
+std::unique_ptr<cudf::table>
+add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
+               rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+
+std::unique_ptr<cudf::table>
 sub_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
-                   rmm::cuda_stream_view stream = rmm::cuda_stream_default);
+               rmm::cuda_stream_view stream = rmm::cuda_stream_default);
 } // namespace cudf::jni

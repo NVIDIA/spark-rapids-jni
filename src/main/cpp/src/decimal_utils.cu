@@ -104,8 +104,19 @@ struct chunked256 {
     }
   }
 
+  inline __device__ bool fits_in_64_bits() const {
+    // check for overflow by ensuring no significant bits will be lost when truncating to 64-bits
+    int64_t sign = static_cast<int64_t>(chunks[0]) >> 63;
+    return sign == static_cast<int64_t>(chunks[1]) && sign == static_cast<int64_t>(chunks[2])
+       && sign == static_cast<int64_t>(chunks[3]);
+  }
+
   inline __device__ __int128_t as_128_bits() const {
     return (static_cast<__int128_t>(chunks[1]) << 64) | chunks[0];
+  }
+
+  inline __device__ uint64_t as_64_bits() const {
+    return chunks[0];
   }
 private:
   uint64_t chunks[4];
@@ -217,17 +228,21 @@ __device__ chunked256 round_from_remainder(chunked256 const &q, __int128_t const
 }
 
 /**
- * Divide n by d and do half up rounding based off of the remainder returned or just down rounding
- * if it's an int division
+ * Divide n by d and do half up rounding based off of the remainder returned
  */
-__device__ chunked256 divide_and_round(chunked256 const &n, __int128_t const &d,
-  bool const is_int_div) {
+__device__ chunked256 divide_and_round(chunked256 const &n, __int128_t const &d) {
   divmod256 div_result = divide(n, d);
-  if (!is_int_div) {
-    return round_from_remainder(div_result.quotient, div_result.remainder, n, d);
-  } else {
-    return div_result.quotient;
-  }
+  return round_from_remainder(div_result.quotient, div_result.remainder, n, d);
+}
+
+/**
+ * Divide n by d and return the quotient. This is essentially what `DOWN` rounding does
+ * in Java
+ */
+__device__ chunked256 integer_divide(chunked256 const &n, __int128_t const &d) {
+  divmod256 div_result = divide(n, d);
+  //drop the remainder and only return the quotient
+  return div_result.quotient;
 }
 
 inline __device__ chunked256 pow_ten(int exp) {
@@ -535,7 +550,7 @@ __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int ne
     } else {
       int const drop = new_scale - old_scale;
       int const divisor = pow_ten(drop).as_128_bits();
-      data = divide_and_round(data, divisor, false);
+      data = divide_and_round(data, divisor);
     }
   }
   return data;
@@ -655,7 +670,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
     int mult_scale = a_scale + b_scale;
     if (first_div_precision > 0) {
       auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
-      product = divide_and_round(product, first_div_scale_divisor, false);
+      product = divide_and_round(product, first_div_scale_divisor);
 
       // a_scale and b_scale are negative. first_div_precision is not
       mult_scale = a_scale + b_scale + first_div_precision;
@@ -678,7 +693,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
 
       // scale and round to target scale
       if (scale_divisor != 1) {
-        product = divide_and_round(product, scale_divisor, false);
+        product = divide_and_round(product, scale_divisor);
       }
     }
 
@@ -701,12 +716,13 @@ private:
 };
 
 // Functor to divide two DECIMAL128 columns with rounding and overflow detection.
+template <typename T>
 struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_t> {
   dec128_divider(bool *overflows, cudf::mutable_column_view const &quotient_view,
                     cudf::column_view const &a_col, cudf::column_view const &b_col,
                     bool const &is_int_div)
       : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
-        quotient_data(quotient_view.data<__int128_t>()),
+        quotient_data(quotient_view.data<T>()),
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         quot_scale(quotient_view.type().scale()), is_int_div(is_int_div) {}
 
@@ -735,10 +751,11 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
       auto const scale_divisor = pow_ten(n_shift_exp).as_128_bits();
 
       // The second divide gets the result into the scale that we care about and does the rounding.
-      auto const result = divide_and_round(first_div_result.quotient, scale_divisor, is_int_div);
+      auto const result = is_int_div ? integer_divide(first_div_result.quotient, scale_divisor)
+                            : divide_and_round(first_div_result.quotient, scale_divisor);
 
-      overflows[i] = is_greater_than_decimal_38(result);
-      quotient_data[i] = result.as_128_bits();
+      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     } else if (n_shift_exp < -38) {
       // We need to do a multiply before we can divide, but the multiply might
       // overflow so we do a multiply then a divide and shift the result and
@@ -766,18 +783,18 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
         result = round_from_remainder(result, second_div_result.remainder, scaled_div_r, d);
       }
 
-      overflows[i] = is_greater_than_decimal_38(result);
-      quotient_data[i] = result.as_128_bits();
+      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     } else {
       // Regular multiply followed by a divide
       if (n_shift_exp < 0) {
         n = multiply(n, pow_ten(-n_shift_exp));
       }
 
-      auto const result = divide_and_round(n, d, is_int_div);
+      auto const result = is_int_div ? integer_divide(n, d) : divide_and_round(n, d);
 
-      overflows[i] = is_greater_than_decimal_38(result);
-      quotient_data[i] = result.as_128_bits();
+      overflows[i] = is_int_div ? !result.fits_in_64_bits() : is_greater_than_decimal_38(result);
+      quotient_data[i] = is_int_div ? result.as_64_bits() : result.as_128_bits();
     }
   }
 
@@ -789,7 +806,7 @@ private:
   // input data for multiply
   __int128_t const * const a_data;
   __int128_t const * const b_data;
-  __int128_t * const quotient_data;
+  T * const quotient_data;
   int const a_scale;
   int const b_scale;
   int const quot_scale;
@@ -824,7 +841,7 @@ multiply_decimal128(cudf::column_view const &a, cudf::column_view const &b, int3
 
 std::unique_ptr<cudf::table>
 divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
-                  bool &is_int_div, rmm::cuda_stream_view stream) {
+                  rmm::cuda_stream_view stream) {
   CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
@@ -840,7 +857,29 @@ divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_
   thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
                     quotient_view.begin<__int128_t>(),
-                    dec128_divider(overflows_view.begin<bool>(), quotient_view, a, b, is_int_div));
+                    dec128_divider<__int128_t>(overflows_view.begin<bool>(), quotient_view, a, b, false));
+  return std::make_unique<cudf::table>(std::move(columns));
+}
+
+std::unique_ptr<cudf::table>
+integer_divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t quotient_scale,
+                          rmm::cuda_stream_view stream) {
+  CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  auto const num_rows = a.size();
+  CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  std::vector<std::unique_ptr<cudf::column>> columns;
+  // copy the null mask here, as it will be used again later
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
+                                                  rmm::device_buffer(result_null_mask, stream), result_null_count, stream));
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT64}, num_rows, std::move(result_null_mask), result_null_count, stream));
+  auto overflows_view = columns[0]->mutable_view();
+  auto quotient_view = columns[1]->mutable_view();
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(num_rows),
+                    quotient_view.begin<uint64_t>(),
+                    dec128_divider<uint64_t>(overflows_view.begin<bool>(), quotient_view, a, b, true));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 

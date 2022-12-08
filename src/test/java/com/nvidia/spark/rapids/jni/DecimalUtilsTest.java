@@ -197,13 +197,23 @@ public class DecimalUtilsTest {
              makeDec128Column("3396191716868766147341919609.06", "-6893798181986328848375556144.67");
          ColumnVector rhs =
              makeDec128Column("7317548469.64", "98565515088.44");
-         ColumnVector expectedBasic =
-             makeDec128Column("464116053478747633", "-69941278912819784");
-         ColumnVector expectedValid =
-             ColumnVector.fromBooleans(false, false);
+         ColumnVector expectedBasic = ColumnVector.fromLongs(464116053478747633L, -69941278912819784L);
+         ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
       assertColumnsAreEqual(expectedValid, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
+  void intDivideOverflow() {
+    try (ColumnVector lhs =
+             makeDec128Column("3396191716868766147341919609.06", "-6893798181986328848375556144.67");
+         ColumnVector rhs = makeDec128Column("2.00", "1.00");
+         ColumnVector expectedValid =
+             ColumnVector.fromBooleans(true, true);
+         Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
     }
   }
 
