@@ -225,10 +225,9 @@ public class DecimalUtilsTest {
   @Test
   void intDivideOverflow() {
     try (ColumnVector lhs =
-             makeDec128Column("3396191716868766147341919609.06", "-6893798181986328848375556144.67");
-         ColumnVector rhs = makeDec128Column("2.00", "1.00");
-         ColumnVector expectedValid =
-             ColumnVector.fromBooleans(true, true);
+             makeDec128Column("-999999999999999999999999999999999999.99", "999999999999999999999999999999999999.99");
+         ColumnVector rhs = makeDec128Column("0", "0");
+         ColumnVector expectedValid = ColumnVector.fromBooleans(true, true);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
       assertColumnsAreEqual(expectedValid, found.getColumn(0));
     }
