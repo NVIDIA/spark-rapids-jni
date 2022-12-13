@@ -552,7 +552,7 @@ __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int ne
 }
 
 // Functor to add two DECIMAL128 columns with rounding and overflow detection.
-struct dec128_add_sub: public thrust::unary_function<cudf::size_type, __int128_t> {
+struct dec128_add_sub {
   dec128_add_sub(bool *overflows, cudf::mutable_column_view const &result_view,
                     cudf::column_view const &a_col, cudf::column_view const &b_col)
       : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
@@ -609,7 +609,7 @@ struct dec128_add: public dec128_add_sub {
                     cudf::column_view const &a_col, cudf::column_view const &b_col)
        : dec128_add_sub(overflows, sum_view, a_col, b_col) {}
 
-  __device__ __int128_t operator()(cudf::size_type const i) const {
+  __device__ void operator()(cudf::size_type const i) const {
     chunked256 a(a_data[i]);
     chunked256 b(b_data[i]);
 
@@ -627,7 +627,7 @@ struct dec128_sub: public dec128_add_sub {
                     cudf::column_view const &a_col, cudf::column_view const &b_col)
       : dec128_add_sub(overflows, sub_view, a_col, b_col) {}
 
-  __device__ __int128_t operator()(cudf::size_type const i) const {
+  __device__ void operator()(cudf::size_type const i) const {
     chunked256 a(a_data[i]);
     chunked256 b(b_data[i]);
 
@@ -640,7 +640,7 @@ struct dec128_sub: public dec128_add_sub {
 };
 
 // Functor to multiply two DECIMAL128 columns with rounding and overflow detection.
-struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int128_t> {
+struct dec128_multiplier {
   dec128_multiplier(bool *overflows, cudf::mutable_column_view const &product_view,
                     cudf::column_view const &a_col, cudf::column_view const &b_col)
       : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
@@ -648,7 +648,7 @@ struct dec128_multiplier : public thrust::unary_function<cudf::size_type, __int1
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         prod_scale(product_view.type().scale()) {}
 
-  __device__ __int128_t operator()(cudf::size_type const i) const {
+  __device__ void operator()(cudf::size_type const i) const {
     chunked256 const a(a_data[i]);
     chunked256 const b(b_data[i]);
 
@@ -712,7 +712,7 @@ private:
 
 // Functor to divide two DECIMAL128 columns with rounding and overflow detection.
 template <typename T>
-struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_t> {
+struct dec128_divider {
   dec128_divider(bool *overflows, cudf::mutable_column_view const &quotient_view,
                     cudf::column_view const &a_col, cudf::column_view const &b_col,
                     bool const &is_int_div)
@@ -721,7 +721,7 @@ struct dec128_divider : public thrust::unary_function<cudf::size_type, __int128_
         a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
         quot_scale(quotient_view.type().scale()), is_int_div(is_int_div) {}
 
-  __device__ __int128_t operator()(cudf::size_type const i) const {
+  __device__ void operator()(cudf::size_type const i) const {
     chunked256 n(a_data[i]);
     __int128_t const d(b_data[i]);
 
@@ -828,10 +828,9 @@ multiply_decimal128(cudf::column_view const &a, cudf::column_view const &b, int3
   auto overflows_view = columns[0]->mutable_view();
   auto product_view = columns[1]->mutable_view();
   check_scale_divisor(a.type().scale() + b.type().scale(), product_scale);
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
-                    product_view.begin<__int128_t>(),
-                    dec128_multiplier(overflows_view.begin<bool>(), product_view, a, b));
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                   thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                   dec128_multiplier(overflows_view.begin<bool>(), product_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
@@ -850,10 +849,9 @@ divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, quotient_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto quotient_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
-                    quotient_view.begin<__int128_t>(),
-                    dec128_divider<__int128_t>(overflows_view.begin<bool>(), quotient_view, a, b, false));
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                   thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                   dec128_divider<__int128_t>(overflows_view.begin<bool>(), quotient_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
@@ -872,10 +870,9 @@ integer_divide_decimal128(cudf::column_view const &a, cudf::column_view const &b
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT64}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto quotient_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_rows),
-                    quotient_view.begin<uint64_t>(),
-                    dec128_divider<uint64_t>(overflows_view.begin<bool>(), quotient_view, a, b, true));
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                   thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                   dec128_divider<uint64_t>(overflows_view.begin<bool>(), quotient_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
@@ -894,10 +891,9 @@ add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, target_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto sum_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_rows),
-                    sum_view.begin<__int128_t>(),
-                    dec128_add(overflows_view.begin<bool>(), sum_view, a, b));
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                   thrust::make_counting_iterator(num_rows),
+                   dec128_add(overflows_view.begin<bool>(), sum_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
@@ -916,10 +912,9 @@ sub_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, target_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
   auto overflows_view = columns[0]->mutable_view();
   auto sub_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(num_rows),
-                    sub_view.begin<__int128_t>(),
-                    dec128_sub(overflows_view.begin<bool>(), sub_view, a, b));
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                   thrust::make_counting_iterator(num_rows),
+                   dec128_sub(overflows_view.begin<bool>(), sub_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 } // namespace cudf::jni

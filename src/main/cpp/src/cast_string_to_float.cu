@@ -23,6 +23,7 @@
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_floats.hpp>
+#include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/utilities/bit.hpp>
 
 using namespace cudf;
@@ -173,10 +174,21 @@ class string_to_float {
         // https://en.wikipedia.org/wiki/Denormal_number
         //
 
-        double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
-        double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
+        auto const subnormal_shift = std::numeric_limits<double>::min_exponent10 - exp_ten;
+        if (subnormal_shift > 0) {
+          // Handle subnormal values. Ensure that both base and exponent are
+          // normal values before computing their product.
+          int const num_digits = static_cast<int>(log10(static_cast<double>(digits))) + 1;
+          digitsf = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
+          exp_ten += num_digits - 1;  // adjust exponent
+          auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
+          _out[_row] = static_cast<T>(digitsf * exponent);
+        } else {
+          double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
+          double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
 
-        _out[_row] = static_cast<T>(result);
+          _out[_row] = static_cast<T>(result);
+        }
       }
     }
     compute_validity(_valid, _except);
