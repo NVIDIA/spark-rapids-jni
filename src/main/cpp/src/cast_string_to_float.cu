@@ -121,6 +121,13 @@ class string_to_float {
       return;
     }
 
+    // parse any manual exponent
+    auto const manual_exp = parse_manual_exp();
+    if (!_valid) {
+      compute_validity(_valid, _except);
+      return;
+    }
+
     // 0 / -0.
     if (digits == 0) {
       remove_leading_whitespace();
@@ -130,13 +137,6 @@ class string_to_float {
       }
 
       if (_warp_lane == 0) { _out[_row] = sign * static_cast<double>(0); }
-      compute_validity(_valid, _except);
-      return;
-    }
-
-    // parse any manual exponent
-    auto const manual_exp = parse_manual_exp();
-    if (!_valid) {
       compute_validity(_valid, _except);
       return;
     }
@@ -182,7 +182,7 @@ class string_to_float {
           digitsf = digitsf / exp10(static_cast<double>(num_digits - 1 + subnormal_shift));
           exp_ten += num_digits - 1;  // adjust exponent
           auto const exponent = exp10(static_cast<double>(exp_ten + subnormal_shift));
-          _out[_row] = static_cast<T>(digitsf * exponent);
+          _out[_row]          = static_cast<T>(digitsf * exponent);
         } else {
           double const exponent = exp10(static_cast<double>(std::abs(exp_ten)));
           double const result   = exp_ten < 0 ? digitsf / exponent : digitsf * exponent;
@@ -317,19 +317,19 @@ class string_to_float {
     bool decimal    = false;  // whether or not we have a decimal
     int decimal_pos = 0;      // absolute decimal pos
 
+    // have we seen a valid digit yet?
+    bool seen_valid_digit         = false;
     constexpr int max_safe_digits = 19;
     do {
-      int num_chars = min(max_safe_digits, _blen - _bpos);
-
-      // have we seen a valid digit yet?
-      bool seen_valid_digit = false;
+      int num_chars = _blen - _bpos;
 
       // if our current sum is 0 and we don't have a decimal, strip leading
       // zeros.  handling cases such as
       // 0000001
       if (!decimal && digits == 0) {
         auto const zero_mask = __ballot_sync(0xffffffff, _warp_lane < num_chars && _c != '0');
-        auto const nz_pos    = __ffs(zero_mask) - 1;
+        // zero_mask is 0 if all digits are 0's and we need to strip those as well.
+        auto const nz_pos = zero_mask == 0 ? num_chars : __ffs(zero_mask) - 1;
         if (nz_pos > 0) {
           num_chars -= nz_pos;
           _bpos += nz_pos;
@@ -362,6 +362,9 @@ class string_to_float {
         __ballot_sync(0xffffffff, _warp_lane < num_chars && !is_digit(_c));
       auto const first_non_digit = __ffs(non_digit_mask);
 
+      // first non-digit after location 0 means there is something valid here
+      seen_valid_digit |= first_non_digit > 0;
+
       num_chars = min(num_chars, first_non_digit > 0 ? first_non_digit - 1 : num_chars);
 
       if (decimal_pos > 0 && decimal_pos > num_chars + real_digits) {
@@ -377,11 +380,6 @@ class string_to_float {
         }
         return {0, 0};
       }
-
-      // our local digit
-      uint64_t const digit = _warp_lane < num_chars ? static_cast<uint64_t>(_c - '0') *
-                                                        _ipow[(num_chars - _warp_lane) - 1]
-                                                    : 0;
 
       // we may have to start truncating because we'd go past the 64 bit limit by adding the new
       // digits
@@ -404,6 +402,12 @@ class string_to_float {
       } else {
         // add as many digits to the running sum as we can.
         int const safe_count = min(max_safe_digits - real_digits, num_chars);
+
+        // our local digit
+        uint64_t const digit = _warp_lane < safe_count ? static_cast<uint64_t>(_c - '0') *
+                                                           _ipow[(safe_count - _warp_lane) - 1]
+                                                       : 0;
+
         if (safe_count > 0) {
           // only lane 0 will have the real value so we need to shfl it to the rest of the threads.
           digits = (digits * _ipow[safe_count]) +
