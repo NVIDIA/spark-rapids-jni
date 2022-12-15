@@ -603,7 +603,7 @@ TYPED_TEST(StringToFloatTests, InfNaN)
 
 TYPED_TEST(StringToFloatTests, InvalidValues)
 {
-  cudf::test::strings_column_wrapper in{"A", "null", "na7.62", "e", ".", "", "f"};
+  cudf::test::strings_column_wrapper in{"A", "null", "na7.62", "e", ".", "", "f", "E15"};
 
   auto const valid_iter = cudf::test::iterators::all_nulls();
 
