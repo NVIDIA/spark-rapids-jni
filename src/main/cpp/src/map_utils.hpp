@@ -19,6 +19,7 @@
 #include <memory>
 
 #include <cudf/column/column_view.hpp>
+#include <cudf/utilities/default_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
 namespace spark_rapids_jni {

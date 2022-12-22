@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cudf/column/column.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 

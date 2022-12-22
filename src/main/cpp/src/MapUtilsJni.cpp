@@ -22,14 +22,14 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_MapUtils_extractRawMapFromJsonString(
-    JNIEnv *env, jclass, jlong json_column_handle, jboolean throw_if_keys_duplicate) {
-  JNI_NULL_CHECK(env, json_column_handle, "json_column_handle is null", 0);
+    JNIEnv *env, jclass, jlong input_handle, jboolean throw_if_keys_duplicate) {
+  JNI_NULL_CHECK(env, input_handle, "json_column_handle is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const *>(json_column_handle);
+    auto const input = reinterpret_cast<cudf::column_view const *>(input_handle);
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::from_json(input, throw_if_keys_duplicate).release());
+        spark_rapids_jni::from_json(*input, throw_if_keys_duplicate).release());
   }
   CATCH_STD(env, 0);
 }
