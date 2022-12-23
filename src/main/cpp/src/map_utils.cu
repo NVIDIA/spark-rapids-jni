@@ -17,6 +17,7 @@
 #include "map_utils.hpp"
 
 //
+#include <iomanip>
 #include <limits>
 #include <sstream>
 
@@ -47,7 +48,31 @@
 
 namespace spark_rapids_jni {
 
+using namespace cudf::io::json;
+
 namespace {
+
+#ifdef DEBUG_FROM_JSON
+std::string token_to_string(PdaTokenT token_type) {
+  switch (token_type) {
+    case token_t::StructBegin: return "StructBegin";
+    case token_t::StructEnd: return "StructEnd";
+    case token_t::ListBegin: return "ListBegin";
+    case token_t::ListEnd: return "ListEnd";
+    case token_t::StructMemberBegin: return "StructMemberBegin";
+    case token_t::StructMemberEnd: return "StructMemberEnd";
+    case token_t::FieldNameBegin: return "FieldNameBegin";
+    case token_t::FieldNameEnd: return "FieldNameEnd";
+    case token_t::StringBegin: return "StringBegin";
+    case token_t::StringEnd: return "StringEnd";
+    case token_t::ValueBegin: return "ValueBegin";
+    case token_t::ValueEnd: return "ValueEnd";
+    case token_t::ErrorBegin: return "ErrorBegin";
+    default: return "Unknown";
+  }
+}
+
+#endif
 
 auto make_empty_json_string_buffer(rmm::cuda_stream_view stream,
                                    rmm::mr::device_memory_resource *mr) {
@@ -148,7 +173,6 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 #endif
 
   // Tokenize the input json strings.
-  using namespace cudf::io::json;
   static_assert(sizeof(SymbolT) == sizeof(char),
                 "Invalid internal data for nested json tokenizer.");
   auto const [tokens, token_indices] =
@@ -180,7 +204,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                "There is error during parsing the input json string(s).");
 
   // Whether a token does represent a node in the tree representation
-  auto const is_node = [] __device__(PdaTokenT const token) -> bool {
+  auto const is_node = [] __host__ __device__(PdaTokenT const token) -> bool {
     switch (token) {
       case token_t::StructBegin:
       case token_t::ListBegin:
@@ -229,6 +253,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 #ifdef DEBUG_FROM_JSON
     {
       auto const h_json = cudf::detail::make_host_vector_sync(d_unified_json, stream);
+      auto const h_tokens = cudf::detail::make_host_vector_sync(
+          cudf::device_span<PdaTokenT const>{tokens.data(), tokens.size()}, stream);
       auto const h_token_indices = cudf::detail::make_host_vector_sync(
           cudf::device_span<SymbolOffsetT const>{token_indices.data(), token_indices.size()},
           stream);
@@ -241,12 +267,16 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       for (size_t i = 0; i < h_token_levels.size(); ++i) {
         auto const token_idx = h_token_indices[i];
         while (print_idx < token_idx) {
-          ss << print_idx << ": " << h_json[print_idx] << " | -- \n";
+          ss << std::setw(5) << print_idx << ": " << h_json[print_idx] << "\n";
           ++print_idx;
         }
+        print_idx = token_idx + 1;
+
         auto const c = h_json[token_idx];
         auto const level = h_token_levels[i];
-        ss << token_idx << ": " << c << " | " << static_cast<int>(level) << " (node)\n";
+        ss << std::setw(5) << token_idx << ": " << c << " | " << std::left << std::setw(17)
+           << token_to_string(h_tokens[i]) << " | level = " << static_cast<int>(level)
+           << (is_node(h_tokens[i]) ? " (node)" : "") << "\n";
       }
       std::cerr << ss.str() << std::endl;
     }
