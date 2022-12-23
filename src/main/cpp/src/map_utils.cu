@@ -99,6 +99,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   auto const default_mr = rmm::mr::get_current_device_resource();
 
   // Firstly, concatenate all the input json strings into one giant input json string.
+  // The output can be validated using https://jsonformatter.curiousconcept.com/.
   auto const processed_input = unify_json_strings(input, stream, default_mr);
 
 #ifdef PRINT_DEBUG_JSON
@@ -111,7 +112,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 #if 0
   // Tokenize the input json strings.
   auto const d_input =
-      cudf::device_span<SymbolT const>{d_scalar.data(), static_cast<size_t>(d_scalar.size())};
+      cudf::device_span<SymbolT const>{processed_input.data(), processed_input.size()};
   auto const [tokens, token_indices] =
       cudf::io::json::detail::get_token_stream(d_input, default_options, stream);
   // Identify the key-value tokens.
