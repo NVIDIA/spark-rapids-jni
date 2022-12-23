@@ -26,11 +26,14 @@ public class MapUtilsTest {
 
   @Test
   void testFromJsonSimpleInput() {
-    String jsonString1 = "{\"Zipcode\" : 704 , \"ZipCodeType\" : \"STANDARD\" , \"City\" : \"PARC " +
-        "PARQUE\" , \"State\" : \"PR\"}";
+    String jsonString1 = "{\"Zipcode\" : 704 , \"ZipCodeType\" : \"STANDARD\" , \"City\" : \"PARC" +
+        " PARQUE\" , \"State\" : \"PR\"}";
     String jsonString2 = "{\"Integer\":12345,\"String\":\"ABCXYZ\",\"Double\":1.1245}";
+    String jsonString3 = "{\"category\": \"reference\", \"index\": [4,{},null,{\"a\":[{ }, {}] } " +
+        "], \"author\": \"Nigel Rees\", \"title\": \"{}[], <=semantic-symbols-string\", " +
+        "\"price\": 8.95}";
     try (ColumnVector input =
-             ColumnVector.fromStrings(jsonString1, jsonString2)) {
+             ColumnVector.fromStrings(jsonString1, jsonString2, jsonString3)) {
       ColumnVector output = MapUtils.extractRawMapFromJsonString(input, true);
     }
   }
