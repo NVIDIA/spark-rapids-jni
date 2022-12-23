@@ -26,8 +26,8 @@ public class MapUtilsTest {
 
   @Test
   void testFromJsonSimpleInput() {
-    String jsonString1 = "{\"Zipcode\":704,\"ZipCodeType\":\"STANDARD\",\"City\":\"PARC" +
-        "PARQUE\",\"State\":\"PR\"}";
+    String jsonString1 = "{\"Zipcode\" : 704 , \"ZipCodeType\" : \"STANDARD\" , \"City\" : \"PARC " +
+        "PARQUE\" , \"State\" : \"PR\"}";
     String jsonString2 = "{\"Integer\":12345,\"String\":\"ABCXYZ\",\"Double\":1.1245}";
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2)) {
