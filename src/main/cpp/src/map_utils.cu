@@ -39,10 +39,17 @@
 #include <rmm/exec_policy.hpp>
 
 //
+#include <cub/device/device_radix_sort.cuh>
+#include <thrust/iterator/transform_output_iterator.h>
+#include <thrust/sequence.h>
+
+//
+#include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/scan.h>
+#include <thrust/transform.h>
 
 #define DEBUG_FROM_JSON
 
@@ -51,6 +58,101 @@ namespace spark_rapids_jni {
 using namespace cudf::io::json;
 
 namespace {
+
+// Convert token indices to node range for each valid node.
+struct node_ranges {
+  cudf::device_span<PdaTokenT const> tokens;
+  cudf::device_span<SymbolOffsetT const> token_indices;
+  bool include_quote_char;
+  __device__ auto operator()(cudf::size_type i) -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
+    // Whether a token expects to be followed by its respective end-of-* token partner
+    auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
+      switch (token) {
+        case token_t::StringBegin:
+        case token_t::ValueBegin:
+        case token_t::FieldNameBegin: return true;
+        default: return false;
+      };
+    };
+    // The end-of-* partner token for a given beginning-of-* token
+    auto const end_of_partner = [] __device__(PdaTokenT const token) {
+      switch (token) {
+        case token_t::StringBegin: return token_t::StringEnd;
+        case token_t::ValueBegin: return token_t::ValueEnd;
+        case token_t::FieldNameBegin: return token_t::FieldNameEnd;
+        default: return token_t::ErrorBegin;
+      };
+    };
+    // Includes quote char for end-of-string token or Skips the quote char for
+    // beginning-of-field-name token
+    auto const get_token_index = [include_quote_char = include_quote_char] __device__(
+                                     PdaTokenT const token, SymbolOffsetT const token_index) {
+      constexpr SymbolOffsetT quote_char_size = 1;
+      switch (token) {
+        // Strip off quote char included for StringBegin
+        case token_t::StringBegin: return token_index + (include_quote_char ? 0 : quote_char_size);
+        // Strip off or Include trailing quote char for string values for StringEnd
+        case token_t::StringEnd: return token_index + (include_quote_char ? quote_char_size : 0);
+        // Strip off quote char included for FieldNameBegin
+        case token_t::FieldNameBegin: return token_index + quote_char_size;
+        default: return token_index;
+      };
+    };
+    PdaTokenT const token = tokens[i];
+    // The section from the original JSON input that this token demarcates
+    SymbolOffsetT range_begin = get_token_index(token, token_indices[i]);
+    SymbolOffsetT range_end = range_begin + 1; // non-leaf, non-field nodes ignore this value.
+    if (is_begin_of_section(token)) {
+      if ((i + 1) < tokens.size() && end_of_partner(token) == tokens[i + 1]) {
+        // Update the range_end for this pair of tokens
+        range_end = get_token_index(tokens[i + 1], token_indices[i + 1]);
+      }
+    }
+    return thrust::make_tuple(range_begin, range_end);
+  }
+};
+
+template <typename IndexType = size_t, typename KeyType>
+std::pair<rmm::device_uvector<KeyType>, rmm::device_uvector<IndexType>>
+stable_sorted_key_order(cudf::device_span<KeyType const> keys, rmm::cuda_stream_view stream) {
+
+  // Determine temporary device storage requirements
+  rmm::device_uvector<KeyType> keys_buffer1(keys.size(), stream);
+  rmm::device_uvector<KeyType> keys_buffer2(keys.size(), stream);
+  rmm::device_uvector<IndexType> order_buffer1(keys.size(), stream);
+  rmm::device_uvector<IndexType> order_buffer2(keys.size(), stream);
+  cub::DoubleBuffer<IndexType> order_buffer(order_buffer1.data(), order_buffer2.data());
+  cub::DoubleBuffer<KeyType> keys_buffer(keys_buffer1.data(), keys_buffer2.data());
+  size_t temp_storage_bytes = 0;
+  cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, keys_buffer, order_buffer,
+                                  keys.size());
+  rmm::device_buffer d_temp_storage(temp_storage_bytes, stream);
+
+  thrust::copy(rmm::exec_policy(stream), keys.begin(), keys.end(), keys_buffer1.begin());
+  thrust::sequence(rmm::exec_policy(stream), order_buffer1.begin(), order_buffer1.end());
+
+  cub::DeviceRadixSort::SortPairs(d_temp_storage.data(), temp_storage_bytes, keys_buffer,
+                                  order_buffer, keys.size(), 0, sizeof(KeyType) * 8,
+                                  stream.value());
+
+  return std::pair{keys_buffer.Current() == keys_buffer1.data() ? std::move(keys_buffer1) :
+                                                                  std::move(keys_buffer2),
+                   order_buffer.Current() == order_buffer1.data() ? std::move(order_buffer1) :
+                                                                    std::move(order_buffer2)};
+}
+void propagate_parent_to_siblings(cudf::device_span<TreeDepthT const> node_levels,
+                                  cudf::device_span<NodeIndexT> parent_node_ids,
+                                  rmm::cuda_stream_view stream) {
+  auto [sorted_node_levels, sorted_order] =
+      stable_sorted_key_order<cudf::size_type>(node_levels, stream);
+  // instead of gather, using permutation_iterator, which is ~17% faster
+
+  thrust::inclusive_scan_by_key(
+      rmm::exec_policy(stream), sorted_node_levels.begin(), sorted_node_levels.end(),
+      thrust::make_permutation_iterator(parent_node_ids.begin(), sorted_order.begin()),
+      thrust::make_permutation_iterator(parent_node_ids.begin(), sorted_order.begin()),
+      thrust::equal_to<TreeDepthT>{}, thrust::maximum<NodeIndexT>{});
+}
 
 #ifdef DEBUG_FROM_JSON
 std::string token_to_string(PdaTokenT token_type) {
@@ -264,6 +366,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       std::stringstream ss;
       ss << "Token levels:\n";
       SymbolOffsetT print_idx{0};
+      NodeT node_id{0};
       for (size_t i = 0; i < h_token_levels.size(); ++i) {
         auto const token_idx = h_token_indices[i];
         while (print_idx < token_idx) {
@@ -276,7 +379,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
         auto const level = h_token_levels[i];
         ss << std::setw(5) << token_idx << ": " << c << " | " << std::left << std::setw(17)
            << token_to_string(h_tokens[i]) << " | level = " << static_cast<int>(level)
-           << (is_node(h_tokens[i]) ? " (node)" : "") << "\n";
+           << (is_node(h_tokens[i]) ? " (node, id = " + std::to_string(node_id++) + ")" : "")
+           << "\n";
       }
       std::cerr << ss.str() << std::endl;
     }
@@ -297,6 +401,109 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
     ss << "Node levels:\n";
     for (auto const level : h_node_levels) {
       ss << static_cast<int>(level) << ", ";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
+  // Node parent ids:
+  // previous push node_id transform, stable sort by level, segmented scan with Max, reorder.
+  rmm::device_uvector<NodeIndexT> parent_node_ids(num_nodes, stream, mr);
+  // This block of code is generalized logical stack algorithm. TODO: make this a separate function.
+  {
+    rmm::device_uvector<NodeIndexT> node_token_ids(num_nodes, stream);
+    thrust_copy_if(rmm::exec_policy(stream), thrust::make_counting_iterator<NodeIndexT>(0),
+                   thrust::make_counting_iterator<NodeIndexT>(0) + num_tokens, tokens.begin(),
+                   node_token_ids.begin(), is_node);
+
+    // previous push node_id
+    // if previous node is a push, then i-1
+    // if previous node is FE, then i-2 (returns FB's index)
+    // if previous node is SMB and its previous node is a push, then i-2
+    // eg. `{ SMB FB FE VB VE SME` -> `{` index as FB's parent.
+    // else -1
+    auto const first_childs_parent_token_id =
+        [tokens_gpu = tokens.begin()] __device__(auto i) -> NodeIndexT {
+      if (i <= 0) {
+        return -1;
+      }
+      if (tokens_gpu[i - 1] == token_t::StructBegin or tokens_gpu[i - 1] == token_t::ListBegin) {
+        return i - 1;
+      } else if (tokens_gpu[i - 1] == token_t::FieldNameEnd) {
+        return i - 2;
+      } else if (tokens_gpu[i - 1] == token_t::StructMemberBegin and
+                 (tokens_gpu[i - 2] == token_t::StructBegin ||
+                  tokens_gpu[i - 2] == token_t::ListBegin)) {
+        return i - 2;
+      } else {
+        return -1;
+      }
+    };
+
+    thrust::transform(
+        rmm::exec_policy(stream), node_token_ids.begin(), node_token_ids.end(),
+        parent_node_ids.begin(),
+        [node_ids_gpu = node_token_ids.begin(), num_nodes,
+         first_childs_parent_token_id] __device__(NodeIndexT const tid) -> NodeIndexT {
+          auto const pid = first_childs_parent_token_id(tid);
+          return pid < 0 ?
+                     parent_node_sentinel :
+                     thrust::lower_bound(thrust::seq, node_ids_gpu, node_ids_gpu + num_nodes, pid) -
+                         node_ids_gpu;
+          // parent_node_sentinel is -1, useful for segmented max operation below
+        });
+  }
+  // Propagate parent node to siblings from first sibling - inplace.
+  propagate_parent_to_siblings(
+      cudf::device_span<TreeDepthT const>{node_levels.data(), node_levels.size()}, parent_node_ids,
+      stream);
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_parent_node_ids = cudf::detail::make_host_vector_sync(
+        cudf::device_span<NodeIndexT const>{parent_node_ids.data(), parent_node_ids.size()},
+        stream);
+    std::stringstream ss;
+    ss << "Parent node id:\n";
+    for (auto const id : h_parent_node_ids) {
+      ss << static_cast<int>(id) << ", ";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
+  // Node ranges: copy_if with transform.
+  rmm::device_uvector<SymbolOffsetT> node_range_begin(num_nodes, stream, mr);
+  rmm::device_uvector<SymbolOffsetT> node_range_end(num_nodes, stream, mr);
+  auto const node_range_tuple_it =
+      thrust::make_zip_iterator(node_range_begin.begin(), node_range_end.begin());
+  // Whether the tokenizer stage should keep quote characters for string values
+  // If the tokenizer keeps the quote characters, they may be stripped during type casting
+  constexpr bool include_quote_char = false;
+  auto const node_range_out_it = thrust::make_transform_output_iterator(
+      node_range_tuple_it, node_ranges{tokens, token_indices, include_quote_char});
+
+  auto const node_range_out_end = thrust_copy_if(
+      rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+      thrust::make_counting_iterator<cudf::size_type>(0) + num_tokens, node_range_out_it,
+      [is_node, tokens_gpu = tokens.begin()] __device__(cudf::size_type i) -> bool {
+        return is_node(tokens_gpu[i]);
+      });
+  CUDF_EXPECTS(node_range_out_end - node_range_out_it == num_nodes, "node range count mismatch");
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_node_range_begin = cudf::detail::make_host_vector_sync(
+        cudf::device_span<SymbolOffsetT const>{node_range_begin.data(), node_range_begin.size()},
+        stream);
+    auto const h_node_range_end = cudf::detail::make_host_vector_sync(
+        cudf::device_span<SymbolOffsetT const>{node_range_end.data(), node_range_end.size()},
+        stream);
+    std::stringstream ss;
+    ss << "Node range:\n";
+    for (size_t i = 0; i < h_node_range_begin.size(); ++i) {
+      ss << "[ " << static_cast<int>(h_node_range_begin[i]) << ", "
+         << static_cast<int>(h_node_range_end[i]) << " ]\n";
     }
     std::cerr << ss.str() << std::endl;
   }
