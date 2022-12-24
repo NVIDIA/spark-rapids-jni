@@ -24,6 +24,10 @@
 #include <string_view>
 
 //
+#include <cudf/strings/detail/concatenate.hpp>
+#include <cudf/strings/substring.hpp>
+
+//
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -40,6 +44,7 @@
 
 //
 #include <cub/device/device_radix_sort.cuh>
+#include <thrust/for_each.h>
 #include <thrust/iterator/transform_output_iterator.h>
 #include <thrust/sequence.h>
 
@@ -570,6 +575,57 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       ss << "[ " << static_cast<int>(h_node_range_begin[i]) << ", "
          << static_cast<int>(h_node_range_end[i]) << " ]\n";
     }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
+  // Temporary do this for testing: it is not efficient.
+  auto const json_col =
+      cudf::make_strings_column(1,
+                                cudf::detail::make_device_uvector_async<int>(
+                                    std::vector<int>{0, (int)unified_json_buff.size()}, stream, mr),
+                                unify_json_strings(input, stream, default_mr));
+  std::vector<cudf::column_view> cols;
+  for (int i = 0; i < num_nodes; ++i) {
+    cols.push_back(json_col->view());
+  }
+  auto const duplicates_json = cudf::strings::detail::concatenate(cols, stream, mr);
+
+  auto const extracted_json = cudf::strings::slice_strings(
+      duplicates_json->view(),
+      cudf::column_view{cudf::data_type{cudf::type_id::INT32}, (int)node_range_begin.size(),
+                        node_range_begin.data()},
+      cudf::column_view{cudf::data_type{cudf::type_id::INT32}, (int)node_range_end.size(),
+                        node_range_end.data()});
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const child = extracted_json->child(cudf::strings_column_view::chars_column_index);
+    auto const offsets = extracted_json->child(cudf::strings_column_view::offsets_column_index);
+
+    auto const h_extracted_json = cudf::detail::make_host_vector_sync(
+        cudf::device_span<char const>{child.view().data<char>(), (size_t)child.size()}, stream);
+
+    auto const h_extracted_offsets = cudf::detail::make_host_vector_sync(
+        cudf::device_span<int const>{offsets.view().data<int>(), (size_t)offsets.size()}, stream);
+
+    std::stringstream ss;
+    ss << "Extract json:\n";
+    bool is_key{true};
+
+    for (size_t i = 0; i + 1 < h_extracted_offsets.size(); ++i) {
+      auto const ptr = &h_extracted_json[h_extracted_offsets[i]];
+      auto const size = h_extracted_offsets[i + 1] - h_extracted_offsets[i];
+      if (size > 0) {
+        if (is_key) {
+          ss << "\"" << std::string(ptr, size) << "\" : ";
+        } else {
+          ss << "\"" << std::string(ptr, size) << "\"\n";
+        }
+        is_key = !is_key;
+      }
+    }
+    //    ss << std::string(h_extracted_json.data(), h_extracted_json.size()) << "\n";
     std::cerr << ss.str() << std::endl;
   }
 #endif
