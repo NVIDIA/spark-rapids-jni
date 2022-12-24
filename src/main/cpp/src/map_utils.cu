@@ -90,6 +90,17 @@ struct node_ranges {
         default: return token_t::ErrorBegin;
       };
     };
+
+    auto const nested_node_to_value = [] __device__(PdaTokenT const token) -> int32_t {
+      switch (token) {
+        case token_t::StructBegin: return 1;
+        case token_t::StructEnd: return -1;
+        case token_t::ListBegin: return 1 << 8;
+        case token_t::ListEnd: return -(1 << 8);
+        default: return 0;
+      };
+    };
+
     // Includes quote char for end-of-string token or Skips the quote char for
     // beginning-of-field-name token
     auto const get_token_index = [include_quote_char = include_quote_char] __device__(
@@ -117,13 +128,24 @@ struct node_ranges {
     ) {
       auto const token_idx = node_to_token_indices[node_idx];
       PdaTokenT const token = tokens[token_idx];
+      cudf_assert(is_begin_of_section(token) && "Invalid node category.");
+
       // The section from the original JSON input that this token demarcates
       SymbolOffsetT range_begin = get_token_index(token, token_indices[token_idx]);
       SymbolOffsetT range_end = range_begin + 1; // non-leaf, non-field nodes ignore this value.
-      if (is_begin_of_section(token)) {
-        if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
-          // Update the range_end for this pair of tokens
-          range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
+      if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
+        // Update the range_end for this pair of tokens
+        range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
+      } else {
+        auto nested_range_value = nested_node_to_value(token); // iterate until this is zero
+        auto end_idx = token_idx + 1;
+        while (end_idx < tokens.size()) {
+          nested_range_value += nested_node_to_value(tokens[end_idx]);
+          if (nested_range_value == 0) {
+            range_end = get_token_index(tokens[end_idx], token_indices[end_idx]) + 1;
+            break;
+          }
+          ++end_idx;
         }
       }
       return thrust::make_tuple(range_begin, range_end);
