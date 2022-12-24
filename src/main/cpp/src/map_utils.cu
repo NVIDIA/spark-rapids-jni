@@ -63,9 +63,10 @@ namespace {
 struct node_ranges {
   cudf::device_span<PdaTokenT const> tokens;
   cudf::device_span<SymbolOffsetT const> token_indices;
+  cudf::device_span<SymbolOffsetT const> node_to_token_indices;
   cudf::device_span<NodeIndexT const> parent_node_ids;
   static const bool include_quote_char{false};
-  __device__ auto operator()(cudf::size_type i) -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
+  __device__ auto operator()(cudf::size_type idx) -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
     // Whether a token expects to be followed by its respective end-of-* token partner
     auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
       switch (token) {
@@ -99,14 +100,16 @@ struct node_ranges {
         default: return token_index;
       };
     };
-    PdaTokenT const token = tokens[i];
+
+    auto const token_idx = node_to_token_indices[idx];
+    PdaTokenT const token = tokens[token_idx];
     // The section from the original JSON input that this token demarcates
-    SymbolOffsetT range_begin = get_token_index(token, token_indices[i]);
+    SymbolOffsetT range_begin = get_token_index(token, token_indices[token_idx]);
     SymbolOffsetT range_end = range_begin + 1; // non-leaf, non-field nodes ignore this value.
     if (is_begin_of_section(token)) {
-      if ((i + 1) < tokens.size() && end_of_partner(token) == tokens[i + 1]) {
+      if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
         // Update the range_end for this pair of tokens
-        range_end = get_token_index(tokens[i + 1], token_indices[i + 1]);
+        range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
       }
     }
     return thrust::make_tuple(range_begin, range_end);
@@ -507,15 +510,12 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   // Whether the tokenizer stage should keep quote characters for string values
   // If the tokenizer keeps the quote characters, they may be stripped during type casting
   auto const node_range_out_it = thrust::make_transform_output_iterator(
-      node_range_tuple_it, node_ranges{tokens, token_indices, parent_node_ids});
+      node_range_tuple_it,
+      node_ranges{tokens, token_indices, node_to_token_indices, parent_node_ids});
 
-  auto const node_range_out_end = thrust_copy_if(
-      rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
-      thrust::make_counting_iterator<cudf::size_type>(0) + num_tokens, node_range_out_it,
-      [is_node, tokens_gpu = tokens.begin()] __device__(cudf::size_type i) -> bool {
-        return is_node(tokens_gpu[i]);
-      });
-  CUDF_EXPECTS(node_range_out_end - node_range_out_it == num_nodes, "node range count mismatch");
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                    thrust::make_counting_iterator<cudf::size_type>(0) + num_nodes,
+                    node_range_out_it, thrust::identity{});
 
 #ifdef DEBUG_FROM_JSON
   {
