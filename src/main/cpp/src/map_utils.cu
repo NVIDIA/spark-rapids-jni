@@ -68,6 +68,23 @@ using namespace cudf::io::json;
 
 namespace {
 
+struct is_key {
+  cudf::device_span<NodeIndexT const> parent_node_ids;
+  __device__ auto operator()(cudf::size_type node_idx) const {
+
+    return parent_node_ids[node_idx] > 0 && parent_node_ids[parent_node_ids[node_idx]] == 0;
+  }
+};
+
+struct is_value {
+  cudf::device_span<NodeIndexT const> parent_node_ids;
+  __device__ auto operator()(cudf::size_type node_idx) const {
+
+    return parent_node_ids[node_idx] > 0 && parent_node_ids[parent_node_ids[node_idx]] > 0 &&
+           parent_node_ids[parent_node_ids[parent_node_ids[node_idx]]] == 0;
+  }
+};
+
 // Convert token indices to node range for each valid node.
 struct node_ranges {
   cudf::device_span<PdaTokenT const> tokens;
@@ -239,9 +256,9 @@ auto unify_json_strings(cudf::column_view const &input, rmm::cuda_stream_view st
     return make_empty_json_string_buffer(stream, mr);
   }
 
-  // We append one comma character (',') to the end of all input strings before concatenating them.
-  // Note that we also need to concatenate the opening and closing brackets ('[' and ']') to the
-  // beginning and the end of the output.
+  // We append one comma character (',') to the end of all input strings before concatenating
+  // them. Note that we also need to concatenate the opening and closing brackets ('[' and ']')
+  // to the beginning and the end of the output.
   auto const output_size =
       static_cast<std::size_t>(input.child(cudf::strings_column_view::chars_column_index).size()) +
       static_cast<std::size_t>(input.size()) -
@@ -461,7 +478,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   // Node parent ids:
   // previous push node_id transform, stable sort by level, segmented scan with Max, reorder.
   rmm::device_uvector<NodeIndexT> parent_node_ids(num_nodes, stream, mr);
-  // This block of code is generalized logical stack algorithm. TODO: make this a separate function.
+  // This block of code is generalized logical stack algorithm. TODO: make this a separate
+  // function.
   {
     rmm::device_uvector<NodeIndexT> node_token_ids(num_nodes, stream);
     thrust_copy_if(rmm::exec_policy(stream), thrust::make_counting_iterator<NodeIndexT>(0),
@@ -601,13 +619,13 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                         node_range_begin.data()},
       cudf::column_view{cudf::data_type{cudf::type_id::INT32}, (int)node_range_end.size(),
                         node_range_end.data()});
-  auto const child = extracted_json->child(cudf::strings_column_view::chars_column_index);
 
   // Fix this
   //  CUDF_EXPECTS(child.size() % 2 == 0, "Invalid key-value pair extraction.");
 
 #ifdef DEBUG_FROM_JSON
   {
+    auto const child = extracted_json->child(cudf::strings_column_view::chars_column_index);
     auto const offsets = extracted_json->child(cudf::strings_column_view::offsets_column_index);
 
     auto const h_extracted_json = cudf::detail::make_host_vector_sync(
@@ -697,8 +715,132 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       cudf::make_numeric_column(cudf::data_type{cudf::type_to_id<cudf::offset_type>()},
                                 input.size() + 1, cudf::mask_state::UNALLOCATED, stream, mr);
   auto const d_offsets = offsets_column->mutable_view().begin<cudf::offset_type>();
-  thrust::exclusive_scan(rmm::exec_policy(stream), d_offsets, d_offsets + input.size() + 1,
-                         d_offsets);
+  CUDF_CUDA_TRY(cudaMemsetAsync(d_offsets, 0, sizeof(cudf::offset_type), stream.value()));
+  thrust::inclusive_scan(rmm::exec_policy(stream), list_sizes.begin(), list_sizes.end(),
+                         d_offsets + 1);
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_list_offsets = cudf::detail::make_host_vector_sync(
+        cudf::device_span<cudf::size_type const>{d_offsets, (size_t)input.size() + 1}, stream);
+
+    std::stringstream ss;
+    ss << "Output list offsets:\n";
+    for (auto const offset : h_list_offsets) {
+      ss << static_cast<int>(offset) << ", ";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
+  //
+  //
+  rmm::device_uvector<SymbolOffsetT> key_range_begin(num_nodes, stream, mr);
+  rmm::device_uvector<SymbolOffsetT> key_range_end(num_nodes, stream, mr);
+  rmm::device_uvector<SymbolOffsetT> value_range_begin(num_nodes, stream, mr);
+  rmm::device_uvector<SymbolOffsetT> value_range_end(num_nodes, stream, mr);
+  auto const key_range_tuple_it =
+      thrust::make_zip_iterator(key_range_begin.begin(), key_range_end.begin());
+  auto const value_range_tuple_it =
+      thrust::make_zip_iterator(value_range_begin.begin(), value_range_end.begin());
+
+  auto const key_end =
+      thrust_copy_if(rmm::exec_policy(stream), node_range_tuple_it, node_range_tuple_it + num_nodes,
+                     thrust::make_counting_iterator<cudf::size_type>(0), key_range_tuple_it,
+                     is_key{parent_node_ids});
+  auto const num_keys = thrust::distance(key_range_tuple_it, key_end);
+
+  auto const value_end =
+      thrust_copy_if(rmm::exec_policy(stream), node_range_tuple_it, node_range_tuple_it + num_nodes,
+                     thrust::make_counting_iterator<cudf::size_type>(0), value_range_tuple_it,
+                     is_value{parent_node_ids});
+  auto const num_values = thrust::distance(value_range_tuple_it, value_end);
+
+  CUDF_EXPECTS(num_keys == num_values, "Invalid key-value pair extraction.");
+
+  auto const extracted_keys = [&] {
+    std::vector<cudf::column_view> cols;
+    for (int i = 0; i < num_keys; ++i) {
+      cols.push_back(json_col->view());
+    }
+    auto const duplicates_json = cudf::strings::detail::concatenate(cols, stream, mr);
+
+    return cudf::strings::slice_strings(duplicates_json->view(),
+                                        cudf::column_view{cudf::data_type{cudf::type_id::INT32},
+                                                          (int)num_keys, key_range_begin.data()},
+                                        cudf::column_view{cudf::data_type{cudf::type_id::INT32},
+                                                          (int)num_keys, key_range_end.data()});
+  }();
+
+  auto const extracted_values = [&] {
+    std::vector<cudf::column_view> cols;
+    for (int i = 0; i < num_values; ++i) {
+      cols.push_back(json_col->view());
+    }
+    auto const duplicates_json = cudf::strings::detail::concatenate(cols, stream, mr);
+
+    return cudf::strings::slice_strings(duplicates_json->view(),
+                                        cudf::column_view{cudf::data_type{cudf::type_id::INT32},
+                                                          (int)num_values,
+                                                          value_range_begin.data()},
+                                        cudf::column_view{cudf::data_type{cudf::type_id::INT32},
+                                                          (int)num_values, value_range_end.data()});
+  }();
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const keys_child = extracted_keys->child(cudf::strings_column_view::chars_column_index);
+    auto const keys_offsets =
+        extracted_keys->child(cudf::strings_column_view::offsets_column_index);
+    auto const values_child =
+        extracted_values->child(cudf::strings_column_view::chars_column_index);
+    auto const values_offsets =
+        extracted_values->child(cudf::strings_column_view::offsets_column_index);
+
+    auto const h_extracted_keys_child = cudf::detail::make_host_vector_sync(
+        cudf::device_span<char const>{keys_child.view().data<char>(), (size_t)keys_child.size()},
+        stream);
+    auto const h_extracted_keys_offsets = cudf::detail::make_host_vector_sync(
+        cudf::device_span<int const>{keys_offsets.view().data<int>(), (size_t)keys_offsets.size()},
+        stream);
+
+    auto const h_extracted_values_child = cudf::detail::make_host_vector_sync(
+        cudf::device_span<char const>{values_child.view().data<char>(),
+                                      (size_t)values_child.size()},
+        stream);
+    auto const h_extracted_values_offsets = cudf::detail::make_host_vector_sync(
+        cudf::device_span<int const>{values_offsets.view().data<int>(),
+                                     (size_t)values_offsets.size()},
+        stream);
+
+    auto const h_list_offsets = cudf::detail::make_host_vector_sync(
+        cudf::device_span<cudf::offset_type const>{offsets_column->view().data<cudf::offset_type>(),
+                                                   (size_t)offsets_column->size()},
+        stream);
+
+    CUDF_EXPECTS(h_list_offsets.back() == extracted_keys->size() &&
+                     h_list_offsets.back() == extracted_values->size(),
+                 "Invalid ...");
+
+    std::stringstream ss;
+    ss << "Extract keys-values:\n";
+
+    for (size_t i = 0; i + 1 < h_list_offsets.size(); ++i) {
+      ss << "List " << i << ": [" << h_list_offsets[i] << ", " << h_list_offsets[i + 1] << "]\n";
+      //      auto const size = h_extracted_offsets[i + 1] - h_extracted_offsets[i];
+      //      if (size > 0) {
+      //        if (is_key) {
+      //          ss << "\"" << std::string(ptr, size) << "\" : ";
+      //        } else {
+      //          ss << "\"" << std::string(ptr, size) << "\"\n";
+      //        }
+      //        is_key = !is_key;
+      //      }
+    }
+    //    ss << std::string(h_extracted_json.data(), h_extracted_json.size()) << "\n";
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
 
 #if 0
 
