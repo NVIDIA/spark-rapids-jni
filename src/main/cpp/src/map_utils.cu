@@ -63,7 +63,8 @@ namespace {
 struct node_ranges {
   cudf::device_span<PdaTokenT const> tokens;
   cudf::device_span<SymbolOffsetT const> token_indices;
-  bool include_quote_char;
+  cudf::device_span<NodeIndexT const> parent_node_ids;
+  static const bool include_quote_char{false};
   __device__ auto operator()(cudf::size_type i) -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
     // Whether a token expects to be followed by its respective end-of-* token partner
     auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
@@ -472,6 +473,32 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   }
 #endif
 
+  rmm::device_uvector<SymbolOffsetT> node_to_token_indices(num_nodes, stream, mr);
+  auto const node_to_token_indices_end =
+      thrust_copy_if(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                     thrust::make_counting_iterator<cudf::size_type>(0) + num_tokens,
+                     node_to_token_indices.begin(),
+                     [is_node, tokens_gpu = tokens.begin()] __device__(cudf::size_type i) -> bool {
+                       return is_node(tokens_gpu[i]);
+                     });
+  CUDF_EXPECTS(thrust::distance(node_to_token_indices.begin(), node_to_token_indices_end) ==
+                   num_nodes,
+               "node to token index map count mismatch");
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_node_to_token_indices = cudf::detail::make_host_vector_sync(
+        cudf::device_span<SymbolOffsetT const>{node_to_token_indices.data(),
+                                               node_to_token_indices.size()},
+        stream);
+    std::stringstream ss;
+    ss << "Node-to-token-index map:\n";
+    for (size_t i = 0; i < h_node_to_token_indices.size(); ++i) {
+      ss << i << " => " << static_cast<int>(h_node_to_token_indices[i]) << "\n";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
   // Node ranges: copy_if with transform.
   rmm::device_uvector<SymbolOffsetT> node_range_begin(num_nodes, stream, mr);
   rmm::device_uvector<SymbolOffsetT> node_range_end(num_nodes, stream, mr);
@@ -479,9 +506,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       thrust::make_zip_iterator(node_range_begin.begin(), node_range_end.begin());
   // Whether the tokenizer stage should keep quote characters for string values
   // If the tokenizer keeps the quote characters, they may be stripped during type casting
-  constexpr bool include_quote_char = false;
   auto const node_range_out_it = thrust::make_transform_output_iterator(
-      node_range_tuple_it, node_ranges{tokens, token_indices, include_quote_char});
+      node_range_tuple_it, node_ranges{tokens, token_indices, parent_node_ids});
 
   auto const node_range_out_end = thrust_copy_if(
       rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
