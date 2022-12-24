@@ -827,15 +827,23 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 
     for (size_t i = 0; i + 1 < h_list_offsets.size(); ++i) {
       ss << "List " << i << ": [" << h_list_offsets[i] << ", " << h_list_offsets[i + 1] << "]\n";
-      //      auto const size = h_extracted_offsets[i + 1] - h_extracted_offsets[i];
-      //      if (size > 0) {
-      //        if (is_key) {
-      //          ss << "\"" << std::string(ptr, size) << "\" : ";
-      //        } else {
-      //          ss << "\"" << std::string(ptr, size) << "\"\n";
-      //        }
-      //        is_key = !is_key;
-      //      }
+      for (cudf::size_type string_idx = h_list_offsets[i]; string_idx < h_list_offsets[i + 1];
+           ++string_idx) {
+        {
+          auto const string_begin = h_extracted_keys_offsets[string_idx];
+          auto const string_end = h_extracted_keys_offsets[string_idx + 1];
+          auto const size = string_end - string_begin;
+          auto const ptr = &h_extracted_keys_child[string_begin];
+          ss << "\t\"" << std::string(ptr, size) << "\" : ";
+        }
+        {
+          auto const string_begin = h_extracted_values_offsets[string_idx];
+          auto const string_end = h_extracted_values_offsets[string_idx + 1];
+          auto const size = string_end - string_begin;
+          auto const ptr = &h_extracted_values_child[string_begin];
+          ss << "\"" << std::string(ptr, size) << "\"\n";
+        }
+      }
     }
     //    ss << std::string(h_extracted_json.data(), h_extracted_json.size()) << "\n";
     std::cerr << ss.str() << std::endl;
