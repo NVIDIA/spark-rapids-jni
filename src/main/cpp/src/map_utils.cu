@@ -66,7 +66,8 @@ struct node_ranges {
   cudf::device_span<SymbolOffsetT const> node_to_token_indices;
   cudf::device_span<NodeIndexT const> parent_node_ids;
   static const bool include_quote_char{false};
-  __device__ auto operator()(cudf::size_type idx) -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
+  __device__ auto operator()(cudf::size_type node_idx)
+      -> thrust::tuple<SymbolOffsetT, SymbolOffsetT> {
     // Whether a token expects to be followed by its respective end-of-* token partner
     auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
       switch (token) {
@@ -101,18 +102,30 @@ struct node_ranges {
       };
     };
 
-    auto const token_idx = node_to_token_indices[idx];
-    PdaTokenT const token = tokens[token_idx];
-    // The section from the original JSON input that this token demarcates
-    SymbolOffsetT range_begin = get_token_index(token, token_indices[token_idx]);
-    SymbolOffsetT range_end = range_begin + 1; // non-leaf, non-field nodes ignore this value.
-    if (is_begin_of_section(token)) {
-      if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
-        // Update the range_end for this pair of tokens
-        range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
-      }
+    // root json object
+    if (parent_node_ids[node_idx] <= 0) {
+      return thrust::make_tuple(0, 0);
     }
-    return thrust::make_tuple(range_begin, range_end);
+
+    if (parent_node_ids[parent_node_ids[node_idx]] == 0 // key
+        || (parent_node_ids[parent_node_ids[node_idx]] > 0 &&
+            parent_node_ids[parent_node_ids[parent_node_ids[node_idx]]] == 0) // value
+    ) {
+      auto const token_idx = node_to_token_indices[node_idx];
+      PdaTokenT const token = tokens[token_idx];
+      // The section from the original JSON input that this token demarcates
+      SymbolOffsetT range_begin = get_token_index(token, token_indices[token_idx]);
+      SymbolOffsetT range_end = range_begin + 1; // non-leaf, non-field nodes ignore this value.
+      if (is_begin_of_section(token)) {
+        if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
+          // Update the range_end for this pair of tokens
+          range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
+        }
+      }
+      return thrust::make_tuple(range_begin, range_end);
+    }
+
+    return thrust::make_tuple(0, 0);
   }
 };
 
