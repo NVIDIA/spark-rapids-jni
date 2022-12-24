@@ -510,11 +510,18 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 #endif
 
   // Identify the key-value tokens.
+  // Keys: Nodes with parent_idx[parent_idx] == 0.
+  // Values: The nodes that are direct children of the key nodes.
 #if 0
 
   // Substring the input to extract out keys.
 
   // Substring the input to extract out values.
+
+// Compute the offsets of the output lists column.
+// Firstly, extract the key nodes.
+// Compute the numbers of keys having the same parent using reduce_by_key.
+// These numbers will also be sizes of the output lists.
 
 #else
   return cudf::make_strings_column(
