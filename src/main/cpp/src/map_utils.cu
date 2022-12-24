@@ -71,6 +71,8 @@ struct node_ranges {
     // Whether a token expects to be followed by its respective end-of-* token partner
     auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
       switch (token) {
+        case token_t::StructBegin:
+        case token_t::ListBegin:
         case token_t::StringBegin:
         case token_t::ValueBegin:
         case token_t::FieldNameBegin: return true;
@@ -80,6 +82,8 @@ struct node_ranges {
     // The end-of-* partner token for a given beginning-of-* token
     auto const end_of_partner = [] __device__(PdaTokenT const token) {
       switch (token) {
+        case token_t::StructBegin: return token_t::StructEnd;
+        case token_t::ListBegin: return token_t::ListEnd;
         case token_t::StringBegin: return token_t::StringEnd;
         case token_t::ValueBegin: return token_t::ValueEnd;
         case token_t::FieldNameBegin: return token_t::FieldNameEnd;
