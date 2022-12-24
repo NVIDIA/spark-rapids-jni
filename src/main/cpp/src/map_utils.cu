@@ -45,7 +45,11 @@
 //
 #include <cub/device/device_radix_sort.cuh>
 #include <thrust/for_each.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/transform_output_iterator.h>
+#include <thrust/reduce.h>
+#include <thrust/scan.h>
 #include <thrust/sequence.h>
 
 //
@@ -597,10 +601,13 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                         node_range_begin.data()},
       cudf::column_view{cudf::data_type{cudf::type_id::INT32}, (int)node_range_end.size(),
                         node_range_end.data()});
+  auto const child = extracted_json->child(cudf::strings_column_view::chars_column_index);
+
+  // Fix this
+  //  CUDF_EXPECTS(child.size() % 2 == 0, "Invalid key-value pair extraction.");
 
 #ifdef DEBUG_FROM_JSON
   {
-    auto const child = extracted_json->child(cudf::strings_column_view::chars_column_index);
     auto const offsets = extracted_json->child(cudf::strings_column_view::offsets_column_index);
 
     auto const h_extracted_json = cudf::detail::make_host_vector_sync(
@@ -659,6 +666,39 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
     std::cerr << ss.str() << std::endl;
   }
 #endif
+
+  rmm::device_uvector<cudf::size_type> list_sizes(num_nodes, stream, mr);
+  {
+    auto const last =
+        thrust::reduce_by_key(rmm::exec_policy(stream), key_parent_node_ids.begin(),
+                              key_parent_node_ids.end(), thrust::make_constant_iterator(1),
+                              thrust::make_discard_iterator(), list_sizes.begin())
+            .second;
+    list_sizes.resize(thrust::distance(list_sizes.begin(), last), stream);
+    CUDF_EXPECTS(list_sizes.size() == static_cast<std::size_t>(input.size()),
+                 "Output size mismatch");
+  }
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_list_sizes = cudf::detail::make_host_vector_sync(
+        cudf::device_span<cudf::size_type const>{list_sizes.data(), list_sizes.size()}, stream);
+
+    std::stringstream ss;
+    ss << "Output list sizes:\n";
+    for (auto const size : h_list_sizes) {
+      ss << static_cast<int>(size) << ", ";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
+  auto offsets_column =
+      cudf::make_numeric_column(cudf::data_type{cudf::type_to_id<cudf::offset_type>()},
+                                input.size() + 1, cudf::mask_state::UNALLOCATED, stream, mr);
+  auto const d_offsets = offsets_column->mutable_view().begin<cudf::offset_type>();
+  thrust::exclusive_scan(rmm::exec_policy(stream), d_offsets, d_offsets + input.size() + 1,
+                         d_offsets);
 
 #if 0
 
