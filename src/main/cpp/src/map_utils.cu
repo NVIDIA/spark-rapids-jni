@@ -633,6 +633,33 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   // Identify the key-value tokens.
   // Keys: Nodes with parent_idx[parent_idx] == 0.
   // Values: The nodes that are direct children of the key nodes.
+
+  rmm::device_uvector<NodeIndexT> key_parent_node_ids(num_nodes, stream, mr);
+  {
+    auto const copy_end = thrust_copy_if(
+        rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
+        thrust::make_counting_iterator<cudf::size_type>(0), key_parent_node_ids.begin(),
+        [parent_node_ids = parent_node_ids.begin()] __device__(auto const node_idx) {
+          return parent_node_ids[node_idx] > 0 && parent_node_ids[parent_node_ids[node_idx]] == 0;
+        });
+    key_parent_node_ids.resize(thrust::distance(key_parent_node_ids.begin(), copy_end), stream);
+  }
+
+#ifdef DEBUG_FROM_JSON
+  {
+    auto const h_key_parent_node_ids = cudf::detail::make_host_vector_sync(
+        cudf::device_span<NodeIndexT const>{key_parent_node_ids.data(), key_parent_node_ids.size()},
+        stream);
+
+    std::stringstream ss;
+    ss << "Keys's parent node ids:\n";
+    for (auto const id : h_key_parent_node_ids) {
+      ss << static_cast<int>(id) << ", ";
+    }
+    std::cerr << ss.str() << std::endl;
+  }
+#endif
+
 #if 0
 
   // Substring the input to extract out keys.
