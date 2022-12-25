@@ -32,9 +32,22 @@ public class MapUtilsTest {
     String jsonString3 = "{\"category\": \"reference\", \"index\": [4,{},null,{\"a\":[{ }, {}] } " +
         "], \"author\": \"Nigel Rees\", \"title\": \"{}[], <=semantic-symbols-string\", " +
         "\"price\": 8.95}";
+
     try (ColumnVector input =
-             ColumnVector.fromStrings(jsonString1, jsonString2, jsonString3)) {
-      ColumnVector output = MapUtils.extractRawMapFromJsonString(input, true);
+             ColumnVector.fromStrings(jsonString1, jsonString2, jsonString3);
+         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input, true);
+
+         ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
+             "State", "Integer", "String", "Double", "category", "index", "author", "title",
+             "price");
+         ColumnVector expectedValues = ColumnVector.fromStrings("704", "STANDARD", "PARC PARQUE",
+             "PR", "12345", "ABCXYZ", "1.1245", "reference", "[4,{},null,{\"a\":[{ }, {}] } ]",
+             "Nigel Rees", "{}[], <=semantic-symbols-string", "8.95");
+         ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 4, 7, 12);
+         ColumnVector expectedMap = expectedStructs.makeListFromOffsets(3, expectedOffsets)
+    ) {
+      assertColumnsAreEqual(expectedMap, outputMap);
     }
   }
 
