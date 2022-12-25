@@ -25,6 +25,9 @@
 
 //
 #include <cudf/strings/detail/concatenate.hpp>
+#include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/string_view.cuh>
+#include <cudf/strings/string_view.hpp>
 #include <cudf/strings/substring.hpp>
 
 //
@@ -317,6 +320,39 @@ OutputIterator thrust_copy_if(rmm::exec_policy policy, InputIterator first, Inpu
                               OutputIterator result, Predicate pred) {
   return thrust_copy_if(policy, first, last, first, result, pred);
 }
+
+/**
+ * @brief Function logic for substring_from API.
+ *
+ * This both calculates the output size and executes the substring.
+ */
+struct substring_fn {
+  cudf::string_view const d_string;
+  cudf::device_span<SymbolOffsetT const> const d_starts;
+  cudf::device_span<SymbolOffsetT const> const d_stops;
+  cudf::offset_type *d_offsets{};
+  char *d_chars{};
+
+  __device__ void operator()(cudf::size_type idx) {
+    auto const length = d_string.length();
+    auto const start = std::max(d_starts[idx], SymbolOffsetT{0});
+    if (start >= length) {
+      if (!d_chars) {
+        d_offsets[idx] = 0;
+      }
+      return;
+    }
+    auto const stop = d_stops[idx];
+    auto const end = (((stop < 0) || (stop > length)) ? length : stop);
+
+    auto const d_substr = d_string.substr(start, end - start);
+    if (d_chars) {
+      memcpy(d_chars + d_offsets[idx], d_substr.data(), d_substr.size_bytes());
+    } else {
+      d_offsets[idx] = d_substr.size_bytes();
+    }
+  }
+};
 
 } // namespace
 
@@ -711,10 +747,10 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   }
 #endif
 
-  auto offsets_column =
+  auto list_offsets =
       cudf::make_numeric_column(cudf::data_type{cudf::type_to_id<cudf::offset_type>()},
                                 input.size() + 1, cudf::mask_state::UNALLOCATED, stream, mr);
-  auto const d_offsets = offsets_column->mutable_view().begin<cudf::offset_type>();
+  auto const d_offsets = list_offsets->mutable_view().begin<cudf::offset_type>();
   CUDF_CUDA_TRY(cudaMemsetAsync(d_offsets, 0, sizeof(cudf::offset_type), stream.value()));
   thrust::inclusive_scan(rmm::exec_policy(stream), list_sizes.begin(), list_sizes.end(),
                          d_offsets + 1);
@@ -758,7 +794,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 
   CUDF_EXPECTS(num_keys == num_values, "Invalid key-value pair extraction.");
 
-  auto const extracted_keys = [&] {
+  auto extracted_keys = [&] {
+#if 0
     std::vector<cudf::column_view> cols;
     for (int i = 0; i < num_keys; ++i) {
       cols.push_back(json_col->view());
@@ -770,9 +807,22 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                                                           (int)num_keys, key_range_begin.data()},
                                         cudf::column_view{cudf::data_type{cudf::type_id::INT32},
                                                           (int)num_keys, key_range_end.data()});
+#else
+    auto children = cudf::strings::detail::make_strings_children(
+        substring_fn{
+            cudf::string_view{unified_json_buff.data(),
+                              static_cast<cudf::size_type>(unified_json_buff.size())},
+            cudf::device_span<SymbolOffsetT const>{key_range_begin.data(), key_range_begin.size()},
+            cudf::device_span<SymbolOffsetT const>{key_range_end.data(), key_range_end.size()}},
+        num_keys, stream, mr);
+
+    return cudf::make_strings_column(num_keys, std::move(children.first),
+                                     std::move(children.second), 0, rmm::device_buffer{});
+#endif
   }();
 
-  auto const extracted_values = [&] {
+  auto extracted_values = [&] {
+#if 0
     std::vector<cudf::column_view> cols;
     for (int i = 0; i < num_values; ++i) {
       cols.push_back(json_col->view());
@@ -785,6 +835,19 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                                                           value_range_begin.data()},
                                         cudf::column_view{cudf::data_type{cudf::type_id::INT32},
                                                           (int)num_values, value_range_end.data()});
+#else
+    auto children = cudf::strings::detail::make_strings_children(
+        substring_fn{
+            cudf::string_view{unified_json_buff.data(),
+                              static_cast<cudf::size_type>(unified_json_buff.size())},
+            cudf::device_span<SymbolOffsetT const>{value_range_begin.data(),
+                                                   value_range_begin.size()},
+            cudf::device_span<SymbolOffsetT const>{value_range_end.data(), value_range_end.size()}},
+        num_values, stream, mr);
+
+    return cudf::make_strings_column(num_values, std::move(children.first),
+                                     std::move(children.second), 0, rmm::device_buffer{});
+#endif
   }();
 
 #ifdef DEBUG_FROM_JSON
@@ -814,8 +877,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
         stream);
 
     auto const h_list_offsets = cudf::detail::make_host_vector_sync(
-        cudf::device_span<cudf::offset_type const>{offsets_column->view().data<cudf::offset_type>(),
-                                                   (size_t)offsets_column->size()},
+        cudf::device_span<cudf::offset_type const>{list_offsets->view().data<cudf::offset_type>(),
+                                                   (size_t)list_offsets->size()},
         stream);
 
     CUDF_EXPECTS(h_list_offsets.back() == extracted_keys->size() &&
@@ -850,6 +913,12 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   }
 #endif
 
+  std::vector<std::unique_ptr<cudf::column>> out_keys_vals;
+  out_keys_vals.emplace_back(std::move(extracted_keys));
+  out_keys_vals.emplace_back(std::move(extracted_values));
+  auto structs_col = cudf::make_structs_column(num_keys, std::move(out_keys_vals), 0,
+                                               rmm::device_buffer{}, stream, mr);
+
 #if 0
 
   // Substring the input to extract out keys.
@@ -862,9 +931,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 // These numbers will also be sizes of the output lists.
 
 #else
-  return cudf::make_strings_column(
-      1, cudf::detail::make_device_uvector_async<int>(std::vector<int>{0, 1}, stream, default_mr),
-      unify_json_strings(input, stream, default_mr));
+  return cudf::make_lists_column(input.size(), std::move(list_offsets), std::move(structs_col), 0,
+                                 rmm::device_buffer{}, stream, mr);
 #endif
 }
 
