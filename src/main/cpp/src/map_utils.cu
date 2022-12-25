@@ -357,7 +357,7 @@ struct substring_fn {
 } // namespace
 
 std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
-                                        bool throw_if_keys_duplicate, rmm::cuda_stream_view stream,
+                                        rmm::cuda_stream_view stream,
                                         rmm::mr::device_memory_resource *mr) {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Invalid input format");
 

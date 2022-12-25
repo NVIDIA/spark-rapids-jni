@@ -35,7 +35,7 @@ public class MapUtilsTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, jsonString3);
-         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input, true);
+         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
              "State", "Integer", "String", "Double", "category", "index", "author", "title",
