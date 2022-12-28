@@ -68,3 +68,6 @@ RUN cd /usr/local && wget --quiet https://boostorg.jfrog.io/artifactory/main/rel
   ./b2 install --prefix=/usr/local --with-filesystem --with-system && \
    cd /usr/local && \
    rm -rf boost_1_79_0
+
+# disable cuda container constraints to allow running w/ elder drivers on data-center GPUs
+ENV NVIDIA_DISABLE_REQUIRE="true"
