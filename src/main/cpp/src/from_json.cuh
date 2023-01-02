@@ -2,68 +2,43 @@
 
 #include <limits>
 
-//
-#include <cudf/io/detail/nested_json.hpp>
-//
-#include <cudf/strings/detail/concatenate.hpp>
-#include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/string_view.cuh>
-#include <cudf/strings/string_view.hpp>
-#include <cudf/strings/substring.hpp>
-
-//
-#include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/io/json.hpp>
+#include <cudf/io/detail/nested_json.hpp>
 #include <cudf/strings/detail/combine.hpp>
+#include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf_test/column_utilities.hpp>
+
+//
 #include <rmm/cuda_stream_view.hpp>
-
-//
 #include <rmm/exec_policy.hpp>
-
-//
-#include <cub/device/device_radix_sort.cuh>
-#include <thrust/for_each.h>
-#include <thrust/functional.h>
-#include <thrust/iterator/constant_iterator.h>
-#include <thrust/iterator/discard_iterator.h>
-#include <thrust/iterator/transform_output_iterator.h>
-#include <thrust/pair.h>
-//#include <thrust/reduce.h>
-#include <thrust/scan.h>
-#include <thrust/sequence.h>
 
 //
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
+#include <thrust/find.h>
+#include <thrust/for_each.h>
+#include <thrust/functional.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
+#include <thrust/pair.h>
 #include <thrust/scan.h>
+#include <thrust/sequence.h>
 #include <thrust/transform.h>
+#include <thrust/transform_reduce.h>
+
 //
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
+#include <cub/device/device_radix_sort.cuh>
 
 #define DEBUG_FROM_JSON
 
 #ifdef DEBUG_FROM_JSON
-#include <iomanip>
 #include <sstream>
 #endif
 
