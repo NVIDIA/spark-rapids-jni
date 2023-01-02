@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.BinaryOp;
 
 import org.junit.jupiter.api.Test;
 
@@ -28,24 +29,26 @@ public class MapUtilsTest {
   void testFromJsonSimpleInput() {
     String jsonString1 = "{\"Zipcode\" : 704 , \"ZipCodeType\" : \"STANDARD\" , \"City\" : \"PARC" +
         " PARQUE\" , \"State\" : \"PR\"}";
-    String jsonString2 = "{\"Integer\":12345,\"String\":\"ABCXYZ\",\"Double\":1.1245}";
+    String jsonString2 = "{}";
     String jsonString3 = "{\"category\": \"reference\", \"index\": [4,{},null,{\"a\":[{ }, {}] } " +
         "], \"author\": \"Nigel Rees\", \"title\": \"{}[], <=semantic-symbols-string\", " +
         "\"price\": 8.95}";
 
     try (ColumnVector input =
-             ColumnVector.fromStrings(jsonString1, jsonString2, jsonString3);
+             ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
          ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
-             "State", "Integer", "String", "Double", "category", "index", "author", "title",
-             "price");
+             "State", "category", "index", "author", "title", "price");
          ColumnVector expectedValues = ColumnVector.fromStrings("704", "STANDARD", "PARC PARQUE",
-             "PR", "12345", "ABCXYZ", "1.1245", "reference", "[4,{},null,{\"a\":[{ }, {}] } ]",
-             "Nigel Rees", "{}[], <=semantic-symbols-string", "8.95");
+             "PR", "reference", "[4,{},null,{\"a\":[{ }, {}] } ]", "Nigel Rees", "{}[], " +
+                 "<=semantic-symbols-string", "8.95");
          ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
-         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 4, 7, 12);
-         ColumnVector expectedMap = expectedStructs.makeListFromOffsets(3, expectedOffsets)
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 4, 4, 4, 9);
+         ColumnVector tmpMap = expectedStructs.makeListFromOffsets(4, expectedOffsets);
+         ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, 1, null, 1);
+         ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
+             templateBitmask);
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
     }
