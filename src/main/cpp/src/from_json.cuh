@@ -36,7 +36,7 @@
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/transform_output_iterator.h>
 #include <thrust/pair.h>
-#include <thrust/reduce.h>
+//#include <thrust/reduce.h>
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
 
@@ -615,35 +615,42 @@ compute_list_offsets(cudf::size_type n_lists, cudf::size_type n_keys,
                      rmm::device_uvector<NodeIndexT> const &parent_node_ids,
                      rmm::device_uvector<int8_t> const &key_or_value, rmm::cuda_stream_view stream,
                      rmm::mr::device_memory_resource *mr) {
+  // Count the number of children nodes for the json object nodes.
+  // These object nodes are given as one row of the input json strings column.
+  auto node_child_counts = rmm::device_uvector<NodeIndexT>(parent_node_ids.size(), stream);
+
+  // For the nodes having parent_id == 0 (they are json object given by one input row), set their
+  // child counts to zero. Otherwise, set child counts to `-1` (a sentinel number).
+  thrust::transform(rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
+                    node_child_counts.begin(), [] __device__(auto const node_id) -> NodeIndexT {
+                      return node_id == 0 ? 0 : -1;
+                    });
+
   auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_idx) {
     return key_or_value[node_idx] == key_sentinel;
   };
 
-  auto key_parent_node_ids = rmm::device_uvector<NodeIndexT>(n_keys, stream, mr);
-  auto const stencil_it = thrust::make_counting_iterator(0);
-  auto const copy_end =
-      cudf::detail::copy_if(parent_node_ids.begin(), parent_node_ids.end(), stencil_it,
-                            key_parent_node_ids.begin(), is_key, stream);
-  CUDF_EXPECTS(thrust::distance(key_parent_node_ids.begin(), copy_end) ==
-                   static_cast<int64_t>(n_keys),
-               "Invalid parent id extraction for keys.");
-
+  // Count the number of keys for each json object using `atomicAdd`.
+  thrust::for_each(rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
+                   [is_key, child_counts = node_child_counts.begin(),
+                    parent_ids = parent_node_ids.begin()] __device__(auto const node_id) {
+                     if (is_key(node_id)) {
+                       auto const parent_id = parent_ids[node_id];
+                       atomicAdd(&child_counts[parent_id], 1);
+                     }
+                   });
 #ifdef DEBUG_FROM_JSON
-  print_debug(key_parent_node_ids, "Keys's parent node ids", ", ", stream);
+  print_debug(node_child_counts, "Nodes' child keys counts", ", ", stream);
 #endif
 
   auto list_offsets = rmm::device_uvector<cudf::offset_type>(n_lists + 1, stream, mr);
-  auto const reduce_end =
-      thrust::reduce_by_key(rmm::exec_policy(stream), key_parent_node_ids.begin(),
-                            key_parent_node_ids.end(), thrust::make_constant_iterator(1),
-                            thrust::make_discard_iterator(), list_offsets.begin())
-          .second;
-  // TODO: this may not be correct for empty row input.
-  CUDF_EXPECTS(thrust::distance(list_offsets.begin(), reduce_end) == static_cast<int64_t>(n_lists),
+  auto const copy_end = cudf::detail::copy_if(
+      node_child_counts.begin(), node_child_counts.end(), list_offsets.begin(),
+      [] __device__(auto const count) { return count >= 0; }, stream);
+  CUDF_EXPECTS(thrust::distance(list_offsets.begin(), copy_end) == static_cast<int64_t>(n_lists),
                "Invalid list size computation.");
-
 #ifdef DEBUG_FROM_JSON
-  print_debug(list_offsets, "Output list sizes", ", ", stream);
+  print_debug(list_offsets, "Output list sizes (except the last one)", ", ", stream);
 #endif
 
   thrust::exclusive_scan(rmm::exec_policy(stream), list_offsets.begin(), list_offsets.end(),
