@@ -502,27 +502,25 @@ compute_node_ranges(int64_t num_nodes, rmm::device_uvector<PdaTokenT> const &tok
 }
 
 // Check if the input string has any UTF-8 character.
-bool has_utf8(rmm::device_uvector<char> const &) {
-  return false;
+std::pair<bool, rmm::device_uvector<cudf::size_type>> check_utf8(rmm::device_uvector<char> const &,
+                                                                 rmm::cuda_stream_view stream) {
+  return std::pair{false, rmm::device_uvector<cudf::size_type>(0, stream)};
 }
 
-/**
- * @brief Function logic for substring API.
- *
- * This both calculates the output size and executes the substring.
- * No bound check is performed, assuming that the substring bounds are all valid.
- *
- * @tparam has_utf8 Whether the input string has UTF-8 characters.
- */
-template <bool has_utf8> struct substring_fn {};
-
-template <> struct substring_fn<false> {
+struct base_substring_fn {
   cudf::device_span<char const> const d_string;
   cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
-
   cudf::offset_type *d_offsets{};
   char *d_chars{};
+};
 
+// Function logic for substring API.
+// This both calculates the output size and executes the substring.
+// No bound check is performed, assuming that the substring bounds are all valid.
+template <bool has_utf8> struct substring_fn {};
+
+// Specialization for the case of having just ASCII characters.
+template <> struct substring_fn<false> : base_substring_fn {
   __device__ void operator()(cudf::size_type const idx) {
     auto const range = d_ranges[idx];
     auto const size = range.second - range.first;
@@ -534,8 +532,20 @@ template <> struct substring_fn<false> {
   }
 };
 
-// TODO: Implement a workaround for UTF-8.
-template <> struct substring_fn<true> : public substring_fn<false> {};
+// Specialization for processing UTF-8 characters.
+template <> struct substring_fn<true> : base_substring_fn {
+  cudf::device_span<cudf::size_type const> const utf8_indices;
+
+  __device__ void operator()(cudf::size_type const idx) {
+    auto const range = d_ranges[idx];
+    auto const size = range.second - range.first;
+    if (d_chars) {
+      memcpy(d_chars + d_offsets[idx], d_string.data() + range.first, size);
+    } else {
+      d_offsets[idx] = size;
+    }
+  }
+};
 
 // Extract key-value string pairs from the input json string.
 std::unique_ptr<cudf::column> extract_keys_or_values(
@@ -568,8 +578,8 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
       cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()};
 
   auto children = [&] {
-    if (has_utf8(unified_json_buff)) {
-      auto const fn = substring_fn<true>{d_json, d_ranges};
+    if (auto const [has_utf8, utf8_indices] = check_utf8(unified_json_buff, stream); has_utf8) {
+      auto const fn = substring_fn<true>{d_json, d_ranges, nullptr, nullptr, utf8_indices};
       return cudf::strings::detail::make_strings_children(fn, num_extract, stream, mr);
     } else {
       auto const fn = substring_fn<false>{d_json, d_ranges};
@@ -586,7 +596,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 // Then, compute the numbers of keys having the same parent using reduce_by_key.
 // These numbers will also be sizes of the output lists.
 rmm::device_uvector<cudf::offset_type>
-compute_list_offsets(cudf::size_type n_lists, cudf::size_type n_keys,
+compute_list_offsets(cudf::size_type n_lists,
                      rmm::device_uvector<NodeIndexT> const &parent_node_ids,
                      rmm::device_uvector<int8_t> const &key_or_value, rmm::cuda_stream_view stream,
                      rmm::mr::device_memory_resource *mr) {
@@ -688,8 +698,8 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                "Invalid key-value pair extraction.");
 
   // Compute the offsets of the final output lists column.
-  auto list_offsets = compute_list_offsets(input.size(), extracted_keys->size(), parent_node_ids,
-                                           key_or_value_node, stream, mr);
+  auto list_offsets =
+      compute_list_offsets(input.size(), parent_node_ids, key_or_value_node, stream, mr);
 
 #ifdef DEBUG_FROM_JSON
   print_debug(list_offsets, "Output list offsets", ", ", stream);
