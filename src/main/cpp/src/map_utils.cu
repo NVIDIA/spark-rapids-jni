@@ -233,8 +233,8 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
 
   auto node_levels = rmm::device_uvector<TreeDepthT>(num_nodes, stream);
   auto const copy_end =
-      cudf::detail::copy_if(token_levels.begin(), token_levels.end(), tokens.begin(),
-                            node_levels.begin(), is_node{}, stream);
+      cudf::detail::copy_if_safe(token_levels.begin(), token_levels.end(), tokens.begin(),
+                                 node_levels.begin(), is_node{}, stream);
   CUDF_EXPECTS(thrust::distance(node_levels.begin(), copy_end) == num_nodes,
                "Node level count mismatch");
 
@@ -251,8 +251,8 @@ compute_node_to_token_index_map(int64_t num_nodes, rmm::device_uvector<PdaTokenT
   auto node_token_ids = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
   auto const copy_end =
-      cudf::detail::copy_if(node_id_it, node_id_it + tokens.size(), tokens.begin(),
-                            node_token_ids.begin(), is_node{}, stream);
+      cudf::detail::copy_if_safe(node_id_it, node_id_it + tokens.size(), tokens.begin(),
+                                 node_token_ids.begin(), is_node{}, stream);
   CUDF_EXPECTS(thrust::distance(node_token_ids.begin(), copy_end) == num_nodes,
                "Invalid computation for node-to-token-index map");
 
@@ -555,10 +555,10 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
       rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream, mr);
   auto const stencil_it = thrust::make_counting_iterator(0);
   auto const range_end =
-      extract_key ? cudf::detail::copy_if(node_ranges.begin(), node_ranges.end(), stencil_it,
-                                          extract_ranges.begin(), is_key, stream) :
-                    cudf::detail::copy_if(node_ranges.begin(), node_ranges.end(), stencil_it,
-                                          extract_ranges.begin(), is_value, stream);
+      extract_key ? cudf::detail::copy_if_safe(node_ranges.begin(), node_ranges.end(), stencil_it,
+                                               extract_ranges.begin(), is_key, stream) :
+                    cudf::detail::copy_if_safe(node_ranges.begin(), node_ranges.end(), stencil_it,
+                                               extract_ranges.begin(), is_value, stream);
   auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
 
   auto children = cudf::strings::detail::make_strings_children(
@@ -605,7 +605,7 @@ compute_list_offsets(cudf::size_type n_lists,
 #endif
 
   auto list_offsets = rmm::device_uvector<cudf::offset_type>(n_lists + 1, stream, mr);
-  auto const copy_end = cudf::detail::copy_if(
+  auto const copy_end = cudf::detail::copy_if_safe(
       node_child_counts.begin(), node_child_counts.end(), list_offsets.begin(),
       [] __device__(auto const count) { return count >= 0; }, stream);
   CUDF_EXPECTS(thrust::distance(list_offsets.begin(), copy_end) == static_cast<int64_t>(n_lists),
