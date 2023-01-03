@@ -501,40 +501,15 @@ compute_node_ranges(int64_t num_nodes, rmm::device_uvector<PdaTokenT> const &tok
   return node_ranges;
 }
 
-// Check if the input string has any UTF-8 character.
-std::pair<bool, rmm::device_uvector<cudf::size_type>> check_utf8(rmm::device_uvector<char> const &,
-                                                                 rmm::cuda_stream_view stream) {
-  return std::pair{false, rmm::device_uvector<cudf::size_type>(0, stream)};
-}
-
-struct base_substring_fn {
-  cudf::device_span<char const> const d_string;
-  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
-  cudf::offset_type *d_offsets{};
-  char *d_chars{};
-};
-
 // Function logic for substring API.
 // This both calculates the output size and executes the substring.
 // No bound check is performed, assuming that the substring bounds are all valid.
-template <bool has_utf8> struct substring_fn {};
+struct substring_fn {
+  cudf::device_span<char const> const d_string;
+  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
 
-// Specialization for the case of having just ASCII characters.
-template <> struct substring_fn<false> : base_substring_fn {
-  __device__ void operator()(cudf::size_type const idx) {
-    auto const range = d_ranges[idx];
-    auto const size = range.second - range.first;
-    if (d_chars) {
-      memcpy(d_chars + d_offsets[idx], d_string.data() + range.first, size);
-    } else {
-      d_offsets[idx] = size;
-    }
-  }
-};
-
-// Specialization for processing UTF-8 characters.
-template <> struct substring_fn<true> : base_substring_fn {
-  cudf::device_span<cudf::size_type const> const utf8_indices;
+  cudf::offset_type *d_offsets{};
+  char *d_chars{};
 
   __device__ void operator()(cudf::size_type const idx) {
     auto const range = d_ranges[idx];
@@ -572,21 +547,8 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
                                           extract_ranges.begin(), is_value, stream);
   auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
 
-  auto const d_ranges = cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const>{
-      extract_ranges.data(), extract_ranges.size()};
-  auto const d_json =
-      cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()};
-
-  auto children = [&] {
-    if (auto const [has_utf8, utf8_indices] = check_utf8(unified_json_buff, stream); has_utf8) {
-      auto const fn = substring_fn<true>{d_json, d_ranges, nullptr, nullptr, utf8_indices};
-      return cudf::strings::detail::make_strings_children(fn, num_extract, stream, mr);
-    } else {
-      auto const fn = substring_fn<false>{d_json, d_ranges};
-      return cudf::strings::detail::make_strings_children(fn, num_extract, stream, mr);
-    }
-  }();
-
+  auto children = cudf::strings::detail::make_strings_children(
+      substring_fn{unified_json_buff, ranges}, num_extract, stream, mr);
   return cudf::make_strings_column(num_extract, std::move(children.first),
                                    std::move(children.second), 0, rmm::device_buffer{});
 }

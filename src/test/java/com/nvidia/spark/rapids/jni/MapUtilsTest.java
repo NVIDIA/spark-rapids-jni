@@ -54,4 +54,32 @@ public class MapUtilsTest {
     }
   }
 
+  @Test
+  void testFromJsonWithUTF8() {
+    String jsonString1 = "{\"Zipc\u00f3de\" : 704 , \"Z\u00edpCodeTyp\u00e9\" : \"STANDARD\" ," +
+        " \"City\" : \"PARC PARQUE\" , \"St\u00e2te\" : \"PR\"}";
+    String jsonString2 = "{}";
+    String jsonString3 = "{\"Zipc\u00f3de\" : 704 , \"Z\u00edpCodeTyp\u00e9\" : " +
+        "\"\uD867\uDE3D\" , " + "\"City\" : \"\uD83C\uDFF3\" , \"St\u00e2te\" : " +
+        "\"\uD83C\uDFF3\"}";
+
+    try (ColumnVector input =
+             ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
+         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input);
+
+         ColumnVector expectedKeys = ColumnVector.fromStrings("Zipc\u00f3de", "Z\u00edpCodeTyp" +
+                 "\u00e9", "City", "St\u00e2te", "Zipc\u00f3de", "Z\u00edpCodeTyp\u00e9",
+             "City", "St\u00e2te");
+         ColumnVector expectedValues = ColumnVector.fromStrings("704", "STANDARD", "PARC PARQUE",
+             "PR", "704", "\uD867\uDE3D", "\uD83C\uDFF3", "\uD83C\uDFF3");
+         ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 4, 4, 4, 8);
+         ColumnVector tmpMap = expectedStructs.makeListFromOffsets(4, expectedOffsets);
+         ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, 1, null, 1);
+         ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
+             templateBitmask);
+    ) {
+      assertColumnsAreEqual(expectedMap, outputMap);
+    }
+  }
 }
