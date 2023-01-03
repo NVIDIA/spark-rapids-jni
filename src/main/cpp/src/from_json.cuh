@@ -548,7 +548,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
 
   auto children = cudf::strings::detail::make_strings_children(
-      substring_fn{unified_json_buff, ranges}, num_extract, stream, mr);
+      substring_fn{unified_json_buff, extract_ranges}, num_extract, stream, mr);
   return cudf::make_strings_column(num_extract, std::move(children.first),
                                    std::move(children.second), 0, rmm::device_buffer{});
 }
