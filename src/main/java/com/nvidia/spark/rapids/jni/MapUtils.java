@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class MapUtils {
@@ -44,6 +45,7 @@ public class MapUtils {
    * which the key-value pairs are extracted directly from the input json strings.
    */
   public static ColumnVector extractRawMapFromJsonString(ColumnView jsonColumn) {
+    assert jsonColumn.getType().equals(DType.STRING) : "Input type must be String";
     return new ColumnVector(extractRawMapFromJsonString(jsonColumn.getNativeView()));
   }
 
