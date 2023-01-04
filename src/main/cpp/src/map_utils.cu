@@ -568,9 +568,6 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 }
 
 // Compute the offsets for the final lists of Struct<String,String>.
-// Firstly, extract the key nodes.
-// Then, compute the numbers of keys having the same parent using reduce_by_key.
-// These numbers will also be sizes of the output lists.
 rmm::device_uvector<cudf::offset_type>
 compute_list_offsets(cudf::size_type n_lists,
                      rmm::device_uvector<NodeIndexT> const &parent_node_ids,
