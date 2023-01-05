@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -198,9 +198,9 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
+  -Wl,--no-whole-archive
     ${PARQUET_LIB}
     ${THRIFT_LIB}
-  -Wl,--no-whole-archive
 )
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
