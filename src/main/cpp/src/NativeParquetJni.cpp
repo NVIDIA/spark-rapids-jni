@@ -43,8 +43,10 @@ namespace jni {
  * for now.
  */
 std::string unicode_to_lower(std::string const& input) {
+  std::mbstate_t to_wc_state = std::mbstate_t();
+  const char * mbstr = input.data();
   // get the size of the wide character result
-    std::size_t wide_size = std::mbstowcs(nullptr, input.data(), 0);
+  std::size_t wide_size = std::mbsrtowcs(nullptr, &mbstr, 0, &to_wc_state);
   if (wide_size < 0) {
     throw std::invalid_argument("invalid character sequence");
   }
@@ -53,14 +55,16 @@ std::string unicode_to_lower(std::string const& input) {
   // Set a null so we can get a proper output size from wcstombs. This is because 
   // we pass in a max length of 0, so it will only stop when it see the null character.
   wide.back() = 0;
-  if (std::mbstowcs(wide.data(), input.data(), wide_size) != wide_size) {
+  if (std::mbsrtowcs(wide.data(), &mbstr, wide_size, &to_wc_state) != wide_size) {
     throw std::runtime_error("error during wide char converstion");
   }
   for (auto wit = wide.begin(); wit != wide.end(); ++wit) {
     *wit = std::towlower(*wit);
   }
   // Get the multi-byte result size
-  std::size_t mb_size = std::wcstombs(nullptr, wide.data(), 0);
+  std::mbstate_t from_wc_state = std::mbstate_t();
+  const wchar_t * wcstr = wide.data();
+  std::size_t mb_size = std::wcsrtombs(nullptr, &wcstr, 0, &from_wc_state);
   if (mb_size < 0) {
     throw std::invalid_argument("unsupported wide character sequence");
   }
@@ -70,7 +74,7 @@ std::string unicode_to_lower(std::string const& input) {
   // because it will be overwritten. std::string itself will insert a NUL
   // terminator on the buffer it allocates internally. We don't need to worry about it.
   std::string ret(mb_size, '\0');
-  if (std::wcstombs(ret.data(), wide.data(), mb_size) != mb_size) {
+  if (std::wcsrtombs(ret.data(), &wcstr, mb_size, &from_wc_state) != mb_size) {
     throw std::runtime_error("error during multibyte char converstion");
   }
   return ret;
