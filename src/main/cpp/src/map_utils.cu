@@ -14,14 +14,18 @@
  * limitations under the License.
  */
 
+#include "map_utils_debug.cuh"
+
+//
 #include <limits>
 
+//
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/io/detail/nested_json.hpp>
+#include <cudf/io/detail/tokenize_json.hpp>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/string_view.hpp>
@@ -50,58 +54,11 @@
 //
 #include <cub/device/device_radix_sort.cuh>
 
-//#define DEBUG_FROM_JSON
-
-#ifdef DEBUG_FROM_JSON
-#include <sstream>
-#endif
-
 namespace spark_rapids_jni {
 
 using namespace cudf::io::json;
 
 namespace {
-
-#ifdef DEBUG_FROM_JSON
-
-// Print the content of the input device vector for debugging.
-template <typename T, typename U = int>
-void print_debug(rmm::device_uvector<T> const &input, std::string const &name,
-                 std::string const &separator, rmm::cuda_stream_view stream) {
-  auto const h_input = cudf::detail::make_host_vector_sync(
-      cudf::device_span<T const>{input.data(), input.size()}, stream);
-  std::stringstream ss;
-  ss << name << ":\n";
-  for (size_t i = 0; i < h_input.size(); ++i) {
-    ss << static_cast<U>(h_input[i]);
-    if (separator.size() > 0 && i + 1 < h_input.size()) {
-      ss << separator;
-    }
-  }
-  std::cerr << ss.str() << std::endl;
-}
-
-// Convert the token value into string name, for debugging purpose.
-std::string token_to_string(PdaTokenT const token_type) {
-  switch (token_type) {
-    case token_t::StructBegin: return "StructBegin";
-    case token_t::StructEnd: return "StructEnd";
-    case token_t::ListBegin: return "ListBegin";
-    case token_t::ListEnd: return "ListEnd";
-    case token_t::StructMemberBegin: return "StructMemberBegin";
-    case token_t::StructMemberEnd: return "StructMemberEnd";
-    case token_t::FieldNameBegin: return "FieldNameBegin";
-    case token_t::FieldNameEnd: return "FieldNameEnd";
-    case token_t::StringBegin: return "StringBegin";
-    case token_t::StringEnd: return "StringEnd";
-    case token_t::ValueBegin: return "ValueBegin";
-    case token_t::ValueEnd: return "ValueEnd";
-    case token_t::ErrorBegin: return "ErrorBegin";
-    default: return "Unknown";
-  }
-}
-
-#endif
 
 // Unify the input json strings by:
 // 1. Append one comma character (',') to the end of each input string, except the last one.
@@ -257,16 +214,7 @@ compute_node_to_token_index_map(int64_t num_nodes, rmm::device_uvector<PdaTokenT
                "Invalid computation for node-to-token-index map");
 
 #ifdef DEBUG_FROM_JSON
-  {
-    auto const h_node_token_ids = cudf::detail::make_host_vector_sync(
-        cudf::device_span<NodeIndexT const>{node_token_ids.data(), node_token_ids.size()}, stream);
-    std::stringstream ss;
-    ss << "Node-to-token-index map:\n";
-    for (size_t i = 0; i < h_node_token_ids.size(); ++i) {
-      ss << i << " => " << static_cast<int>(h_node_token_ids[i]) << "\n";
-    }
-    std::cerr << ss.str() << std::endl;
-  }
+  print_map_debug(node_token_ids, "Node-to-token-index map", stream);
 #endif
   return node_token_ids;
 }
@@ -498,19 +446,7 @@ compute_node_ranges(int64_t num_nodes, rmm::device_uvector<PdaTokenT> const &tok
       node_ranges_fn{tokens, token_indices, node_token_ids, parent_node_ids, key_or_value});
 
 #ifdef DEBUG_FROM_JSON
-  {
-    auto const h_node_ranges = cudf::detail::make_host_vector_sync(
-        cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const>{node_ranges.data(),
-                                                                            node_ranges.size()},
-        stream);
-    std::stringstream ss;
-    ss << "Node ranges:\n";
-    for (size_t i = 0; i < h_node_ranges.size(); ++i) {
-      ss << "[ " << static_cast<int>(h_node_ranges[i].first) << ", "
-         << static_cast<int>(h_node_ranges[i].second) << " ]\n";
-    }
-    std::cerr << ss.str() << std::endl;
-  }
+  print_pair_debug(node_ranges, "Node ranges", stream);
 #endif
   return node_ranges;
 }
@@ -613,6 +549,9 @@ compute_list_offsets(cudf::size_type n_lists,
 
   thrust::exclusive_scan(rmm::exec_policy(stream), list_offsets.begin(), list_offsets.end(),
                          list_offsets.begin());
+#ifdef DEBUG_FROM_JSON
+  print_debug(list_offsets, "Output list offsets", ", ", stream);
+#endif
   return list_offsets;
 }
 
@@ -652,6 +591,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   // A map from each node to the index of its parent node.
   auto const parent_node_ids = compute_parent_node_ids(num_nodes, tokens, node_token_ids, stream);
 
+  // Check for each node if it is a map key or a map value to extract.
   auto const key_or_value_node = check_key_or_value_nodes(parent_node_ids, stream);
 
   // Compute index range for each node.
@@ -675,65 +615,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
       compute_list_offsets(input.size(), parent_node_ids, key_or_value_node, stream, mr);
 
 #ifdef DEBUG_FROM_JSON
-  print_debug(list_offsets, "Output list offsets", ", ", stream);
-  {
-    auto const keys_child = extracted_keys->child(cudf::strings_column_view::chars_column_index);
-    auto const keys_offsets =
-        extracted_keys->child(cudf::strings_column_view::offsets_column_index);
-    auto const values_child =
-        extracted_values->child(cudf::strings_column_view::chars_column_index);
-    auto const values_offsets =
-        extracted_values->child(cudf::strings_column_view::offsets_column_index);
-
-    auto const h_extracted_keys_child = cudf::detail::make_host_vector_sync(
-        cudf::device_span<char const>{keys_child.view().data<char>(),
-                                      static_cast<size_t>(keys_child.size())},
-        stream);
-    auto const h_extracted_keys_offsets = cudf::detail::make_host_vector_sync(
-        cudf::device_span<int const>{keys_offsets.view().data<int>(),
-                                     static_cast<size_t>(keys_offsets.size())},
-        stream);
-
-    auto const h_extracted_values_child = cudf::detail::make_host_vector_sync(
-        cudf::device_span<char const>{values_child.view().data<char>(),
-                                      static_cast<size_t>(values_child.size())},
-        stream);
-    auto const h_extracted_values_offsets = cudf::detail::make_host_vector_sync(
-        cudf::device_span<int const>{values_offsets.view().data<int>(),
-                                     static_cast<size_t>(values_offsets.size())},
-        stream);
-
-    auto const h_list_offsets = cudf::detail::make_host_vector_sync(
-        cudf::device_span<cudf::offset_type const>{list_offsets.data(), list_offsets.size()},
-        stream);
-    CUDF_EXPECTS(h_list_offsets.back() == extracted_keys->size(),
-                 "Invalid list offsets computation.");
-
-    std::stringstream ss;
-    ss << "Extract keys-values:\n";
-
-    for (size_t i = 0; i + 1 < h_list_offsets.size(); ++i) {
-      ss << "List " << i << ": [" << h_list_offsets[i] << ", " << h_list_offsets[i + 1] << "]\n";
-      for (cudf::size_type string_idx = h_list_offsets[i]; string_idx < h_list_offsets[i + 1];
-           ++string_idx) {
-        {
-          auto const string_begin = h_extracted_keys_offsets[string_idx];
-          auto const string_end = h_extracted_keys_offsets[string_idx + 1];
-          auto const size = string_end - string_begin;
-          auto const ptr = &h_extracted_keys_child[string_begin];
-          ss << "\t\"" << std::string(ptr, size) << "\" : ";
-        }
-        {
-          auto const string_begin = h_extracted_values_offsets[string_idx];
-          auto const string_end = h_extracted_values_offsets[string_idx + 1];
-          auto const size = string_end - string_begin;
-          auto const ptr = &h_extracted_values_child[string_begin];
-          ss << "\"" << std::string(ptr, size) << "\"\n";
-        }
-      }
-    }
-    std::cerr << ss.str() << std::endl;
-  }
+  print_output_spark_map(list_offsets, extracted_keys, extracted_values, stream);
 #endif
 
   auto const num_pairs = extracted_keys->size();
