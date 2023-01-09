@@ -68,26 +68,28 @@ cp -f "$FIRST_FILE" "$FPATH.jar"
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -DretryFailedDeploymentCount=3 -B"
 DEPLOY_CMD="$MVN -B deploy:deploy-file -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
     -DgroupId=com.nvidia -DartifactId=spark-rapids-jni -Dversion=$REL_VERSION -s ci/settings.xml"
-SIGN_CMD='eval nvsec sign --job-name "Spark Jar Signing" --description "Sign artifact with 3s"'
-echo "Deploy CMD: $DEPLOY_CMD, sign CMD: $SIGN_CMD"
+echo "Deploy CMD: $DEPLOY_CMD"
+function sign_jar() {
+    nvsec sign --job-name "Spark Jar Signing" --description "Sign artifact with 3s" "$@"
+}
 
 ###### sign with nvsec 3s #######
 if [ "$SIGN_FILE" == true ]; then
     # Apply nvsec configs
     cp $NVSEC_CFG_FILE ~/.nvsec.cfg
     # nvsec add the '-signature' suffix to signed file, upload with packaging '.asc' to meet Sonatype requirement
-    $SIGN_CMD --file $FPATH.jar --out-dir $OUT_PATH
+    sign_jar --file $FPATH.jar --out-dir $OUT_PATH
     $DEPLOY_CMD -Dfile=$FPATH.jar-signature -Dpackaging=jar.asc
-    $SIGN_CMD --file pom.xml --out-dir ./
+    sign_jar --file pom.xml --out-dir ./
     $DEPLOY_CMD -Dfile=pom.xml-signature -Dpackaging=pom.asc
     SIGN_CLASS="sources"
-    $SIGN_CMD --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
+    sign_jar --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
     $DEPLOY_CMD -Dfile=$FPATH-$SIGN_CLASS.jar-signature -Dclassifier=$SIGN_CLASS -Dpackaging=jar.asc
     SIGN_CLASS="javadoc"
-    $SIGN_CMD --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
+    sign_jar --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
     $DEPLOY_CMD -Dfile=$FPATH-$SIGN_CLASS.jar-signature -Dclassifier=$SIGN_CLASS -Dpackaging=jar.asc
     for SIGN_CLASS in ${CLASSIFIERS//,/ }; do
-        $SIGN_CMD --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
+        sign_jar --file $FPATH-$SIGN_CLASS.jar --out-dir $OUT_PATH
         $DEPLOY_CMD -Dfile=$FPATH-$SIGN_CLASS.jar-signature -Dclassifier=$SIGN_CLASS -Dpackaging=jar.asc
     done
 fi
