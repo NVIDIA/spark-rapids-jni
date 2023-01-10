@@ -505,7 +505,7 @@ compute_list_offsets(cudf::size_type n_lists,
   // child counts to zero. Otherwise, set child counts to `-1` (a sentinel number).
   thrust::transform(rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
                     node_child_counts.begin(), [] __device__(auto const node_id) -> NodeIndexT {
-                      return node_id == 0 ? 0 : -1;
+                      return node_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
                     });
 
   auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_idx) {
@@ -513,7 +513,8 @@ compute_list_offsets(cudf::size_type n_lists,
   };
 
   // Count the number of keys for each json object using `atomicAdd`.
-  thrust::for_each(rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
+  auto const transform_it = thrust::counting_iterator<int>(0);
+  thrust::for_each(rmm::exec_policy(stream), transform_it, transform_it + parent_node_ids.size(),
                    [is_key, child_counts = node_child_counts.begin(),
                     parent_ids = parent_node_ids.begin()] __device__(auto const node_id) {
                      if (is_key(node_id)) {
