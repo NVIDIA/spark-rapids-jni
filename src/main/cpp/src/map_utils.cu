@@ -212,7 +212,7 @@ compute_node_to_token_index_map(int64_t num_nodes, rmm::device_uvector<PdaTokenT
 template <typename KeyType, typename IndexType = cudf::size_type>
 std::pair<rmm::device_uvector<KeyType>, rmm::device_uvector<IndexType>>
 stable_sorted_key_order(rmm::device_uvector<KeyType> const &keys, rmm::cuda_stream_view stream) {
-  // Buffers used for storing intermediate resuls during sorting.
+  // Buffers used for storing intermediate results during sorting.
   rmm::device_uvector<KeyType> keys_buffer1(keys.size(), stream);
   rmm::device_uvector<KeyType> keys_buffer2(keys.size(), stream);
   rmm::device_uvector<IndexType> order_buffer1(keys.size(), stream);
