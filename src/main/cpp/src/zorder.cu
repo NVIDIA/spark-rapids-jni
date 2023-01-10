@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -202,8 +202,8 @@ std::unique_ptr<cudf::column> interleave_bits(
      });
   
   auto offset_begin = thrust::make_constant_iterator(data_type_size * num_columns);
-  auto offsets_column = cudf::strings::detail::make_offsets_child_column(
-    offset_begin, offset_begin + num_rows, stream, mr);
+  auto offsets_column = std::get<0>(cudf::detail::make_offsets_child_column(
+    offset_begin, offset_begin + num_rows, stream, mr));
 
   return cudf::make_lists_column(num_rows,
     std::move(offsets_column),
