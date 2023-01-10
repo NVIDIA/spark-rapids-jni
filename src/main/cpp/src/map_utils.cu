@@ -72,23 +72,12 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const &input,
 
   auto const d_strings = cudf::column_device_view::create(input, stream);
   auto const transform_it = thrust::make_counting_iterator(0);
+  auto const chars_size = input.child(cudf::strings_column_view::chars_column_index).size();
   auto const output_size =
-      2 + // two extra bracket characters '[' and ']'
-      thrust::transform_reduce(
-          rmm::exec_policy(stream), transform_it, transform_it + input.size(),
-          [d_strings = *d_strings,
-           n_rows = input.size()] __device__(cudf::size_type idx) -> int64_t {
-            auto bytes = d_strings.is_null(idx) ?
-                             2 // replace null with "{}"
-                             :
-                             d_strings.element<cudf::string_view>(idx).size_bytes();
-            if (idx + 1 < n_rows) {
-              bytes += 1; // append `,` character to each input rows, except the last one
-            }
-            return static_cast<int64_t>(bytes);
-          },
-          int64_t{0}, thrust::plus{});
-
+      2l + // two extra bracket characters '[' and ']'
+      static_cast<int64_t>(chars_size) +
+      static_cast<int64_t>(input.size() - 1) +       // append `,` character between input rows
+      static_cast<int64_t>(input.null_count()) * 2l; // replace null with "{}"
   CUDF_EXPECTS(output_size <= static_cast<int64_t>(std::numeric_limits<cudf::size_type>::max()),
                "The input json column is too large and causes overflow.");
 
