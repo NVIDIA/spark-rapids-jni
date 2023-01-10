@@ -307,9 +307,9 @@ check_key_or_value_nodes(rmm::device_uvector<NodeIndexT> const &parent_node_ids,
       rmm::exec_policy(stream), transform_it, transform_it + parent_node_ids.size(),
       key_or_value.begin(),
       [key_sentinel = key_sentinel, value_sentinel = value_sentinel,
-       parent_ids = parent_node_ids.begin()] __device__(auto const node_idx) -> int8_t {
-        if (parent_ids[node_idx] > 0) {
-          auto const grand_parent = parent_ids[parent_ids[node_idx]];
+       parent_ids = parent_node_ids.begin()] __device__(auto const node_id) -> int8_t {
+        if (parent_ids[node_id] > 0) {
+          auto const grand_parent = parent_ids[parent_ids[node_id]];
           if (grand_parent == 0) {
             return key_sentinel;
           } else if (parent_ids[grand_parent] == 0) {
@@ -337,7 +337,7 @@ struct node_ranges_fn {
   // Whether the extracted string values from json map will have the quote character.
   static const bool include_quote_char{false};
 
-  __device__ thrust::pair<SymbolOffsetT, SymbolOffsetT> operator()(cudf::size_type node_idx) const {
+  __device__ thrust::pair<SymbolOffsetT, SymbolOffsetT> operator()(cudf::size_type node_id) const {
     [[maybe_unused]] auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
       switch (token) {
         case token_t::StructBegin:
@@ -386,11 +386,11 @@ struct node_ranges_fn {
       };
     };
 
-    if (key_or_value[node_idx] != key_sentinel && key_or_value[node_idx] != value_sentinel) {
+    if (key_or_value[node_id] != key_sentinel && key_or_value[node_id] != value_sentinel) {
       return thrust::make_pair(0, 0);
     }
 
-    auto const token_idx = node_token_ids[node_idx];
+    auto const token_idx = node_token_ids[node_id];
     auto const token = tokens[token_idx];
     cudf_assert(is_begin_of_section(token) && "Invalid node category.");
 
@@ -467,12 +467,12 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
     rmm::device_uvector<int8_t> const &key_or_value,
     rmm::device_uvector<char> const &unified_json_buff, rmm::cuda_stream_view stream,
     rmm::mr::device_memory_resource *mr) {
-  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_idx) {
-    return key_or_value[node_idx] == key_sentinel;
+  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+    return key_or_value[node_id] == key_sentinel;
   };
 
-  auto const is_value = [key_or_value = key_or_value.begin()] __device__(auto const node_idx) {
-    return key_or_value[node_idx] == value_sentinel;
+  auto const is_value = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+    return key_or_value[node_id] == value_sentinel;
   };
 
   auto extract_ranges =
@@ -504,12 +504,12 @@ compute_list_offsets(cudf::size_type n_lists,
   // For the nodes having parent_id == 0 (they are json object given by one input row), set their
   // child counts to zero. Otherwise, set child counts to `-1` (a sentinel number).
   thrust::transform(rmm::exec_policy(stream), parent_node_ids.begin(), parent_node_ids.end(),
-                    node_child_counts.begin(), [] __device__(auto const node_id) -> NodeIndexT {
-                      return node_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
+                    node_child_counts.begin(), [] __device__(auto const parent_id) -> NodeIndexT {
+                      return parent_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
                     });
 
-  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_idx) {
-    return key_or_value[node_idx] == key_sentinel;
+  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+    return key_or_value[node_id] == key_sentinel;
   };
 
   // Count the number of keys for each json object using `atomicAdd`.
