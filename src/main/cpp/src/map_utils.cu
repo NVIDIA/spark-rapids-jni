@@ -106,7 +106,8 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const &input,
 }
 
 // Check and throw exception if there is any parsing error.
-void throw_if_error(rmm::device_uvector<PdaTokenT> const &tokens,
+void throw_if_error(rmm::device_uvector<char> const &input_json,
+                    rmm::device_uvector<PdaTokenT> const &tokens,
                     rmm::device_uvector<SymbolOffsetT> const &token_indices,
                     rmm::cuda_stream_view stream) {
   auto const error_count =
@@ -120,6 +121,17 @@ void throw_if_error(rmm::device_uvector<PdaTokenT> const &tokens,
         &error_index, token_indices.data() + thrust::distance(tokens.begin(), error_location),
         sizeof(SymbolOffsetT), cudaMemcpyDeviceToHost, stream.value()));
     stream.synchronize();
+
+    constexpr auto extension = 100;
+    auto const begin_print_idx = std::max(error_index - extension, SymbolOffsetT{0});
+    auto const end_print_idx =
+        std::min(error_index + extension, static_cast<SymbolOffsetT>(input_json.size()));
+    auto const h_input_json = cudf::detail::make_host_vector_sync(input_json, stream);
+    std::cerr << "Substring of input json in [" << begin_print_idx << ", " << end_print_idx
+              << ") (total size=" << input_json.size() << "):\n";
+    std::cerr << std::string(&h_input_json[begin_print_idx], end_print_idx - begin_print_idx)
+              << std::endl;
+
     CUDF_FAIL("JSON Parser encountered an invalid format at location " +
               std::to_string(error_index));
   }
@@ -569,7 +581,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
 #endif
 
   // Make sure there is no error during parsing.
-  throw_if_error(tokens, token_indices, stream);
+  throw_if_error(unified_json_buff, tokens, token_indices, stream);
 
   auto const num_nodes =
       thrust::count_if(rmm::exec_policy(stream), tokens.begin(), tokens.end(), is_node{});
