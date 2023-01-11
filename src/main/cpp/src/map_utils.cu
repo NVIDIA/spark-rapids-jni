@@ -127,8 +127,8 @@ void throw_if_error(rmm::device_uvector<char> const &input_json,
     auto const end_print_idx =
         std::min(error_index + extension, static_cast<SymbolOffsetT>(input_json.size()));
     auto const h_input_json = cudf::detail::make_host_vector_sync(input_json, stream);
-    std::cerr << "Substring of input json in [" << begin_print_idx << ", " << end_print_idx
-              << ") (total size=" << input_json.size() << "):\n";
+    std::cerr << "Substring of the input json with " + std::to_string(extension)
+              << " characters surrounding the error location:\n";
     std::cerr << std::string(&h_input_json[begin_print_idx], end_print_idx - begin_print_idx)
               << std::endl;
 
