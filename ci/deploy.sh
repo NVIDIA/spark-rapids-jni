@@ -38,7 +38,7 @@
 set -ex
 
 SIGN_FILE=$1
-OUT_PATH=${OUT_PATH:-'out'}
+OUT_PATH=${OUT_PATH:-'target'}
 POM_FILE=${POM_FILE:-"pom.xml"}
 MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
 
