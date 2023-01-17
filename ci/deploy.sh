@@ -27,7 +27,7 @@
 #   SIGN_TOOL:      Tools to sign files, e.g., gpg, nvsec, only required when $1 is 'true'
 #   CLASSIFIERS:    The classifier list of the jars to be deployed
 #   SERVER_ID:      The repository id for this deployment.
-#   SERVER_URL:     The url where to deploy artifacts.
+#   SERVER_URL:     The URL where to deploy artifacts.
 #   GPG_PASSPHRASE: The passphrase used to sign files, only required when <SIGN_TOOL> is gpg
 #   NVSEC_CFG_FILE: nvsec credentials to sign artifacts, only required when <SIGN_TOOL> is nvsec
 #   POM_FILE:       Project pom file to be deployed
@@ -38,7 +38,8 @@
 set -ex
 
 SIGN_FILE=$1
-OUT_PATH=${OUT_PATH:-'target'}
+SIGN_TOOL=${SIGN_TOOL:-"gpg"}
+OUT_PATH=${OUT_PATH:-"target"}
 POM_FILE=${POM_FILE:-"pom.xml"}
 MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
 
