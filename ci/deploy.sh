@@ -29,7 +29,6 @@
 #   SERVER_ID:      The repository id for this deployment.
 #   SERVER_URL:     The URL where to deploy artifacts.
 #   GPG_PASSPHRASE: The passphrase used to sign files, only required when <SIGN_TOOL> is gpg
-#   NVSEC_CFG_FILE: nvsec credentials to sign artifacts, only required when <SIGN_TOOL> is nvsec
 #   POM_FILE:       Project pom file to be deployed
 #   MVN_SETTINGS:   Maven configuration file
 #
@@ -74,7 +73,6 @@ cp -f "$FIRST_FILE" "$FPATH.jar"
 if [ "$SIGN_FILE" == true ]; then
     case $SIGN_TOOL in
         nvsec)
-            cp $NVSEC_CFG_FILE ~/.nvsec.cfg
             DEPLOY_CMD="$MVN gpg:sign-and-deploy-file -Dgpg.executable=nvsec_sign"
             ;;
         gpg)
