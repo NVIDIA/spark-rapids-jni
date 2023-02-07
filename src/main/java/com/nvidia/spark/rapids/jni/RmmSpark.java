@@ -35,9 +35,9 @@ public class RmmSpark {
    * the future it is likely to change.
    */
   public static void setEventHandler(RmmEventHandler handler) throws RmmException {
+    // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     synchronized (Rmm.class) {
-      // TODO RmmException constructor is not public, so we have to use a different one, or we will
-      //  need something else...
+      // RmmException constructor is not public, so we have to use a different exception
       if (!Rmm.isInitialized()) {
         throw new RuntimeException("RMM has not been initialized");
       }
@@ -72,6 +72,7 @@ public class RmmSpark {
    * properly.
    */
   public static void clearEventHandler() throws RmmException {
+    // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     synchronized (Rmm.class) {
       RmmDeviceMemoryResource deviceResource = Rmm.getCurrentDeviceResource();
       if (deviceResource != null && deviceResource instanceof SparkResourceAdaptor) {

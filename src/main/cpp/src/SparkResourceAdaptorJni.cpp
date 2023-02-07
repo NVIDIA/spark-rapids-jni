@@ -64,20 +64,20 @@ public:
 
   void associate_thread_with_task(long thread_id, long task_id) {
     std::scoped_lock lock(state_mutex);
-    if (threads.find(thread_id) != threads.end()) {
+    auto was_threads_inserted = threads.insert({thread_id, {false, false, task_id}});
+    if (was_threads_inserted.second == false) {
       throw std::invalid_argument("a thread can only be added if it is in the unknown state");
     }
-    threads.insert({thread_id, {false, false, task_id}});
     {
       rollback rb([this, thread_id]() {
         threads.erase(thread_id);
       });
 
-      auto tasks_it = task_to_threads.find(task_id);
-      if (tasks_it == task_to_threads.end()) {
-        task_to_threads.insert({task_id, {thread_id}});
-      } else {
-        tasks_it->second.insert(thread_id);
+      auto was_inserted = task_to_threads.insert({task_id, {thread_id}});
+      if (was_inserted.second == false) {
+        // task_to_threads already has a task_id for this, so insert the
+        // thread_id
+        was_inserted.first->second.insert(thread_id);
       }
     }
   }
