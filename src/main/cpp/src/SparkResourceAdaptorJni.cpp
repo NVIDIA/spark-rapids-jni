@@ -33,11 +33,9 @@ public:
     long task_id = -1;
 };
 
-template<typename T>
 class rollback {
+    using T = const std::function<void()>;
 public:
-    T on_error;
-
     rollback(T & on_error): on_error(on_error) {}
 
     ~rollback() {
@@ -45,6 +43,8 @@ public:
         on_error();
       }
     }
+private:
+    T on_error;
 };
 
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
@@ -68,11 +68,10 @@ public:
       throw std::invalid_argument("a thread can only be added if it is in the unknown state");
     }
     threads.insert({thread_id, {false, false, task_id}});
-    auto recover = [this, thread_id]() {
-      threads.erase(thread_id);
-    };
     {
-      rollback rb(recover);
+      rollback rb([this, thread_id]() {
+        threads.erase(thread_id);
+      });
 
       auto tasks_it = task_to_threads.find(task_id);
       if (tasks_it == task_to_threads.end()) {
@@ -132,6 +131,7 @@ private:
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
     {
+      std::scoped_lock lock(state_mutex);
       // pre allocate checks
       auto thread = threads.find(tid);
       if (thread != threads.end()) {
