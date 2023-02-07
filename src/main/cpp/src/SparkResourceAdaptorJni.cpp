@@ -34,9 +34,9 @@ public:
 };
 
 class rollback {
-    using T = const std::function<void()>;
+    using on_error_type = const std::function<void()>;
 public:
-    rollback(T & on_error): on_error(on_error) {}
+    rollback(on_error_type & on_error): on_error(on_error) {}
 
     ~rollback() {
       if (std::uncaught_exceptions() > 0) {
@@ -44,7 +44,7 @@ public:
       }
     }
 private:
-    T on_error;
+    on_error_type on_error;
 };
 
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
@@ -207,6 +207,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_rel
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_associateThreadWithTask(
         JNIEnv *env, jclass, jlong ptr, jlong thread_id, jlong task_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
@@ -217,6 +218,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ass
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeThreadAssociation(
         JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
@@ -227,6 +229,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_rem
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceRetryOOM(
         JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
@@ -237,6 +240,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceSplitAndRetryOOM(
         JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
@@ -244,7 +248,5 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
   }
   CATCH_STD(env, )
 }
-
-
 
 }
