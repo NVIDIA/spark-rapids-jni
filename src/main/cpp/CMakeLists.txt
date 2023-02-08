@@ -145,6 +145,7 @@ add_library(
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/RowConversionJni.cpp
+  src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
   src/cast_string.cu
   src/cast_string_to_float.cu
