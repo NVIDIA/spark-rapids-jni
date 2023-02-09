@@ -93,6 +93,9 @@ public class RmmSpark {
     }
   }
 
+  /**
+   * Get the id of the current thread as used by RmmSpark.
+   */
   public static long getCurrentThreadId() {
     return SparkResourceAdaptor.getCurrentThreadId();
   }
@@ -111,6 +114,14 @@ public class RmmSpark {
   }
 
   /**
+   * Associate the current thread with a given task id.
+   * @param taskId the task ID this thread is associated with.
+   */
+  public static void associateCurrentThreadWithTask(long taskId) {
+    associateThreadWithTask(getCurrentThreadId(), taskId);
+  }
+
+  /**
    * Associate a thread with shuffle.
    * @param threadId the thread ID to associate (not java thread id).
    */
@@ -120,6 +131,13 @@ public class RmmSpark {
         sra.associateThreadWithShuffle(threadId);
       }
     }
+  }
+
+  /**
+   * Associate the current thread with shuffle.
+   */
+  public static void associateCurrentThreadWithShuffle() {
+    associateThreadWithShuffle(getCurrentThreadId());
   }
 
   /**
@@ -133,6 +151,13 @@ public class RmmSpark {
         sra.removeThreadAssociation(threadId);
       }
     }
+  }
+
+  /**
+   * Remove any association the current thread has.
+   */
+  public static void removeCurrentThreadAssociation() {
+    removeThreadAssociation(getCurrentThreadId());
   }
 
   /**
@@ -184,6 +209,29 @@ public class RmmSpark {
    */
   public static void threadDoneWithShuffle() {
     threadDoneWithShuffle(getCurrentThreadId());
+  }
+
+  /**
+   * This should be called as a part of handling any RetryOOM or SplitAndRetryOOM exception.
+   * The order should be something like.
+   * <ol>
+   *   <li>Catch Exception</li>
+   *   <li>Mark any GPU input as spillable, (should have already had contig split called on it)</li>
+   *   <li>call blockUntilReady</li>
+   *   <li>split the input data if SplitAndRetryOOM</li>
+   *   <li>retry processing with the data</li>
+   * </ol>
+   * This should be a NOOP if the thread is not in a state where it would need to block. Note
+   * that any call to alloc could also block in the same way as a precaution in case this is
+   * not followed and a task attempts to retry som processing either because it is old code or
+   * in error.
+   */
+  public static void blockThreadUntilReady() {
+    synchronized (Rmm.class) {
+      if (sra != null) {
+        sra.blockThreadUntilReady();
+      }
+    }
   }
 
   /**
