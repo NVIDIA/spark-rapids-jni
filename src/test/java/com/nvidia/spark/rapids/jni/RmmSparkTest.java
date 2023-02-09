@@ -60,6 +60,8 @@ public class RmmSparkTest {
       // Force an exception
       RmmSpark.forceRetryOOM(threadId);
       assertThrows(RetryOOM.class, () -> Rmm.alloc(100).close());
+      // Verify that injecting OOM does not cause the block to actually happen
+      RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
@@ -67,6 +69,8 @@ public class RmmSparkTest {
       // Force another exception
       RmmSpark.forceSplitAndRetryOOM(threadId);
       assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
+      // Verify that injecting OOM does not cause the block to actually happen
+      RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();

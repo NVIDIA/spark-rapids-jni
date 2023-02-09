@@ -118,6 +118,13 @@ public class SparkResourceAdaptor
   }
 
   /**
+   * Block the current thread until the resource adaptor thinks it is ready to continue.
+   */
+  public void blockThreadUntilReady() {
+    blockThreadUntilReady(getHandle());
+  }
+
+  /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
    */
@@ -133,4 +140,5 @@ public class SparkResourceAdaptor
   private static native void threadDoneWithShuffle(long handle, long threadId);
   private static native void forceRetryOOM(long handle, long threadId);
   private static native void forceSplitAndRetryOOM(long handle, long threadId);
+  private static native void blockThreadUntilReady(long handle);
 }

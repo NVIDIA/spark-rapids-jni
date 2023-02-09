@@ -33,20 +33,6 @@ public:
     long task_id = -1;
 };
 
-class rollback {
-    using on_error_type = const std::function<void()>;
-public:
-    rollback(on_error_type & on_error): on_error(on_error) {}
-
-    ~rollback() {
-      if (std::uncaught_exceptions() > 0) {
-        on_error();
-      }
-    }
-private:
-    on_error_type on_error;
-};
-
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 public:
   spark_resource_adaptor(JNIEnv *env, rmm::mr::device_memory_resource *mr)
@@ -68,17 +54,18 @@ public:
     if (was_threads_inserted.second == false) {
       throw std::invalid_argument("a thread can only be added if it is in the unknown state");
     }
-    {
-      rollback rb([this, thread_id]() {
-        threads.erase(thread_id);
-      });
-
+    try {
       auto was_inserted = task_to_threads.insert({task_id, {thread_id}});
       if (was_inserted.second == false) {
         // task_to_threads already has a task_id for this, so insert the
         // thread_id
         was_inserted.first->second.insert(thread_id);
       }
+    } catch (const std::exception &) {
+      if (was_threads_inserted.second == true) {
+        threads.erase(thread_id);
+      }
+      throw;
     }
   }
 
@@ -117,6 +104,11 @@ public:
     }
   }
 
+  void block_thread_until_ready() {
+    // TODO actually do this once we have state that can block
+    //auto current_thread = static_cast<int64_t>(pthread_self());
+    //std::scoped_lock lock(state_mutex)
+  }
 
 private:
   rmm::mr::device_memory_resource *const resource;
@@ -245,6 +237,17 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
     mr->force_split_and_retry_oom(thread_id);
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_blockThreadUntilReady(
+        JNIEnv *env, jclass, jlong ptr) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    mr->block_thread_until_ready();
   }
   CATCH_STD(env, )
 }
