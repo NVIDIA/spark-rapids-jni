@@ -17,11 +17,11 @@
 ###
 # Build the image for spark-rapids-jni development environment.
 #
-# Arguments: CUDA_VERSION=11.5.0
+# Arguments: CUDA_VERSION=11.8.0
 #
 ###
-ARG CUDA_VERSION=11.5.0
-FROM gpuci/cuda:$CUDA_VERSION-devel-centos7
+ARG CUDA_VERSION=11.8.0
+FROM nvidia/cuda:$CUDA_VERSION-devel-centos7
 ARG DEVTOOLSET_VERSION=9
 ### Install basic requirements
 RUN yum install -y centos-release-scl
@@ -68,3 +68,6 @@ RUN cd /usr/local && wget --quiet https://boostorg.jfrog.io/artifactory/main/rel
   ./b2 install --prefix=/usr/local --with-filesystem --with-system && \
    cd /usr/local && \
    rm -rf boost_1_79_0
+
+# disable cuda container constraints to allow running w/ elder drivers on data-center GPUs
+ENV NVIDIA_DISABLE_REQUIRE="true"

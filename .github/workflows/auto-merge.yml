@@ -1,4 +1,4 @@
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,12 +18,12 @@ name: auto-merge HEAD to BASE
 on:
   pull_request_target:
     branches:
-      - branch-22.12
+      - branch-23.02
     types: [closed]
 
 env:
-  HEAD: branch-22.12
-  BASE: branch-23.02
+  HEAD: branch-23.02
+  BASE: branch-23.04
 
 jobs:
   auto-merge:
@@ -60,3 +60,4 @@ jobs:
           HEAD: bot-auto-merge-${{ env.HEAD }}
           BASE: ${{ env.BASE }}
           TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+

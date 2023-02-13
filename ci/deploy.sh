@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,25 +23,34 @@
 #   SIGN_FILE: true/false, whether to sign the jar/pom file to de deployed
 #
 # Used environment(s):
+#   OUT_PATH:       The path where jar files are
+#   SIGN_TOOL:      Tools to sign files, e.g., gpg, nvsec, only required when $1 is 'true'
 #   CLASSIFIERS:    The classifier list of the jars to be deployed
 #   SERVER_ID:      The repository id for this deployment.
-#   SERVER_URL:     The url where to deploy artifacts.
-#   GPG_PASSPHRASE: The passphrase used to sign files, only required when <SIGN_FILE> is true.
+#   SERVER_URL:     The URL where to deploy artifacts.
+#   GPG_PASSPHRASE: The passphrase used to sign files, only required when <SIGN_TOOL> is gpg
+#   POM_FILE:       Project pom file to be deployed
+#   MVN_SETTINGS:   Maven configuration file
+#
 ###
 
 set -ex
 
 SIGN_FILE=$1
-OUT_PATH=$WORKSPACE/$OUT
+SIGN_TOOL=${SIGN_TOOL:-"gpg"}
+OUT_PATH=${OUT_PATH:-"target"}
+POM_FILE=${POM_FILE:-"pom.xml"}
+MVN_SETTINGS=${MVN_SETTINGS:-"ci/settings.xml"}
 
-cd $WORKSPACE/
-REL_VERSION=$(mvn exec:exec -q --non-recursive -Dexec.executable=echo -Dexec.args='${project.version}')
+MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -DretryFailedDeploymentCount=3 -B -s $MVN_SETTINGS"
+REL_ARTIFACTID=$($MVN exec:exec -f $POM_FILE -q --non-recursive -Dexec.executable=echo -Dexec.args='${project.artifactId}')
+REL_VERSION=$($MVN exec:exec -f $POM_FILE -q --non-recursive -Dexec.executable=echo -Dexec.args='${project.version}')
 
 echo "REL_VERSION: $REL_VERSION, OUT_PATH: $OUT_PATH \
-SERVER_URL: $SERVER_URL, SERVER_ID: $SERVER_ID"
+        SERVER_URL: $SERVER_URL, SERVER_ID: $SERVER_ID"
 
 ###### Build types/files from classifiers ######
-FPATH="$OUT_PATH/spark-rapids-jni-$REL_VERSION"
+FPATH="$OUT_PATH/$REL_ARTIFACTID-$REL_VERSION"
 CLASS_TYPES=''
 CLASS_FILES=''
 ORI_IFS="$IFS"
@@ -61,19 +70,32 @@ FIRST_FILE=${CLASS_FILES%%,*}
 cp -f "$FIRST_FILE" "$FPATH.jar"
 
 ###### Build the deploy command ######
-MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -DretryFailedDeploymentCount=3 -B"
 if [ "$SIGN_FILE" == true ]; then
-    DEPLOY_CMD="$MVN -B gpg:sign-and-deploy-file -s ci/settings.xml \
-      -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar -Dgpg.passphrase=$GPG_PASSPHRASE"
+    case $SIGN_TOOL in
+        nvsec)
+            DEPLOY_CMD="$MVN gpg:sign-and-deploy-file -Dgpg.executable=nvsec_sign"
+            ;;
+        gpg)
+            DEPLOY_CMD="$MVN gpg:sign-and-deploy-file -Dgpg.passphrase=$GPG_PASSPHRASE "
+            ;;
+        *)
+            echo "Error unsupported sign type : $SIGN_TYPE !"
+            echo "Please set variable SIGN_TOOL 'nvsec'or 'gpg'"
+            exit -1
+            ;;
+    esac
 else
-    DEPLOY_CMD="$MVN -B deploy:deploy-file -s ci/settings.xml \
-      -Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar"
+    DEPLOY_CMD="$MVN -B deploy:deploy-file"
 fi
+
+DEPLOY_CMD="$DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID -DpomFile=$POM_FILE"
 echo "Deploy CMD: $DEPLOY_CMD"
 
 ###### Deploy spark-rapids-jni jar with all its additions ######
-$DEPLOY_CMD -Durl=$SERVER_URL -DrepositoryId=$SERVER_ID \
-            -Dfile=$FPATH.jar -DpomFile=pom.xml \
+$DEPLOY_CMD -Dfile=$FPATH.jar \
+            -DpomFile=pom.xml \
+            -Dsources=$FPATH-sources.jar \
+            -Djavadoc=$FPATH-javadoc.jar \
             -Dfiles=$CLASS_FILES \
             -Dtypes=$CLASS_TYPES \
             -Dclassifiers=$CLASSIFIERS

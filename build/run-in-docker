@@ -24,7 +24,7 @@ set -e
 SCRIPTDIR=$(cd $(dirname $0); pwd)
 REPODIR=$SCRIPTDIR/..
 
-CUDA_VERSION=${CUDA_VERSION:-11.5.0}
+CUDA_VERSION=${CUDA_VERSION:-11.8.0}
 DOCKER_CMD=${DOCKER_CMD:-docker}
 DOCKER_BUILD_EXTRA_ARGS=${DOCKER_BUILD_EXTRA_ARGS:-""}
 DOCKER_RUN_EXTRA_ARGS=${DOCKER_RUN_EXTRA_ARGS:-""}
@@ -47,9 +47,10 @@ fi
 
 if (( $# == 0 )); then
   # no arguments gets an interactive shell
-  DOCKER_ARGS="/bin/bash"
+  DOCKER_OPTS="${DOCKER_OPTS} -it"
+  RUN_CMD="/bin/bash"
 else
-  DOCKER_ARGS="$*"
+  RUN_CMD="$*"
 fi
 
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
@@ -71,5 +72,6 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
+  $DOCKER_OPTS \
   $SPARK_IMAGE_NAME \
-  scl enable devtoolset-9 "$DOCKER_ARGS"
+  scl enable devtoolset-9 "$RUN_CMD"
