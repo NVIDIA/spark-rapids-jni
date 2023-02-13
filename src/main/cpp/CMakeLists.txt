@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 22.12.00
+  VERSION 23.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -140,15 +140,17 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
-  src/RowConversionJni.cpp
   src/CastStringJni.cpp
+  src/DecimalUtilsJni.cpp
+  src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
+  src/RowConversionJni.cpp
+  src/ZOrderJni.cpp
   src/cast_string.cu
   src/cast_string_to_float.cu
-  src/row_conversion.cu
-  src/DecimalUtilsJni.cpp
   src/decimal_utils.cu
-  src/ZOrderJni.cpp
+  src/map_utils.cu
+  src/row_conversion.cu
   src/zorder.cu
 )
 
@@ -198,9 +200,9 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
+  -Wl,--no-whole-archive
     ${PARQUET_LIB}
     ${THRIFT_LIB}
-  -Wl,--no-whole-archive
 )
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,

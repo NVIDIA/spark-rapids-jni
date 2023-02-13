@@ -30,7 +30,7 @@ import ipp.blossom.*
 
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
-def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:centos7-cuda11.5.0-blossom"
+def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:centos7-cuda11.8.0-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG
@@ -149,7 +149,7 @@ pipeline {
                         }
 
                         if (TEMP_IMAGE_BUILD) {
-                            PREMERGE_TAG = "centos7-cuda11.5.0-blossom-dev-${BUILD_TAG}"
+                            PREMERGE_TAG = "centos7-cuda11.8.0-blossom-dev-${BUILD_TAG}"
                             IMAGE_PREMERGE = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG}"
                             docker.build(IMAGE_PREMERGE, "-f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE .")
                             uploadDocker(IMAGE_PREMERGE)
