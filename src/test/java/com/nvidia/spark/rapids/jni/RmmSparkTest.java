@@ -119,6 +119,7 @@ public class RmmSparkTest {
     }
   }
 
+  @Test
   public void testCudfException() {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler());
