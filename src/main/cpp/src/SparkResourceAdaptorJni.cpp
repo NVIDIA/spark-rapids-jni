@@ -136,6 +136,7 @@ private:
 
   void throw_java_exception(const char * ex_class_name, const char* msg) {
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
+    //TODO: we may want to cache these in the future
     jclass ex_class = env->FindClass(ex_class_name);
     if (ex_class != nullptr) {
       env->ThrowNew(ex_class, msg);
