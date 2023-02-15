@@ -41,6 +41,9 @@ public:
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
     }
+    retry_oom_class = env->FindClass("com/nvidia/spark/rapids/jni/RetryOOM");
+    split_and_retry_oom_class = env->FindClass("com/nvidia/spark/rapids/jni/SplitAndRetryOOM");
+    cudf_exception_class = env->FindClass("ai/rapids/cudf/CudfException");
   }
 
   rmm::mr::device_memory_resource *get_wrapped_resource() { return resource; }
@@ -129,7 +132,19 @@ private:
   std::mutex state_mutex;
   std::map<long, thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
+  jclass retry_oom_class;
+  jclass split_and_retry_oom_class;
+  jclass cudf_exception_class;
   JavaVM *jvm;
+
+  void throw_java_exception(jclass ex_class, const char* msg) {
+    JNIEnv *env = cudf::jni::get_jni_env(jvm);
+    if (ex_class != nullptr) {
+      env->ThrowNew(ex_class, msg);
+    } else {
+      throw cudf::jni::jni_exception(msg);
+    }
+  }
 
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
@@ -140,35 +155,17 @@ private:
       if (thread != threads.end()) {
         if (thread->second.retry_oom_injected > 0) {
           thread->second.retry_oom_injected--;
-          JNIEnv *env = cudf::jni::get_jni_env(jvm);
-          // TODO cache what is needed for this...
-          jclass ex_class = env->FindClass("com/nvidia/spark/rapids/jni/RetryOOM");
-          if (ex_class != nullptr) {
-            env->ThrowNew(ex_class, "OOM injected");
-          }
-          throw cudf::jni::jni_exception("injected RetryOOM");
+          throw_java_exception(retry_oom_class, "injected RetryOOM");
         }
 
         if (thread->second.split_and_retry_oom_injected > 0) {
           thread->second.split_and_retry_oom_injected--;
-          JNIEnv *env = cudf::jni::get_jni_env(jvm);
-          // TODO cache what is needed for this...
-          jclass ex_class = env->FindClass("com/nvidia/spark/rapids/jni/SplitAndRetryOOM");
-          if (ex_class != nullptr) {
-            env->ThrowNew(ex_class, "OOM injected");
-          }
-          throw cudf::jni::jni_exception("injected SplitAndRetryOOM");
+          throw_java_exception(split_and_retry_oom_class, "injected SplitAndRetryOOM");
         }
 
         if (thread->second.cudf_exception_injected > 0) {
           thread->second.cudf_exception_injected--;
-          JNIEnv *env = cudf::jni::get_jni_env(jvm);
-          // TODO cache what is needed for this...
-          jclass ex_class = env->FindClass("ai/rapids/cudf/CudfException");
-          if (ex_class != nullptr) {
-            env->ThrowNew(ex_class, "CudfException injected");
-          }
-          throw cudf::jni::jni_exception("injected CudfException");
+          throw_java_exception(cudf_exception_class, "injected CudfException");
         }
       }
     }
