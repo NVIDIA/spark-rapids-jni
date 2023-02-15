@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,24 +38,26 @@ public class CastStringsTest {
     tb.column(3l, 9l, 4l, 2l, 20l, null, null);
     tb.column(5, 1, 0, 2, 7, null, null);
     tb.column(new Byte[]{2, 3, 4, 5, 9, null, null});
-    Table expected = tb.build();
+    try (Table expected = tb.build()) {
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
+      tb2.column("5", "1  ", "0", "2", "7.1", null, "asdf");
+      tb2.column("2", "3", " 4 ", "5", " 9.2 ", null, "7.8.3");
 
-    Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-    tb2.column("5", "1  ", "0", "2", "7.1", null, "asdf");
-    tb2.column("2", "3", " 4 ", "5", " 9.2 ", null, "7.8.3");
-
-    List<ColumnVector> result = new ArrayList<>();
-
-    try (Table origTable = tb2.build()) {
-      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
-        ColumnVector string_col = origTable.getColumn(i);
-        result.add(CastStrings.toInteger(string_col, false, 
-                   expected.getColumn(i).getType()));
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toInteger(string_col, false,
+              expected.getColumn(i).getType()));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
       }
-      Table result_tbl = new Table(
-        result.toArray(new ColumnVector[result.size()]));
-      AssertUtils.assertTablesAreEqual(expected, result_tbl);
     }
   }
 
@@ -65,24 +67,26 @@ public class CastStringsTest {
     tb.column(null, 9l, 4l, 2l, 20l, null, null);
     tb.column(5, null, 0, 2, 7, null, null);
     tb.column(new Byte[]{2, 3, null, 5, null, null, null});
-    Table expected = tb.build();
+    try (Table expected = tb.build()) {
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
+      tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
+      tb2.column("2", "3", " 4 ", "5.6", " 9.2 ", null, "7.8.3");
 
-    Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-    tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
-    tb2.column("2", "3", " 4 ", "5.6", " 9.2 ", null, "7.8.3");
-
-    List<ColumnVector> result = new ArrayList<>();
-
-    try (Table origTable = tb2.build()) {
-      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
-        ColumnVector string_col = origTable.getColumn(i);
-        result.add(CastStrings.toInteger(string_col, false, false,
-            expected.getColumn(i).getType()));
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toInteger(string_col, false, false,
+              expected.getColumn(i).getType()));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
       }
-      Table result_tbl = new Table(
-          result.toArray(new ColumnVector[result.size()]));
-      AssertUtils.assertTablesAreEqual(expected, result_tbl);
     }
   }
 
@@ -92,37 +96,38 @@ public class CastStringsTest {
     tb.column(3l, 9l, 4l, 2l, 20l);
     tb.column(5, 1, 0, 2, 7);
     tb.column(new Byte[]{2, 3, 4, 5, 9});
-    Table expected = tb.build();
+    try (Table expected = tb.build()) {
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column("3", "9", "4", "2", "20");
+      tb2.column("5", "1", "0", "2", "7");
+      tb2.column("2", "3", "4", "5", "9");
 
-    Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column("3", "9", "4", "2", "20");
-    tb2.column("5", "1", "0", "2", "7");
-    tb2.column("2", "3", "4", "5", "9");
-
-    List<ColumnVector> result = new ArrayList<>();
-
-    try (Table origTable = tb2.build()) {
-      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
-        ColumnVector string_col = origTable.getColumn(i);
-        result.add(CastStrings.toInteger(string_col, true, 
-                   expected.getColumn(i).getType()));
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toInteger(string_col, true,
+              expected.getColumn(i).getType()));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
       }
-      Table result_tbl = new Table(
-        result.toArray(new ColumnVector[result.size()]));
-      AssertUtils.assertTablesAreEqual(expected, result_tbl);
-    }
+      Table.TestBuilder fail = new Table.TestBuilder();
+      fail.column("asdf", "9.0.2", "- 4e", "b2", "20-fe");
 
-    Table.TestBuilder fail = new Table.TestBuilder();
-    fail.column("asdf", "9.0.2", "- 4e", "b2", "20-fe");
-
-    try {
-        Table failTable = fail.build();
-        CastStrings.toInteger(failTable.getColumn(0), true,
-                              expected.getColumn(0).getType());
+      try (Table failTable = fail.build();
+           ColumnVector cv =
+               CastStrings.toInteger(failTable.getColumn(0), true,
+                   expected.getColumn(0).getType());) {
         fail("Should have thrown");
       } catch (CastException e) {
         assertEquals("asdf", e.getStringWithError());
         assertEquals(0, e.getRowWithError());
+      }
     }
   }
 
@@ -132,57 +137,61 @@ public class CastStringsTest {
     tb.decimal32Column(0,3, 9, 4, 2, 21, null, null);
     tb.decimal64Column(0, 5l, 1l, 0l, 2l, 7l, null, null);
     tb.decimal32Column(-1, 20, 30, 40, 51, 92, null, null);
-    Table expected = tb.build();
+    try (Table expected = tb.build()) {
+      int[] desiredPrecision = new int[]{2, 10, 3};
+      int[] desiredScale = new int[]{0, 0, -1};
 
-    int[] desiredPrecision = new int[] {2, 10, 3};
-    int[] desiredScale = new int[]{0, 0, -1};
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
+      tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
+      tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3");
 
-    Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-    tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
-    tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3");
-
-    List<ColumnVector> result = new ArrayList<>();
-
-    try (Table origTable = tb2.build()) {
-      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
-        ColumnVector string_col = origTable.getColumn(i);
-        result.add(CastStrings.toDecimal(string_col, false,
-            desiredPrecision[i], desiredScale[i]));
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toDecimal(string_col, false,
+              desiredPrecision[i], desiredScale[i]));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
       }
-      Table result_tbl = new Table(
-          result.toArray(new ColumnVector[result.size()]));
-      AssertUtils.assertTablesAreEqual(expected, result_tbl);
     }
   }
 
   @Test
   void castToDecimalNoStripTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.decimal32Column(0,null, 9, 4, 2, 21, null, null);
+    tb.decimal32Column(0, null, 9, 4, 2, 21, null, null);
     tb.decimal64Column(0, 5l, null, 0l, 2l, 7l, null, null);
     tb.decimal32Column(-1, 20, 30, null, 51, 92, null, null);
-    Table expected = tb.build();
+    try (Table expected = tb.build()) {
+      int[] desiredPrecision = new int[]{2, 10, 3};
+      int[] desiredScale = new int[]{0, 0, -1};
 
-    int[] desiredPrecision = new int[] {2, 10, 3};
-    int[] desiredScale = new int[]{0, 0, -1};
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
+      tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
+      tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3");
 
-    Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-    tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
-    tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3");
-
-    List<ColumnVector> result = new ArrayList<>();
-
-    try (Table origTable = tb2.build()) {
-      for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
-        ColumnVector string_col = origTable.getColumn(i);
-        result.add(CastStrings.toDecimal(string_col, false, false,
-            desiredPrecision[i], desiredScale[i]));
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toDecimal(string_col, false, false,
+              desiredPrecision[i], desiredScale[i]));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
       }
-      Table result_tbl = new Table(
-          result.toArray(new ColumnVector[result.size()]));
-      AssertUtils.assertTablesAreEqual(expected, result_tbl);
     }
   }
 }
