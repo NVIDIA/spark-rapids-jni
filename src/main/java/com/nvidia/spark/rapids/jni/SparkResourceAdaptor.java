@@ -104,17 +104,28 @@ public class SparkResourceAdaptor
   /**
    * Force the thread with the given ID to throw a RetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the RetryOOM should be thrown
    */
-  public void forceRetryOOM(long threadId) {
-    forceRetryOOM(getHandle(), threadId);
+  public void forceRetryOOM(long threadId, int numOOMs) {
+    forceRetryOOM(getHandle(), threadId, numOOMs);
   }
 
   /**
    * Force the thread with the given ID to throw a SplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the SplitAndRetryOOM should be thrown
    */
-  public void forceSplitAndRetryOOM(long threadId) {
-    forceSplitAndRetryOOM(getHandle(), threadId);
+  public void forceSplitAndRetryOOM(long threadId, int numOOMs) {
+    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs);
+  }
+
+  /**
+   * Force the thread with the given ID to throw a SplitAndRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numTimes the number of times the CudfException should be thrown
+   */
+  public void forceCudfException(long threadId, int numTimes) {
+    forceCudfException(getHandle(), threadId, numTimes);
   }
 
   /**
@@ -138,7 +149,8 @@ public class SparkResourceAdaptor
   private static native void taskDone(long handle, long taskId);
   private static native void threadCouldBlockOnShuffle(long handle, long threadId);
   private static native void threadDoneWithShuffle(long handle, long threadId);
-  private static native void forceRetryOOM(long handle, long threadId);
-  private static native void forceSplitAndRetryOOM(long handle, long threadId);
+  private static native void forceRetryOOM(long handle, long threadId, int numOOMs);
+  private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs);
+  private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
 }
