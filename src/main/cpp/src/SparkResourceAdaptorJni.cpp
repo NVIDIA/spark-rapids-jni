@@ -25,6 +25,9 @@
 namespace {
 
 constexpr char const *RMM_EXCEPTION_CLASS = "ai/rapids/cudf/RmmException";
+constexpr char const *RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/RetryOOM";
+constexpr char const *SPLIT_AND_RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/SplitAndRetryOOM";
+constexpr char const *CUDF_EXCEPTION_CLASS = "ai/rapids/cudf/CudfException";
 
 class thread_state {
 public:
@@ -41,9 +44,6 @@ public:
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
     }
-    retry_oom_class = env->FindClass("com/nvidia/spark/rapids/jni/RetryOOM");
-    split_and_retry_oom_class = env->FindClass("com/nvidia/spark/rapids/jni/SplitAndRetryOOM");
-    cudf_exception_class = env->FindClass("ai/rapids/cudf/CudfException");
   }
 
   rmm::mr::device_memory_resource *get_wrapped_resource() { return resource; }
@@ -132,18 +132,15 @@ private:
   std::mutex state_mutex;
   std::map<long, thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
-  jclass retry_oom_class;
-  jclass split_and_retry_oom_class;
-  jclass cudf_exception_class;
   JavaVM *jvm;
 
-  void throw_java_exception(jclass ex_class, const char* msg) {
+  void throw_java_exception(const char * ex_class_name, const char* msg) {
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
+    jclass ex_class = env->FindClass(ex_class_name);
     if (ex_class != nullptr) {
       env->ThrowNew(ex_class, msg);
-    } else {
-      throw cudf::jni::jni_exception(msg);
     }
+    throw cudf::jni::jni_exception(msg);
   }
 
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
@@ -155,17 +152,17 @@ private:
       if (thread != threads.end()) {
         if (thread->second.retry_oom_injected > 0) {
           thread->second.retry_oom_injected--;
-          throw_java_exception(retry_oom_class, "injected RetryOOM");
+          throw_java_exception(RETRY_OOM_CLASS, "injected RetryOOM");
         }
 
         if (thread->second.split_and_retry_oom_injected > 0) {
           thread->second.split_and_retry_oom_injected--;
-          throw_java_exception(split_and_retry_oom_class, "injected SplitAndRetryOOM");
+          throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
         }
 
         if (thread->second.cudf_exception_injected > 0) {
           thread->second.cudf_exception_injected--;
-          throw_java_exception(cudf_exception_class, "injected CudfException");
+          throw_java_exception(CUDF_EXCEPTION_CLASS, "injected CudfException");
         }
       }
     }
