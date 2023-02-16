@@ -239,9 +239,18 @@ public class RmmSpark {
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceRetryOOM(long threadId) {
+    forceRetryOOM(threadId, 1);
+  }
+
+  /**
+   * Force the thread with the given ID to throw a RetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the RetryOOM should be thrown
+   */
+  public static void forceRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
       if (sra != null) {
-        sra.forceRetryOOM(threadId);
+        sra.forceRetryOOM(threadId, numOOMs);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
       }
@@ -253,9 +262,43 @@ public class RmmSpark {
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceSplitAndRetryOOM(long threadId) {
+    forceSplitAndRetryOOM(threadId, 1);
+  }
+
+  /**
+   * Force the thread with the given ID to throw a SplitAndRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the SplitAndRetryOOM should be thrown
+   */
+  public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
       if (sra != null) {
-        sra.forceSplitAndRetryOOM(threadId);
+        sra.forceSplitAndRetryOOM(threadId, numOOMs);
+      } else {
+        throw new IllegalStateException("RMM has not been configured for OOM injection");
+      }
+    }
+  }
+
+  /**
+   * Force the thread with the given ID to throw a CudfException on their next allocation attempt.
+   * This is to simulate a cuDF exception being thrown from a kernel and test retry handling code.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   */
+  public static void forceCudfException(long threadId) {
+    forceCudfException(threadId, 1);
+  }
+
+  /**
+   * Force the thread with the given ID to throw a CudfException on their next allocation attempt.
+   * This is to simulate a cuDF exception being thrown from a kernel and test retry handling code.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numTimes the number of times the CudfException should be thrown
+   */
+  public static void forceCudfException(long threadId, int numTimes) {
+    synchronized (Rmm.class) {
+      if (sra != null) {
+        sra.forceCudfException(threadId, numTimes);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
       }

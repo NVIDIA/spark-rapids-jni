@@ -25,11 +25,15 @@
 namespace {
 
 constexpr char const *RMM_EXCEPTION_CLASS = "ai/rapids/cudf/RmmException";
+constexpr char const *RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/RetryOOM";
+constexpr char const *SPLIT_AND_RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/SplitAndRetryOOM";
+constexpr char const *CUDF_EXCEPTION_CLASS = "ai/rapids/cudf/CudfException";
 
 class thread_state {
 public:
-    bool retry_oom_injected = false;
-    bool split_and_retry_oom_injected = false;
+    int retry_oom_injected = 0;
+    int split_and_retry_oom_injected = 0;
+    int cudf_exception_injected = 0;
     long task_id = -1;
 };
 
@@ -50,7 +54,7 @@ public:
 
   void associate_thread_with_task(long thread_id, long task_id) {
     std::scoped_lock lock(state_mutex);
-    auto was_threads_inserted = threads.insert({thread_id, {false, false, task_id}});
+    auto was_threads_inserted = threads.insert({thread_id, {0, 0, 0, task_id}});
     if (was_threads_inserted.second == false) {
       throw std::invalid_argument("a thread can only be added if it is in the unknown state");
     }
@@ -84,21 +88,31 @@ public:
     }
   }
 
-  void force_retry_oom(long thread_id) {
+  void force_retry_oom(long thread_id, int num_ooms) {
     std::scoped_lock lock(state_mutex);
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      threads_at->second.retry_oom_injected = true;
+      threads_at->second.retry_oom_injected = num_ooms;
     } else {
       throw std::invalid_argument("the thread is not associated with any task.");
     }
   }
 
-  void force_split_and_retry_oom(long thread_id) {
+  void force_split_and_retry_oom(long thread_id, int num_ooms) {
     std::scoped_lock lock(state_mutex);
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      threads_at->second.split_and_retry_oom_injected = true;
+      threads_at->second.split_and_retry_oom_injected = num_ooms;
+    } else {
+      throw std::invalid_argument("the thread is not associated with any task.");
+    }
+  }
+
+  void force_cudf_exception(long thread_id, int num_times) {
+    std::scoped_lock lock(state_mutex);
+    auto threads_at = threads.find(thread_id);
+    if (threads_at != threads.end()) {
+      threads_at->second.cudf_exception_injected = num_times;
     } else {
       throw std::invalid_argument("the thread is not associated with any task.");
     }
@@ -120,6 +134,11 @@ private:
   std::map<long, std::set<long>> task_to_threads;
   JavaVM *jvm;
 
+  void throw_java_exception(const char* ex_class_name, const char* msg) {
+    JNIEnv *env = cudf::jni::get_jni_env(jvm);
+    cudf::jni::throw_java_exception(env, ex_class_name, msg);
+  }
+
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
     {
@@ -127,26 +146,19 @@ private:
       // pre allocate checks
       auto thread = threads.find(tid);
       if (thread != threads.end()) {
-        if (thread->second.retry_oom_injected) {
-          thread->second.retry_oom_injected = false;
-          JNIEnv *env = cudf::jni::get_jni_env(jvm);
-          // TODO cache what is needed for this...
-          jclass ex_class = env->FindClass("com/nvidia/spark/rapids/jni/RetryOOM");
-          if (ex_class != nullptr) {
-            env->ThrowNew(ex_class, "OOM injected");
-          }
-          throw cudf::jni::jni_exception("injected RetryOOM");
+        if (thread->second.retry_oom_injected > 0) {
+          thread->second.retry_oom_injected--;
+          throw_java_exception(RETRY_OOM_CLASS, "injected RetryOOM");
         }
 
-        if (thread->second.split_and_retry_oom_injected) {
-          thread->second.split_and_retry_oom_injected = false;
-          JNIEnv *env = cudf::jni::get_jni_env(jvm);
-          // TODO cache what is needed for this...
-          jclass ex_class = env->FindClass("com/nvidia/spark/rapids/jni/SplitAndRetryOOM");
-          if (ex_class != nullptr) {
-            env->ThrowNew(ex_class, "OOM injected");
-          }
-          throw cudf::jni::jni_exception("injected SplitAndRetryOOM");
+        if (thread->second.split_and_retry_oom_injected > 0) {
+          thread->second.split_and_retry_oom_injected--;
+          throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
+        }
+
+        if (thread->second.cudf_exception_injected > 0) {
+          thread->second.cudf_exception_injected--;
+          throw_java_exception(CUDF_EXCEPTION_CLASS, "injected CudfException");
         }
       }
     }
@@ -220,23 +232,34 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_rem
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceRetryOOM(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    mr->force_retry_oom(thread_id);
+    mr->force_retry_oom(thread_id, num_ooms);
   }
   CATCH_STD(env, )
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceSplitAndRetryOOM(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    mr->force_split_and_retry_oom(thread_id);
+    mr->force_split_and_retry_oom(thread_id, num_ooms);
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceCudfException(
+        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_times) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    mr->force_cudf_exception(thread_id, num_times);
   }
   CATCH_STD(env, )
 }

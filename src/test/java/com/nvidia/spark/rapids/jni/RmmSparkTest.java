@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.Rmm;
 import ai.rapids.cudf.RmmAllocationMode;
 import ai.rapids.cudf.RmmEventHandler;
@@ -71,6 +72,72 @@ public class RmmSparkTest {
       assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       // Verify that injecting OOM does not cause the block to actually happen
       RmmSpark.blockThreadUntilReady();
+
+      // Allocate something small and verify that it works...
+      Rmm.alloc(100).close();
+    } finally {
+      RmmSpark.removeThreadAssociation(threadId);
+    }
+  }
+
+  @Test
+  public void testInsertMultipleOOMs() {
+    Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
+    RmmSpark.setEventHandler(new BaseRmmEventHandler());
+    long threadId = RmmSpark.getCurrentThreadId();
+    long taskid = 0; // This is arbitrary
+    RmmSpark.associateThreadWithTask(threadId, taskid);
+    try {
+      // Allocate something small and verify that it works...
+      Rmm.alloc(100).close();
+
+      // Force an exception
+      int numRetryOOMs = 3;
+      RmmSpark.forceRetryOOM(threadId, numRetryOOMs);
+      for (int i = 0; i < numRetryOOMs; i++) {
+        assertThrows(RetryOOM.class, () -> Rmm.alloc(100).close());
+        // Verify that injecting OOM does not cause the block to actually happen
+        RmmSpark.blockThreadUntilReady();
+      }
+
+      // Allocate something small and verify that it works...
+      Rmm.alloc(100).close();
+
+      // Force another exception
+      int numSplitAndRetryOOMs = 5;
+      RmmSpark.forceSplitAndRetryOOM(threadId, numSplitAndRetryOOMs);
+      for (int i = 0; i < numSplitAndRetryOOMs; i++) {
+        assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
+        // Verify that injecting OOM does not cause the block to actually happen
+        RmmSpark.blockThreadUntilReady();
+      }
+
+      // Allocate something small and verify that it works...
+      Rmm.alloc(100).close();
+    } finally {
+      RmmSpark.removeThreadAssociation(threadId);
+    }
+  }
+
+  @Test
+  public void testCudfException() {
+    Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
+    RmmSpark.setEventHandler(new BaseRmmEventHandler());
+    long threadId = RmmSpark.getCurrentThreadId();
+    long taskid = 0; // This is arbitrary
+    RmmSpark.associateThreadWithTask(threadId, taskid);
+    try {
+      // Allocate something small and verify that it works...
+      Rmm.alloc(100).close();
+
+      // Force an exception
+      int numCudfExceptions = 3;
+      RmmSpark.forceCudfException(threadId, numCudfExceptions);
+      for (int i = 0; i < numCudfExceptions; i++) {
+        assertThrows(CudfException.class, () -> Rmm.alloc(100).close());
+        // Verify that injecting OOM does not cause the block to actually happen
+        RmmSpark.blockThreadUntilReady();
+      }
 
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
