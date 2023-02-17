@@ -33,8 +33,26 @@ public class SparkResourceAdaptor
    * @param wrapped the memory resource to track allocations. This should not be reused.
    */
   public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped) {
+    this(wrapped, null);
+  }
+
+  /**
+   * Create a new tracking resource adaptor.
+   * @param wrapped the memory resource to track allocations. This should not be reused.
+   * @param logLoc the location that logs should go. "stderr" is treated as going to stderr
+   *               "stdout" is treated as going to stdout. null will disable logging and
+   *               anything else is treated as a file name.
+   */
+  public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped,
+      String logLoc) {
     super(wrapped);
-    handle = createNewAdaptor(wrapped.getHandle());
+    // Do a little normalization before setting up logging...
+    if ("stderr".equalsIgnoreCase(logLoc)) {
+      logLoc = "stderr";
+    } else if ("stdout".equalsIgnoreCase(logLoc)) {
+      logLoc = "stdout";
+    }
+    handle = createNewAdaptor(wrapped.getHandle(), logLoc);
   }
 
   @Override
@@ -135,13 +153,17 @@ public class SparkResourceAdaptor
     blockThreadUntilReady(getHandle());
   }
 
+  public RmmSparkThreadState getStateOf(long threadId) {
+    return RmmSparkThreadState.fromNativeId(getStateOf(getHandle(), threadId));
+  }
+
   /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
    */
   public static native long getCurrentThreadId();
 
-  private native static long createNewAdaptor(long wrappedHandle);
+  private native static long createNewAdaptor(long wrappedHandle, String logLoc);
   private native static void releaseAdaptor(long handle);
   private static native void associateThreadWithTask(long handle, long threadId, long taskId);
   private static native void associateThreadWithShuffle(long handle, long threadId);
@@ -153,4 +175,5 @@ public class SparkResourceAdaptor
   private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs);
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
+  private static native int getStateOf(long handle, long threadId);
 }
