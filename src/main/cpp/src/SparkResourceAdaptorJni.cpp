@@ -18,16 +18,15 @@
 #include <map>
 #include <set>
 #include <sstream>
+
 #include <pthread.h>
 
-#include <spdlog/common.h>
-#include <spdlog/sinks/ostream_sink.h>
-#include <spdlog/sinks/null_sink.h>
-#include <spdlog/spdlog.h>
-
-#include <rmm/mr/device/device_memory_resource.hpp>
-
 #include <cudf_jni_apis.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
+#include <spdlog/common.h>
+#include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -44,34 +43,34 @@ constexpr char const *JAVA_OOM_CLASS = "java/lang/OutOfMemoryError";
 // in the future to know when a retry section has passed, which would
 // probably be a preferable time to restart all BUFN threads.
 enum thread_state {
-    UNKNOWN = -1, // unknown state, this is really here for logging and anything transitioning to
-                  // this state should actually be accomplished by deleting the thread from the state
-    TASK_RUNNING = 0, // task thread running normally
-    TASK_WAIT_ON_SHUFFLE = 1, // task thread waiting on shuffle
-    TASK_BUFN_WAIT_ON_SHUFFLE = 2, // task thread waiting on shuffle, but marked as BUFN
-    TASK_ALLOC = 3, // task thread in the middle of doing an allocation
-    TASK_ALLOC_FREE = 4, // task thread in the middle of doing an allocation and a free happened
-    TASK_BLOCKED = 5, // task thread that is temporarily blocked
-    TASK_BUFN_THROW = 6, // task thread that should throw an exception to roll back before blocking
-    TASK_BUFN_WAIT = 7, // task thread that threw an exception to roll back and now should 
+  UNKNOWN = -1, // unknown state, this is really here for logging and anything transitioning to
+                // this state should actually be accomplished by deleting the thread from the state
+  TASK_RUNNING = 0,              // task thread running normally
+  TASK_WAIT_ON_SHUFFLE = 1,      // task thread waiting on shuffle
+  TASK_BUFN_WAIT_ON_SHUFFLE = 2, // task thread waiting on shuffle, but marked as BUFN
+  TASK_ALLOC = 3,                // task thread in the middle of doing an allocation
+  TASK_ALLOC_FREE = 4,  // task thread in the middle of doing an allocation and a free happened
+  TASK_BLOCKED = 5,     // task thread that is temporarily blocked
+  TASK_BUFN_THROW = 6,  // task thread that should throw an exception to roll back before blocking
+  TASK_BUFN_WAIT = 7,   // task thread that threw an exception to roll back and now should
                         // block the next time alloc or block_until_ready is called
-    TASK_BUFN = 8, // task thread that is blocked until higher priority tasks start to succeed
-    TASK_SPLIT_THROW = 9, // task thread that should throw an exception to split input and retry
-    TASK_REMOVE_THROW = 10, // task thread that is being removed and needs to throw an exception
+  TASK_BUFN = 8,        // task thread that is blocked until higher priority tasks start to succeed
+  TASK_SPLIT_THROW = 9, // task thread that should throw an exception to split input and retry
+  TASK_REMOVE_THROW = 10,   // task thread that is being removed and needs to throw an exception
                             // to start the blocked thread running again.
-    SHUFFLE_RUNNING = 11, // shuffle thread that is running normally
-    SHUFFLE_ALLOC = 12, // shuffle thread that is in the middle of doing an alloc
-    SHUFFLE_ALLOC_FREE = 13, // shuffle thread that is doing an alloc and a free happened.
-    SHUFFLE_BLOCKED = 14, // shuffle thread that is temporarily blocked
-    SHUFFLE_THROW = 15, // shuffle thread that needs to throw an OOM
-    SHUFFLE_REMOVE_THROW = 16 // shuffle thread that is being removed and needs to throw an exception
+  SHUFFLE_RUNNING = 11,     // shuffle thread that is running normally
+  SHUFFLE_ALLOC = 12,       // shuffle thread that is in the middle of doing an alloc
+  SHUFFLE_ALLOC_FREE = 13,  // shuffle thread that is doing an alloc and a free happened.
+  SHUFFLE_BLOCKED = 14,     // shuffle thread that is temporarily blocked
+  SHUFFLE_THROW = 15,       // shuffle thread that needs to throw an OOM
+  SHUFFLE_REMOVE_THROW = 16 // shuffle thread that is being removed and needs to throw an exception
 };
 
 /**
  * Convert a state to a string representation for logging.
  */
-const char * as_str(thread_state state) {
-  switch(state) {
+const char *as_str(thread_state state) {
+  switch (state) {
     case TASK_RUNNING: return "TASK_RUNNING";
     case TASK_WAIT_ON_SHUFFLE: return "TASK_WAIT_ON_SHUFFLE";
     case TASK_BUFN_WAIT_ON_SHUFFLE: return "TASK_BUFN_WAIT_ON_SHUFFLE";
@@ -93,19 +92,20 @@ const char * as_str(thread_state state) {
   }
 }
 
-static std::shared_ptr<spdlog::logger> make_logger(std::ostream& stream) {
-  return std::make_shared<spdlog::logger>(
-    "SPARK_RMM", std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
+static std::shared_ptr<spdlog::logger> make_logger(std::ostream &stream) {
+  return std::make_shared<spdlog::logger>("SPARK_RMM",
+                                          std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
 }
 
 static std::shared_ptr<spdlog::logger> make_logger() {
-  return std::make_shared<spdlog::logger>(
-    "SPARK_RMM", std::make_shared<spdlog::sinks::null_sink_mt>());
+  return std::make_shared<spdlog::logger>("SPARK_RMM",
+                                          std::make_shared<spdlog::sinks::null_sink_mt>());
 }
 
-static auto make_logger(std::string const& filename) {
+static auto make_logger(std::string const &filename) {
   return std::make_shared<spdlog::logger>(
-    "SPARK_RMM", std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, true /*truncate file*/));
+      "SPARK_RMM",
+      std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, true /*truncate file*/));
 }
 
 /**
@@ -114,7 +114,7 @@ static auto make_logger(std::string const& filename) {
  * In Spark task ids increase sequentially as they are assigned in an application. We want to give
  * priority to tasks that came first. This is to avoid situations where the first task stays as
  * the lowest priority task and is constantly retried while newer tasks move to the front of the
- * line. So a higher task_id should be a lower priority. 
+ * line. So a higher task_id should be a lower priority.
  *
  * We also want all shuffle threads to have the highest priority possible. So we assign them
  * a task id of -1. The problem is overflow on a long, so for the priority of a task the formula
@@ -122,15 +122,11 @@ static auto make_logger(std::string const& filename) {
  */
 class thread_priority {
 public:
-  thread_priority(long tsk_id, long t_id): task_id(tsk_id), thread_id(t_id) {}
+  thread_priority(long tsk_id, long t_id) : task_id(tsk_id), thread_id(t_id) {}
 
-  long get_thread_id() const {
-    return thread_id;
-  }
+  long get_thread_id() const { return thread_id; }
 
-  long get_task_id() const {
-    return task_id;
-  }
+  long get_task_id() const { return task_id; }
 
   bool operator<(const thread_priority &other) const {
     long task_priority = this->task_priority();
@@ -163,9 +159,7 @@ private:
   long task_id;
   long thread_id;
 
-  long task_priority() const {
-    return  std::numeric_limits<long>::max() - (task_id + 1);
-  }
+  long task_priority() const { return std::numeric_limits<long>::max() - (task_id + 1); }
 };
 
 /**
@@ -176,32 +170,31 @@ private:
  */
 class full_thread_state {
 public:
-    thread_state state;
-    long thread_id;
-    long task_id = -1;
-    int retry_oom_injected = 0;
-    int split_and_retry_oom_injected = 0;
-    int cudf_exception_injected = 0;
-    // watchdog limit on maximum number of retries to avoid unexpected live lock situations
-    int num_times_retried = 0;
+  thread_state state;
+  long thread_id;
+  long task_id = -1;
+  int retry_oom_injected = 0;
+  int split_and_retry_oom_injected = 0;
+  int cudf_exception_injected = 0;
+  // watchdog limit on maximum number of retries to avoid unexpected live lock situations
+  int num_times_retried = 0;
 
-    /**
-     * Transition to a new state. Ideally this is what is called when doing a state transition instead
-     * of setting the state directly.
-     */
-    void transition_to(thread_state new_state) {
-      if (new_state == thread_state::UNKNOWN) {
-        throw std::runtime_error("Going to UNKNOWN state should delete the thread state, not call transition_to");
-      }
-      state = new_state;
+  /**
+   * Transition to a new state. Ideally this is what is called when doing a state transition instead
+   * of setting the state directly.
+   */
+  void transition_to(thread_state new_state) {
+    if (new_state == thread_state::UNKNOWN) {
+      throw std::runtime_error(
+          "Going to UNKNOWN state should delete the thread state, not call transition_to");
     }
+    state = new_state;
+  }
 
-    /**
-     * Get the priority of this thread.
-     */
-    thread_priority priority() {
-      return thread_priority(task_id, thread_id);
-    }
+  /**
+   * Get the priority of this thread.
+   */
+  thread_priority priority() { return thread_priority(task_id, thread_id); }
 };
 
 /**
@@ -213,7 +206,8 @@ public:
  */
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 public:
-  spark_resource_adaptor(JNIEnv *env, rmm::mr::device_memory_resource *mr, std::shared_ptr<spdlog::logger> & logger)
+  spark_resource_adaptor(JNIEnv *env, rmm::mr::device_memory_resource *mr,
+                         std::shared_ptr<spdlog::logger> &logger)
       : resource{mr}, logger{logger} {
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
@@ -244,7 +238,8 @@ public:
     if (shutting_down) {
       throw std::runtime_error("spark_resource_adaptor is shutting down");
     }
-    auto was_threads_inserted = threads.insert({thread_id, {thread_state::TASK_RUNNING, thread_id, task_id}});
+    auto was_threads_inserted =
+        threads.insert({thread_id, {thread_state::TASK_RUNNING, thread_id, task_id}});
     if (was_threads_inserted.second == false) {
       if (was_threads_inserted.first->second.task_id != task_id) {
         throw std::invalid_argument("a thread can only be associated with a single task.");
@@ -322,7 +317,7 @@ public:
     if (task_at != task_to_threads.end()) {
       // we want to make a copy so there is no conflict here...
       std::set<long> threads_to_remove = task_at->second;
-      bool run_checks = false;  
+      bool run_checks = false;
       for (auto thread_id : threads_to_remove) {
         run_checks = remove_thread_association(thread_id, lock) || run_checks;
       }
@@ -365,7 +360,7 @@ public:
       // This should be fast, just wake up threads, change state and do
       // some notifications.
       std::chrono::milliseconds timeout{1000};
-      task_has_woken_condition.wait_for(lock, timeout, [this]{return !threads.empty();});
+      task_has_woken_condition.wait_for(lock, timeout, [this] { return !threads.empty(); });
     }
     // No need to check for BUFN here, we are shutting down.
   }
@@ -432,13 +427,12 @@ public:
         case TASK_BUFN_WAIT_ON_SHUFFLE:
           // noop already in an expected state...
           break;
-        default:
-          {
-            std::stringstream ss;
-            ss << "thread  " << thread_id << " is in an unexpected state " << 
-              as_str(threads_at->second.state) << " to start shuffle";
-            throw std::invalid_argument(ss.str());
-          }
+        default: {
+          std::stringstream ss;
+          ss << "thread  " << thread_id << " is in an unexpected state "
+             << as_str(threads_at->second.state) << " to start shuffle";
+          throw std::invalid_argument(ss.str());
+        }
       }
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
@@ -464,13 +458,12 @@ public:
         case TASK_BUFN_WAIT:
           // noop already in an expected state...
           break;
-        default:
-          {
-            std::stringstream ss;
-            ss << "thread  " << thread_id << " is in an unexpected state " << 
-              as_str(threads_at->second.state) << " to end shuffle";
-            throw std::invalid_argument(ss.str());
-          }
+        default: {
+          std::stringstream ss;
+          ss << "thread  " << thread_id << " is in an unexpected state "
+             << as_str(threads_at->second.state) << " to end shuffle";
+          throw std::invalid_argument(ss.str());
+        }
       }
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
@@ -504,7 +497,7 @@ public:
 
 private:
   rmm::mr::device_memory_resource *const resource;
-  std::shared_ptr<spdlog::logger> logger;  ///< spdlog logger object
+  std::shared_ptr<spdlog::logger> logger; ///< spdlog logger object
 
   // The state mutex must be held when modifying the state of threads or tasks
   // it must never be held when calling into the child resource or after returning
@@ -520,25 +513,29 @@ private:
   /**
    * log a status change that does not involve a state transition.
    */
-  void log_status(const char * op, long thread_id, long task_id, thread_state state, const char * notes = nullptr) {
+  void log_status(const char *op, long thread_id, long task_id, thread_state state,
+                  const char *notes = nullptr) {
     auto this_id = static_cast<long>(pthread_self());
-    logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state), (notes == nullptr ? "" : notes));
+    logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state),
+                 (notes == nullptr ? "" : notes));
   }
 
   /**
    * log that a state transition happened.
    */
-  void log_transition(long thread_id, long task_id, thread_state from, thread_state to, const char * notes = nullptr) {
+  void log_transition(long thread_id, long task_id, thread_state from, thread_state to,
+                      const char *notes = nullptr) {
     auto this_id = static_cast<long>(pthread_self());
-    logger->info("TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from), as_str(to),
-            (notes == nullptr ? "" : notes));
+    logger->info("TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from),
+                 as_str(to), (notes == nullptr ? "" : notes));
   }
 
   /**
    * Transition to a new state. Ideally this is what is called when doing a state transition instead
-   * of setting the state directly. This will log the transition and do a little bit of verification.
+   * of setting the state directly. This will log the transition and do a little bit of
+   * verification.
    */
-  void transition(full_thread_state & state, thread_state new_state, const char * message = nullptr) {
+  void transition(full_thread_state &state, thread_state new_state, const char *message = nullptr) {
     thread_state original = state.state;
     state.transition_to(new_state);
     log_transition(state.thread_id, state.task_id, original, new_state, message);
@@ -547,32 +544,34 @@ private:
   /**
    * throw a java exception using the cached jvm/env.
    */
-  void throw_java_exception(const char* ex_class_name, const char* msg) {
+  void throw_java_exception(const char *ex_class_name, const char *msg) {
     JNIEnv *env = cudf::jni::get_jni_env(jvm);
     cudf::jni::throw_java_exception(env, ex_class_name, msg);
   }
 
   /**
-   * This is a watchdog to prevent us from live locking. It should be called before we throw an RetryOOM
-   * or a SplitAndRetryOOM to know if we actually should throw something else. 
+   * This is a watchdog to prevent us from live locking. It should be called before we throw an
+   * RetryOOM or a SplitAndRetryOOM to know if we actually should throw something else.
    */
-  void check_before_oom(full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
+  void check_before_oom(full_thread_state &state, const std::unique_lock<std::mutex> &lock) {
     // The limit is an arbitrary number, large enough that we should not hit it in "normal"
     // operation, but also small enough that we can detect a livelock fairly quickly.
     // In testing it looks like it is a few ms if in a tight loop, not including spill
     // overhead
-    if (state.num_times_retried + 1 > 500) { 
+    if (state.num_times_retried + 1 > 500) {
       throw_java_exception(JAVA_OOM_CLASS, "retry limit exceeded");
     }
     state.num_times_retried++;
   }
 
-  void throw_retry_oom(const char* msg, full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
+  void throw_retry_oom(const char *msg, full_thread_state &state,
+                       const std::unique_lock<std::mutex> &lock) {
     check_before_oom(state, lock);
     throw_java_exception(RETRY_OOM_CLASS, "task should retry operation");
   }
 
-  void throw_split_n_retry_oom(const char* msg, full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
+  void throw_split_n_retry_oom(const char *msg, full_thread_state &state,
+                               const std::unique_lock<std::mutex> &lock) {
     check_before_oom(state, lock);
     throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "task should split input and retry operation");
   }
@@ -580,7 +579,7 @@ private:
   /**
    * Internal implementation that will block a thread until it is ready to continue.
    */
-  void block_thread_until_ready(std::unique_lock<std::mutex> & lock) {
+  void block_thread_until_ready(std::unique_lock<std::mutex> &lock) {
     bool done = false;
     bool first_time = true;
     auto thread_id = static_cast<long>(pthread_self());
@@ -592,45 +591,51 @@ private:
       auto thread = threads.find(thread_id);
       if (thread != threads.end()) {
         switch (thread->second.state) {
-        case TASK_BLOCKED:
-        // fall through
-        case TASK_BUFN:
-        // fall through
-        case SHUFFLE_BLOCKED:
-          log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
-          task_wake_condition.wait(lock);
-          task_has_woken_condition.notify_all();
-          break;
-        case SHUFFLE_THROW:
-          transition(thread->second, thread_state::SHUFFLE_RUNNING);
-          throw_java_exception(JAVA_OOM_CLASS, "could not allocate enough for shuffle");
-          break;
-        case TASK_BUFN_THROW:
-          transition(thread->second, thread_state::TASK_BUFN_WAIT);
-          throw_retry_oom("rollback and retry operation", thread->second, lock);
-          break;
-        case TASK_BUFN_WAIT:
-          transition(thread->second, thread_state::TASK_BUFN);
-          log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
-          task_wake_condition.wait(lock);
-          task_has_woken_condition.notify_all();
-          break;
-        case TASK_SPLIT_THROW:
-          transition(thread->second, thread_state::TASK_RUNNING);
-          throw_split_n_retry_oom("rollback, split input, and retry operation", thread->second, lock);
-          break;
-        case TASK_REMOVE_THROW:
-        // fall through
-        case SHUFFLE_REMOVE_THROW:
-          log_transition(thread_id, thread->second.task_id, thread->second.state, thread_state::UNKNOWN);
-          threads.erase(thread);
-          task_has_woken_condition.notify_all();
-          throw std::runtime_error("thread removed while blocked");
-        default:
-          if (!first_time) {
-            log_status("DONE WAITING", thread_id, thread->second.task_id, thread->second.state);
-          }
-          done = true;
+          case TASK_BLOCKED:
+          // fall through
+          case TASK_BUFN:
+          // fall through
+          case SHUFFLE_BLOCKED:
+            log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+            task_wake_condition.wait(lock);
+            task_has_woken_condition.notify_all();
+            break;
+          case SHUFFLE_THROW:
+            transition(thread->second, thread_state::SHUFFLE_RUNNING);
+            throw_java_exception(JAVA_OOM_CLASS, "could not allocate enough for shuffle");
+            break;
+          case TASK_BUFN_THROW:
+            transition(thread->second, thread_state::TASK_BUFN_WAIT);
+            throw_retry_oom("rollback and retry operation", thread->second, lock);
+            break;
+          case TASK_BUFN_WAIT:
+            transition(thread->second, thread_state::TASK_BUFN);
+            // Before we can wait it is possible that the throw didn't release anything
+            // and the other threads didn't get unblocked by this, so we need to
+            // check again to see if this was fixed or not.
+            check_and_update_for_bufn(lock);
+            log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+            task_wake_condition.wait(lock);
+            task_has_woken_condition.notify_all();
+            break;
+          case TASK_SPLIT_THROW:
+            transition(thread->second, thread_state::TASK_RUNNING);
+            throw_split_n_retry_oom("rollback, split input, and retry operation", thread->second,
+                                    lock);
+            break;
+          case TASK_REMOVE_THROW:
+          // fall through
+          case SHUFFLE_REMOVE_THROW:
+            log_transition(thread_id, thread->second.task_id, thread->second.state,
+                           thread_state::UNKNOWN);
+            threads.erase(thread);
+            task_has_woken_condition.notify_all();
+            throw std::runtime_error("thread removed while blocked");
+          default:
+            if (!first_time) {
+              log_status("DONE WAITING", thread_id, thread->second.task_id, thread->second.state);
+            }
+            done = true;
         }
       }
       first_time = false;
@@ -644,10 +649,10 @@ private:
    * and if there are no blocked threads, then we wake up all BUFN threads.
    * Hopefully the frees have already woken up all the blocked threads anyways.
    */
-  void wake_up_threads_after_task_finishes(const std::unique_lock<std::mutex> & lock) {
+  void wake_up_threads_after_task_finishes(const std::unique_lock<std::mutex> &lock) {
     bool are_any_tasks_just_blocked = false;
     for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-      switch(thread->second.state) {
+      switch (thread->second.state) {
         case TASK_BLOCKED:
           transition(thread->second, thread_state::TASK_RUNNING);
           task_wake_condition.notify_all();
@@ -657,25 +662,23 @@ private:
           transition(thread->second, thread_state::SHUFFLE_RUNNING);
           task_wake_condition.notify_all();
           break;
-        default:
-          break;
+        default: break;
       }
     }
 
     if (!are_any_tasks_just_blocked) {
       // wake up all of the BUFN tasks.
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-        switch(thread->second.state) {
+        switch (thread->second.state) {
           case TASK_BUFN:
-          //fall through
+          // fall through
           case TASK_BUFN_THROW:
-          //fall through
+          // fall through
           case TASK_BUFN_WAIT:
             transition(thread->second, thread_state::TASK_RUNNING);
             task_wake_condition.notify_all();
             break;
-          default:
-            break;
+          default: break;
         }
       }
     }
@@ -686,7 +689,7 @@ private:
    * returns true if the thread that ended was a normally running task thread.
    * This should be used to decide if wake_up_threads_after_task_finishes is called or not.
    */
-  bool remove_thread_association(long thread_id, const std::unique_lock<std::mutex> & lock) {
+  bool remove_thread_association(long thread_id, const std::unique_lock<std::mutex> &lock) {
     bool ret = false;
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
@@ -713,7 +716,8 @@ private:
           ret = true;
           // fall through;
         default:
-          log_transition(thread_id, threads_at->second.task_id, threads_at->second.state, thread_state::UNKNOWN);
+          log_transition(thread_id, threads_at->second.task_id, threads_at->second.state,
+                         thread_state::UNKNOWN);
           threads.erase(threads_at);
       }
     }
@@ -748,22 +752,19 @@ private:
       block_thread_until_ready(lock);
 
       switch (thread->second.state) {
-        case TASK_RUNNING:
-          transition(thread->second, thread_state::TASK_ALLOC);
-          break;
+        case TASK_RUNNING: transition(thread->second, thread_state::TASK_ALLOC); break;
         case SHUFFLE_RUNNING:
           transition(thread->second, thread_state::SHUFFLE_ALLOC);
           break;
-      // TODO I don't think there are other states that we need to handle, but 
-      // this needs more testing.
-        default:
-          {
-            std::stringstream ss;
-            ss << "thread " << thread_id << " in unexpected state pre alloc " << 
-                  as_str(thread->second.state);
- 
-            throw std::invalid_argument(ss.str());
-          }
+          // TODO I don't think there are other states that we need to handle, but
+          // this needs more testing.
+        default: {
+          std::stringstream ss;
+          ss << "thread " << thread_id << " in unexpected state pre alloc "
+             << as_str(thread->second.state);
+
+          throw std::invalid_argument(ss.str());
+        }
       }
     }
   }
@@ -781,18 +782,13 @@ private:
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
       switch (thread->second.state) {
-      case TASK_ALLOC:
+        case TASK_ALLOC:
           // fall through
-      case TASK_ALLOC_FREE: 
-          transition(thread->second, thread_state::TASK_RUNNING);
-          break;
-      case SHUFFLE_ALLOC:
+        case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
+        case SHUFFLE_ALLOC:
           // fall through
-      case SHUFFLE_ALLOC_FREE:
-          transition(thread->second, thread_state::SHUFFLE_RUNNING);
-          break;
-      default:
-          break;
+        case SHUFFLE_ALLOC_FREE: transition(thread->second, thread_state::SHUFFLE_RUNNING); break;
+        default: break;
       }
       wake_next_highest_priority_regular_blocked(lock);
     }
@@ -802,7 +798,7 @@ private:
    * Wake the highest priority blocked (not BUFN) thread so it can make progress.
    * This is typically called when a free happens, or an alloc succeeds.
    */
-  void wake_next_highest_priority_regular_blocked(const std::unique_lock<std::mutex> & lock) {
+  void wake_next_highest_priority_regular_blocked(const std::unique_lock<std::mutex> &lock) {
     // 1. Find the highest priority blocked thread, including shuffle.
     thread_priority to_wake(-1, -1);
     bool is_to_wake_set = false;
@@ -830,13 +826,12 @@ private:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
             task_wake_condition.notify_all();
             break;
-          default:
-            {
-              std::stringstream ss;
-              ss << "internal error expected to only wake up blocked threads " << 
-                thread_id_to_wake << " " << as_str(thread->second.state);
-              throw std::runtime_error(ss.str());
-            }
+          default: {
+            std::stringstream ss;
+            ss << "internal error expected to only wake up blocked threads " << thread_id_to_wake
+               << " " << as_str(thread->second.state);
+            throw std::runtime_error(ss.str());
+          }
         }
       }
     }
@@ -844,10 +839,10 @@ private:
 
   /**
    * Check to see if any threads need to move to BUFN. This should be
-   * called when a task or shuffle thread becomes blocked so that we can 
+   * called when a task or shuffle thread becomes blocked so that we can
    * check to see if one of them needs to become BUFN or do a split and rollback.
    */
-  void check_and_update_for_bufn(const std::unique_lock<std::mutex> & lock) {
+  void check_and_update_for_bufn(const std::unique_lock<std::mutex> &lock) {
     // We want to know if all active tasks have at least one thread that
     // is effectively blocked or not.  We could change the definitions here,
     // but for now this sounds like a good starting point.
@@ -860,11 +855,8 @@ private:
     // in a shuffle could also be blocked.
     for (auto thread = threads.begin(); thread != threads.end(); thread++) {
       switch (thread->second.state) {
-        case SHUFFLE_BLOCKED:
-          is_any_shuffle_thread_blocked = true;
-          break;
-        default:
-          break;
+        case SHUFFLE_BLOCKED: is_any_shuffle_thread_blocked = true; break;
+        default: break;
       }
     }
 
@@ -890,29 +882,26 @@ private:
         case TASK_BUFN:
           tasks_with_threads_effectively_blocked.insert(thread->second.task_id);
           break;
-        default:
-          break;
+        default: break;
       }
     }
 
-    bool need_to_break_deadlock = tasks_with_threads.size() == tasks_with_threads_effectively_blocked.size();
+    bool need_to_break_deadlock =
+        tasks_with_threads.size() == tasks_with_threads_effectively_blocked.size();
     if (need_to_break_deadlock) {
       // Find the task thread with the lowest priority that is not already BUFN
       thread_priority to_bufn(-1, -1);
       bool is_to_bufn_set = false;
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         switch (thread->second.state) {
-          case TASK_BLOCKED:
-            {
-              thread_priority current = thread->second.priority();
-              if (!is_to_bufn_set || current < to_bufn) {
-                to_bufn = current;
-                is_to_bufn_set = true;
-              }
+          case TASK_BLOCKED: {
+            thread_priority current = thread->second.priority();
+            if (!is_to_bufn_set || current < to_bufn) {
+              to_bufn = current;
+              is_to_bufn_set = true;
             }
-            break;
-          default:
-            break;
+          } break;
+          default: break;
         }
       }
       if (is_to_bufn_set) {
@@ -933,18 +922,16 @@ private:
         if (thread->second.task_id >= 0) {
           switch (thread->second.state) {
             case TASK_BUFN:
-            //fall through
+            // fall through
             case TASK_BUFN_WAIT:
-            //fall through
-            case TASK_BUFN_THROW:
-              {
-                thread_priority current = thread->second.priority();
-                if (!is_to_wake_set || to_wake < current) {
-                  to_wake = current;
-                  is_to_wake_set = true;
-                }
+            // fall through
+            case TASK_BUFN_THROW: {
+              thread_priority current = thread->second.priority();
+              if (!is_to_wake_set || to_wake < current) {
+                to_wake = current;
+                is_to_wake_set = true;
               }
-              break;
+            } break;
             case TASK_WAIT_ON_SHUFFLE:
             // fall through
             case TASK_BUFN_WAIT_ON_SHUFFLE:
@@ -952,9 +939,7 @@ private:
                 all_bufn_or_shuffle = false;
               }
               break;
-            default:
-              all_bufn_or_shuffle = false;
-              break;
+            default: all_bufn_or_shuffle = false; break;
           }
         }
       }
@@ -975,8 +960,7 @@ private:
                 transition(thread->second, thread_state::SHUFFLE_THROW);
                 task_wake_condition.notify_all();
                 break;
-              default:
-                break;
+              default: break;
             }
           }
         }
@@ -994,25 +978,16 @@ private:
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
       switch (thread->second.state) {
-      case TASK_ALLOC_FREE:
-          transition(thread->second, thread_state::TASK_RUNNING);
-          break;
-      case TASK_ALLOC:
-          transition(thread->second, thread_state::TASK_BLOCKED);
-          break;
-      case SHUFFLE_ALLOC_FREE:
-          transition(thread->second, thread_state::SHUFFLE_RUNNING);
-          break;
-      case SHUFFLE_ALLOC:
-          transition(thread->second, thread_state::SHUFFLE_BLOCKED);
-          break;
-      default:
-          {
-            std::stringstream ss;
-            ss << "Internal error: unexpected state after alloc failed " << thread_id
-                << " " << as_str(thread->second.state);
-            throw std::runtime_error(ss.str());
-          }
+        case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
+        case TASK_ALLOC: transition(thread->second, thread_state::TASK_BLOCKED); break;
+        case SHUFFLE_ALLOC_FREE: transition(thread->second, thread_state::SHUFFLE_RUNNING); break;
+        case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_BLOCKED); break;
+        default: {
+          std::stringstream ss;
+          ss << "Internal error: unexpected state after alloc failed " << thread_id << " "
+             << as_str(thread->second.state);
+          throw std::runtime_error(ss.str());
+        }
       }
     }
     check_and_update_for_bufn(lock);
@@ -1023,10 +998,10 @@ private:
     while (true) {
       pre_alloc(tid);
       try {
-        void * ret = resource->allocate(num_bytes, stream);
+        void *ret = resource->allocate(num_bytes, stream);
         post_alloc_success(tid);
         return ret;
-      } catch (const std::exception & e) {
+      } catch (const std::exception &e) {
         // TODO should this just be for out of memory errors?
         // If so what should we do if another exception is thrown...
         post_alloc_failed(tid);
@@ -1043,14 +1018,9 @@ private:
       std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         switch (thread->second.state) {
-          case TASK_ALLOC:
-            transition(thread->second, thread_state::TASK_ALLOC_FREE);
-            break;
-          case SHUFFLE_ALLOC:
-            transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE);
-            break;
-          default:
-            break;
+          case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
+          case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
+          default: break;
         }
       }
       wake_next_highest_priority_regular_blocked(lock);
@@ -1062,12 +1032,12 @@ private:
   }
 };
 
-} // empty namespace
+} // namespace
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getCurrentThreadId(
-        JNIEnv *env, jclass) {
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getCurrentThreadId(JNIEnv *env, jclass) {
   try {
     cudf::jni::auto_set_device(env);
     return static_cast<jlong>(pthread_self());
@@ -1076,7 +1046,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ge
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_createNewAdaptor(
-        JNIEnv *env, jclass, jlong child, jstring log_loc) {
+    JNIEnv *env, jclass, jlong child, jstring log_loc) {
   JNI_NULL_CHECK(env, child, "child is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1103,7 +1073,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_releaseAdaptor(
-        JNIEnv *env, jclass, jlong ptr) {
+    JNIEnv *env, jclass, jlong ptr) {
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
@@ -1113,8 +1083,11 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_rel
   CATCH_STD(env, )
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_associateThreadWithTask(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jlong task_id) {
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_associateThreadWithTask(JNIEnv *env, jclass,
+                                                                              jlong ptr,
+                                                                              jlong thread_id,
+                                                                              jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1124,8 +1097,10 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ass
   CATCH_STD(env, )
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_associateThreadWithShuffle(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_associateThreadWithShuffle(JNIEnv *env,
+                                                                                 jclass, jlong ptr,
+                                                                                 jlong thread_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1135,8 +1110,10 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ass
   CATCH_STD(env, )
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeThreadAssociation(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeThreadAssociation(JNIEnv *env, jclass,
+                                                                              jlong ptr,
+                                                                              jlong thread_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1147,7 +1124,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_rem
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_taskDone(
-        JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1157,8 +1134,10 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_tas
   CATCH_STD(env, )
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_threadCouldBlockOnShuffle(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_threadCouldBlockOnShuffle(JNIEnv *env, jclass,
+                                                                                jlong ptr,
+                                                                                jlong thread_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1169,7 +1148,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_thr
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_threadDoneWithShuffle(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1180,7 +1159,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_thr
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceRetryOOM(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1191,7 +1170,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceSplitAndRetryOOM(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_ooms) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1202,7 +1181,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceCudfException(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_times) {
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id, jint num_times) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1213,7 +1192,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_blockThreadUntilReady(
-        JNIEnv *env, jclass, jlong ptr) {
+    JNIEnv *env, jclass, jlong ptr) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
@@ -1224,7 +1203,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_blo
 }
 
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getStateOf(
-        JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1233,5 +1212,4 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   }
   CATCH_STD(env, 0)
 }
-
 }
