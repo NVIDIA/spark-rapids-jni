@@ -483,8 +483,9 @@ public:
    * same code and block if needed until the task is ready to keep going.
    */
   void block_thread_until_ready() {
+    auto thread_id = static_cast<long>(pthread_self());
     std::unique_lock<std::mutex> lock(state_mutex);
-    block_thread_until_ready(lock);
+    block_thread_until_ready(thread_id, lock);
   }
 
   /**
@@ -595,10 +596,9 @@ private:
   /**
    * Internal implementation that will block a thread until it is ready to continue.
    */
-  void block_thread_until_ready(std::unique_lock<std::mutex> &lock) {
+  void block_thread_until_ready(long thread_id, std::unique_lock<std::mutex> &lock) {
     bool done = false;
     bool first_time = true;
-    auto thread_id = static_cast<long>(pthread_self());
     // Because this is called from alloc as well as from the public facing block_thread_until_ready
     // there are states that should only show up in relation to alloc failing. These include
     // TASK_BUFN_THROW and TASK_SPLIT_THROW. They should never happen unless this is being called
@@ -774,7 +774,7 @@ private:
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
-      block_thread_until_ready(lock);
+      block_thread_until_ready(thread_id, lock);
 
       switch (thread->second.state) {
         case TASK_RUNNING: transition(thread->second, thread_state::TASK_ALLOC); break;
