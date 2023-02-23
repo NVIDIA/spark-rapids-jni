@@ -54,7 +54,7 @@ enum thread_state {
     TASK_BLOCKED = 5, // task thread that is temporarily blocked
     TASK_BUFN_THROW = 6, // task thread that should throw an exception to roll back before blocking
     TASK_BUFN_WAIT = 7, // task thread that threw an exception to roll back and now should 
-                    // block the next time alloc or block_until_ready is called
+                        // block the next time alloc or block_until_ready is called
     TASK_BUFN = 8, // task thread that is blocked until higher priority tasks start to succeed
     TASK_SPLIT_THROW = 9, // task thread that should throw an exception to split input and retry
     TASK_REMOVE_THROW = 10, // task thread that is being removed and needs to throw an exception
@@ -109,9 +109,9 @@ static auto make_logger(std::string const& filename) {
 }
 
 /**
- * The priority of a thread is primarily based off of the task id. The thread id (PID on linux) is
+ * The priority of a thread is primarily based off of the task id. The thread id (PID on Linux) is
  * only used as a tie breaker if a task has more than a single thread associated with it.
- * In Spark a tasks increase sequentially as they are assigned in an application. We want to give
+ * In Spark task ids increase sequentially as they are assigned in an application. We want to give
  * priority to tasks that came first. This is to avoid situations where the first task stays as
  * the lowest priority task and is constantly retried while newer tasks move to the front of the
  * line. So a higher task_id should be a lower priority. 
@@ -133,8 +133,8 @@ public:
   }
 
   bool operator<(const thread_priority &other) const {
-    long task_priority = std::numeric_limits<long>::max() - task_id + 1;
-    long other_task_priority = std::numeric_limits<long>::max() - other.task_id + 1;
+    long task_priority = this->task_priority();
+    long other_task_priority = other.task_priority();
     if (task_priority < other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -144,8 +144,8 @@ public:
   }
 
   bool operator>(const thread_priority &other) const {
-    long task_priority = std::numeric_limits<long>::max() - task_id + 1;
-    long other_task_priority = std::numeric_limits<long>::max() - other.task_id + 1;
+    long task_priority = this->task_priority();
+    long other_task_priority = other.task_priority();
     if (task_priority > other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -162,6 +162,10 @@ public:
 private:
   long task_id;
   long thread_id;
+
+  long task_priority() const {
+    return  std::numeric_limits<long>::max() - (task_id + 1);
+  }
 };
 
 /**
@@ -178,11 +182,11 @@ public:
     int retry_oom_injected = 0;
     int split_and_retry_oom_injected = 0;
     int cudf_exception_injected = 0;
-    // watchdog limit on maxium number of retries to avoid unexpected live lock situations
+    // watchdog limit on maximum number of retries to avoid unexpected live lock situations
     int num_times_retried = 0;
 
     /**
-     * Transition to a new state. Ideally this is what is called when doign a state transition instead
+     * Transition to a new state. Ideally this is what is called when doing a state transition instead
      * of setting the state directly.
      */
     void transition_to(thread_state new_state) {
@@ -204,7 +208,7 @@ public:
  * A resource adaptor that is expected to come before the spill resource adaptor
  * when setting up RMM. This will handle tracking state for threads/tasks to
  * decide on when to pause a thread after a failed allocation and what other
- * mitigations we might want to do to avoid killing a task with an out of
+ * mitigation we might want to do to avoid killing a task with an out of
  * memory error.
  */
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
@@ -230,7 +234,7 @@ public:
    * This may be called multiple times for a given thread and if the thread is already
    * associated with the task, then most of the time this is a noop. The only exception
    * is if the thread is marked that it is shutting down, but has not completed yet.
-   * This should never happen in preactice with spark because the only time we would
+   * This should never happen in practice with Spark because the only time we would
    * shut down a task thread on a thread that is different from itself is if there
    * was an error and the entire executor is shutting down. So there should be no
    * reuse.
@@ -295,7 +299,7 @@ public:
   /**
    * Update the internal state so that a specific thread is no longer associated with
    * a task or with shuffle. If that thread is currently blocked/waiting, then the
-   * thread will not be imediately removed, but is instead marked that it needs to wake
+   * thread will not be immediately removed, but is instead marked that it needs to wake
    * up and throw an exception. At that point the thread's state will be completely
    * removed.
    */
@@ -338,7 +342,7 @@ public:
     {
       std::unique_lock<std::mutex> lock(state_mutex);
       // 1. Mark all threads that need to be removed as such
-      // make a copy fo the ids so we don't modify threads while walking it
+      // make a copy of the ids so we don't modify threads while walking it
       std::vector<long> threads_to_remove;
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         threads_to_remove.push_back(thread->first);
@@ -475,7 +479,7 @@ public:
 
   /**
    * Called after a RetryOOM is thrown to wait until it is okay to start processing
-   * data again. This is here mostly to prevent spillable code becomming unspillable
+   * data again. This is here mostly to prevent spillable code becoming unspillable
    * before an alloc is called.  If this is not called alloc will also call into the
    * same code and block if needed until the task is ready to keep going.
    */
@@ -531,7 +535,7 @@ private:
   }
 
   /**
-   * Transition to a new state. Ideally this is what is called when doign a state transition instead
+   * Transition to a new state. Ideally this is what is called when doing a state transition instead
    * of setting the state directly. This will log the transition and do a little bit of verification.
    */
   void transition(full_thread_state & state, thread_state new_state, const char * message = nullptr) {
@@ -552,7 +556,7 @@ private:
    * This is a watchdog to prevent us from live locking. It should be called before we throw an RetryOOM
    * or a SplitAndRetryOOM to know if we actually should throw something else. 
    */
-  void check_before_oom(full_thread_state & state, std::unique_lock<std::mutex> & lock) {
+  void check_before_oom(full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
     // The limit is an arbitrary number, large enough that we should not hit it in "normal"
     // operation, but also small enough that we can detect a livelock fairly quickly.
     // In testing it looks like it is a few ms if in a tight loop, not including spill
@@ -563,12 +567,12 @@ private:
     state.num_times_retried++;
   }
 
-  void throw_retry_oom(const char* msg, full_thread_state & state, std::unique_lock<std::mutex> & lock) {
+  void throw_retry_oom(const char* msg, full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
     check_before_oom(state, lock);
     throw_java_exception(RETRY_OOM_CLASS, "task should retry operation");
   }
 
-  void throw_split_n_retry_oom(const char* msg, full_thread_state & state, std::unique_lock<std::mutex> & lock) {
+  void throw_split_n_retry_oom(const char* msg, full_thread_state & state, const std::unique_lock<std::mutex> & lock) {
     check_before_oom(state, lock);
     throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "task should split input and retry operation");
   }
@@ -580,7 +584,7 @@ private:
     bool done = false;
     bool first_time = true;
     auto thread_id = static_cast<long>(pthread_self());
-    // Because this is called from alloc as well as from the public faceing block_thread_until_ready
+    // Because this is called from alloc as well as from the public facing block_thread_until_ready
     // there are states that should only show up in relation to alloc failing. These include
     // TASK_BUFN_THROW and TASK_SPLIT_THROW. They should never happen unless this is being called
     // from within an alloc.
@@ -640,7 +644,7 @@ private:
    * and if there are no blocked threads, then we wake up all BUFN threads.
    * Hopefully the frees have already woken up all the blocked threads anyways.
    */
-  void wake_up_threads_after_task_finishes(std::unique_lock<std::mutex> & lock) {
+  void wake_up_threads_after_task_finishes(const std::unique_lock<std::mutex> & lock) {
     bool are_any_tasks_just_blocked = false;
     for (auto thread = threads.begin(); thread != threads.end(); thread++) {
       switch(thread->second.state) {
@@ -682,7 +686,7 @@ private:
    * returns true if the thread that ended was a normally running task thread.
    * This should be used to decide if wake_up_threads_after_task_finishes is called or not.
    */
-  bool remove_thread_association(long thread_id, std::unique_lock<std::mutex> & lock) {
+  bool remove_thread_association(long thread_id, const std::unique_lock<std::mutex> & lock) {
     bool ret = false;
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
@@ -767,7 +771,7 @@ private:
   /**
    * Handle any state changes that happen after an alloc request succeeded.
    * No code in here should throw an exception or we are going to leak
-   * GPU memory. I don't want to mark it as nothrow, becasue we can throw an
+   * GPU memory. I don't want to mark it as nothrow, because we can throw an
    * exception on an internal error, and I would rather see that we got the internal
    * error and leak something instead of getting a segfault.
    */
@@ -798,7 +802,7 @@ private:
    * Wake the highest priority blocked (not BUFN) thread so it can make progress.
    * This is typically called when a free happens, or an alloc succeeds.
    */
-  void wake_next_highest_priority_regular_blocked(std::unique_lock<std::mutex> & lock) {
+  void wake_next_highest_priority_regular_blocked(const std::unique_lock<std::mutex> & lock) {
     // 1. Find the highest priority blocked thread, including shuffle.
     thread_priority to_wake(-1, -1);
     bool is_to_wake_set = false;
@@ -841,18 +845,18 @@ private:
   /**
    * Check to see if any threads need to move to BUFN. This should be
    * called when a task or shuffle thread becomes blocked so that we can 
-   * check to see if one of them needs to becom BUFN or do a split and rollback.
+   * check to see if one of them needs to become BUFN or do a split and rollback.
    */
-  void check_and_update_for_bufn(std::unique_lock<std::mutex> & lock) {
+  void check_and_update_for_bufn(const std::unique_lock<std::mutex> & lock) {
     // We want to know if all active tasks have at least one thread that
-    // is effectivley blocked or not.  We could change the definitions here,
+    // is effectively blocked or not.  We could change the definitions here,
     // but for now this sounds like a good starting point.
     std::set<long> tasks_with_threads;
     std::set<long> tasks_with_threads_effectively_blocked;
     bool is_any_shuffle_thread_blocked = false;
     // To keep things simple we are going to do multiple passes through
     // the state. The first is to find out if any shuffle thread is blocked
-    // because if it is, then there is a possability that any task thread
+    // because if it is, then there is a possibility that any task thread
     // in a shuffle could also be blocked.
     for (auto thread = threads.begin(); thread != threads.end(); thread++) {
       switch (thread->second.state) {
