@@ -170,6 +170,9 @@ private:
  */
 class full_thread_state {
 public:
+  full_thread_state(thread_state state, long thread_id) : state(state), thread_id(thread_id) {}
+  full_thread_state(thread_state state, long thread_id, long task_id)
+      : state(state), thread_id(thread_id), task_id(task_id) {}
   thread_state state;
   long thread_id;
   long task_id = -1;
@@ -178,6 +181,8 @@ public:
   int cudf_exception_injected = 0;
   // watchdog limit on maximum number of retries to avoid unexpected live lock situations
   int num_times_retried = 0;
+  std::unique_ptr<std::condition_variable> wake_condition =
+      std::make_unique<std::condition_variable>();
 
   /**
    * Transition to a new state. Ideally this is what is called when doing a state transition instead
@@ -238,8 +243,8 @@ public:
     if (shutting_down) {
       throw std::runtime_error("spark_resource_adaptor is shutting down");
     }
-    auto was_threads_inserted =
-        threads.insert({thread_id, {thread_state::TASK_RUNNING, thread_id, task_id}});
+    auto was_threads_inserted = threads.emplace(
+        thread_id, full_thread_state(thread_state::TASK_RUNNING, thread_id, task_id));
     if (was_threads_inserted.second == false) {
       if (was_threads_inserted.first->second.task_id != task_id) {
         throw std::invalid_argument("a thread can only be associated with a single task.");
@@ -281,7 +286,8 @@ public:
       throw std::runtime_error("spark_resource_adaptor is shutting down");
     }
 
-    auto was_inserted = threads.insert({thread_id, {thread_state::SHUFFLE_RUNNING, thread_id}});
+    auto was_inserted =
+        threads.emplace(thread_id, full_thread_state(thread_state::SHUFFLE_RUNNING, thread_id));
     if (was_inserted.second == true) {
       log_transition(thread_id, -1, thread_state::UNKNOWN, thread_state::SHUFFLE_RUNNING);
     } else if (was_inserted.first->second.task_id != -1) {
@@ -503,7 +509,6 @@ private:
   // it must never be held when calling into the child resource or after returning
   // from an operation.
   std::mutex state_mutex;
-  std::condition_variable task_wake_condition;
   std::condition_variable task_has_woken_condition;
   std::map<long, full_thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
@@ -576,6 +581,17 @@ private:
     throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "task should split input and retry operation");
   }
 
+  bool is_blocked(thread_state state) {
+    switch (state) {
+      case TASK_BLOCKED:
+      // fall through
+      case TASK_BUFN:
+      // fall through
+      case SHUFFLE_BLOCKED: return true;
+      default: return false;
+    }
+  }
+
   /**
    * Internal implementation that will block a thread until it is ready to continue.
    */
@@ -597,7 +613,10 @@ private:
           // fall through
           case SHUFFLE_BLOCKED:
             log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
-            task_wake_condition.wait(lock);
+            do {
+              thread->second.wake_condition->wait(lock);
+              thread = threads.find(thread_id);
+            } while (thread != threads.end() && is_blocked(thread->second.state));
             task_has_woken_condition.notify_all();
             break;
           case SHUFFLE_THROW:
@@ -615,7 +634,10 @@ private:
             // check again to see if this was fixed or not.
             check_and_update_for_bufn(lock);
             log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
-            task_wake_condition.wait(lock);
+            do {
+              thread->second.wake_condition->wait(lock);
+              thread = threads.find(thread_id);
+            } while (thread != threads.end() && is_blocked(thread->second.state));
             task_has_woken_condition.notify_all();
             break;
           case TASK_SPLIT_THROW:
@@ -637,6 +659,9 @@ private:
             }
             done = true;
         }
+      } else {
+        // the thread is not registered any more, or never was, but don't block...
+        done = true;
       }
       first_time = false;
     }
@@ -655,12 +680,12 @@ private:
       switch (thread->second.state) {
         case TASK_BLOCKED:
           transition(thread->second, thread_state::TASK_RUNNING);
-          task_wake_condition.notify_all();
+          thread->second.wake_condition->notify_all();
           are_any_tasks_just_blocked = true;
           break;
         case SHUFFLE_BLOCKED:
           transition(thread->second, thread_state::SHUFFLE_RUNNING);
-          task_wake_condition.notify_all();
+          thread->second.wake_condition->notify_all();
           break;
         default: break;
       }
@@ -676,7 +701,7 @@ private:
           // fall through
           case TASK_BUFN_WAIT:
             transition(thread->second, thread_state::TASK_RUNNING);
-            task_wake_condition.notify_all();
+            thread->second.wake_condition->notify_all();
             break;
           default: break;
         }
@@ -706,11 +731,11 @@ private:
         // fall through
         case TASK_BUFN:
           transition(threads_at->second, thread_state::TASK_REMOVE_THROW);
-          task_wake_condition.notify_all();
+          threads_at->second.wake_condition->notify_all();
           break;
         case SHUFFLE_BLOCKED:
           transition(threads_at->second, thread_state::SHUFFLE_REMOVE_THROW);
-          task_wake_condition.notify_all();
+          threads_at->second.wake_condition->notify_all();
           break;
         case TASK_RUNNING:
           ret = true;
@@ -820,11 +845,11 @@ private:
         switch (thread->second.state) {
           case TASK_BLOCKED:
             transition(thread->second, thread_state::TASK_RUNNING);
-            task_wake_condition.notify_all();
+            thread->second.wake_condition->notify_all();
             break;
           case SHUFFLE_BLOCKED:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
-            task_wake_condition.notify_all();
+            thread->second.wake_condition->notify_all();
             break;
           default: {
             std::stringstream ss;
@@ -909,7 +934,7 @@ private:
         auto thread = threads.find(thread_id_to_bufn);
         if (thread != threads.end()) {
           transition(thread->second, thread_state::TASK_BUFN_THROW);
-          task_wake_condition.notify_all();
+          thread->second.wake_condition->notify_all();
         }
       }
 
@@ -948,7 +973,7 @@ private:
         auto found_thread = threads.find(thread_id);
         if (found_thread != threads.end()) {
           transition(found_thread->second, thread_state::TASK_SPLIT_THROW);
-          task_wake_condition.notify_all();
+          found_thread->second.wake_condition->notify_all();
         } else {
           // the only threads left are blocked on shuffle. No way for shuffle
           // to split and throw, and ideally all of the data for those threads
@@ -958,7 +983,7 @@ private:
             switch (thread->second.state) {
               case SHUFFLE_BLOCKED:
                 transition(thread->second, thread_state::SHUFFLE_THROW);
-                task_wake_condition.notify_all();
+                thread->second.wake_condition->notify_all();
                 break;
               default: break;
             }
