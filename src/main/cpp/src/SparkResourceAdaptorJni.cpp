@@ -217,6 +217,7 @@ public:
     if (env->GetJavaVM(&jvm) < 0) {
       throw std::runtime_error("GetJavaVM failed");
     }
+    logger->flush_on(spdlog::level::info);
     logger->set_pattern("%v");
     logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
     logger->set_pattern("%H:%M:%S.%f,%v");
@@ -1040,6 +1041,14 @@ private:
     resource->deallocate(p, size, stream);
     // deallocate success
     if (size > 0) {
+      auto tid = static_cast<long>(pthread_self());
+      auto thread = threads.find(tid);
+      if (thread != threads.end()) {
+        log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
+      } else {
+        log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
+      }
+
       std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         switch (thread->second.state) {
