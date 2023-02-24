@@ -999,15 +999,31 @@ private:
    * typically happen after this has run, and we loop around to retry the alloc
    * if the state says we should.
    */
-  void post_alloc_failed(long thread_id) {
+  bool post_alloc_failed(long thread_id, bool is_oom) {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto thread = threads.find(thread_id);
+    // only retry if this was due to an out of memory exception.
+    bool ret = true;
     if (thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
-        case TASK_ALLOC: transition(thread->second, thread_state::TASK_BLOCKED); break;
+        case TASK_ALLOC:
+          if (is_oom) {
+            transition(thread->second, thread_state::TASK_BLOCKED);
+          } else {
+            // don't block unless it is OOM
+            transition(thread->second, thread_state::TASK_RUNNING);
+          }
+          break;
         case SHUFFLE_ALLOC_FREE: transition(thread->second, thread_state::SHUFFLE_RUNNING); break;
-        case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_BLOCKED); break;
+        case SHUFFLE_ALLOC:
+          if (is_oom) {
+            transition(thread->second, thread_state::SHUFFLE_BLOCKED);
+          } else {
+            // don't block unless it is OOM
+            transition(thread->second, thread_state::SHUFFLE_RUNNING);
+          }
+          break;
         default: {
           std::stringstream ss;
           ss << "Internal error: unexpected state after alloc failed " << thread_id << " "
@@ -1015,8 +1031,12 @@ private:
           throw std::runtime_error(ss.str());
         }
       }
+    } else {
+      // do not retry if the thread is not registered...
+      ret = false;
     }
     check_and_update_for_bufn(lock);
+    return ret;
   }
 
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
@@ -1027,10 +1047,14 @@ private:
         void *ret = resource->allocate(num_bytes, stream);
         post_alloc_success(tid);
         return ret;
+      } catch (const std::bad_alloc &e) {
+        if (!post_alloc_failed(tid, true)) {
+          throw;
+        }
       } catch (const std::exception &e) {
-        // TODO should this just be for out of memory errors?
-        // If so what should we do if another exception is thrown...
-        post_alloc_failed(tid);
+        if (!post_alloc_failed(tid, false)) {
+          throw;
+        }
       }
     }
     // we should never reach this point, but just in case
