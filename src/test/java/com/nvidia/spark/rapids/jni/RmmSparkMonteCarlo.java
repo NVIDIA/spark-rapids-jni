@@ -25,7 +25,12 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class RmmSparkMonteCarlo {
@@ -51,6 +56,7 @@ public class RmmSparkMonteCarlo {
     boolean useTemplate = false;
     double skewAmount = 2.0;
     double templateChangeAmount = 0.05;
+    int shuffleThreads = 0;
 
     for (String arg: args) {
       if (arg.equals("--baseline")) {
@@ -73,6 +79,8 @@ public class RmmSparkMonteCarlo {
         maxTaskAllocs = Integer.parseInt(arg.substring(16));
       } else if (arg.startsWith("--maxTaskSleep=")) {
         maxTaskSleep = Integer.parseInt(arg.substring(15));
+      } else if (arg.startsWith("--shuffleThreads=")) {
+        shuffleThreads = Integer.parseInt(arg.substring(17));
       } else if (arg.startsWith("--allocMode=")) {
         String mode = arg.substring(12);
         if (mode.equalsIgnoreCase("POOL")) {
@@ -115,6 +123,7 @@ public class RmmSparkMonteCarlo {
         System.out.println("--skewAmount=<NUM>\tthe amount to multiply the skewed allocations by");
         System.out.println("--useTemplate\tif all of the tasks should be the same, but change by +/- templateChangeAmount as a multiplier");
         System.out.println("--templateChangeAmount=<NUM>\tA multiplication factor to change the template task by when making new tasks (as a multiplier)");
+        System.out.println("--shuffleThreads=<NUM>\tThe number of threads to use to simulate UCX shuffle");
         System.exit(0);
       } else {
         throw new IllegalArgumentException("Unexpected argument " + arg +
@@ -139,11 +148,12 @@ public class RmmSparkMonteCarlo {
     System.out.println("skewAmount " + skewAmount);
     System.out.println("templated " + useTemplate);
     System.out.println("templateChangeAmount " + templateChangeAmount);
+    System.out.println("shuffleThreads " + shuffleThreads);
 
     List<Situation> situations = generateSituations(seed, numIterations, numTasks,
         taskMaxMiB, maxTaskAllocs, maxTaskSleep,
         isSkewed, skewAmount, useTemplate, templateChangeAmount);
-    SituationRunner runner = new SituationRunner(parallelism, taskRetry);
+    SituationRunner runner = new SituationRunner(parallelism, taskRetry, shuffleThreads);
     setupRmm(allocMode, gpuMemoryMiB, useSparkRmm, logging);
     runner.run(situations);
     runner.finish();
@@ -231,14 +241,17 @@ public class RmmSparkMonteCarlo {
     private final CyclicBarrier barrier;
     private final SituationRunner runner;
     private final int taskRetry;
+    private final ExecutorService shuffle;
     Situation currentSit = null;
 
     volatile boolean done = false;
 
-    public TaskRunnerThread(CyclicBarrier barrier, SituationRunner runner, int taskRetry) {
+    public TaskRunnerThread(CyclicBarrier barrier, SituationRunner runner, int taskRetry,
+        ExecutorService shuffle) {
       this.barrier = barrier;
       this.runner = runner;
       this.taskRetry = taskRetry;
+      this.shuffle = shuffle;
     }
 
     public void finish() {
@@ -285,7 +298,7 @@ public class RmmSparkMonteCarlo {
             long start = System.nanoTime();
             boolean success = false;
             try {
-              t.run();
+              t.run(shuffle);
               success = true;
             } catch (OutOfMemoryError oom) {
               // ignored
@@ -323,8 +336,29 @@ public class RmmSparkMonteCarlo {
     }
   }
 
+  static class ShuffleThreadFactory implements ThreadFactory {
+    static final AtomicLong idGen = new AtomicLong(0);
+    long id = idGen.getAndIncrement();
+    @Override
+    public Thread newThread(Runnable runnable) {
+      Runnable wrapped = () -> {
+        RmmSpark.associateCurrentThreadWithShuffle();
+        try {
+          runnable.run();
+        } finally {
+          RmmSpark.removeCurrentThreadAssociation();
+        }
+      };
+      Thread t = new Thread(wrapped);
+      t.setDaemon(true);
+      t.setName("SHUFFLE-THREAD-" + id);
+      return t;
+    }
+  }
+
   public static class SituationRunner {
     final TaskRunnerThread[] threads;
+    private ExecutorService shuffle;
     final CyclicBarrier barrier;
     volatile boolean sitIsDone = false;
 
@@ -338,8 +372,14 @@ public class RmmSparkMonteCarlo {
     volatile boolean sitFailed;
     volatile boolean didThisSitFail = false;
 
-    public SituationRunner(int parallelism, int taskRetry) {
+    public SituationRunner(int parallelism, int taskRetry, int shuffleThreads) {
       Object notify = this;
+      if (shuffleThreads > 0) {
+        shuffle = java.util.concurrent.Executors.newFixedThreadPool(shuffleThreads,
+            new ShuffleThreadFactory());
+      } else {
+        shuffle = null;
+      }
       threads = new TaskRunnerThread[parallelism];
       barrier = new CyclicBarrier(parallelism, () -> {
         synchronized (notify) {
@@ -354,8 +394,9 @@ public class RmmSparkMonteCarlo {
           notify.notifyAll();
         }
       });
+
       for (int i = 0; i < parallelism; i++) {
-        threads[i] = new TaskRunnerThread(barrier, this, taskRetry);
+        threads[i] = new TaskRunnerThread(barrier, this, taskRetry, shuffle);
         threads[i].setDaemon(true);
         threads[i].start();
       }
@@ -654,20 +695,41 @@ public class RmmSparkMonteCarlo {
       }
     }
 
-    public void run() {
+    public void run(ExecutorService shuffle) {
       buffers = new DeviceMemoryBuffer[numBuffers];
       allocatedBeforeError = 0;
+      boolean isForShuffle = shuffle != null;
       boolean done = false;
       while(!done) {
         try {
           for (MemoryOp op: operations) {
-            op.doIt(buffers);
+            if (isForShuffle) {
+              // If shuffle is enabled the first allocation will happen on the shuffle thread...
+              RmmSpark.threadCouldBlockOnShuffle();
+              try {
+                Future<?> f = shuffle.submit(() -> op.doIt(buffers));
+                f.get(1000, TimeUnit.SECONDS);
+              } finally {
+                isForShuffle = false;
+                RmmSpark.threadDoneWithShuffle();
+              }
+            } else {
+              op.doIt(buffers);
+            }
           }
           done = true;
         } catch (RetryOOM room) {
           numRetry.incrementAndGet();
           cleanBuffers();
           RmmSpark.blockThreadUntilReady();
+        } catch (ExecutionException ee) {
+          // We are not able to do split and retry/etc from a shuffle
+          // so just bubble the exception on up
+          OutOfMemoryError oom = new OutOfMemoryError("");
+          oom.addSuppressed(ee);
+          throw oom;
+        } catch (InterruptedException | TimeoutException e) {
+          throw new RuntimeException(e);
         } finally {
           cleanBuffers();
         }
@@ -721,14 +783,14 @@ public class RmmSparkMonteCarlo {
       return new Task(cloned, retryCount + 1);
     }
 
-    public void run() {
+    public void run(ExecutorService shuffle) {
       Thread.currentThread().setName("TASK RUNNER FOR " + taskId);
       RmmSpark.associateCurrentThreadWithTask(taskId);
       try {
         while (!toDo.isEmpty()) {
           TaskOpSet tos = toDo.pollFirst();
           try {
-            tos.run();
+            tos.run(shuffle);
           } catch (SplitAndRetryOOM soom) {
             TaskOpSet[] split = tos.split();
             toDo.push(split[1]);
