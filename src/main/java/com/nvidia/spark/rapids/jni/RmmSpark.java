@@ -35,6 +35,19 @@ public class RmmSpark {
    * the future it is likely to change.
    */
   public static void setEventHandler(RmmEventHandler handler) throws RmmException {
+    setEventHandler(handler, null);
+  }
+
+  /**
+   * Set the event handler in a way that Spark wants it. For now this is the same as RMM, but in
+   * the future it is likely to change.
+   * @param handler the handler to set
+   * @param logLocation the location where you want spark state transitions. Alloc and free logging
+   *                    is handled separately when setting up RMM. "stderr" or "stdout" are treated
+   *                    as `std::cerr` and `std::cout` respectively in native code. Anything else
+   *                    is treated as a file.
+   */
+  public static void setEventHandler(RmmEventHandler handler, String logLocation) throws RmmException {
     // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     synchronized (Rmm.class) {
       // RmmException constructor is not public, so we have to use a different exception
@@ -53,7 +66,7 @@ public class RmmSpark {
       }
       RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> eventHandler =
           new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, false);
-      sra = new SparkResourceAdaptor(eventHandler);
+      sra = new SparkResourceAdaptor(eventHandler, logLocation);
       boolean success = false;
       try {
         Rmm.setCurrentDeviceResource(sra, deviceResource, false);
@@ -75,7 +88,7 @@ public class RmmSpark {
     // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     synchronized (Rmm.class) {
       RmmDeviceMemoryResource deviceResource = Rmm.getCurrentDeviceResource();
-      if (deviceResource != null && deviceResource instanceof SparkResourceAdaptor) {
+      if (deviceResource instanceof SparkResourceAdaptor) {
         SparkResourceAdaptor sra = (SparkResourceAdaptor) deviceResource;
         RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> event = sra.getWrapped();
         boolean success = false;
@@ -227,10 +240,15 @@ public class RmmSpark {
    * in error.
    */
   public static void blockThreadUntilReady() {
+    SparkResourceAdaptor local;
     synchronized (Rmm.class) {
-      if (sra != null) {
-        sra.blockThreadUntilReady();
-      }
+      local = sra;
+    }
+    // Technically there is a race here, but because this can block we cannot hold the Rmm
+    // lock while doing this, or we can deadlock. So we are going to rely on Rmm shutting down
+    // or being reconfigured to be rare.
+    if (local != null) {
+      local.blockThreadUntilReady();
     }
   }
 
@@ -301,6 +319,17 @@ public class RmmSpark {
         sra.forceCudfException(threadId, numTimes);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
+      }
+    }
+  }
+
+  public static RmmSparkThreadState getStateOf(long threadId) {
+    synchronized (Rmm.class) {
+      if (sra != null) {
+        return sra.getStateOf(threadId);
+      } else {
+        // sra is not set so the thread is by definition unknown to it.
+        return RmmSparkThreadState.UNKNOWN;
       }
     }
   }
