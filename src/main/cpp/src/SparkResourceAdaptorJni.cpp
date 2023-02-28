@@ -441,6 +441,7 @@ public:
           throw std::invalid_argument(ss.str());
         }
       }
+      check_and_update_for_bufn(lock);
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
     }
