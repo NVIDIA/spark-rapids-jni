@@ -120,7 +120,7 @@ public class RmmSpark {
    */
   public static void associateThreadWithTask(long threadId, long taskId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.associateThreadWithTask(threadId, taskId);
       }
     }
@@ -140,7 +140,7 @@ public class RmmSpark {
    */
   public static void associateThreadWithShuffle(long threadId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.associateThreadWithShuffle(threadId);
       }
     }
@@ -160,7 +160,7 @@ public class RmmSpark {
    */
   public static void removeThreadAssociation(long threadId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.removeThreadAssociation(threadId);
       }
     }
@@ -180,7 +180,7 @@ public class RmmSpark {
    */
   public static void taskDone(long taskId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.taskDone(taskId);
       }
     }
@@ -192,7 +192,7 @@ public class RmmSpark {
    */
   public static void threadCouldBlockOnShuffle(long threadId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.threadCouldBlockOnShuffle(threadId);
       }
     }
@@ -211,7 +211,7 @@ public class RmmSpark {
    */
   public static void threadDoneWithShuffle(long threadId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.threadDoneWithShuffle(threadId);
       }
     }
@@ -247,7 +247,7 @@ public class RmmSpark {
     // Technically there is a race here, but because this can block we cannot hold the Rmm
     // lock while doing this, or we can deadlock. So we are going to rely on Rmm shutting down
     // or being reconfigured to be rare.
-    if (local != null) {
+    if (local != null && local.isOpen()) {
       local.blockThreadUntilReady();
     }
   }
@@ -267,7 +267,7 @@ public class RmmSpark {
    */
   public static void forceRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.forceRetryOOM(threadId, numOOMs);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
@@ -290,7 +290,7 @@ public class RmmSpark {
    */
   public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.forceSplitAndRetryOOM(threadId, numOOMs);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
@@ -315,7 +315,7 @@ public class RmmSpark {
    */
   public static void forceCudfException(long threadId, int numTimes) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         sra.forceCudfException(threadId, numTimes);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
@@ -325,7 +325,7 @@ public class RmmSpark {
 
   public static RmmSparkThreadState getStateOf(long threadId) {
     synchronized (Rmm.class) {
-      if (sra != null) {
+      if (sra != null && sra.isOpen()) {
         return sra.getStateOf(threadId);
       } else {
         // sra is not set so the thread is by definition unknown to it.
