@@ -69,6 +69,11 @@ public class SparkResourceAdaptor
     super.close();
   }
 
+
+  public boolean isOpen() {
+    return handle != 0;
+  }
+
   /**
    * Associate a thread with a given task id.
    * @param threadId the thread ID to use (not java thread id)
