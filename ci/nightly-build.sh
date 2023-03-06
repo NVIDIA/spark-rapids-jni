@@ -22,7 +22,8 @@ nvidia-smi
 git submodule update --init --recursive
 
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
-CUDA_VER=${CUDA_VER:-`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
+# cuda11 or cuda12
+CUDA_VER=${CUDA_VER:-cuda`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 USE_GDS=${USE_GDS:-ON}
 ${MVN} clean package ${MVN_MIRROR}  \
