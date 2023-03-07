@@ -1,6 +1,6 @@
 #!/usr/local/env groovy
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -211,7 +211,7 @@ pipeline {
                     container('gpu') {
                         timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
                             common.resolveIncompatibleDriverIssue(this)
-                            sh 'scl enable devtoolset-9 "ci/premerge-build.sh"'
+                            sh 'scl enable devtoolset-11 "ci/premerge-build.sh"'
                         }
                     }
                 }
