@@ -20,7 +20,7 @@ package com.nvidia.spark.rapids.jni;
  * A special version of an out of memory error that indicates we ran out of memory, but should
  * roll back to a point when all memory for the task is spillable and then retry the operation.
  */
-public class RetryOOM extends OutOfMemoryError {
+public class RetryOOM extends GpuOOM {
   public RetryOOM() {
     super();
   }

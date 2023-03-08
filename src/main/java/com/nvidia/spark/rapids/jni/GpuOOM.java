@@ -17,16 +17,16 @@
 package com.nvidia.spark.rapids.jni;
 
 /**
- * A special version of an out of memory error that indicates we ran out of memory, but should
- * roll back to a point when all memory for the task is spillable and then retry the operation
- * with the input data split to make it ideally use less GPU memory overall.
+ * A special version of an out of memory error that indicates we ran out of GPU memory. This is
+ * mostly to avoid a fatal error that would force the worker process to restart. This should be
+ * recoverable on the GPU.
  */
-public class SplitAndRetryOOM extends GpuOOM {
-  public SplitAndRetryOOM() {
+public class GpuOOM extends RuntimeException {
+  public GpuOOM() {
     super();
   }
 
-  public SplitAndRetryOOM(String message) {
+  public GpuOOM(String message) {
     super(message);
   }
 }
