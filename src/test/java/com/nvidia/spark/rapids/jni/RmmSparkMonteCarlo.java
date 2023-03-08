@@ -37,6 +37,22 @@ public class RmmSparkMonteCarlo {
   public static AtomicLong numSplitAndRetry = new AtomicLong(0);
   public static AtomicLong numRetry = new AtomicLong(0);
 
+  private static int parsePosInt(String input) {
+    int value = Integer.parseInt(input);
+    if (value <= 0) {
+      throw new RuntimeException(value + " is not positive");
+    }
+    return value;
+  }
+
+  private static long parsePosLong(String input) {
+    long value = Long.parseLong(input);
+    if (value <= 0) {
+      throw new RuntimeException(value + " is not positive");
+    }
+    return value;
+  }
+
   public static void main(String [] args) throws InterruptedException {
     // Run a simple monte carlo simulation to try and see the performance impact of retry
     // on random situations.
@@ -44,7 +60,7 @@ public class RmmSparkMonteCarlo {
     int numIterations = 500;
     long numTasks = 12;
     int parallelism = 4;
-    long seed = 0;
+    long seed = System.nanoTime();
     long gpuMemoryMiB = 1024;
     long taskMaxMiB = 300;
     int allocMode = RmmAllocationMode.CUDA_ASYNC;
@@ -62,25 +78,25 @@ public class RmmSparkMonteCarlo {
       if (arg.equals("--baseline")) {
         useSparkRmm = false;
       } else if (arg.startsWith("--iter=")) {
-        numIterations = Integer.parseInt(arg.substring(7));
+        numIterations = parsePosInt(arg.substring(7));
       } else if (arg.startsWith("--numTasks=")) {
-        numTasks = Long.parseLong(arg.substring(11));
+        numTasks = parsePosLong(arg.substring(11));
       } else if (arg.startsWith("--parallel=")) {
-        parallelism = Integer.parseInt(arg.substring(11));
+        parallelism = parsePosInt(arg.substring(11));
       } else if (arg.startsWith("--seed=")) {
         seed = Long.parseLong(arg.substring(7));
       } else if (arg.startsWith("--gpuMiB=")) {
-        gpuMemoryMiB = Long.parseLong(arg.substring(9));
+        gpuMemoryMiB = parsePosLong(arg.substring(9));
       } else if (arg.startsWith("--taskMaxMiB=")) {
-        taskMaxMiB = Long.parseLong(arg.substring(13));
+        taskMaxMiB = parsePosLong(arg.substring(13));
       } else if (arg.startsWith("--taskRetry=")) {
-        taskRetry = Integer.parseInt(arg.substring(12));
+        taskRetry = parsePosInt(arg.substring(12));
       } else if (arg.startsWith("--maxTaskAllocs=")) {
-        maxTaskAllocs = Integer.parseInt(arg.substring(16));
+        maxTaskAllocs = parsePosInt(arg.substring(16));
       } else if (arg.startsWith("--maxTaskSleep=")) {
         maxTaskSleep = Integer.parseInt(arg.substring(15));
       } else if (arg.startsWith("--shuffleThreads=")) {
-        shuffleThreads = Integer.parseInt(arg.substring(17));
+        shuffleThreads = parsePosInt(arg.substring(17));
       } else if (arg.startsWith("--allocMode=")) {
         String mode = arg.substring(12);
         if (mode.equalsIgnoreCase("POOL")) {
@@ -97,9 +113,9 @@ public class RmmSparkMonteCarlo {
       } else if (arg.equals("--noLog")) {
         logging = false;
       } else if (arg.startsWith("--skewAmount=")) {
-        skewAmount = Double.parseDouble(arg.substring(13));
+        skewAmount = Math.abs(Double.parseDouble(arg.substring(13)));
       } else if (arg.startsWith("--templateChangeAmount=")) {
-        templateChangeAmount = Double.parseDouble(arg.substring(23));
+        templateChangeAmount = Math.abs(Double.parseDouble(arg.substring(23)));
       } else if (arg.equals("--skewed")) {
         isSkewed = true;
         useTemplate = true;
@@ -155,8 +171,9 @@ public class RmmSparkMonteCarlo {
         isSkewed, skewAmount, useTemplate, templateChangeAmount);
     SituationRunner runner = new SituationRunner(parallelism, taskRetry, shuffleThreads);
     setupRmm(allocMode, gpuMemoryMiB, useSparkRmm, logging);
-    runner.run(situations);
+    int result = runner.run(situations);
     runner.finish();
+    System.exit(result);
   }
 
   public static void setupRmm(int allocationMode, long limitMiB, boolean useSparkRmm,
@@ -244,6 +261,8 @@ public class RmmSparkMonteCarlo {
     private final ExecutorService shuffle;
     Situation currentSit = null;
 
+    volatile boolean hadOtherFailures = false;
+
     volatile boolean done = false;
 
     public TaskRunnerThread(CyclicBarrier barrier, SituationRunner runner, int taskRetry,
@@ -329,10 +348,15 @@ public class RmmSparkMonteCarlo {
             throw new RuntimeException(e);
           }
         }
-      } catch (Exception e) {
-        e.printStackTrace(System.err);
+      } catch (Throwable e) {
         System.err.println("ERROR: " + e);
+        e.printStackTrace(System.err);
+        hadOtherFailures = true;
       }
+    }
+
+    public boolean hadOtherFailures() {
+      return hadOtherFailures;
     }
   }
 
@@ -402,7 +426,7 @@ public class RmmSparkMonteCarlo {
       }
     }
 
-    public void run(List<Situation> situations) throws InterruptedException {
+    public int run(List<Situation> situations) throws InterruptedException {
       numSplitAndRetry.set(0);
       numRetry.set(0);
       synchronized (this) {
@@ -449,6 +473,18 @@ public class RmmSparkMonteCarlo {
             failedTasks + " failed. " + asTimeStr(totalTaskTime));
         System.out.println("Exceptions: " + numSplitAndRetry.get() + " splits, " +
             numRetry.get() + " retries.");
+      }
+      if (failedSits > 0) {
+        return -1;
+      } else {
+        boolean unexpectedFailures = false;
+        for (TaskRunnerThread t : threads) {
+          unexpectedFailures = t.hadOtherFailures() || unexpectedFailures;
+        }
+        if (unexpectedFailures) {
+          return -2;
+        }
+        return 0;
       }
     }
 
