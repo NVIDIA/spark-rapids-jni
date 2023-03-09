@@ -212,6 +212,7 @@ pipeline {
                         timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
                             common.resolveIncompatibleDriverIssue(this)
                             sh 'scl enable devtoolset-11 "ci/premerge-build.sh"'
+                            sh 'bash ci/fuzz-test.sh'
                         }
                     }
                 }
