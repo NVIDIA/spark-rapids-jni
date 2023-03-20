@@ -67,7 +67,8 @@ namespace {
 rmm::device_uvector<char> unify_json_strings(cudf::column_view const &input,
                                              rmm::cuda_stream_view stream) {
   if (input.is_empty()) {
-    return cudf::detail::make_device_uvector_async<char>(std::vector<char>{'[', ']'}, stream);
+    return cudf::detail::make_device_uvector_async<char>(std::vector<char>{'[', ']'}, stream,
+                                                         rmm::mr::get_current_device_resource());
   }
 
   auto const d_strings = cudf::column_device_view::create(input, stream);
