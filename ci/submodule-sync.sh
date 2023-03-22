@@ -69,7 +69,8 @@ set +e
 ${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest
+  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest \
+  -DBUILD_TESTS=ON
 verify_status=$?
 set -e
 
