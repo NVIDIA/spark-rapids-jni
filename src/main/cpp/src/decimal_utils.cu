@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -834,7 +834,8 @@ multiply_decimal128(cudf::column_view const &a, cudf::column_view const &b, int3
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
@@ -856,7 +857,8 @@ divide_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
@@ -877,7 +879,8 @@ integer_divide_decimal128(cudf::column_view const &a, cudf::column_view const &b
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
@@ -898,7 +901,8 @@ add_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
@@ -919,7 +923,8 @@ sub_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t t
   CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
-  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(cudf::table_view{{a, b}}, stream);
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
