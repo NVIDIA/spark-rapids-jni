@@ -162,6 +162,18 @@ public class SparkResourceAdaptor
     return RmmSparkThreadState.fromNativeId(getStateOf(getHandle(), threadId));
   }
 
+  public int getAndResetNumRetryThrow(long taskId) {
+    return getAndResetRetryThrowInternal(getHandle(), taskId);
+  }
+
+  public int getAndResetNumSplitRetryThrow(long taskId) {
+    return getAndResetSplitRetryThrowInternal(getHandle(), taskId);
+  }
+
+  public long getAndResetBlockTime(long taskId) {
+    return getAndResetBlockTimeInternal(getHandle(), taskId);
+  }
+
   /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
@@ -181,4 +193,8 @@ public class SparkResourceAdaptor
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
   private static native int getStateOf(long handle, long threadId);
+  private static native int getAndResetRetryThrowInternal(long handle, long taskId);
+  private static native int getAndResetSplitRetryThrowInternal(long handle, long taskId);
+  private static native long getAndResetBlockTimeInternal(long handle, long taskId);
+
 }
