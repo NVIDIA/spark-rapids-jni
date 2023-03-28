@@ -333,4 +333,52 @@ public class RmmSpark {
       }
     }
   }
+
+  /**
+   * Get the number of retry exceptions that were thrown and reset the metric.
+   * @param taskId the id of the task to get the metric for.
+   * @return the number of times it was thrown or 0 if in the UNKNOWN state.
+   */
+  public static int getAndResetNumRetryThrow(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetNumRetryThrow(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
+  /**
+   * Get the number of split and retry exceptions that were thrown and reset the metric.
+   * @param taskId the id of the task to get the metric for.
+   * @return the number of times it was thrown or 0 if in the UNKNOWN state.
+   */
+  public static int getAndResetNumSplitRetryThrow(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetNumSplitRetryThrow(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
+  /**
+   * Get how long, in nanoseconds, that the task was blocked for
+   * @param taskId the id of the task to get the metric for.
+   * @return the time the task was blocked or 0 if in the UNKNOWN state.
+   */
+  public static long getAndResetBlockTimeNs(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetBlockTime(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
 }
