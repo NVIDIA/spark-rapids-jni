@@ -310,6 +310,8 @@ public class RmmSparkTest {
     long threadId = RmmSpark.getCurrentThreadId();
     long taskid = 0; // This is arbitrary
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
+    assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
+    assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
     RmmSpark.associateThreadWithTask(threadId, taskid);
     assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
     try {
@@ -326,6 +328,8 @@ public class RmmSparkTest {
       // Verify that injecting OOM does not cause the block to actually happen or
       // the state to change
       assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
+      assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
@@ -337,6 +341,9 @@ public class RmmSparkTest {
       // No change in state after force
       assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
       assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
+      assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
+      assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+
       // Verify that injecting OOM does not cause the block to actually happen
       assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
       RmmSpark.blockThreadUntilReady();

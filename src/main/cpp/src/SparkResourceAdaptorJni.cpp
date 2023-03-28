@@ -181,6 +181,14 @@ public:
   int cudf_exception_injected = 0;
   // watchdog limit on maximum number of retries to avoid unexpected live lock situations
   int num_times_retried = 0;
+  // metric for being able to report how many times each type of exception was thrown,
+  // and some timings
+  int num_times_retry_throw = 0;
+  int num_times_split_retry_throw = 0;
+  long time_blocked_nanos = 0;
+
+  std::chrono::time_point<std::chrono::steady_clock> block_start;
+
   std::unique_ptr<std::condition_variable> wake_condition =
       std::make_unique<std::condition_variable>();
 
@@ -194,6 +202,16 @@ public:
           "Going to UNKNOWN state should delete the thread state, not call transition_to");
     }
     state = new_state;
+  }
+
+  void before_block() {
+    block_start = std::chrono::steady_clock::now();
+  }
+
+  void after_block() {
+    auto end = std::chrono::steady_clock::now();
+    auto diff = end - block_start;
+    time_blocked_nanos += std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
   }
 
   /**
@@ -415,6 +433,63 @@ public:
   }
 
   /**
+   * get the number of times a retry was thrown and reset the value to 0.
+   */
+  int get_n_reset_num_retry(long task_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    int ret = 0;
+    auto task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto thread_id : task_at->second) {
+        auto threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) {
+          ret += threads_at->second.num_times_retry_throw;
+          threads_at->second.num_times_retry_throw = 0;
+        }
+      }
+    }
+    return ret;
+  }
+
+  /**
+   * get the number of times a split and retry was thrown and reset the value to 0.
+   */
+  int get_n_reset_num_split_retry(long task_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    int ret = 0;
+    auto task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto thread_id : task_at->second) {
+        auto threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) {
+          ret += threads_at->second.num_times_split_retry_throw;
+          threads_at->second.num_times_split_retry_throw = 0;
+        }
+      }
+    }
+    return ret;
+  }
+
+  /**
+   * get the time in ns that the task was blocked for.
+   */
+  long get_n_reset_block_time(long task_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    long ret = 0;
+    auto task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto thread_id : task_at->second) {
+        auto threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) {
+          ret += threads_at->second.time_blocked_nanos;
+          threads_at->second.time_blocked_nanos = 0;
+        }
+      }
+    }
+    return ret;
+  }
+
+  /**
    * Update the internal state so that this thread is known that it is going to enter a
    * shuffle stage and could indirectly block on a shuffle thread (UCX).
    */
@@ -574,12 +649,14 @@ private:
 
   void throw_retry_oom(const char *msg, full_thread_state &state,
                        const std::unique_lock<std::mutex> &lock) {
+    state.num_times_retry_throw++;
     check_before_oom(state, lock);
     throw_java_exception(RETRY_OOM_CLASS, "task should retry operation");
   }
 
   void throw_split_n_retry_oom(const char *msg, full_thread_state &state,
                                const std::unique_lock<std::mutex> &lock) {
+    state.num_times_split_retry_throw++;
     check_before_oom(state, lock);
     throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "task should split input and retry operation");
   }
@@ -615,10 +692,12 @@ private:
           // fall through
           case SHUFFLE_BLOCKED:
             log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+            thread->second.before_block();
             do {
               thread->second.wake_condition->wait(lock);
               thread = threads.find(thread_id);
             } while (thread != threads.end() && is_blocked(thread->second.state));
+            thread->second.after_block();
             task_has_woken_condition.notify_all();
             break;
           case SHUFFLE_THROW:
@@ -636,10 +715,12 @@ private:
             // check again to see if this was fixed or not.
             check_and_update_for_bufn(lock);
             log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+            thread->second.before_block();
             do {
               thread->second.wake_condition->wait(lock);
               thread = threads.find(thread_id);
             } while (thread != threads.end() && is_blocked(thread->second.state));
+            thread->second.after_block();
             task_has_woken_condition.notify_all();
             break;
           case TASK_SPLIT_THROW:
@@ -763,6 +844,7 @@ private:
     if (thread != threads.end()) {
       if (thread->second.retry_oom_injected > 0) {
         thread->second.retry_oom_injected--;
+        thread->second.num_times_retry_throw++;
         throw_java_exception(RETRY_OOM_CLASS, "injected RetryOOM");
       }
 
@@ -773,6 +855,7 @@ private:
 
       if (thread->second.split_and_retry_oom_injected > 0) {
         thread->second.split_and_retry_oom_injected--;
+        thread->second.num_times_split_retry_throw++;
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
@@ -1271,4 +1354,39 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   }
   CATCH_STD(env, 0)
 }
+
+
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
+    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    return mr->get_n_reset_num_retry(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrowInternal(
+    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    return mr->get_n_reset_num_split_retry(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeInternal(
+    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    return mr->get_n_reset_block_time(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
 }
