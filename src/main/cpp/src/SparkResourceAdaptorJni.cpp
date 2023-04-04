@@ -845,17 +845,20 @@ private:
       if (thread->second.retry_oom_injected > 0) {
         thread->second.retry_oom_injected--;
         thread->second.num_times_retry_throw++;
+        log_status("INJECTED_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
         throw_java_exception(RETRY_OOM_CLASS, "injected RetryOOM");
       }
 
       if (thread->second.cudf_exception_injected > 0) {
         thread->second.cudf_exception_injected--;
+        log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
         throw_java_exception(CUDF_EXCEPTION_CLASS, "injected CudfException");
       }
 
       if (thread->second.split_and_retry_oom_injected > 0) {
         thread->second.split_and_retry_oom_injected--;
         thread->second.num_times_split_retry_throw++;
+        log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
