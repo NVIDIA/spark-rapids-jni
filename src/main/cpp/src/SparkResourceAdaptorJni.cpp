@@ -642,7 +642,7 @@ private:
     // In testing it looks like it is a few ms if in a tight loop, not including spill
     // overhead
     if (state.num_times_retried + 1 > 500) {
-      throw_java_exception(JAVA_OOM_CLASS, "retry limit exceeded");
+      throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
     }
     state.num_times_retried++;
   }
@@ -651,14 +651,14 @@ private:
                        const std::unique_lock<std::mutex> &lock) {
     state.num_times_retry_throw++;
     check_before_oom(state, lock);
-    throw_java_exception(RETRY_OOM_CLASS, "task should retry operation");
+    throw_java_exception(RETRY_OOM_CLASS, "GPU OutOfMemory");
   }
 
   void throw_split_n_retry_oom(const char *msg, full_thread_state &state,
                                const std::unique_lock<std::mutex> &lock) {
     state.num_times_split_retry_throw++;
     check_before_oom(state, lock);
-    throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "task should split input and retry operation");
+    throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "GPU OutOfMemory");
   }
 
   bool is_blocked(thread_state state) {
@@ -702,7 +702,7 @@ private:
             break;
           case SHUFFLE_THROW:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
-            throw_java_exception(JAVA_OOM_CLASS, "could not allocate enough for shuffle");
+            throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: could not allocate enough for shuffle");
             break;
           case TASK_BUFN_THROW:
             transition(thread->second, thread_state::TASK_BUFN_WAIT);
