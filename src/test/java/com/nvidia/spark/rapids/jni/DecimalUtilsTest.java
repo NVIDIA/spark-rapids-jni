@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -152,8 +152,8 @@ public class DecimalUtilsTest {
   void simpleNegMultiplyTenByTenSparkCompat() {
     // many of the numbers listed here are *NOT* what BigDecimal would 
     // normally spit out. Spark has a bug https://issues.apache.org/jira/browse/SPARK-40129
-    // which causes some of the rounding to be off, so these come directly from
-    // Spark. It should be simple to fix this issue by deleteing code, or bypassing the
+    // which causes some rounding to be off, so these come directly from
+    // Spark. It should be simple to fix this issue by deleting code, or bypassing the
     // first divide step when/if Spark fixes it.
     try (ColumnVector lhs =
              makeDec128Column("3358377338823096511784947656.4650294583",
@@ -208,7 +208,7 @@ public class DecimalUtilsTest {
   @Test
   void intDivideNotOverflow() {
     // Spark doesn't report this as an overflow even though this has obviously overflowed.
-    // Incase of integral divide, it still bases whether a column has overflown by checking the
+    // In case of integral divide, it still bases whether a column has overflown by checking the
     // 128-bit value and not the returned 64-bit value
     try (ColumnVector lhs =
              makeDec128Column("451635271134476686911387864.48", "5313675970270560086329837153.18");
@@ -361,8 +361,8 @@ public class DecimalUtilsTest {
             "-9191008513307131620269245301.1615457290");
         ColumnVector rhs = makeDec128Column("9447850332473678680446404122.5624623187",
             "-9447850332473678680446404122.5624623187");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true, true)) {
-      Table result = DecimalUtils.add128(lhs, rhs, -10);
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true, true);
+        Table result = DecimalUtils.add128(lhs, rhs, -10)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
     }
   }
@@ -404,8 +404,8 @@ public class DecimalUtilsTest {
             "1333756118336991229799879886.522289520",
             "-2558243183478544783472313244.575638918");
         ColumnVector expectedValid = ColumnVector.fromBooleans(false, false, false, false, false,
-            false, false, false, false, false, false)) {
-      Table result = DecimalUtils.add128(lhs, rhs, -9);
+            false, false, false, false, false, false);
+        Table result = DecimalUtils.add128(lhs, rhs, -9)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
@@ -448,8 +448,8 @@ public class DecimalUtilsTest {
             "-6.5479604530576270812849514340029066E+39",
             null);
         ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
-            false, false, false, false, false, null)) {
-      Table result = DecimalUtils.add128(lhs, rhs, 5);
+            false, false, false, false, false, null);
+        Table result = DecimalUtils.add128(lhs, rhs, 5)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
@@ -493,8 +493,8 @@ public class DecimalUtilsTest {
             "7770175100125696617964074281.376399082",
             "-1869881956184352298725010129.272506370");
         ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
-            false, false, false, false, false, false)) {
-      Table result = DecimalUtils.add128(lhs, rhs, -9);
+            false, false, false, false, false, false);
+        Table result = DecimalUtils.add128(lhs, rhs, -9)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
@@ -505,8 +505,8 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("50000000000000000000000000000000000000");
         ColumnVector rhs = makeDec128Column("2");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
-      Table result = DecimalUtils.multiply128(lhs, rhs, 0);
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        Table result = DecimalUtils.multiply128(lhs, rhs, 0)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
     }
   }
@@ -516,8 +516,8 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("99999999999999999999999999999999999999");
         ColumnVector rhs = makeDec128Column("1");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
-      Table result = DecimalUtils.add128(lhs, rhs, 0);
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        Table result = DecimalUtils.add128(lhs, rhs, 0)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
     }
   }
@@ -527,8 +527,8 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("-99999999999999999999999999999999999999");
         ColumnVector rhs = makeDec128Column("1");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true)) {
-      Table result = DecimalUtils.subtract128(lhs, rhs, 0);
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        Table result = DecimalUtils.subtract128(lhs, rhs, 0)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
     }
   }
@@ -571,8 +571,8 @@ public class DecimalUtilsTest {
             "8484593380070321326506943924.036399082",
             "-154984298778579123337137056.852506370");
         ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
-            false, false, false, false, false, false)) {
-      Table result = DecimalUtils.subtract128(lhs, rhs, -9);
+            false, false, false, false, false, false);
+        Table result = DecimalUtils.subtract128(lhs, rhs, -9)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }

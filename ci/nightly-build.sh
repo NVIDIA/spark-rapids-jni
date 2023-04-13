@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ nvidia-smi
 git submodule update --init --recursive
 
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
+# cuda11 or cuda12
+CUDA_VER=${CUDA_VER:-cuda`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 USE_GDS=${USE_GDS:-ON}
 ${MVN} clean package ${MVN_MIRROR}  \
@@ -29,4 +31,4 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest \
-  -DBUILD_TESTS=ON
+  -DBUILD_TESTS=ON -Dcuda.version=$CUDA_VER
