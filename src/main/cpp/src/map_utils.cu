@@ -67,7 +67,8 @@ namespace {
 rmm::device_uvector<char> unify_json_strings(cudf::column_view const &input,
                                              rmm::cuda_stream_view stream) {
   if (input.is_empty()) {
-    return cudf::detail::make_device_uvector_async<char>(std::vector<char>{'[', ']'}, stream);
+    return cudf::detail::make_device_uvector_async<char>(std::vector<char>{'[', ']'}, stream,
+                                                         rmm::mr::get_current_device_resource());
   }
 
   auto const d_strings = cudf::column_device_view::create(input, stream);
@@ -574,7 +575,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
                 "Invalid internal data for nested json tokenizer.");
   auto const [tokens, token_indices] = cudf::io::json::detail::get_token_stream(
       cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
-      cudf::io::json_reader_options{}, stream);
+      cudf::io::json_reader_options{}, stream, rmm::mr::get_current_device_resource());
 
 #ifdef DEBUG_FROM_JSON
   print_debug(tokens, "Tokens", ", ", stream);

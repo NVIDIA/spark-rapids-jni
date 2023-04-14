@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 ###
 ARG CUDA_VERSION=11.8.0
 FROM nvidia/cuda:$CUDA_VERSION-devel-centos7
-ARG DEVTOOLSET_VERSION=9
+ARG DEVTOOLSET_VERSION=11
 ### Install basic requirements
 RUN yum install -y centos-release-scl
 RUN yum install -y devtoolset-${DEVTOOLSET_VERSION} rh-python38 epel-release

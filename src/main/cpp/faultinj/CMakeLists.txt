@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,20 +22,15 @@ project(
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(Boost REQUIRED)
-
 add_library(
   cufaultinj SHARED
   faultinj.cu
 )
 
-find_path(SPDLOG_INCLUDE "spdlog"
-    HINTS "$ENV{RMM_ROOT}/_deps/spdlog-src/include")
-
-include_directories(
-  "${SPDLOG_INCLUDE}"
+target_link_libraries(
+  cufaultinj PRIVATE spdlog::spdlog_header_only
 )
 
 target_link_libraries(
-  cufaultinj CUDA::cupti_static
+  cufaultinj PRIVATE CUDA::cupti_static
 )
