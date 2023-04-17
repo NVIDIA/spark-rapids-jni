@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -575,8 +575,9 @@ TYPED_TEST(StringToFloatTests, Simple)
   auto const valid_iter = cudf::test::iterators::no_nulls();
   auto expected =
     cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
-  expected->set_null_mask(
-    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size()));
+  auto [null_mask, null_count] =
+    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size());
+  expected->set_null_mask(std::move(null_mask), null_count);
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, cudf::get_default_stream());
@@ -592,8 +593,9 @@ TYPED_TEST(StringToFloatTests, InfNaN)
 
   auto expected =
     cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
-  expected->set_null_mask(
-    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size()));
+  auto [null_mask, null_count] =
+    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size());
+  expected->set_null_mask(std::move(null_mask), null_count);
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, cudf::get_default_stream());
@@ -609,8 +611,9 @@ TYPED_TEST(StringToFloatTests, InvalidValues)
 
   auto expected =
     cudf::strings::to_floats(strings_column_view(in), cudf::data_type{type_to_id<TypeParam>()});
-  expected->set_null_mask(
-    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size()));
+  auto [null_mask, null_count] =
+    cudf::test::detail::make_null_mask(valid_iter, valid_iter + expected->size());
+  expected->set_null_mask(std::move(null_mask), null_count);
 
   auto const result = spark_rapids_jni::string_to_float(
     data_type{type_to_id<TypeParam>()}, strings_column_view{in}, false, cudf::get_default_stream());
