@@ -24,6 +24,7 @@
 #include <cudf_jni_apis.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
