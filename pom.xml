@@ -535,7 +535,18 @@
             <configuration>
               <excludes>
                 <exclude>**/CudaFatalTest.java</exclude>
+                <exclude>**/ColumnViewNonEmptyNullsTest.java</exclude>
               </excludes>
+            </configuration>
+          </execution>
+          <execution>
+            <id>non-empty-null-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <argLine>-da:ai.rapids.cudf.AssertEmptyNulls</argLine>
+              <test>**/ColumnViewNonEmptyNullsTest.java</test>
             </configuration>
           </execution>
           <execution>
