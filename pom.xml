@@ -546,7 +546,7 @@
             </goals>
             <configuration>
               <argLine>-da:ai.rapids.cudf.AssertEmptyNulls</argLine>
-              <test>**/ColumnViewNonEmptyNullsTest.java</test>
+              <test>ColumnViewNonEmptyNullsTest</test>
             </configuration>
           </execution>
           <execution>
