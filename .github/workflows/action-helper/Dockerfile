@@ -1,4 +1,4 @@
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ WORKDIR /
 COPY python /python
 COPY entrypoint.sh .
 RUN chmod -R +x /python /entrypoint.sh
-RUN pip install requests
+# pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
+RUN pip install requests "urllib3<2.0"
 
 ENTRYPOINT ["/entrypoint.sh"]
