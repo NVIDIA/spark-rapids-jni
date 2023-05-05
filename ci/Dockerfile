@@ -29,7 +29,8 @@ RUN yum install -y devtoolset-${DEVTOOLSET_VERSION} rh-python38 epel-release
 RUN yum install -y zlib-devel maven tar wget patch ninja-build
 # require git 2.18+ to keep consistent submodule operations
 RUN yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm && yum install -y git
-RUN scl enable rh-python38 "pip install requests"
+# pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
+RUN scl enable rh-python38 "pip install requests 'urllib3<2.0'"
 
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir /usr/local/rapids && mkdir /rapids && chmod 777 /usr/local/rapids && chmod 777 /rapids
