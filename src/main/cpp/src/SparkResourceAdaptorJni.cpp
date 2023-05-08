@@ -837,12 +837,29 @@ private:
    * Called prior to processing an alloc attempt. This will throw any injected exception and
    * wait until the thread is ready to actually do/retry the allocation. That blocking API may
    * throw other exceptions if rolling back or splitting the input is considered needed.
+   * 
+   * @return true if the call finds our thread in an ALLOC state, meaning that we recursively
+   *         entered the state machine. The only known case is GPU memory required for setup in
+   *         cuDF for a spill operation.
    */
-  void pre_alloc(long thread_id) {
+  bool pre_alloc(long thread_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
 
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
+      switch(thread->second.state) {
+        // If the thread is in one of the ALLOC or ALLOC_FREE states, we have detected a loop
+        // likely due to spill setup required in cuDF. We will treat this allocation differently
+        // and skip transitions.
+        case TASK_ALLOC:
+        case SHUFFLE_ALLOC:
+        case TASK_ALLOC_FREE:
+        case SHUFFLE_ALLOC_FREE:
+          return true;
+
+        default: break;
+      }
+
       if (thread->second.retry_oom_injected > 0) {
         thread->second.retry_oom_injected--;
         thread->second.num_times_retry_throw++;
@@ -870,8 +887,9 @@ private:
         case SHUFFLE_RUNNING:
           transition(thread->second, thread_state::SHUFFLE_ALLOC);
           break;
-          // TODO I don't think there are other states that we need to handle, but
-          // this needs more testing.
+
+        // TODO I don't think there are other states that we need to handle, but
+        // this needs more testing.
         default: {
           std::stringstream ss;
           ss << "thread " << thread_id << " in unexpected state pre alloc "
@@ -881,6 +899,7 @@ private:
         }
       }
     }
+    return false;
   }
 
   /**
@@ -889,12 +908,15 @@ private:
    * GPU memory. I don't want to mark it as nothrow, because we can throw an
    * exception on an internal error, and I would rather see that we got the internal
    * error and leak something instead of getting a segfault.
+   * 
+   * `likely_spill` if this allocation should be treated differently, because
+   * we detected recursion while handling a prior allocation in this thread.
    */
-  void post_alloc_success(long thread_id) {
+  void post_alloc_success(long thread_id, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     // pre allocate checks
     auto thread = threads.find(thread_id);
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC:
           // fall through
@@ -1130,10 +1152,10 @@ private:
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
     while (true) {
-      pre_alloc(tid);
+      bool likely_spill = pre_alloc(tid);
       try {
         void *ret = resource->allocate(num_bytes, stream);
-        post_alloc_success(tid);
+        post_alloc_success(tid, likely_spill);
         return ret;
       } catch (const std::bad_alloc &e) {
         if (!post_alloc_failed(tid, true)) {
