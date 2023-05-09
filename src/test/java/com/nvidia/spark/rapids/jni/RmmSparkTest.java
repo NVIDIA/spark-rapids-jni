@@ -779,7 +779,18 @@ public class RmmSparkTest {
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
   }
-
+  
+  //
+  // These next two tests deal with a special case where allocations (and allocation failures)
+  // could happen during spill handling.
+  //
+  // When we spill we may need to invoke cuDF code that creates memory, specifically to
+  // pack previously unpacked memory into a single contiguous buffer (cudf::chunked_pack).
+  // This operation, although it makes use of an auxiliary memory resource, still deals with
+  // cuDF apis that could, at any time, allocate small amounts of memory in the default memory
+  // resource. As such, allocations and allocation failures could happen, which cause us
+  // to recursively enter the state machine in SparkResourceAdaptorJni.
+  //
   @Test
   public void testAllocationDuringSpill() {
     // Create a handler that allocates 1 byte from the handler (it should succeed)
