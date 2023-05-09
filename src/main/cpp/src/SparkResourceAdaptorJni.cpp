@@ -837,12 +837,29 @@ private:
    * Called prior to processing an alloc attempt. This will throw any injected exception and
    * wait until the thread is ready to actually do/retry the allocation. That blocking API may
    * throw other exceptions if rolling back or splitting the input is considered needed.
+   * 
+   * @return true if the call finds our thread in an ALLOC state, meaning that we recursively
+   *         entered the state machine. The only known case is GPU memory required for setup in
+   *         cuDF for a spill operation.
    */
-  void pre_alloc(long thread_id) {
+  bool pre_alloc(long thread_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
 
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
+      switch(thread->second.state) {
+        // If the thread is in one of the ALLOC or ALLOC_FREE states, we have detected a loop
+        // likely due to spill setup required in cuDF. We will treat this allocation differently
+        // and skip transitions.
+        case TASK_ALLOC:
+        case SHUFFLE_ALLOC:
+        case TASK_ALLOC_FREE:
+        case SHUFFLE_ALLOC_FREE:
+          return true;
+
+        default: break;
+      }
+
       if (thread->second.retry_oom_injected > 0) {
         thread->second.retry_oom_injected--;
         thread->second.num_times_retry_throw++;
@@ -870,8 +887,9 @@ private:
         case SHUFFLE_RUNNING:
           transition(thread->second, thread_state::SHUFFLE_ALLOC);
           break;
-          // TODO I don't think there are other states that we need to handle, but
-          // this needs more testing.
+
+        // TODO I don't think there are other states that we need to handle, but
+        // this needs more testing.
         default: {
           std::stringstream ss;
           ss << "thread " << thread_id << " in unexpected state pre alloc "
@@ -881,6 +899,7 @@ private:
         }
       }
     }
+    return false;
   }
 
   /**
@@ -889,12 +908,15 @@ private:
    * GPU memory. I don't want to mark it as nothrow, because we can throw an
    * exception on an internal error, and I would rather see that we got the internal
    * error and leak something instead of getting a segfault.
+   * 
+   * `likely_spill` if this allocation should be treated differently, because
+   * we detected recursion while handling a prior allocation in this thread.
    */
-  void post_alloc_success(long thread_id) {
+  void post_alloc_success(long thread_id, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     // pre allocate checks
     auto thread = threads.find(thread_id);
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC:
           // fall through
@@ -1087,12 +1109,12 @@ private:
    * typically happen after this has run, and we loop around to retry the alloc
    * if the state says we should.
    */
-  bool post_alloc_failed(long thread_id, bool is_oom) {
+  bool post_alloc_failed(long thread_id, bool is_oom, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto thread = threads.find(thread_id);
     // only retry if this was due to an out of memory exception.
     bool ret = true;
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
         case TASK_ALLOC:
@@ -1130,19 +1152,18 @@ private:
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
     while (true) {
-      pre_alloc(tid);
+      bool likely_spill = pre_alloc(tid);
       try {
         void *ret = resource->allocate(num_bytes, stream);
-        post_alloc_success(tid);
+        post_alloc_success(tid, likely_spill);
         return ret;
       } catch (const std::bad_alloc &e) {
-        if (!post_alloc_failed(tid, true)) {
+        if (!post_alloc_failed(tid, true, likely_spill)) {
           throw;
         }
       } catch (const std::exception &e) {
-        if (!post_alloc_failed(tid, false)) {
-          throw;
-        }
+        post_alloc_failed(tid, false, likely_spill);
+        throw;
       }
     }
     // we should never reach this point, but just in case
@@ -1163,10 +1184,25 @@ private:
 
       std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-        switch (thread->second.state) {
-          case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
-          case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
-          default: break;
+        // Only update state for _other_ threads. We update only other threads, for the case
+        // where we are handling a free from the recursive case: when an allocation/free 
+        // happened while handling an allocation failure in onAllocFailed.
+        //
+        // If we moved all threads to *_ALLOC_FREE, after we exit the recursive state and
+        // are back handling the original allocation failure, we are left with a thread
+        // in a state that won't be retried in `post_alloc_failed`.
+        //
+        // By not changing our thread's state to TASK_ALLOC_FREE, we keep the state
+        // the same, but we still let other threads know that there was a free and they should
+        // handle accordingly.
+        if (thread->second.thread_id != tid) {
+          switch (thread->second.state) {
+            case TASK_ALLOC: 
+              transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
+            case SHUFFLE_ALLOC: 
+              transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
+            default: break;
+          }
         }
       }
       wake_next_highest_priority_regular_blocked(lock);
@@ -1359,7 +1395,6 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
     JNIEnv *env, jclass, jlong ptr, jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
@@ -1392,5 +1427,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ge
   }
   CATCH_STD(env, 0)
 }
-
 }
