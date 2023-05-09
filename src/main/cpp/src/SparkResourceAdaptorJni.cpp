@@ -1116,14 +1116,7 @@ private:
     bool ret = true;
     if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
-        case TASK_ALLOC_FREE: 
-          if (is_oom) {
-            transition(thread->second, thread_state::TASK_BLOCKED);
-          } else {
-            // don't block unless it is OOM
-            transition(thread->second, thread_state::TASK_RUNNING);
-          }
-          break;
+        case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
         case TASK_ALLOC:
           if (is_oom) {
             transition(thread->second, thread_state::TASK_BLOCKED);
