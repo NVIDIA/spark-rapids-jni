@@ -1169,9 +1169,8 @@ private:
           throw;
         }
       } catch (const std::exception &e) {
-        if (!post_alloc_failed(tid, false, likely_spill)) {
-          throw;
-        }
+        post_alloc_failed(tid, false, likely_spill);
+        throw;
       }
     }
     // we should never reach this point, but just in case

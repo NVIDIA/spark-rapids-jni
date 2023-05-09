@@ -864,15 +864,9 @@ public class RmmSparkTest {
 
     @Override
     public boolean onAllocFailure(long sizeRequested, int retryCount) {
-      // Catch all JVM exceptions in this handlers to prevent loops:
-      // - If we throw a Java exception here, it will get caught in the RmmJni on_alloc_fail
-      //   method. This causes a native std::runtime_error to be thrown.
-      // - The std::runtime_error is then caught in spark_resource_adaptor::do_allocate and
-      //   treated as not-an-oom. This causes the thread to go back to RUNNING state, and
-      //   we loop again trying to `allocate` because we don't return from the `on_alloc_fail`
-      //   method in RmmJni (if we had returned false, the loop breaks).
-      // - As a result, always catch all JVM exceptions in this handler, always return false
-      //   if any Java exception is thrown.
+      // Catch java.lang.OutOfMemory since we could gt this exception during `Rmm.alloc`.
+      // Catch all throwables because any other exception is not handled gracefully from callers
+      // but if we do see such exceptions make sure we call `fail` so we get a test failure.
       try {
         if (stillHandlingAllocFailure) {
           // detected a loop
@@ -887,8 +881,12 @@ public class RmmSparkTest {
           // allow retries up to 10 times
           return retryCount < 10;
         }
-      } catch (Throwable e) {
-        // return false here, this allocation failure handling failed.
+      } catch (java.lang.OutOfMemoryError e) {
+        // return false here, this allocation failure handling failed with 
+        // java.lang.OutOfMemory from `RmmJni`
+        return false;
+      } catch (Throwable t) {
+        fail("unexpected exception in onAllocFailure", t);
         return false;
       }
     }
