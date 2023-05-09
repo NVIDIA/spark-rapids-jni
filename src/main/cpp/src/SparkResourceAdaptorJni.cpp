@@ -1184,7 +1184,17 @@ private:
 
       std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-        // only update state for _other_ threads
+        // Only update state for _other_ threads. We update only other threads, for the case
+        // where we are handling a free from the recursive case: when an allocation/free 
+        // happened while handling an allocation failure in onAllocFailed.
+        //
+        // If we moved all threads to *_ALLOC_FREE, after we exit the recursive state and
+        // are back handling the original allocation failure, we are left with a thread
+        // in a state that won't be retried in `post_alloc_failed`.
+        //
+        // By not changing our thread's state to TASK_ALLOC_FREE, we keep the state
+        // the same, but we still let other threads know that there was a free and they should
+        // handle accordingly.
         if (thread->second.thread_id != tid) {
           switch (thread->second.state) {
             case TASK_ALLOC: 
