@@ -1393,11 +1393,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jint JNICALL
-Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(JNIEnv *env,
-                                                                                    jclass,
-                                                                                    jlong ptr,
-                                                                                    jlong task_id) {
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
+    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
