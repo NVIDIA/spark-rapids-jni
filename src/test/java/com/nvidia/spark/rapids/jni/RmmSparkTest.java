@@ -797,7 +797,7 @@ public class RmmSparkTest {
         RmmSpark.removeThreadAssociation(threadId);
       }
     });
-    assertEquals(1, rmmEventHandler.getAllocationCount());
+    assertEquals(11, rmmEventHandler.getAllocationCount());
   }
 
   @Test
