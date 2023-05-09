@@ -1109,14 +1109,21 @@ private:
    * typically happen after this has run, and we loop around to retry the alloc
    * if the state says we should.
    */
-  bool post_alloc_failed(long thread_id, bool is_oom) {
+  bool post_alloc_failed(long thread_id, bool is_oom, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto thread = threads.find(thread_id);
     // only retry if this was due to an out of memory exception.
     bool ret = true;
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
-        case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
+        case TASK_ALLOC_FREE: 
+          if (is_oom) {
+            transition(thread->second, thread_state::TASK_BLOCKED);
+          } else {
+            // don't block unless it is OOM
+            transition(thread->second, thread_state::TASK_RUNNING);
+          }
+          break;
         case TASK_ALLOC:
           if (is_oom) {
             transition(thread->second, thread_state::TASK_BLOCKED);
@@ -1158,11 +1165,11 @@ private:
         post_alloc_success(tid, likely_spill);
         return ret;
       } catch (const std::bad_alloc &e) {
-        if (!post_alloc_failed(tid, true)) {
+        if (!post_alloc_failed(tid, true, likely_spill)) {
           throw;
         }
       } catch (const std::exception &e) {
-        if (!post_alloc_failed(tid, false)) {
+        if (!post_alloc_failed(tid, false, likely_spill)) {
           throw;
         }
       }
@@ -1185,10 +1192,15 @@ private:
 
       std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-        switch (thread->second.state) {
-          case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
-          case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
-          default: break;
+        // only update state for _other_ threads
+        if (thread->second.thread_id != tid) {
+          switch (thread->second.state) {
+            case TASK_ALLOC: 
+              transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
+            case SHUFFLE_ALLOC: 
+              transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
+            default: break;
+          }
         }
       }
       wake_next_highest_priority_regular_blocked(lock);
@@ -1381,9 +1393,11 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
-    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+JNIEXPORT jint JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(JNIEnv *env,
+                                                                                    jclass,
+                                                                                    jlong ptr,
+                                                                                    jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1414,5 +1428,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ge
   }
   CATCH_STD(env, 0)
 }
-
 }
