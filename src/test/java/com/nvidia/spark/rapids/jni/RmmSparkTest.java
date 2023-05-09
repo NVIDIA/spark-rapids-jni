@@ -791,7 +791,7 @@ public class RmmSparkTest {
     RmmSpark.associateThreadWithTask(threadId, taskid);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
-        Rmm.alloc(2 * 1024 * 1024).close();
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeThreadAssociation(threadId);
@@ -811,7 +811,7 @@ public class RmmSparkTest {
     RmmSpark.associateThreadWithTask(threadId, taskid);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
-        Rmm.alloc(2 * 1024 * 1024).close();
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeThreadAssociation(threadId);
@@ -883,10 +883,9 @@ public class RmmSparkTest {
           try (DeviceMemoryBuffer dmb = Rmm.alloc(allocSize)) { // try to allocate one byte, and free
             allocationCount++;
             stillHandlingAllocFailure = false;
-          } catch (Exception ex) {
-            return false;
           }
-          return true;
+          // allow retries up to 10 times
+          return retryCount < 10;
         }
       } catch (Throwable e) {
         // return false here, this allocation failure handling failed.
