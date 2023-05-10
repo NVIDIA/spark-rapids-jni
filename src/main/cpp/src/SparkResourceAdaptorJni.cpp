@@ -1174,6 +1174,8 @@ private:
     resource->deallocate(p, size, stream);
     // deallocate success
     if (size > 0) {
+      std::unique_lock<std::mutex> lock(state_mutex);
+
       auto tid = static_cast<long>(pthread_self());
       auto thread = threads.find(tid);
       if (thread != threads.end()) {
@@ -1182,7 +1184,6 @@ private:
         log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
       }
 
-      std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         // Only update state for _other_ threads. We update only other threads, for the case
         // where we are handling a free from the recursive case: when an allocation/free 
