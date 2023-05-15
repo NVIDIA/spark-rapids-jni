@@ -33,7 +33,6 @@ namespace {
 
 constexpr char const *RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/RetryOOM";
 constexpr char const *SPLIT_AND_RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/SplitAndRetryOOM";
-constexpr char const *CUDF_EXCEPTION_CLASS = "ai/rapids/cudf/CudfException";
 constexpr char const *JAVA_OOM_CLASS = "java/lang/OutOfMemoryError";
 
 // In the task states BUFN means Block Until Further Notice.
@@ -870,7 +869,7 @@ private:
       if (thread->second.cudf_exception_injected > 0) {
         thread->second.cudf_exception_injected--;
         log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
-        throw_java_exception(CUDF_EXCEPTION_CLASS, "injected CudfException");
+        throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
       }
 
       if (thread->second.split_and_retry_oom_injected > 0) {
