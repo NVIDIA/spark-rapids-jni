@@ -69,8 +69,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
     cudf::jni::native_jintArray n_types(env, types);
     cudf::jni::native_jintArray n_scale(env, scale);
     if (n_types.size() != n_scale.size()) {
-      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "types and scales must match size",
-                    NULL);
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and scales must match size", NULL);
     }
     std::vector<cudf::data_type> types_vec;
     std::transform(n_types.begin(), n_types.end(), n_scale.begin(), std::back_inserter(types_vec),
@@ -93,8 +92,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_RowConversion_conv
     cudf::jni::native_jintArray n_types(env, types);
     cudf::jni::native_jintArray n_scale(env, scale);
     if (n_types.size() != n_scale.size()) {
-      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "types and scales must match size",
-                    NULL);
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and scales must match size", NULL);
     }
     std::vector<cudf::data_type> types_vec;
     std::transform(n_types.begin(), n_types.end(), n_scale.begin(), std::back_inserter(types_vec),
