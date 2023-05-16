@@ -23,12 +23,6 @@ include(rapids-find)
 include(rapids-cpm)
 rapids_cpm_init()
 
-# find libcu++
-include(${rapids-cmake-dir}/cpm/libcudacxx.cmake)
-
-# find thrust/cub
-include(../../../thirdparty/cudf/cpp/cmake/thirdparty/get_thrust.cmake)
-
 # Use GPU_ARCHS if it is defined
 if(DEFINED GPU_ARCHS)
   set(CMAKE_CUDA_ARCHITECTURES "${GPU_ARCHS}")
@@ -96,6 +90,12 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
+
+# find libcu++
+include(${rapids-cmake-dir}/cpm/libcudacxx.cmake)
+
+# find thrust/cub
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thrust.cmake)
 
 # JNI
 find_package(JNI REQUIRED)
