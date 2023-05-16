@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <chrono>
 #include <exception>
 #include <map>
@@ -33,7 +34,6 @@ namespace {
 
 constexpr char const *RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/RetryOOM";
 constexpr char const *SPLIT_AND_RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/SplitAndRetryOOM";
-constexpr char const *JAVA_OOM_CLASS = "java/lang/OutOfMemoryError";
 
 // In the task states BUFN means Block Until Further Notice.
 // Meaning the thread should be blocked until another task finishes.
@@ -204,9 +204,7 @@ public:
     state = new_state;
   }
 
-  void before_block() {
-    block_start = std::chrono::steady_clock::now();
-  }
+  void before_block() { block_start = std::chrono::steady_clock::now(); }
 
   void after_block() {
     auto end = std::chrono::steady_clock::now();
@@ -642,7 +640,7 @@ private:
     // In testing it looks like it is a few ms if in a tight loop, not including spill
     // overhead
     if (state.num_times_retried + 1 > 500) {
-      throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
+      throw_java_exception(cudf::jni::OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
     }
     state.num_times_retried++;
   }
@@ -702,7 +700,8 @@ private:
             break;
           case SHUFFLE_THROW:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
-            throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: could not allocate enough for shuffle");
+            throw_java_exception(cudf::jni::OOM_CLASS,
+                                 "GPU OutOfMemory: could not allocate enough for shuffle");
             break;
           case TASK_BUFN_THROW:
             transition(thread->second, thread_state::TASK_BUFN_WAIT);
@@ -836,7 +835,7 @@ private:
    * Called prior to processing an alloc attempt. This will throw any injected exception and
    * wait until the thread is ready to actually do/retry the allocation. That blocking API may
    * throw other exceptions if rolling back or splitting the input is considered needed.
-   * 
+   *
    * @return true if the call finds our thread in an ALLOC state, meaning that we recursively
    *         entered the state machine. The only known case is GPU memory required for setup in
    *         cuDF for a spill operation.
@@ -846,15 +845,14 @@ private:
 
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
-      switch(thread->second.state) {
+      switch (thread->second.state) {
         // If the thread is in one of the ALLOC or ALLOC_FREE states, we have detected a loop
         // likely due to spill setup required in cuDF. We will treat this allocation differently
         // and skip transitions.
         case TASK_ALLOC:
         case SHUFFLE_ALLOC:
         case TASK_ALLOC_FREE:
-        case SHUFFLE_ALLOC_FREE:
-          return true;
+        case SHUFFLE_ALLOC_FREE: return true;
 
         default: break;
       }
@@ -868,14 +866,16 @@ private:
 
       if (thread->second.cudf_exception_injected > 0) {
         thread->second.cudf_exception_injected--;
-        log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
+        log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id,
+                   thread->second.state);
         throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
       }
 
       if (thread->second.split_and_retry_oom_injected > 0) {
         thread->second.split_and_retry_oom_injected--;
         thread->second.num_times_split_retry_throw++;
-        log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
+        log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id,
+                   thread->second.state);
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
@@ -883,9 +883,7 @@ private:
 
       switch (thread->second.state) {
         case TASK_RUNNING: transition(thread->second, thread_state::TASK_ALLOC); break;
-        case SHUFFLE_RUNNING:
-          transition(thread->second, thread_state::SHUFFLE_ALLOC);
-          break;
+        case SHUFFLE_RUNNING: transition(thread->second, thread_state::SHUFFLE_ALLOC); break;
 
         // TODO I don't think there are other states that we need to handle, but
         // this needs more testing.
@@ -907,7 +905,7 @@ private:
    * GPU memory. I don't want to mark it as nothrow, because we can throw an
    * exception on an internal error, and I would rather see that we got the internal
    * error and leak something instead of getting a segfault.
-   * 
+   *
    * `likely_spill` if this allocation should be treated differently, because
    * we detected recursion while handling a prior allocation in this thread.
    */
@@ -1185,7 +1183,7 @@ private:
 
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         // Only update state for _other_ threads. We update only other threads, for the case
-        // where we are handling a free from the recursive case: when an allocation/free 
+        // where we are handling a free from the recursive case: when an allocation/free
         // happened while handling an allocation failure in onAllocFailed.
         //
         // If we moved all threads to *_ALLOC_FREE, after we exit the recursive state and
@@ -1197,10 +1195,8 @@ private:
         // handle accordingly.
         if (thread->second.thread_id != tid) {
           switch (thread->second.state) {
-            case TASK_ALLOC: 
-              transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
-            case SHUFFLE_ALLOC: 
-              transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
+            case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
+            case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
             default: break;
           }
         }
@@ -1395,8 +1391,11 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
-    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+JNIEXPORT jint JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(JNIEnv *env,
+                                                                                    jclass,
+                                                                                    jlong ptr,
+                                                                                    jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1406,7 +1405,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrowInternal(
+JNIEXPORT jint JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrowInternal(
     JNIEnv *env, jclass, jlong ptr, jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
@@ -1417,8 +1417,11 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeInternal(
-    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeInternal(JNIEnv *env,
+                                                                                   jclass,
+                                                                                   jlong ptr,
+                                                                                   jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
