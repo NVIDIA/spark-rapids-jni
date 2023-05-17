@@ -664,10 +664,14 @@ public class RmmSparkTest {
           two.waitForAlloc();
           fail("Expect that allocating more memory than is allowed would fail");
         } catch (ExecutionException oom) {
+          assert oom.getCause() instanceof RetryOOM : oom.toString();
+        }
+        try {
+          taskOne.blockUntilReady().get(1000, TimeUnit.MILLISECONDS);
+          fail("Expect split and retry after all tasks blocked.");
+        } catch (ExecutionException oom) {
           assert oom.getCause() instanceof SplitAndRetryOOM : oom.toString();
         }
-        // This should not block...
-        taskOne.blockUntilReady();
         assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
         // Now we try to allocate with half the data.
         try (AllocOnAnotherThread secondTry = new AllocOnAnotherThread(taskOne, 3 * 1024 * 1024)) {
@@ -760,13 +764,14 @@ public class RmmSparkTest {
           Rmm.alloc(2 * 1024 * 1024).close();
           fail("overallocation should have failed");
         } catch (RetryOOM room) {
-          fail("only a split and retry should be thrown...");
-        } catch (SplitAndRetryOOM sroom) {
-          // The block should be a noop, but this is really about measuring
-          // overhead so include the callback that might, or might not happen
-          // This does not include any GC that might happen.
-          RmmSpark.blockThreadUntilReady();
           numRetries++;
+          try {
+            RmmSpark.blockThreadUntilReady();
+          } catch (SplitAndRetryOOM sroom) {
+            numRetries++;
+          }
+        } catch (SplitAndRetryOOM sroom) {
+          fail("retry should be thrown before split and retry...");
         }
       }
       fail("retried too many times " + numRetries);
