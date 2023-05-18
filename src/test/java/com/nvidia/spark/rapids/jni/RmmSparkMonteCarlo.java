@@ -73,10 +73,13 @@ public class RmmSparkMonteCarlo {
     double skewAmount = 2.0;
     double templateChangeAmount = 0.05;
     int shuffleThreads = 0;
+    boolean debugOoms = false;
 
     for (String arg: args) {
       if (arg.equals("--baseline")) {
         useSparkRmm = false;
+      } else if (arg.equals("--debugOOMs")) {
+        debugOoms = true;
       } else if (arg.startsWith("--iter=")) {
         numIterations = parsePosInt(arg.substring(7));
       } else if (arg.startsWith("--numTasks=")) {
@@ -124,6 +127,7 @@ public class RmmSparkMonteCarlo {
       } else if (arg.equals("--help")) {
         System.out.println("RMM Spark Monte Carlo Simulation");
         System.out.println("--baseline\trun without RmmSpark for a baseline");
+        System.out.println("--debugOOMs\tprint debug messages on OutOfMemoryError");
         System.out.println("--help\tprint this message");
         System.out.println("--iter=<NUM>\tnumber of iterations to do for the simulation");
         System.out.println("--parallel=<NUM>\tnumber of tasks that can run in parallel on the GPU");
@@ -169,7 +173,7 @@ public class RmmSparkMonteCarlo {
     List<Situation> situations = generateSituations(seed, numIterations, numTasks,
         taskMaxMiB, maxTaskAllocs, maxTaskSleep,
         isSkewed, skewAmount, useTemplate, templateChangeAmount);
-    SituationRunner runner = new SituationRunner(parallelism, taskRetry, shuffleThreads);
+    SituationRunner runner = new SituationRunner(parallelism, taskRetry, shuffleThreads, debugOoms);
     setupRmm(allocMode, gpuMemoryMiB, useSparkRmm, logging);
     int result = runner.run(situations);
     runner.finish();
@@ -320,6 +324,10 @@ public class RmmSparkMonteCarlo {
               t.run(shuffle);
               success = true;
             } catch (OutOfMemoryError oom) {
+              if (runner.debugOoms) {
+                System.err.println("OOM for task: " + t.taskId +
+                    " and thread: " + RmmSpark.getCurrentThreadId() + " " + oom);
+              }
               // ignored
             }
             Cuda.DEFAULT_STREAM.sync();
@@ -382,6 +390,7 @@ public class RmmSparkMonteCarlo {
 
   public static class SituationRunner {
     final TaskRunnerThread[] threads;
+    public final boolean debugOoms;
     private ExecutorService shuffle;
     final CyclicBarrier barrier;
     volatile boolean sitIsDone = false;
@@ -396,7 +405,8 @@ public class RmmSparkMonteCarlo {
     volatile boolean sitFailed;
     volatile boolean didThisSitFail = false;
 
-    public SituationRunner(int parallelism, int taskRetry, int shuffleThreads) {
+    public SituationRunner(int parallelism, int taskRetry, int shuffleThreads, boolean debugOoms) {
+      this.debugOoms = debugOoms;
       Object notify = this;
       if (shuffleThreads > 0) {
         shuffle = java.util.concurrent.Executors.newFixedThreadPool(shuffleThreads,
