@@ -1886,10 +1886,13 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
                    auto const offset_count = batch_info.row_batches[batch].row_offsets.size();
                    auto offsets = std::make_unique<column>(
                        data_type{type_id::INT32}, (size_type)offset_count,
-                       batch_info.row_batches[batch].row_offsets.release());
+                       batch_info.row_batches[batch].row_offsets.release(),
+                       rmm::device_buffer{}, 0);
                    auto data = std::make_unique<column>(data_type{type_id::INT8},
                                                         batch_info.row_batches[batch].num_bytes,
-                                                        std::move(output_buffers[batch]));
+                                                        std::move(output_buffers[batch]),
+                                                        rmm::device_buffer{},
+                                                        0);
 
                    return make_lists_column(
                        batch_info.row_batches[batch].row_count, std::move(offsets), std::move(data),
