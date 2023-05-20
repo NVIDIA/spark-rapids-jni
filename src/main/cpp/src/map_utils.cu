@@ -628,8 +628,11 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const &input,
   auto structs_col = cudf::make_structs_column(num_pairs, std::move(out_keys_vals), 0,
                                                rmm::device_buffer{}, stream, mr);
 
+  auto offsets = std::make_unique<cudf::column>(std::move(list_offsets), 
+              rmm::device_buffer{}, 0);
+
   return cudf::make_lists_column(
-      input.size(), std::make_unique<cudf::column>(std::move(list_offsets)), std::move(structs_col),
+      input.size(), std::move(offsets), std::move(structs_col),
       input.null_count(), cudf::detail::copy_bitmask(input, stream, mr), stream, mr);
 }
 
