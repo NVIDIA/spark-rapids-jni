@@ -2261,6 +2261,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const &input,
         // stuff real string column
         auto string_data = string_row_offset_columns[string_idx].release()->release();
         auto const null_count = [&] {
+          // Null-count not set previously. Calculate, on the fly.
           auto const &null_mask = *string_data.null_mask;
           return null_mask.data() ?
                      cudf::null_count(static_cast<bitmask_type const *>(null_mask.data()), 0,
