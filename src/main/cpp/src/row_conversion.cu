@@ -2332,6 +2332,9 @@ std::unique_ptr<table> convert_from_rows_fixed_width_optimized(
         num_rows, num_columns, size_per_row, dev_column_start.data(), dev_column_size.data(),
         dev_output_data.data(), dev_output_nm.data(), child.data<int8_t>());
 
+    // Set null counts, because output_columns are modified via mutable-view,
+    // in the kernel above.
+    // TODO(future): Consider setting null count in the kernel itself.
     for (auto &col : output_columns) {
       col->set_null_count(cudf::null_count(col->view().null_mask(), 0, col->size()));
     }
