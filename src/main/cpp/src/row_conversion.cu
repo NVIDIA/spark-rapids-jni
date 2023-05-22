@@ -2276,9 +2276,6 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const &input,
     }
   }
 
-  for (auto &col : output_columns) {
-    col->set_null_count(cudf::null_count(col->view().null_mask(), 0, col->size()));
-  }
   return std::make_unique<table>(std::move(output_columns));
 }
 
