@@ -18,12 +18,12 @@ name: auto-merge HEAD to BASE
 on:
   pull_request_target:
     branches:
-      - branch-23.04
+      - branch-23.06
     types: [closed]
 
 env:
-  HEAD: branch-23.04
-  BASE: branch-23.06
+  HEAD: branch-23.06
+  BASE: branch-23.08
 
 jobs:
   auto-merge:
