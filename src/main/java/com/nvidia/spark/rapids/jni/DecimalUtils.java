@@ -79,6 +79,27 @@ public class DecimalUtils {
   public static Table integerDivide128(ColumnView a, ColumnView b) {
     return new Table(divide128(a.getNativeView(), b.getNativeView(), 0, true));
   }
+
+  /**
+   * Divide two DECIMAL128 columns and produce a DECIMAL128 remainder with overflow detection.
+   * Example:
+   * 451635271134476686911387864.48 div -961.110 = 2284624887606872042L
+   * A positive number divided by a negative number resulting in a positive result is clearly
+   * an overflow but Spark doesn't consider this an overflow as the 128-bit
+   * answer (-469910073908789510993942.27973) is still within the expected 38 digits of
+   * precision
+   *
+   * @param a factor input, must match row count of the other factor input
+   * @param b factor input, must match row count of the other factor input
+   * @return table containing a boolean column and a INT64 quotient column.
+   *         The boolean value will be true if an overflow was detected for that row's
+   *         INT64 quotient value. A null input row will result in a corresponding null output
+   *         row.
+   */
+  public static Table remainder128(ColumnView a, ColumnView b, int remainderScale) {
+    return new Table(remainder128(a.getNativeView(), b.getNativeView(), remainderScale));
+  }
+
   /**
    * Subtract two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
    * scale with overflow detection. This method considers a precision greater than 38 as overflow
@@ -130,6 +151,8 @@ public class DecimalUtils {
   private static native long[] multiply128(long viewA, long viewB, int productScale);
 
   private static native long[] divide128(long viewA, long viewB, int quotientScale, boolean isIntegerDivide);
+
+  private static native long[] remainder128(long viewA, long viewB, int remainderScale);
 
   private static native long[] add128(long viewA, long viewB, int targetScale);
 
