@@ -555,22 +555,14 @@ class string_to_float {
   // outgoing ansi_except field
   __device__ void compute_validity(bool const valid, bool const except = false)
   {
-    // compute null count for the block. each warp processes one string, so lane 0
-    // from each warp contributes 1 bit of validity
-    size_type const block_valid_count =
-      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(valid ? 1 : 0);
-    // 0th thread in each block updates the validity count and (optionally) the ansi_except flag
-    if (threadIdx.x == 0) {
-      atomicAdd(_valid_count, block_valid_count);
-
-      if (_ansi_except && except) { atomicMax(_ansi_except, _num_rows - _row); }
-    }
+    if (threadIdx.x == 0 && _ansi_except && except) { atomicMax(_ansi_except, _num_rows - _row); }
 
     // 0th thread in each warp updates the validity
     size_type const row_id = _warp_id;
     if (threadIdx.x % 32 == 0 && valid) {
       // uses atomics
       cudf::set_bit(_validity, row_id);
+      atomicAdd(_valid_count, 1);
     }
   }
 
@@ -699,6 +691,8 @@ std::unique_ptr<column> string_to_float(data_type dtype,
         string_col.null_mask(),
         num_rows);
   }
+
+  out->set_null_count(num_rows - static_cast<ScalarType*>(valid_count.get())->value(stream));
 
   if (ansi_mode) {
     auto const val = static_cast<ScalarType*>(ansi_count.get())->value(stream);
