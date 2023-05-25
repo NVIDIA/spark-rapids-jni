@@ -163,7 +163,7 @@ public class RowConversion {
       scale[i] = schema[i].getScale();
 
     }
-    return new Table(convertFromRows(vec.getNativeView(), types, scale));
+    return new Table(convertFromRowsFixedWidthOptimized(vec.getNativeView(), types, scale));
   }
 
   private static native long[] convertToRows(long nativeHandle);
