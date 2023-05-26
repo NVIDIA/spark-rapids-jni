@@ -25,9 +25,6 @@
 #include <cmath>
 #include <cstddef>
 
-#define D19_ UINT64_C(10000000000000000000)
-const __uint128_t d19_ = D19_;
-
 namespace {
 
 // Holds the 64-bit chunks of a 256-bit value

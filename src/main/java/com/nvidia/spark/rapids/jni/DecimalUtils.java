@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -90,6 +90,7 @@ public class DecimalUtils {
    *
    * @param a factor input, must match row count of the other factor input
    * @param b factor input, must match row count of the other factor input
+   * @param remainderScale scale to use for the remainder type
    * @return table containing a boolean column and a DECIMAL128 remainder column.
    *         The boolean value will be true if an overflow was detected for that row's
    *         DECIMAL128 remainder value. A null input row will result in a corresponding null 
