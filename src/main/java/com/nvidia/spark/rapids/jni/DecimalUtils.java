@@ -83,18 +83,17 @@ public class DecimalUtils {
   /**
    * Divide two DECIMAL128 columns and produce a DECIMAL128 remainder with overflow detection.
    * Example:
-   * 451635271134476686911387864.48 div -961.110 = 2284624887606872042L
-   * A positive number divided by a negative number resulting in a positive result is clearly
-   * an overflow but Spark doesn't consider this an overflow as the 128-bit
-   * answer (-469910073908789510993942.27973) is still within the expected 38 digits of
-   * precision
+   * 451635271134476686911387864.48 % -961.110 = 775.233
+   * 
+   * Generally, this will never really overflow unless in the divide by zero case.
+   * But it will detect an overflow in any case.
    *
    * @param a factor input, must match row count of the other factor input
    * @param b factor input, must match row count of the other factor input
-   * @return table containing a boolean column and a INT64 quotient column.
+   * @return table containing a boolean column and a DECIMAL128 remainder column.
    *         The boolean value will be true if an overflow was detected for that row's
-   *         INT64 quotient value. A null input row will result in a corresponding null output
-   *         row.
+   *         DECIMAL128 remainder value. A null input row will result in a corresponding null 
+   *         output row.
    */
   public static Table remainder128(ColumnView a, ColumnView b, int remainderScale) {
     return new Table(remainder128(a.getNativeView(), b.getNativeView(), remainderScale));
