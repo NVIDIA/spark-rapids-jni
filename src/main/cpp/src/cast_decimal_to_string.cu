@@ -59,6 +59,8 @@ struct decimal_to_non_ansi_string_fn {
   /**
    * @brief Calculates the size of the string required to convert the element, in base-10 format.
    *
+   * @note This code does not properly handle a max negative decimal value and will overflow. This isn't an issue here because Spark will not use the full range of values and will never cause this issue.
+   *
    * Output format is [-]integer.fraction
    */
   __device__ int32_t compute_output_size(DecimalType value)
@@ -88,6 +90,8 @@ struct decimal_to_non_ansi_string_fn {
 
   /**
    * @brief Converts a decimal element into a string.
+   *
+   * @note This code does not properly handle a max negative decimal value and will overflow. This isn't an issue here because Spark will not use the full range of values and will never cause this issue.
    *
    * The value is converted into base-10 digits [0-9]
    * plus the decimal point and a negative sign prefix.
