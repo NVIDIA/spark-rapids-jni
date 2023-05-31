@@ -102,6 +102,9 @@ struct decimal_to_non_ansi_string_fn {
    * isn't an issue here because Spark will not use the full range of values and will never cause
    * this issue.
    *
+   * @note Code follows the Java method of decimal to string outlined here:
+   * https://docs.oracle.com/javase/8/docs/api/java/math/BigDecimal.html#toString--
+   *
    * The value is converted into base-10 digits [0-9]
    * plus the decimal point and a negative sign prefix.
    */
