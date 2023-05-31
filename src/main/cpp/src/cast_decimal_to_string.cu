@@ -134,10 +134,17 @@ struct decimal_to_non_ansi_string_fn {
     } else {
       // positive scale or adjusted exponent < -6 means scientific notation
       if (abs_value_digits > 1) {
-        auto const exp_ten = numeric::detail::exp10<DecimalType>(abs_value_digits - 1);
+        auto const digits_after_decimal = abs_value_digits - 1;
+        auto const exp_ten              = numeric::detail::exp10<DecimalType>(digits_after_decimal);
+        auto const num_zeros =
+          std::max(0, (digits_after_decimal - strings::detail::count_digits(abs_value % exp_ten)));
         d_buffer +=
           strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add integer part
         *d_buffer++ = '.';                                                    // add decimal point
+
+        thrust::generate_n(thrust::seq, d_buffer, num_zeros, []() { return '0'; });  // add zeros
+        d_buffer += num_zeros;
+
         d_buffer +=
           strings::detail::integer_to_string(abs_value % exp_ten, d_buffer);  // add fraction part
       } else {

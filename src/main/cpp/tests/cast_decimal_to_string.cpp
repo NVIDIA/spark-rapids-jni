@@ -149,4 +149,12 @@ TYPED_TEST(DecimalToStringTests, javaToString)
     auto const expected = test::strings_column_wrapper{"-1.23E-10"};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
   }
+  {
+    auto const scale = scale_type{-8};
+    auto const input = fp_wrapper{{507688528}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"5.07688528"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
 }
