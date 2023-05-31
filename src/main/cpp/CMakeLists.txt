@@ -153,6 +153,7 @@ add_library(
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
+  src/cast_decimal_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/decimal_utils.cu
