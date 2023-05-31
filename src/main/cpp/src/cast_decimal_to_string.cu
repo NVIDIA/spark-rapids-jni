@@ -48,7 +48,6 @@ namespace spark_rapids_jni {
 
 namespace detail {
 namespace {
-constexpr int max_zeros = 5;
 
 template <typename DecimalType>
 struct decimal_to_non_ansi_string_fn {
@@ -59,7 +58,9 @@ struct decimal_to_non_ansi_string_fn {
   /**
    * @brief Calculates the size of the string required to convert the element, in base-10 format.
    *
-   * @note This code does not properly handle a max negative decimal value and will overflow. This isn't an issue here because Spark will not use the full range of values and will never cause this issue.
+   * @note This code does not properly handle a max negative decimal value and will overflow. This
+   * isn't an issue here because Spark will not use the full range of values and will never cause
+   * this issue.
    *
    * Output format is [-]integer.fraction
    */
@@ -67,31 +68,39 @@ struct decimal_to_non_ansi_string_fn {
   {
     auto const scale = d_decimals.type().scale();
 
-    if (scale >= 0) return strings::detail::count_digits(value) + scale;
+    auto const abs_value         = numeric::detail::abs(value);
+    auto const abs_value_digits  = strings::detail::count_digits(abs_value);
+    auto const adjusted_exponent = scale + (abs_value_digits - 1);
 
-    auto const abs_value = numeric::detail::abs(value);
-    auto const exp_ten   = numeric::detail::exp10<DecimalType>(-scale);
-    auto const fraction  = strings::detail::count_digits(abs_value % exp_ten);
-    auto const num_zeros = std::max(0, (-scale - fraction));
-
-    return value == 0 && num_zeros > max_zeros && scale < 0
-             ? static_cast<int32_t>(value < 0) +                       // sign if negative
-                 strings::detail::count_digits(abs_value / exp_ten) +  // integer
-                 2 +                                                   // E-
-                 strings::detail::count_digits(num_zeros + 1)
-             :  // number of zeros
-
-             static_cast<int32_t>(value < 0) +                       // sign if negative
-               strings::detail::count_digits(abs_value / exp_ten) +  // integer
-               1 +                                                   // decimal point
-               num_zeros +                                           // zeros padding
-               fraction;                                             // size of fraction
+    if (scale == 0) {
+      return static_cast<int32_t>(value < 0) +  // sign if negative
+             abs_value_digits;                  // integer
+    } else if (scale < 0 && adjusted_exponent >= -6) {
+      auto const exp_ten   = numeric::detail::exp10<DecimalType>(-scale);
+      auto const fraction  = strings::detail::count_digits(abs_value % exp_ten);
+      auto const num_zeros = std::max(0, (-scale - fraction));
+      return static_cast<int32_t>(value < 0) +                     // sign if negative
+             strings::detail::count_digits(abs_value / exp_ten) +  // integer
+             1 +                                                   // decimal point
+             num_zeros +                                           // zero padding
+             fraction;                                             // size of fraction
+    } else {
+      // positive scale or adjusted exponent < -6 means scientific notation
+      auto const extra_digits = abs_value_digits > 1 ? 3 : 2;
+      return static_cast<int32_t>(value < 0) +  // sign if negative
+             abs_value_digits +                 // number of digits
+             extra_digits +                     // decimal point if exists, E, +/-
+             strings::detail::count_digits(
+               numeric::detail::abs(adjusted_exponent));  // exponent portion
+    }
   }
 
   /**
    * @brief Converts a decimal element into a string.
    *
-   * @note This code does not properly handle a max negative decimal value and will overflow. This isn't an issue here because Spark will not use the full range of values and will never cause this issue.
+   * @note This code does not properly handle a max negative decimal value and will overflow. This
+   * isn't an issue here because Spark will not use the full range of values and will never cause
+   * this issue.
    *
    * The value is converted into base-10 digits [0-9]
    * plus the decimal point and a negative sign prefix.
@@ -102,38 +111,42 @@ struct decimal_to_non_ansi_string_fn {
     auto const scale = d_decimals.type().scale();
     char* d_buffer   = d_chars + d_offsets[idx];
 
-    if (scale >= 0) {
-      d_buffer += strings::detail::integer_to_string(value, d_buffer);
-      thrust::generate_n(thrust::seq, d_buffer, scale, []() { return '0'; });  // add zeros
-      return;
-    }
+    auto const abs_value         = numeric::detail::abs(value);
+    auto const abs_value_digits  = strings::detail::count_digits(abs_value);
+    auto const adjusted_exponent = scale + (abs_value_digits - 1);
 
-    // scale < 0
-    // write format:   [-]integer.fraction
-    // where integer  = abs(value) / (10^abs(scale))
-    //       fraction = abs(value) % (10^abs(scale))
     if (value < 0) *d_buffer++ = '-';  // add sign
-    auto const abs_value = numeric::detail::abs(value);
-    auto const exp_ten   = numeric::detail::exp10<DecimalType>(-scale);
-    auto const num_zeros =
-      std::max(0, (-scale - strings::detail::count_digits(abs_value % exp_ten)));
 
-    if (value == 0 && num_zeros > max_zeros) {
-      *d_buffer++ = '0';
+    if (scale <= 0 && adjusted_exponent >= -6) {
+      auto const exp_ten = numeric::detail::exp10<DecimalType>(-scale);
+      auto const num_zeros =
+        std::max(0, (-scale - strings::detail::count_digits(abs_value % exp_ten)));
+      d_buffer +=
+        strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add the integer part
+      if (scale != 0) {
+        *d_buffer++ = '.';  // add decimal point
+
+        thrust::generate_n(thrust::seq, d_buffer, num_zeros, []() { return '0'; });  // add zeros
+        d_buffer += num_zeros;
+
+        strings::detail::integer_to_string(abs_value % exp_ten, d_buffer);  // add the fraction part
+      }
+    } else {
+      // positive scale or adjusted exponent < -6 means scientific notation
+      if (abs_value_digits > 1) {
+        auto const exp_ten = numeric::detail::exp10<DecimalType>(abs_value_digits - 1);
+        d_buffer +=
+          strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add integer part
+        *d_buffer++ = '.';                                                    // add decimal point
+        d_buffer +=
+          strings::detail::integer_to_string(abs_value % exp_ten, d_buffer);  // add fraction part
+      } else {
+        d_buffer += strings::detail::integer_to_string(abs_value, d_buffer);  // add single digit
+      }
       *d_buffer++ = 'E';
-      *d_buffer++ = '-';
-      d_buffer += strings::detail::integer_to_string(num_zeros + 1, d_buffer);
-      return;
+      if (adjusted_exponent >= 0) *d_buffer++ = '+';  // minus sign added by integer to string
+      strings::detail::integer_to_string(adjusted_exponent, d_buffer);
     }
-
-    d_buffer +=
-      strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add the integer part
-    *d_buffer++ = '.';                                                    // add decimal point
-
-    thrust::generate_n(thrust::seq, d_buffer, num_zeros, []() { return '0'; });  // add zeros
-    d_buffer += num_zeros;
-
-    strings::detail::integer_to_string(abs_value % exp_ten, d_buffer);  // add the fraction part
   }
 
   __device__ void operator()(size_type idx)

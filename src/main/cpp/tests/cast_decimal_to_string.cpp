@@ -85,3 +85,68 @@ TYPED_TEST(DecimalToStringTests, ScientificEdge)
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
   }
 }
+
+TYPED_TEST(DecimalToStringTests, javaToString)
+{
+  using namespace numeric;
+  using decimalXX  = TypeParam;
+  using RepType    = device_storage_type_t<decimalXX>;
+  using fp_wrapper = test::fixed_point_column_wrapper<RepType>;
+
+  {
+    auto const scale = scale_type{0};
+    auto const input = fp_wrapper{{123, -123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"123", "-123"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{1};
+    auto const input = fp_wrapper{{123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"1.23E+3"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{3};
+    auto const input = fp_wrapper{{123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"1.23E+5"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{-1};
+    auto const input = fp_wrapper{{123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"12.3"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{-5};
+    auto const input = fp_wrapper{{123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"0.00123"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{-10};
+    auto const input = fp_wrapper{{123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"1.23E-8"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+  {
+    auto const scale = scale_type{-12};
+    auto const input = fp_wrapper{{-123}, scale};
+    auto const result =
+      spark_rapids_jni::decimal_to_non_ansi_string(input, cudf::get_default_stream());
+    auto const expected = test::strings_column_wrapper{"-1.23E-10"};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result->view());
+  }
+}
