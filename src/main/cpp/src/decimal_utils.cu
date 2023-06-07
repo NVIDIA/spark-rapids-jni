@@ -823,6 +823,120 @@ private:
   int const quot_scale;
 };
 
+struct dec128_remainder {
+  dec128_remainder(bool *overflows, cudf::mutable_column_view const &remainder_view,
+                    cudf::column_view const &a_col, cudf::column_view const &b_col)
+      : overflows(overflows), a_data(a_col.data<__int128_t>()), b_data(b_col.data<__int128_t>()),
+        remainder_data(remainder_view.data<__int128_t>()),
+        a_scale(a_col.type().scale()), b_scale(b_col.type().scale()),
+        rem_scale(remainder_view.type().scale()) {}
+
+  __device__ void operator()(cudf::size_type const i) const {
+    chunked256 n(a_data[i]);
+    __int128_t const d(b_data[i]);
+
+    // Divide by zero, not sure if we care or not, but...
+    if (d == 0) {
+      overflows[i] = true;
+      remainder_data[i] = 0;
+      return;
+    }
+
+    // This implementation of remainder uses the JAVA definition of remainder
+    // that Spark relies on. It's *not* the most efficient way of calculating 
+    // remainder, but we use this to be consistent with CPU Spark.
+
+    // The algorithm is:
+    // a % b = a - (a // b) * b 
+    // Basically we substract the integral_divide result times the divisor from 
+    // the dividend
+
+    bool const is_n_neg = n.sign() < 0;
+    bool const is_d_neg = d < 0;
+
+    __int128_t result;
+    // The output scale of remainder is technically the scale of the divisor (b_scale)
+    // But since we want an output scale of rem_scale, we have to do the following:
+    // First, we have to shift the divisor to the desired rem_scale
+    const int d_shift_exp = rem_scale - b_scale;
+    // Then, we have to shift the dividend to compute integer divide
+    // We use the formula from dec128_divider
+    // Start with: quot_scale - (a_scale - b_scale)
+    // Then substitute 0 for quot_scale (integer divide), and rem_scale for b_scale 
+    // (since we updated the divisor scale)
+    // 0 - (a_scale - rem_scale)
+    // rem_scale - a_scale
+    int n_shift_exp = rem_scale - a_scale;
+    __int128_t abs_d = is_d_neg ? -d : d;
+    // Unlike in divide, where we can scale the dividend to get the right result
+    // remainder relies on the scale on the divisor, so we might have to shift the 
+    // divisor itself.
+    if (d_shift_exp > 0) {
+      // We need to shift the the scale of the divisor to rem_scale, but 
+      // we actual need to round because of how precision is to be handled, 
+      // since the new scale is smaller than the old scale
+      auto const scale_divisor = pow_ten(d_shift_exp).as_128_bits();
+      abs_d = divide_and_round(chunked256(abs_d), scale_divisor).as_128_bits();
+    } else {
+      // otherwise we are multiplying the bottom by a power of 10, which divides the numerator
+      // by the same power of ten, so we accomodate that in our original n-shift like 
+      // divide did before
+      n_shift_exp -= d_shift_exp;
+    }
+    // For remainder, we should do the computation using positive numbers only, and then
+    // switch the sign based on [n] *only*.
+    chunked256 abs_n = n;
+    if (is_n_neg) {
+      abs_n.negate();
+    }
+    chunked256 int_div_result;
+    if (n_shift_exp > 0) {
+      divmod256 const first_div_result = divide(abs_n, abs_d);
+
+      // Ignore the remainder because we don't need it.
+      auto const scale_divisor = pow_ten(n_shift_exp).as_128_bits();
+
+      // The second divide gets the result into the scale that we care about and does the rounding.
+      int_div_result = integer_divide(first_div_result.quotient, scale_divisor);
+    } else {
+      if (n_shift_exp < 0) {
+        abs_n = multiply(abs_n, pow_ten(-n_shift_exp));
+      }
+      int_div_result = integer_divide(abs_n, abs_d);
+    }
+    // Multiply the integer divide result by abs(divisor)
+    chunked256 less_n = multiply(int_div_result, chunked256(abs_d));
+
+    if (d_shift_exp < 0) {
+      // scale less_n up to equal it to same scale since we were technically scaling up 
+      // the divisor earlier (even though we only shifted n)
+      less_n = multiply(less_n, pow_ten(-d_shift_exp));
+    }
+    // Subtract our integer divide result from n by adding the negated 
+    less_n.negate();
+    abs_n.add(less_n);
+    // This should almost never overflow, but we check anyways
+    overflows[i] = is_greater_than_decimal_38(abs_n);
+    result = abs_n.as_128_bits();
+    // Change the sign of the result based on n
+    if (is_n_neg) {
+      result = -result;
+    }
+    remainder_data[i] = result;
+  }
+
+private:
+  // output column for overflow detected
+  bool * const overflows;
+  // input data for multiply
+  __int128_t const * const a_data;
+  __int128_t const * const b_data;
+  __int128_t * const remainder_data;
+  int const a_scale;
+  int const b_scale;
+  int const rem_scale;
+};
+
 } // anonymous namespace
 
 namespace cudf::jni {
@@ -891,6 +1005,28 @@ integer_divide_decimal128(cudf::column_view const &a, cudf::column_view const &b
   thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
                    dec128_divider<uint64_t, true>(overflows_view.begin<bool>(), quotient_view, a, b));
+  return std::make_unique<cudf::table>(std::move(columns));
+}
+
+std::unique_ptr<cudf::table>
+remainder_decimal128(cudf::column_view const &a, cudf::column_view const &b, int32_t remainder_scale, 
+                  rmm::cuda_stream_view stream) {
+  CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  CUDF_EXPECTS(b.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
+  auto const num_rows = a.size();
+  CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
+  auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
+      cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+  std::vector<std::unique_ptr<cudf::column>> columns;
+  // copy the null mask here, as it will be used again later
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8}, num_rows,
+                                                  rmm::device_buffer(result_null_mask, stream), result_null_count, stream));
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::DECIMAL128, remainder_scale}, num_rows, std::move(result_null_mask), result_null_count, stream));
+  auto overflows_view = columns[0]->mutable_view();
+  auto remainder_view = columns[1]->mutable_view();
+  thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator<cudf::size_type>(0),
+                   thrust::make_counting_iterator<cudf::size_type>(num_rows),
+                   dec128_remainder(overflows_view.begin<bool>(), remainder_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 

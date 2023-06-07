@@ -17,6 +17,7 @@
 #include <cooperative_groups.h>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
+#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/sequence.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -1886,10 +1887,13 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
                    auto const offset_count = batch_info.row_batches[batch].row_offsets.size();
                    auto offsets = std::make_unique<column>(
                        data_type{type_id::INT32}, (size_type)offset_count,
-                       batch_info.row_batches[batch].row_offsets.release());
+                       batch_info.row_batches[batch].row_offsets.release(),
+                       rmm::device_buffer{}, 0);
                    auto data = std::make_unique<column>(data_type{type_id::INT8},
                                                         batch_info.row_batches[batch].num_bytes,
-                                                        std::move(output_buffers[batch]));
+                                                        std::move(output_buffers[batch]),
+                                                        rmm::device_buffer{},
+                                                        0);
 
                    return make_lists_column(
                        batch_info.row_batches[batch].row_count, std::move(offsets), std::move(data),
@@ -2026,6 +2030,19 @@ convert_to_rows_fixed_width_optimized(table_view const &tbl, rmm::cuda_stream_vi
   } else {
     CUDF_FAIL("Only fixed width types are currently supported");
   }
+}
+
+namespace {
+
+/// @brief Calculates and sets null counts for specified columns
+void fixup_null_counts(std::vector<std::unique_ptr<column>>& output_columns,
+                       rmm::cuda_stream_view stream) {
+  for (auto &col : output_columns) {
+    col->set_null_count(
+      cudf::detail::null_count(col->view().null_mask(), 0, col->size(), stream));
+  }
+}
+
 }
 
 /**
@@ -2257,14 +2274,20 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const &input,
       if (schema[i].id() == type_id::STRING) {
         // stuff real string column
         auto string_data = string_row_offset_columns[string_idx].release()->release();
-        output_columns[i] = make_strings_column(num_rows, std::move(string_col_offsets[string_idx]),
-                                                std::move(string_data_cols[string_idx]),
-                                                std::move(*string_data.null_mask.release()),
-                                                cudf::UNKNOWN_NULL_COUNT);
+        output_columns[i] =
+            make_strings_column(num_rows, std::move(string_col_offsets[string_idx]),
+                                std::move(string_data_cols[string_idx]),
+                                std::move(*string_data.null_mask.release()), 0);
+        // Null count set to 0, temporarily. Will be fixed up before return.
         string_idx++;
       }
     }
   }
+
+  // Set null counts, because output_columns are modified via mutable-view,
+  // in the kernel above.
+  // TODO(future): Consider setting null count in the kernel itself.
+  fixup_null_counts(output_columns, stream);
 
   return std::make_unique<table>(std::move(output_columns));
 }
@@ -2320,6 +2343,11 @@ std::unique_ptr<table> convert_from_rows_fixed_width_optimized(
     detail::copy_from_rows_fixed_width_optimized<<<blocks, threads, shared_size, stream.value()>>>(
         num_rows, num_columns, size_per_row, dev_column_start.data(), dev_column_size.data(),
         dev_output_data.data(), dev_output_nm.data(), child.data<int8_t>());
+
+    // Set null counts, because output_columns are modified via mutable-view,
+    // in the kernel above.
+    // TODO(future): Consider setting null count in the kernel itself.
+    fixup_null_counts(output_columns, stream);
 
     return std::make_unique<table>(std::move(output_columns));
   } else {
