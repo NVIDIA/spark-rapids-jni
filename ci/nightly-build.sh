@@ -30,5 +30,5 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -Psource-javadoc \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest \
+  -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
   -DBUILD_TESTS=ON -Dcuda.version=$CUDA_VER

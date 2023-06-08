@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <chrono>
 #include <exception>
 #include <map>
@@ -24,6 +25,7 @@
 #include <cudf_jni_apis.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
@@ -32,8 +34,6 @@ namespace {
 
 constexpr char const *RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/RetryOOM";
 constexpr char const *SPLIT_AND_RETRY_OOM_CLASS = "com/nvidia/spark/rapids/jni/SplitAndRetryOOM";
-constexpr char const *CUDF_EXCEPTION_CLASS = "ai/rapids/cudf/CudfException";
-constexpr char const *JAVA_OOM_CLASS = "java/lang/OutOfMemoryError";
 
 // In the task states BUFN means Block Until Further Notice.
 // Meaning the thread should be blocked until another task finishes.
@@ -204,9 +204,7 @@ public:
     state = new_state;
   }
 
-  void before_block() {
-    block_start = std::chrono::steady_clock::now();
-  }
+  void before_block() { block_start = std::chrono::steady_clock::now(); }
 
   void after_block() {
     auto end = std::chrono::steady_clock::now();
@@ -642,7 +640,7 @@ private:
     // In testing it looks like it is a few ms if in a tight loop, not including spill
     // overhead
     if (state.num_times_retried + 1 > 500) {
-      throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
+      throw_java_exception(cudf::jni::OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
     }
     state.num_times_retried++;
   }
@@ -702,7 +700,8 @@ private:
             break;
           case SHUFFLE_THROW:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
-            throw_java_exception(JAVA_OOM_CLASS, "GPU OutOfMemory: could not allocate enough for shuffle");
+            throw_java_exception(cudf::jni::OOM_CLASS,
+                                 "GPU OutOfMemory: could not allocate enough for shuffle");
             break;
           case TASK_BUFN_THROW:
             transition(thread->second, thread_state::TASK_BUFN_WAIT);
@@ -714,14 +713,18 @@ private:
             // and the other threads didn't get unblocked by this, so we need to
             // check again to see if this was fixed or not.
             check_and_update_for_bufn(lock);
-            log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
-            thread->second.before_block();
-            do {
-              thread->second.wake_condition->wait(lock);
-              thread = threads.find(thread_id);
-            } while (thread != threads.end() && is_blocked(thread->second.state));
-            thread->second.after_block();
-            task_has_woken_condition.notify_all();
+            // If that caused us to transition to a new state, then we need to adjust to it
+            // appropriately...
+            if (is_blocked(thread->second.state)) {
+              log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+              thread->second.before_block();
+              do {
+                thread->second.wake_condition->wait(lock);
+                thread = threads.find(thread_id);
+              } while (thread != threads.end() && is_blocked(thread->second.state));
+              thread->second.after_block();
+              task_has_woken_condition.notify_all();
+            }
             break;
           case TASK_SPLIT_THROW:
             transition(thread->second, thread_state::TASK_RUNNING);
@@ -836,12 +839,28 @@ private:
    * Called prior to processing an alloc attempt. This will throw any injected exception and
    * wait until the thread is ready to actually do/retry the allocation. That blocking API may
    * throw other exceptions if rolling back or splitting the input is considered needed.
+   *
+   * @return true if the call finds our thread in an ALLOC state, meaning that we recursively
+   *         entered the state machine. The only known case is GPU memory required for setup in
+   *         cuDF for a spill operation.
    */
-  void pre_alloc(long thread_id) {
+  bool pre_alloc(long thread_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
 
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
+      switch (thread->second.state) {
+        // If the thread is in one of the ALLOC or ALLOC_FREE states, we have detected a loop
+        // likely due to spill setup required in cuDF. We will treat this allocation differently
+        // and skip transitions.
+        case TASK_ALLOC:
+        case SHUFFLE_ALLOC:
+        case TASK_ALLOC_FREE:
+        case SHUFFLE_ALLOC_FREE: return true;
+
+        default: break;
+      }
+
       if (thread->second.retry_oom_injected > 0) {
         thread->second.retry_oom_injected--;
         thread->second.num_times_retry_throw++;
@@ -851,14 +870,16 @@ private:
 
       if (thread->second.cudf_exception_injected > 0) {
         thread->second.cudf_exception_injected--;
-        log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
-        throw_java_exception(CUDF_EXCEPTION_CLASS, "injected CudfException");
+        log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id,
+                   thread->second.state);
+        throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
       }
 
       if (thread->second.split_and_retry_oom_injected > 0) {
         thread->second.split_and_retry_oom_injected--;
         thread->second.num_times_split_retry_throw++;
-        log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
+        log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id,
+                   thread->second.state);
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
@@ -866,11 +887,10 @@ private:
 
       switch (thread->second.state) {
         case TASK_RUNNING: transition(thread->second, thread_state::TASK_ALLOC); break;
-        case SHUFFLE_RUNNING:
-          transition(thread->second, thread_state::SHUFFLE_ALLOC);
-          break;
-          // TODO I don't think there are other states that we need to handle, but
-          // this needs more testing.
+        case SHUFFLE_RUNNING: transition(thread->second, thread_state::SHUFFLE_ALLOC); break;
+
+        // TODO I don't think there are other states that we need to handle, but
+        // this needs more testing.
         default: {
           std::stringstream ss;
           ss << "thread " << thread_id << " in unexpected state pre alloc "
@@ -880,6 +900,7 @@ private:
         }
       }
     }
+    return false;
   }
 
   /**
@@ -888,12 +909,15 @@ private:
    * GPU memory. I don't want to mark it as nothrow, because we can throw an
    * exception on an internal error, and I would rather see that we got the internal
    * error and leak something instead of getting a segfault.
+   *
+   * `likely_spill` if this allocation should be treated differently, because
+   * we detected recursion while handling a prior allocation in this thread.
    */
-  void post_alloc_success(long thread_id) {
+  void post_alloc_success(long thread_id, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     // pre allocate checks
     auto thread = threads.find(thread_id);
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC:
           // fall through
@@ -903,15 +927,19 @@ private:
         case SHUFFLE_ALLOC_FREE: transition(thread->second, thread_state::SHUFFLE_RUNNING); break;
         default: break;
       }
-      wake_next_highest_priority_regular_blocked(lock);
+      wake_next_highest_priority_blocked(lock, false);
     }
   }
 
   /**
-   * Wake the highest priority blocked (not BUFN) thread so it can make progress.
+   * Wake the highest priority blocked (not BUFN) thread so it can make progress,
+   * or the highest priority BUFN thread if all of the tasks are in some form of BUFN
+   * and this was triggered by a free.
+   *
    * This is typically called when a free happens, or an alloc succeeds.
+   * @param is_from_free true if a free happen.
    */
-  void wake_next_highest_priority_regular_blocked(const std::unique_lock<std::mutex> &lock) {
+  void wake_next_highest_priority_blocked(const std::unique_lock<std::mutex> &lock, bool is_from_free) {
     // 1. Find the highest priority blocked thread, including shuffle.
     thread_priority to_wake(-1, -1);
     bool is_to_wake_set = false;
@@ -947,6 +975,77 @@ private:
           }
         }
       }
+    } else if (is_from_free) {
+      // 3. Otherwise look to see if we are in a BUFN deadlock state.
+      //
+      // Memory was freed and if all of the tasks are in a BUFN state, 
+      // then we want to wake up the highest priority one so it can make progress
+      // instead of trying to split its input. But we only do this if it
+      // is a different thread that is freeing memory from the one we want to wake up.
+      // This is because if the threads are the same no new memory is being added
+      // to what that task has access to and the task may never thow a retry and split.
+      // Instead it would just keep retrying and freeing the same memory each time.
+      std::set<long> tasks_with_threads;
+      std::set<long> tasks_with_threads_bufn;
+
+      thread_priority to_wake(-1, -1);
+      bool is_to_wake_set = false;
+      for (auto thread = threads.begin(); thread != threads.end(); thread++) {
+        if (thread->second.task_id >= 0) {
+          tasks_with_threads.insert(thread->second.task_id);
+        }
+
+        switch (thread->second.state) {
+          case TASK_BUFN_THROW:
+              // fall through
+          case TASK_BUFN_WAIT:
+              // fall through
+          case TASK_BUFN: {
+              tasks_with_threads_bufn.insert(thread->second.task_id);
+              thread_priority current = thread->second.priority();
+              if (!is_to_wake_set || to_wake < current) {
+                to_wake = current;
+                is_to_wake_set = true;
+              }
+            }
+            break;
+          default: break;
+        }
+      }
+
+      // 4. Wake up the BUFN thread if we should
+      if (tasks_with_threads.size() == tasks_with_threads_bufn.size() && is_to_wake_set) {
+        long thread_id_to_wake = to_wake.get_thread_id();
+        if (thread_id_to_wake > 0) {
+          // Don't wake up yourself on a free. It is not adding more memory for this thread
+          // to use on a retry and we might need a split instead to break a deadlock
+          auto this_id = static_cast<long>(pthread_self());
+          auto thread = threads.find(thread_id_to_wake);
+          if (thread != threads.end() && thread->first != this_id) {
+            switch (thread->second.state) {
+              case TASK_BUFN:
+                transition(thread->second, thread_state::TASK_RUNNING);
+                thread->second.wake_condition->notify_all();
+                break;
+              case TASK_BUFN_WAIT:
+                transition(thread->second, thread_state::TASK_RUNNING);
+                // no need to notify anyone, we will just retry without blocking...
+                break;
+              case TASK_BUFN_THROW:
+                // This should really never happen, this is a temporary state that is here only
+                // while the lock is held, but just in case we don't want to mess it up, or throw
+                // an exception.
+                break;
+              default: {
+                std::stringstream ss;
+                ss << "internal error expected to only wake up blocked threads " << thread_id_to_wake
+                   << " " << as_str(thread->second.state);
+                throw std::runtime_error(ss.str());
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -962,6 +1061,7 @@ private:
     std::set<long> tasks_with_threads;
     std::set<long> tasks_with_threads_effectively_blocked;
     bool is_any_shuffle_thread_blocked = false;
+
     // To keep things simple we are going to do multiple passes through
     // the state. The first is to find out if any shuffle thread is blocked
     // because if it is, then there is a possibility that any task thread
@@ -987,10 +1087,6 @@ private:
           }
           break;
         case TASK_BLOCKED:
-        // fall through
-        case TASK_BUFN_THROW:
-        // fall through
-        case TASK_BUFN_WAIT:
         // fall through
         case TASK_BUFN:
           tasks_with_threads_effectively_blocked.insert(thread->second.task_id);
@@ -1034,11 +1130,7 @@ private:
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
         if (thread->second.task_id >= 0) {
           switch (thread->second.state) {
-            case TASK_BUFN:
-            // fall through
-            case TASK_BUFN_WAIT:
-            // fall through
-            case TASK_BUFN_THROW: {
+            case TASK_BUFN: {
               thread_priority current = thread->second.priority();
               if (!is_to_wake_set || to_wake < current) {
                 to_wake = current;
@@ -1046,8 +1138,6 @@ private:
               }
             } break;
             case TASK_WAIT_ON_SHUFFLE:
-            // fall through
-            case TASK_BUFN_WAIT_ON_SHUFFLE:
               if (!is_any_shuffle_thread_blocked) {
                 all_bufn_or_shuffle = false;
               }
@@ -1086,12 +1176,12 @@ private:
    * typically happen after this has run, and we loop around to retry the alloc
    * if the state says we should.
    */
-  bool post_alloc_failed(long thread_id, bool is_oom) {
+  bool post_alloc_failed(long thread_id, bool is_oom, bool likely_spill) {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto thread = threads.find(thread_id);
     // only retry if this was due to an out of memory exception.
     bool ret = true;
-    if (thread != threads.end()) {
+    if (!likely_spill && thread != threads.end()) {
       switch (thread->second.state) {
         case TASK_ALLOC_FREE: transition(thread->second, thread_state::TASK_RUNNING); break;
         case TASK_ALLOC:
@@ -1129,19 +1219,18 @@ private:
   void *do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
     auto tid = static_cast<long>(pthread_self());
     while (true) {
-      pre_alloc(tid);
+      bool likely_spill = pre_alloc(tid);
       try {
         void *ret = resource->allocate(num_bytes, stream);
-        post_alloc_success(tid);
+        post_alloc_success(tid, likely_spill);
         return ret;
       } catch (const std::bad_alloc &e) {
-        if (!post_alloc_failed(tid, true)) {
+        if (!post_alloc_failed(tid, true, likely_spill)) {
           throw;
         }
       } catch (const std::exception &e) {
-        if (!post_alloc_failed(tid, false)) {
-          throw;
-        }
+        post_alloc_failed(tid, false, likely_spill);
+        throw;
       }
     }
     // we should never reach this point, but just in case
@@ -1152,6 +1241,8 @@ private:
     resource->deallocate(p, size, stream);
     // deallocate success
     if (size > 0) {
+      std::unique_lock<std::mutex> lock(state_mutex);
+
       auto tid = static_cast<long>(pthread_self());
       auto thread = threads.find(tid);
       if (thread != threads.end()) {
@@ -1160,15 +1251,27 @@ private:
         log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
       }
 
-      std::unique_lock<std::mutex> lock(state_mutex);
       for (auto thread = threads.begin(); thread != threads.end(); thread++) {
-        switch (thread->second.state) {
-          case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
-          case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
-          default: break;
+        // Only update state for _other_ threads. We update only other threads, for the case
+        // where we are handling a free from the recursive case: when an allocation/free
+        // happened while handling an allocation failure in onAllocFailed.
+        //
+        // If we moved all threads to *_ALLOC_FREE, after we exit the recursive state and
+        // are back handling the original allocation failure, we are left with a thread
+        // in a state that won't be retried in `post_alloc_failed`.
+        //
+        // By not changing our thread's state to TASK_ALLOC_FREE, we keep the state
+        // the same, but we still let other threads know that there was a free and they should
+        // handle accordingly.
+        if (thread->second.thread_id != tid) {
+          switch (thread->second.state) {
+            case TASK_ALLOC: transition(thread->second, thread_state::TASK_ALLOC_FREE); break;
+            case SHUFFLE_ALLOC: transition(thread->second, thread_state::SHUFFLE_ALLOC_FREE); break;
+            default: break;
+          }
         }
       }
-      wake_next_highest_priority_regular_blocked(lock);
+      wake_next_highest_priority_blocked(lock, true);
     }
   }
 
@@ -1358,9 +1461,11 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(
-    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+JNIEXPORT jint JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInternal(JNIEnv *env,
+                                                                                    jclass,
+                                                                                    jlong ptr,
+                                                                                    jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1370,7 +1475,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrowInternal(
+JNIEXPORT jint JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrowInternal(
     JNIEnv *env, jclass, jlong ptr, jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
@@ -1381,8 +1487,11 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
   CATCH_STD(env, 0)
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeInternal(
-    JNIEnv *env, jclass, jlong ptr, jlong task_id) {
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeInternal(JNIEnv *env,
+                                                                                   jclass,
+                                                                                   jlong ptr,
+                                                                                   jlong task_id) {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
     cudf::jni::auto_set_device(env);
@@ -1391,5 +1500,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_ge
   }
   CATCH_STD(env, 0)
 }
-
 }

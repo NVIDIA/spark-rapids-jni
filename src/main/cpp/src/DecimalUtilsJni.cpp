@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,6 +54,22 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_divid
     } else {
       return cudf::jni::convert_table_for_return(env, cudf::jni::divide_decimal128(*view_a, *view_b, scale));
     }
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_remainder128(JNIEnv *env, jclass,
+                                                                                     jlong j_view_a,
+                                                                                     jlong j_view_b,
+                                                                                     jint j_remainder_scale) {
+  JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
+  JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto view_a = reinterpret_cast<cudf::column_view const *>(j_view_a);
+    auto view_b = reinterpret_cast<cudf::column_view const *>(j_view_b);
+    auto scale = static_cast<int>(j_remainder_scale);
+    return cudf::jni::convert_table_for_return(env, cudf::jni::remainder_decimal128(*view_a, *view_b, scale));
   }
   CATCH_STD(env, 0);
 }

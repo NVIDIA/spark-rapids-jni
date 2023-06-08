@@ -81,6 +81,16 @@ public class CastStrings {
   }
 
   /**
+   * Convert a decimal column to a string column.
+   * 
+   * @param cv the column data to process
+   * @return the converted column
+   */
+  public static ColumnVector fromDecimal(ColumnView cv) {
+    return new ColumnVector(fromDecimal(cv.getNativeView()));
+  }
+
+  /**
    * Convert a string column to a given floating-point type column.
    *
    * @param cv the column data to process.
@@ -97,4 +107,5 @@ public class CastStrings {
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
+  private static native long fromDecimal(long nativeColumnView);
 }

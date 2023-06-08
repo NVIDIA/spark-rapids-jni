@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandler;
 import ai.rapids.cudf.RmmLimitingResourceAdaptor;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
+import ai.rapids.cudf.ColumnVector.EventHandler;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -480,6 +482,10 @@ public class RmmSparkTest {
   }
 
   void setupRmmForTestingWithLimits(long maxAllocSize) {
+    setupRmmForTestingWithLimits(maxAllocSize, new BaseRmmEventHandler());
+  }
+
+  void setupRmmForTestingWithLimits(long maxAllocSize, RmmEventHandler eventHandler) {
     // Rmm.initialize is not going to limit allocations without a pool, so we
     // need to set it up ourselves.
     RmmDeviceMemoryResource resource = null;
@@ -495,7 +501,7 @@ public class RmmSparkTest {
         resource.close();
       }
     }
-    RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
+    RmmSpark.setEventHandler(eventHandler, "stderr");
   }
 
   @Test
@@ -658,10 +664,14 @@ public class RmmSparkTest {
           two.waitForAlloc();
           fail("Expect that allocating more memory than is allowed would fail");
         } catch (ExecutionException oom) {
+          assert oom.getCause() instanceof RetryOOM : oom.toString();
+        }
+        try {
+          taskOne.blockUntilReady().get(1000, TimeUnit.MILLISECONDS);
+          fail("Expect split and retry after all tasks blocked.");
+        } catch (ExecutionException oom) {
           assert oom.getCause() instanceof SplitAndRetryOOM : oom.toString();
         }
-        // This should not block...
-        taskOne.blockUntilReady();
         assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
         // Now we try to allocate with half the data.
         try (AllocOnAnotherThread secondTry = new AllocOnAnotherThread(taskOne, 3 * 1024 * 1024)) {
@@ -754,13 +764,14 @@ public class RmmSparkTest {
           Rmm.alloc(2 * 1024 * 1024).close();
           fail("overallocation should have failed");
         } catch (RetryOOM room) {
-          fail("only a split and retry should be thrown...");
-        } catch (SplitAndRetryOOM sroom) {
-          // The block should be a noop, but this is really about measuring
-          // overhead so include the callback that might, or might not happen
-          // This does not include any GC that might happen.
-          RmmSpark.blockThreadUntilReady();
           numRetries++;
+          try {
+            RmmSpark.blockThreadUntilReady();
+          } catch (SplitAndRetryOOM sroom) {
+            numRetries++;
+          }
+        } catch (SplitAndRetryOOM sroom) {
+          fail("retry should be thrown before split and retry...");
         }
       }
       fail("retried too many times " + numRetries);
@@ -772,6 +783,57 @@ public class RmmSparkTest {
     }
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
+  }
+  
+  //
+  // These next two tests deal with a special case where allocations (and allocation failures)
+  // could happen during spill handling.
+  //
+  // When we spill we may need to invoke cuDF code that creates memory, specifically to
+  // pack previously unpacked memory into a single contiguous buffer (cudf::chunked_pack).
+  // This operation, although it makes use of an auxiliary memory resource, still deals with
+  // cuDF apis that could, at any time, allocate small amounts of memory in the default memory
+  // resource. As such, allocations and allocation failures could happen, which cause us
+  // to recursively enter the state machine in SparkResourceAdaptorJni.
+  //
+  @Test
+  public void testAllocationDuringSpill() {
+    // Create a handler that allocates 1 byte from the handler (it should succeed)
+    AllocatingRmmEventHandler rmmEventHandler = new AllocatingRmmEventHandler(1);
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
+    long threadId = RmmSpark.getCurrentThreadId();
+    long taskid = 0; // This is arbitrary
+    RmmSpark.associateThreadWithTask(threadId, taskid);
+    assertThrows(GpuOOM.class, () -> {
+      try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
+        fail("overallocation should have failed");
+      } finally {
+        RmmSpark.removeThreadAssociation(threadId);
+      }
+    });
+    assertEquals(11, rmmEventHandler.getAllocationCount());
+  }
+
+  @Test
+  public void testAllocationFailedDuringSpill() {
+    // Create a handler that allocates 2MB from the handler (it should fail)
+    AllocatingRmmEventHandler rmmEventHandler = new AllocatingRmmEventHandler(2L*1024*1024);
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
+    long threadId = RmmSpark.getCurrentThreadId();
+    long taskid = 0; // This is arbitrary
+    RmmSpark.associateThreadWithTask(threadId, taskid);
+    assertThrows(GpuOOM.class, () -> {
+      try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
+        fail("overallocation should have failed");
+      } finally {
+        RmmSpark.removeThreadAssociation(threadId);
+      }
+    });
+    assertEquals(0, rmmEventHandler.getAllocationCount());
   }
 
   private static class BaseRmmEventHandler implements RmmEventHandler {
@@ -798,5 +860,52 @@ public class RmmSparkTest {
       // This is just a test for now, no spilling...
       return false;
     }
+  }
+
+  private static class AllocatingRmmEventHandler extends BaseRmmEventHandler {
+    // if true, we are still in the onAllocFailure callback (recursive call)
+    boolean stillHandlingAllocFailure = false;
+
+    int allocationCount;
+
+    long allocSize;
+
+    public int getAllocationCount() {
+      return allocationCount;
+    }
+
+    public AllocatingRmmEventHandler(long allocSize) {
+      this.allocSize = allocSize;
+    }
+
+    @Override
+    public boolean onAllocFailure(long sizeRequested, int retryCount) {
+      // Catch java.lang.OutOfMemory since we could gt this exception during `Rmm.alloc`.
+      // Catch all throwables because any other exception is not handled gracefully from callers
+      // but if we do see such exceptions make sure we call `fail` so we get a test failure.
+      try {
+        if (stillHandlingAllocFailure) {
+          // detected a loop
+          stillHandlingAllocFailure = false;
+          return false;
+        } else {
+          stillHandlingAllocFailure = true;
+          try (DeviceMemoryBuffer dmb = Rmm.alloc(allocSize)) { // try to allocate one byte, and free
+            allocationCount++;
+            stillHandlingAllocFailure = false;
+          }
+          // allow retries up to 10 times
+          return retryCount < 10;
+        }
+      } catch (java.lang.OutOfMemoryError e) {
+        // return false here, this allocation failure handling failed with 
+        // java.lang.OutOfMemory from `RmmJni`
+        return false;
+      } catch (Throwable t) {
+        fail("unexpected exception in onAllocFailure", t);
+        return false;
+      }
+    }
+
   }
 }
