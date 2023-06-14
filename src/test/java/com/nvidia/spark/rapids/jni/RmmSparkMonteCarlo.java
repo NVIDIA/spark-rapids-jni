@@ -316,6 +316,7 @@ public class RmmSparkMonteCarlo {
         while (!done) { // situations loop
           waitForSitToBeSet();
           Task t = getNextTask();
+          long timeLost = 0;
           while (t != null) { // task loop
             Task backup = t.cloneForRetry();
             long start = System.nanoTime();
@@ -324,12 +325,14 @@ public class RmmSparkMonteCarlo {
               t.run(shuffle);
               success = true;
             } catch (OutOfMemoryError oom) {
+              timeLost += System.nanoTime() - start;
               if (runner.debugOoms) {
                 System.err.println("OOM for task: " + t.taskId +
                     " and thread: " + RmmSpark.getCurrentThreadId() + " " + oom);
               }
               // ignored
             }
+            timeLost += t.getTimeLost();
             Cuda.DEFAULT_STREAM.sync();
             if (!success) {
               long stopTime = System.nanoTime() + 50;
@@ -344,7 +347,7 @@ public class RmmSparkMonteCarlo {
               }
             }
             long end = System.nanoTime();
-            runner.updateTaskStats(success, end - start);
+            runner.updateTaskStats(success, end - start, timeLost);
             t = getNextTask();
           }
           try { // situation is done so wait for all others too
@@ -402,6 +405,7 @@ public class RmmSparkMonteCarlo {
     volatile int failedTasks;
     volatile int successTasks;
     volatile long totalTaskTime;
+    volatile long totalTimeLost;
     volatile boolean sitFailed;
     volatile boolean didThisSitFail = false;
 
@@ -446,6 +450,7 @@ public class RmmSparkMonteCarlo {
         failedTasks = 0;
         successTasks = 0;
         totalTaskTime = 0;
+        totalTimeLost = 0;
       }
       int numSits = 0;
       long totalSitTime = 0;
@@ -480,7 +485,8 @@ public class RmmSparkMonteCarlo {
         System.out.println("Situations: " + numSits + " total, " + successSits + " successful, " +
             failedSits + " failed. " + asTimeStr(totalSitTime));
         System.out.println("Tasks: " + numTasks + " total, " + successTasks + " successful, " +
-            failedTasks + " failed. " + asTimeStr(totalTaskTime));
+            failedTasks + " failed. " + asTimeStr(totalTaskTime) + " taskTime " +
+            asTimeStr(totalTimeLost) + " lost task computation");
         System.out.println("Exceptions: " + numSplitAndRetry.get() + " splits, " +
             numRetry.get() + " retries.");
       }
@@ -520,7 +526,7 @@ public class RmmSparkMonteCarlo {
       }
     }
 
-    public synchronized void updateTaskStats(boolean success, long timeNs) {
+    public synchronized void updateTaskStats(boolean success, long timeNs, long timeLost) {
       if (success) {
         successTasks++;
       } else {
@@ -528,6 +534,7 @@ public class RmmSparkMonteCarlo {
       }
       numTasks++;
       totalTaskTime += timeNs;
+      totalTimeLost += timeLost;
     }
 
     public synchronized void setSitFailed() {
@@ -814,6 +821,8 @@ public class RmmSparkMonteCarlo {
     public final int retryCount;
     LinkedList<TaskOpSet> toDo = new LinkedList<>();
 
+    long timeLost = 0;
+
     public Task(Random r, long taskMaxMiB, int maxTaskAllocs, int maxTaskSleep) {
       toDo.add(new TaskOpSet(r, taskMaxMiB, maxTaskAllocs, maxTaskSleep));
       retryCount = 0;
@@ -829,10 +838,15 @@ public class RmmSparkMonteCarlo {
       return new Task(cloned, retryCount + 1);
     }
 
+    public long getTimeLost() {
+      return timeLost;
+    }
+
     public void run(ExecutorService shuffle) {
       Thread.currentThread().setName("TASK RUNNER FOR " + taskId);
       RmmSpark.associateCurrentThreadWithTask(taskId);
       try {
+        RmmSpark.currentThreadStartRetryBlock();
         while (!toDo.isEmpty()) {
           TaskOpSet tos = toDo.pollFirst();
           try {
@@ -845,6 +859,8 @@ public class RmmSparkMonteCarlo {
           }
         }
       } finally {
+        RmmSpark.currentThreadEndRetryBlock();
+        timeLost += RmmSpark.getAndResetComputeTimeLostToRetryNs(taskId);
         RmmSpark.taskDone(taskId);
       }
     }

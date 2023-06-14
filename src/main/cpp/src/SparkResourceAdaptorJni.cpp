@@ -186,6 +186,11 @@ public:
   int num_times_retry_throw = 0;
   int num_times_split_retry_throw = 0;
   long time_blocked_nanos = 0;
+  long time_lost_nanos = 0;
+  long time_retry_running_nanos = 0;
+  std::chrono::time_point<std::chrono::steady_clock> retry_start_or_block_end;
+  bool is_in_retry = false;
+
 
   std::chrono::time_point<std::chrono::steady_clock> block_start;
 
@@ -204,12 +209,50 @@ public:
     state = new_state;
   }
 
-  void before_block() { block_start = std::chrono::steady_clock::now(); }
+  void before_block() {
+    block_start = std::chrono::steady_clock::now();
+    // Don't record running time lost while we are blocked...
+    record_and_reset_pending_retry_time();
+  }
 
   void after_block() {
     auto end = std::chrono::steady_clock::now();
     auto diff = end - block_start;
     time_blocked_nanos += std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
+    if (is_in_retry) {
+      retry_start_or_block_end = end;
+    }
+  }
+
+  long get_and_reset_failed_retry_time() {
+    long ret = time_lost_nanos;
+    time_lost_nanos = 0;
+    return ret;
+  }
+
+  void record_failed_retry_time() {
+    if (is_in_retry) {
+      record_and_reset_pending_retry_time();
+      time_lost_nanos += time_retry_running_nanos;
+      time_retry_running_nanos = 0;
+    }
+  }
+
+  void record_and_reset_pending_retry_time() {
+    if (is_in_retry) {
+      auto end = std::chrono::steady_clock::now();
+      auto diff = end - retry_start_or_block_end;
+      time_retry_running_nanos += std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
+      retry_start_or_block_end = end;
+    }
+  }
+
+  void reset_retry_state(bool is_in_retry) {
+    time_retry_running_nanos = 0;
+    if (is_in_retry) {
+      retry_start_or_block_end = std::chrono::steady_clock::now();
+    }
+    this->is_in_retry = is_in_retry;
   }
 
   /**
@@ -288,6 +331,37 @@ public:
     if (was_threads_inserted.second == true) {
       log_transition(thread_id, task_id, thread_state::UNKNOWN, thread_state::TASK_RUNNING);
     }
+  }
+
+  void start_retry_block(long thread_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto thread = threads.find(thread_id);
+    if (thread != threads.end()) {
+      thread->second.reset_retry_state(true);
+    }
+  }
+
+  void end_retry_block(long thread_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto thread = threads.find(thread_id);
+    if (thread != threads.end()) {
+      thread->second.reset_retry_state(false);
+    }
+  }
+
+  long get_n_reset_lost_time(long task_id) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    long ret = 0;
+    auto task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto thread_id : task_at->second) {
+        auto threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) {
+          ret += threads_at->second.get_and_reset_failed_retry_time();
+        }
+      }
+    }
+    return ret;
   }
 
   /**
@@ -640,6 +714,7 @@ private:
     // In testing it looks like it is a few ms if in a tight loop, not including spill
     // overhead
     if (state.num_times_retried + 1 > 500) {
+      state.record_failed_retry_time();
       throw_java_exception(cudf::jni::OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
     }
     state.num_times_retried++;
@@ -649,6 +724,7 @@ private:
                        const std::unique_lock<std::mutex> &lock) {
     state.num_times_retry_throw++;
     check_before_oom(state, lock);
+    state.record_failed_retry_time();
     throw_java_exception(RETRY_OOM_CLASS, "GPU OutOfMemory");
   }
 
@@ -656,6 +732,7 @@ private:
                                const std::unique_lock<std::mutex> &lock) {
     state.num_times_split_retry_throw++;
     check_before_oom(state, lock);
+    state.record_failed_retry_time();
     throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "GPU OutOfMemory");
   }
 
@@ -700,11 +777,13 @@ private:
             break;
           case SHUFFLE_THROW:
             transition(thread->second, thread_state::SHUFFLE_RUNNING);
+            thread->second.record_failed_retry_time();
             throw_java_exception(cudf::jni::OOM_CLASS,
                                  "GPU OutOfMemory: could not allocate enough for shuffle");
             break;
           case TASK_BUFN_THROW:
             transition(thread->second, thread_state::TASK_BUFN_WAIT);
+            thread->second.record_failed_retry_time();
             throw_retry_oom("rollback and retry operation", thread->second, lock);
             break;
           case TASK_BUFN_WAIT:
@@ -728,6 +807,7 @@ private:
             break;
           case TASK_SPLIT_THROW:
             transition(thread->second, thread_state::TASK_RUNNING);
+            thread->second.record_failed_retry_time();
             throw_split_n_retry_oom("rollback, split input, and retry operation", thread->second,
                                     lock);
             break;
@@ -736,6 +816,7 @@ private:
           case SHUFFLE_REMOVE_THROW:
             log_transition(thread_id, thread->second.task_id, thread->second.state,
                            thread_state::UNKNOWN);
+            // don't need to record failed time metric the thread is already gone...
             threads.erase(thread);
             task_has_woken_condition.notify_all();
             throw std::runtime_error("thread removed while blocked");
@@ -865,6 +946,7 @@ private:
         thread->second.retry_oom_injected--;
         thread->second.num_times_retry_throw++;
         log_status("INJECTED_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
+        thread->second.record_failed_retry_time();
         throw_java_exception(RETRY_OOM_CLASS, "injected RetryOOM");
       }
 
@@ -872,6 +954,7 @@ private:
         thread->second.cudf_exception_injected--;
         log_status("INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id,
                    thread->second.state);
+        thread->second.record_failed_retry_time();
         throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
       }
 
@@ -880,6 +963,7 @@ private:
         thread->second.num_times_split_retry_throw++;
         log_status("INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id,
                    thread->second.state);
+        thread->second.record_failed_retry_time();
         throw_java_exception(SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
       }
 
@@ -1499,5 +1583,41 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeIntern
     return mr->get_n_reset_block_time(task_id);
   }
   CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetComputeTimeLostToRetry(JNIEnv *env,
+                                                                                       jclass,
+                                                                                       jlong ptr,
+                                                                                       jlong task_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    return mr->get_n_reset_lost_time(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_startRetryBlock(
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    mr->start_retry_block(thread_id);
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_endRetryBlock(
+    JNIEnv *env, jclass, jlong ptr, jlong thread_id) {
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
+    mr->end_retry_block(thread_id);
+  }
+  CATCH_STD(env, )
 }
 }
