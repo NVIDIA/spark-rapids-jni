@@ -83,6 +83,14 @@ public class SparkResourceAdaptor
     associateThreadWithTask(getHandle(), threadId, taskId);
   }
 
+  public void startRetryBlock(long threadId) {
+    startRetryBlock(getHandle(), threadId);
+  }
+
+  public void endRetryBlock(long threadId) {
+    endRetryBlock(getHandle(), threadId);
+  }
+
   /**
    * Associate a thread with shuffle.
    * @param threadId the thread ID to associate (not java thread id).
@@ -174,6 +182,10 @@ public class SparkResourceAdaptor
     return getAndResetBlockTimeInternal(getHandle(), taskId);
   }
 
+  public long getAndResetComputeTimeLostToRetry(long taskId) {
+    return getAndResetComputeTimeLostToRetry(getHandle(), taskId);
+  }
+
   /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
@@ -196,5 +208,7 @@ public class SparkResourceAdaptor
   private static native int getAndResetRetryThrowInternal(long handle, long taskId);
   private static native int getAndResetSplitRetryThrowInternal(long handle, long taskId);
   private static native long getAndResetBlockTimeInternal(long handle, long taskId);
-
+  private static native long getAndResetComputeTimeLostToRetry(long handle, long taskId);
+  private static native void startRetryBlock(long handle, long threadId);
+  private static native void endRetryBlock(long handle, long threadId);
 }

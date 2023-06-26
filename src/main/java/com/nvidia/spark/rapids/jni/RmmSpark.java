@@ -153,6 +153,32 @@ public class RmmSpark {
     associateThreadWithShuffle(getCurrentThreadId());
   }
 
+
+
+  public static void startRetryBlock(long threadId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.startRetryBlock(threadId);
+      }
+    }
+  }
+
+  public static void currentThreadStartRetryBlock() {
+    startRetryBlock(getCurrentThreadId());
+  }
+
+  public static void endRetryBlock(long threadId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.endRetryBlock(threadId);
+      }
+    }
+  }
+
+  public static void currentThreadEndRetryBlock() {
+    startRetryBlock(getCurrentThreadId());
+  }
+
   /**
    * Remove the given thread ID from any association.
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle
@@ -375,6 +401,22 @@ public class RmmSpark {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
         return sra.getAndResetBlockTime(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
+  /**
+   * Get how long, in nanoseconds, that this task lost in computation time due to retries.
+   * @param taskId the id of the task to get the metric for.
+   * @return the time the task did computation that was lost.
+   */
+  public static long getAndResetComputeTimeLostToRetryNs(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetComputeTimeLostToRetry(taskId);
       } else {
         // sra is not set so the value is by definition 0
         return 0;
