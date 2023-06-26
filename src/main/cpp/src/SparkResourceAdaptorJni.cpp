@@ -186,9 +186,13 @@ public:
   int num_times_retry_throw = 0;
   int num_times_split_retry_throw = 0;
   long time_blocked_nanos = 0;
+  // The amount of time that this thread has lost due to retries (not inclduing blocked time)
   long time_lost_nanos = 0;
+  // The amount of time that this thread has spent in the current retry block (not inclucing block time)
   long time_retry_running_nanos = 0;
+  // When did the retry time for this thread start, or when did the block time end.
   std::chrono::time_point<std::chrono::steady_clock> retry_start_or_block_end;
+  // Is this thread currently in a marked retry block. This is only used for metrics.
   bool is_in_retry = false;
 
 
@@ -349,7 +353,7 @@ public:
     }
   }
 
-  long get_n_reset_lost_time(long task_id) {
+  long get_and_reset_lost_time(long task_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
     long ret = 0;
     auto task_at = task_to_threads.find(task_id);
@@ -507,7 +511,7 @@ public:
   /**
    * get the number of times a retry was thrown and reset the value to 0.
    */
-  int get_n_reset_num_retry(long task_id) {
+  int get_and_reset_num_retry(long task_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
     int ret = 0;
     auto task_at = task_to_threads.find(task_id);
@@ -526,7 +530,7 @@ public:
   /**
    * get the number of times a split and retry was thrown and reset the value to 0.
    */
-  int get_n_reset_num_split_retry(long task_id) {
+  int get_and_reset_num_split_retry(long task_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
     int ret = 0;
     auto task_at = task_to_threads.find(task_id);
@@ -545,7 +549,7 @@ public:
   /**
    * get the time in ns that the task was blocked for.
    */
-  long get_n_reset_block_time(long task_id) {
+  long get_and_reset_block_time(long task_id) {
     std::unique_lock<std::mutex> lock(state_mutex);
     long ret = 0;
     auto task_at = task_to_threads.find(task_id);
@@ -728,7 +732,7 @@ private:
     throw_java_exception(RETRY_OOM_CLASS, "GPU OutOfMemory");
   }
 
-  void throw_split_n_retry_oom(const char *msg, full_thread_state &state,
+  void throw_split_and_retry_oom(const char *msg, full_thread_state &state,
                                const std::unique_lock<std::mutex> &lock) {
     state.num_times_split_retry_throw++;
     check_before_oom(state, lock);
@@ -808,7 +812,7 @@ private:
           case TASK_SPLIT_THROW:
             transition(thread->second, thread_state::TASK_RUNNING);
             thread->second.record_failed_retry_time();
-            throw_split_n_retry_oom("rollback, split input, and retry operation", thread->second,
+            throw_split_and_retry_oom("rollback, split input, and retry operation", thread->second,
                                     lock);
             break;
           case TASK_REMOVE_THROW:
@@ -1554,7 +1558,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetRetryThrowInter
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    return mr->get_n_reset_num_retry(task_id);
+    return mr->get_and_reset_num_retry(task_id);
   }
   CATCH_STD(env, 0)
 }
@@ -1566,7 +1570,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetSplitRetryThrow
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    return mr->get_n_reset_num_split_retry(task_id);
+    return mr->get_and_reset_num_split_retry(task_id);
   }
   CATCH_STD(env, 0)
 }
@@ -1580,7 +1584,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetBlockTimeIntern
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    return mr->get_n_reset_block_time(task_id);
+    return mr->get_and_reset_block_time(task_id);
   }
   CATCH_STD(env, 0)
 }
@@ -1594,7 +1598,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetComputeTimeLost
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor *>(ptr);
-    return mr->get_n_reset_lost_time(task_id);
+    return mr->get_and_reset_lost_time(task_id);
   }
   CATCH_STD(env, 0)
 }
