@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#include <stdexcept>
+#include <cwctype>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <cwctype>
 
 // TCompactProtocol requires some #defines to work right.
 // This came from the parquet code itself...
-#define SIGNED_RIGHT_SHIFT_IS 1
+#define SIGNED_RIGHT_SHIFT_IS  1
 #define ARITHMETIC_RIGHT_SHIFT 1
 #include <thrift/TApplicationException.h>
 #include <thrift/protocol/TCompactProtocol.h>
@@ -42,17 +42,16 @@ namespace jni {
  * and may not produce the exact same result as the JVM does. This is probably good enough
  * for now.
  */
-std::string unicode_to_lower(std::string const& input) {
+std::string unicode_to_lower(std::string const& input)
+{
   std::mbstate_t to_wc_state = std::mbstate_t();
-  const char * mbstr = input.data();
+  const char* mbstr          = input.data();
   // get the size of the wide character result
   std::size_t wide_size = std::mbsrtowcs(nullptr, &mbstr, 0, &to_wc_state);
-  if (wide_size < 0) {
-    throw std::invalid_argument("invalid character sequence");
-  }
+  if (wide_size < 0) { throw std::invalid_argument("invalid character sequence"); }
 
   std::vector<wchar_t> wide(wide_size + 1);
-  // Set a null so we can get a proper output size from wcstombs. This is because 
+  // Set a null so we can get a proper output size from wcstombs. This is because
   // we pass in a max length of 0, so it will only stop when it see the null character.
   wide.back() = 0;
   if (std::mbsrtowcs(wide.data(), &mbstr, wide_size, &to_wc_state) != wide_size) {
@@ -63,11 +62,9 @@ std::string unicode_to_lower(std::string const& input) {
   }
   // Get the multi-byte result size
   std::mbstate_t from_wc_state = std::mbstate_t();
-  const wchar_t * wcstr = wide.data();
-  std::size_t mb_size = std::wcsrtombs(nullptr, &wcstr, 0, &from_wc_state);
-  if (mb_size < 0) {
-    throw std::invalid_argument("unsupported wide character sequence");
-  }
+  const wchar_t* wcstr         = wide.data();
+  std::size_t mb_size          = std::wcsrtombs(nullptr, &wcstr, 0, &from_wc_state);
+  if (mb_size < 0) { throw std::invalid_argument("unsupported wide character sequence"); }
   // We are allocating a fixed size string so we can put the data directly into it
   // instead of going through a NUL terminated char* first. The NUL fill char is
   // just because we need to pass in a fill char. The value does not matter
@@ -102,351 +99,451 @@ struct column_pruning_maps {
  * lets us match the Spark schema to the schema in the Parquet file. Different
  * versions of parquet had different layouts for various nested types.
  */
-enum class Tag {
-  VALUE = 0,
-  STRUCT,
-  LIST,
-  MAP
-};
+enum class Tag { VALUE = 0, STRUCT, LIST, MAP };
 
 /**
  * This class will handle processing column pruning for a schema. It is written as a class because
- * of JNI we are sending the names of the columns as a depth first list, like parquet does internally.
+ * of JNI we are sending the names of the columns as a depth first list, like parquet does
+ * internally.
  */
 class column_pruner {
-public:
-    /**
-     * Create pruning filter from a depth first flattened tree of names and num_children.
-     * The root entry is not included in names or in num_children, but parent_num_children
-     * should hold how many entries there are in it.
-     */
-    column_pruner(std::vector<std::string> const & names, 
-            std::vector<int> const & num_children, 
-            std::vector<Tag> const & tags, 
-            int const parent_num_children): children(), tag(Tag::STRUCT) {
-      add_depth_first(names, num_children, tags, parent_num_children);
+ public:
+  /**
+   * Create pruning filter from a depth first flattened tree of names and num_children.
+   * The root entry is not included in names or in num_children, but parent_num_children
+   * should hold how many entries there are in it.
+   */
+  column_pruner(std::vector<std::string> const& names,
+                std::vector<int> const& num_children,
+                std::vector<Tag> const& tags,
+                int const parent_num_children)
+    : children(), tag(Tag::STRUCT)
+  {
+    add_depth_first(names, num_children, tags, parent_num_children);
+  }
+
+  column_pruner(Tag const in_tag) : children(), tag(in_tag) {}
+
+  column_pruner() : children(), tag(Tag::STRUCT) {}
+
+  /**
+   * Given a schema from a parquet file create a set of pruning maps to prune columns from the rest
+   * of the footer
+   */
+  column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> const& schema,
+                                    bool const ignore_case) const
+  {
+    CUDF_FUNC_RANGE();
+
+    // These are the outputs of the computation.
+    std::vector<int> chunk_map;
+    std::vector<int> schema_map;
+    std::vector<int> schema_num_children;
+    std::size_t current_input_schema_index = 0;
+    std::size_t next_input_chunk_index     = 0;
+
+    filter_schema(schema,
+                  ignore_case,
+                  current_input_schema_index,
+                  next_input_chunk_index,
+                  chunk_map,
+                  schema_map,
+                  schema_num_children);
+
+    return column_pruning_maps{
+      std::move(schema_map), std::move(schema_num_children), std::move(chunk_map)};
+  }
+
+ private:
+  std::string get_name(parquet::format::SchemaElement& elem,
+                       const bool normalize_case = false) const
+  {
+    return normalize_case ? unicode_to_lower(elem.name) : elem.name;
+  }
+
+  int get_num_children(parquet::format::SchemaElement& elem) const
+  {
+    return elem.__isset.num_children ? elem.num_children : 0;
+  }
+
+  void skip(std::vector<parquet::format::SchemaElement> const& schema,
+            std::size_t& current_input_schema_index,
+            std::size_t& next_input_chunk_index) const
+  {
+    // We want to skip everything referenced by the current_input_schema_index and its children.
+    // But we do have to update the chunk indexes as we go.
+    int num_to_skip = 1;
+    while (num_to_skip > 0 && current_input_schema_index < schema.size()) {
+      auto schema_item = schema[current_input_schema_index];
+      bool is_leaf     = schema_item.__isset.type;
+      if (is_leaf) { ++next_input_chunk_index; }
+
+      if (schema_item.__isset.num_children) {
+        num_to_skip = num_to_skip + schema_item.num_children;
+      }
+
+      --num_to_skip;
+      ++current_input_schema_index;
     }
+  }
 
-    column_pruner(Tag const in_tag): children(), tag(in_tag) {
-    }
+  /**
+   * filter_schema, but specific to Tag::STRUCT.
+   */
+  void filter_schema_struct(std::vector<parquet::format::SchemaElement> const& schema,
+                            bool const ignore_case,
+                            std::size_t& current_input_schema_index,
+                            std::size_t& next_input_chunk_index,
+                            std::vector<int>& chunk_map,
+                            std::vector<int>& schema_map,
+                            std::vector<int>& schema_num_children) const
+  {
+    // First verify that we found a struct, like we expected to find.
+    auto struct_schema_item = schema.at(current_input_schema_index);
+    bool is_leaf            = struct_schema_item.__isset.type;
+    if (is_leaf) { throw std::runtime_error("Found a leaf node, but expected to find a struct"); }
 
-    column_pruner(): children(), tag(Tag::STRUCT) {
-    }
+    int num_children = get_num_children(struct_schema_item);
+    // Now that everything looks good add ourselves into the maps, and move to the next entry to
+    // look at.
+    schema_map.push_back(current_input_schema_index);
+    // We will update the num_children each time we find one...
+    int our_num_children_index = schema_num_children.size();
+    schema_num_children.push_back(0);
+    ++current_input_schema_index;
 
-    /**
-     * Given a schema from a parquet file create a set of pruning maps to prune columns from the rest of the footer
-     */
-    column_pruning_maps filter_schema(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case) const {
-      CUDF_FUNC_RANGE();
+    // For a STRUCT we want to look for all of the children that match the name and let each of them
+    // handle updating things themselves.
+    for (int child_id = 0; child_id < num_children && current_input_schema_index < schema.size();
+         child_id++) {
+      auto schema_item = schema[current_input_schema_index];
+      std::string name = get_name(schema_item, ignore_case);
+      auto found       = children.find(name);
 
-      // These are the outputs of the computation.
-      std::vector<int> chunk_map;
-      std::vector<int> schema_map;
-      std::vector<int> schema_num_children;
-      std::size_t current_input_schema_index = 0;
-      std::size_t next_input_chunk_index = 0;
-
-      filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-
-      return column_pruning_maps{std::move(schema_map),
-          std::move(schema_num_children),
-          std::move(chunk_map)};
-    }
-
-private:
-    std::string get_name(parquet::format::SchemaElement & elem, const bool normalize_case = false) const {
-      return normalize_case ? unicode_to_lower(elem.name) : elem.name;
-    }
-
-    int get_num_children(parquet::format::SchemaElement & elem) const {
-      return elem.__isset.num_children ? elem.num_children : 0;
-    }
-
-    void skip(std::vector<parquet::format::SchemaElement> const & schema,
-            std::size_t & current_input_schema_index, std::size_t  & next_input_chunk_index) const {
-      // We want to skip everything referenced by the current_input_schema_index and its children.
-      // But we do have to update the chunk indexes as we go.
-      int num_to_skip = 1;
-      while (num_to_skip > 0 && current_input_schema_index < schema.size()) {
-        auto schema_item = schema[current_input_schema_index];
-        bool is_leaf = schema_item.__isset.type;
-        if (is_leaf) {
-          ++next_input_chunk_index;
-        }
-
-        if (schema_item.__isset.num_children) {
-          num_to_skip = num_to_skip + schema_item.num_children;
-        }
-
-        --num_to_skip;
-        ++current_input_schema_index;
+      if (found != children.end()) {
+        // found a match so update the number of children that passed the filter and ask it to
+        // filter itself.
+        ++schema_num_children[our_num_children_index];
+        found->second.filter_schema(schema,
+                                    ignore_case,
+                                    current_input_schema_index,
+                                    next_input_chunk_index,
+                                    chunk_map,
+                                    schema_map,
+                                    schema_num_children);
+      } else {
+        // No match was found so skip the child.
+        skip(schema, current_input_schema_index, next_input_chunk_index);
       }
     }
+  }
 
-    /**
-     * filter_schema, but specific to Tag::STRUCT.
-     */
-    void filter_schema_struct(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
-            std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
-            std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
-        // First verify that we found a struct, like we expected to find.
-        auto struct_schema_item = schema.at(current_input_schema_index);
-        bool is_leaf = struct_schema_item.__isset.type;
-        if (is_leaf) {
-          throw std::runtime_error("Found a leaf node, but expected to find a struct");
-        }
+  /**
+   * filter_schema, but specific to Tag::VALUE.
+   */
+  void filter_schema_value(std::vector<parquet::format::SchemaElement> const& schema,
+                           std::size_t& current_input_schema_index,
+                           std::size_t& next_input_chunk_index,
+                           std::vector<int>& chunk_map,
+                           std::vector<int>& schema_map,
+                           std::vector<int>& schema_num_children) const
+  {
+    auto schema_item = schema.at(current_input_schema_index);
+    bool is_leaf     = schema_item.__isset.type;
+    if (!is_leaf) { throw std::runtime_error("found a non-leaf entry when reading a leaf value"); }
+    if (get_num_children(schema_item) != 0) {
+      throw std::runtime_error("found an entry with children when reading a leaf value");
+    }
+    schema_map.push_back(current_input_schema_index);
+    schema_num_children.push_back(0);
+    ++current_input_schema_index;
+    chunk_map.push_back(next_input_chunk_index);
+    ++next_input_chunk_index;
+  }
 
-        int num_children = get_num_children(struct_schema_item);
-        // Now that everything looks good add ourselves into the maps, and move to the next entry to look at.
-        schema_map.push_back(current_input_schema_index);
-        // We will update the num_children each time we find one...
-        int our_num_children_index = schema_num_children.size();
-        schema_num_children.push_back(0);
-        ++current_input_schema_index;
+  /**
+   * filter_schema, but specific to Tag::LIST.
+   */
+  void filter_schema_list(std::vector<parquet::format::SchemaElement> const& schema,
+                          bool const ignore_case,
+                          std::size_t& current_input_schema_index,
+                          std::size_t& next_input_chunk_index,
+                          std::vector<int>& chunk_map,
+                          std::vector<int>& schema_map,
+                          std::vector<int>& schema_num_children) const
+  {
+    // By convention with the java code the child is always called "element"...
+    auto found = children.at("element");
+    // A list starts out as a group element(not leaf) with a ConvertedType that is a LIST
+    // Under it will be a repeated element
+    auto list_schema_item = schema.at(current_input_schema_index);
+    std::string list_name = list_schema_item.name;
+    bool is_group         = !list_schema_item.__isset.type;
 
-        // For a STRUCT we want to look for all of the children that match the name and let each of them handle updating things
-        // themselves.
-        for (int child_id = 0; child_id < num_children && current_input_schema_index < schema.size(); child_id++) {
-          auto schema_item = schema[current_input_schema_index];
-          std::string name = get_name(schema_item, ignore_case);
-          auto found = children.find(name);
+    // Rules for how to parse lists from the parquet format docs
+    // 1. If the repeated field is not a group, then its type is the element type and elements are
+    // required.
+    // 2. If the repeated field is a group with multiple fields, then its type is the element type
+    // and elements are required.
+    // 3. If the repeated field is a group with one field and is named either array or uses the
+    // LIST-annotated group's name
+    //    with _tuple appended then the repeated type is the element type and elements are required.
+    // 4. Otherwise, the repeated field's type is the element type with the repeated field's
+    // repetition.
 
-          if (found != children.end()) {
-            // found a match so update the number of children that passed the filter and ask it to filter itself.
-            ++schema_num_children[our_num_children_index];
-            found->second.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
+    if (!is_group) {
+      if (!list_schema_item.__isset.repetition_type ||
+          list_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
+        throw std::runtime_error("expected list item to be repeating");
+      }
+      return filter_schema_value(schema,
+                                 current_input_schema_index,
+                                 next_input_chunk_index,
+                                 chunk_map,
+                                 schema_map,
+                                 schema_num_children);
+    }
+    if (!list_schema_item.__isset.converted_type ||
+        list_schema_item.converted_type != parquet::format::ConvertedType::LIST) {
+      throw std::runtime_error("expected a list type, but it was not found.");
+    }
+    if (get_num_children(list_schema_item) != 1) {
+      throw std::runtime_error("the structure of the outer list group is not standard");
+    }
+
+    // Now that the top level group looks good add it into the maps, and then start to look at the
+    // children
+    schema_map.push_back(current_input_schema_index);
+    schema_num_children.push_back(1);
+    ++current_input_schema_index;
+
+    auto repeated_field_schema_item = schema.at(current_input_schema_index);
+    if (!repeated_field_schema_item.__isset.repetition_type ||
+        repeated_field_schema_item.repetition_type !=
+          parquet::format::FieldRepetitionType::REPEATED) {
+      throw std::runtime_error("the structure of the list's child is not standard (non repeating)");
+    }
+
+    bool repeated_field_is_group    = !repeated_field_schema_item.__isset.type;
+    int repeated_field_num_children = get_num_children(repeated_field_schema_item);
+    std::string repeated_field_name = repeated_field_schema_item.name;
+    if (repeated_field_is_group && repeated_field_num_children == 1 &&
+        repeated_field_name != "array" && repeated_field_name != (list_name + "_tuple")) {
+      // This is the "standard" format where there are two groups and then a child under the the
+      // second group that holds the data. so add in the middle repeated group to the map
+      schema_map.push_back(current_input_schema_index);
+      schema_num_children.push_back(1);
+      ++current_input_schema_index;
+
+      // And let the child filter itself.
+      found.filter_schema(schema,
+                          ignore_case,
+                          current_input_schema_index,
+                          next_input_chunk_index,
+                          chunk_map,
+                          schema_map,
+                          schema_num_children);
+    } else {
+      // This is for an older format that is some times used where it is just two levels
+      found.filter_schema(schema,
+                          ignore_case,
+                          current_input_schema_index,
+                          next_input_chunk_index,
+                          chunk_map,
+                          schema_map,
+                          schema_num_children);
+    }
+  }
+
+  /**
+   * filter_schema, but specific to Tag::MAP.
+   */
+  void filter_schema_map(std::vector<parquet::format::SchemaElement> const& schema,
+                         bool const ignore_case,
+                         std::size_t& current_input_schema_index,
+                         std::size_t& next_input_chunk_index,
+                         std::vector<int>& chunk_map,
+                         std::vector<int>& schema_map,
+                         std::vector<int>& schema_num_children) const
+  {
+    // By convention with the java code the children are always called "key" and "value"...
+    auto key_found       = children.at("key");
+    auto value_found     = children.at("value");
+    auto map_schema_item = schema.at(current_input_schema_index);
+
+    // Maps are two levels. An outer group that has a ConvertedType of MAP or MAP_KEY_VALUE
+    // and then an inner group that has two fields a key (that is required) and a value, that is
+    // optional.
+
+    bool is_map_group = !map_schema_item.__isset.type;
+    if (!is_map_group) {
+      throw std::runtime_error("expected a map item, but found a single value");
+    }
+    if (!map_schema_item.__isset.converted_type ||
+        (map_schema_item.converted_type != parquet::format::ConvertedType::MAP &&
+         map_schema_item.converted_type != parquet::format::ConvertedType::MAP_KEY_VALUE)) {
+      throw std::runtime_error("expected a map type, but it was not found.");
+    }
+    if (get_num_children(map_schema_item) != 1) {
+      throw std::runtime_error("the structure of the outer map group is not standard");
+    }
+
+    // The outer group looks good so lets add it in.
+    schema_map.push_back(current_input_schema_index);
+    schema_num_children.push_back(1);
+    ++current_input_schema_index;
+
+    // Now lets look at the repeated child.
+    auto repeated_field_schema_item = schema.at(current_input_schema_index);
+    if (!repeated_field_schema_item.__isset.repetition_type ||
+        repeated_field_schema_item.repetition_type !=
+          parquet::format::FieldRepetitionType::REPEATED) {
+      throw std::runtime_error("found non repeating map child");
+    }
+
+    int repeated_field_num_children = get_num_children(repeated_field_schema_item);
+
+    if (repeated_field_num_children != 1 && repeated_field_num_children != 2) {
+      throw std::runtime_error("found map with wrong number of children");
+    }
+
+    schema_map.push_back(current_input_schema_index);
+    schema_num_children.push_back(repeated_field_num_children);
+    ++current_input_schema_index;
+
+    // Process the key...
+    key_found.filter_schema(schema,
+                            ignore_case,
+                            current_input_schema_index,
+                            next_input_chunk_index,
+                            chunk_map,
+                            schema_map,
+                            schema_num_children);
+    if (repeated_field_num_children == 2) {
+      // Process the value...
+      value_found.filter_schema(schema,
+                                ignore_case,
+                                current_input_schema_index,
+                                next_input_chunk_index,
+                                chunk_map,
+                                schema_map,
+                                schema_num_children);
+    }
+  }
+
+  /**
+   * Recursive method to parse and update the maps to filter out columns in the schema and chunks.
+   * Each column_pruner is responsible to parse out from schema what it holds and skip anything
+   * that does not match. chunk_map, schema_map, and schema_num_children are the final outputs.
+   * current_input_schema_index and next_input_chunk_index are also outputs but are state that is
+   * passed to each child and returned when it comsumes comething.
+   */
+  void filter_schema(std::vector<parquet::format::SchemaElement> const& schema,
+                     bool const ignore_case,
+                     std::size_t& current_input_schema_index,
+                     std::size_t& next_input_chunk_index,
+                     std::vector<int>& chunk_map,
+                     std::vector<int>& schema_map,
+                     std::vector<int>& schema_num_children) const
+  {
+    switch (tag) {
+      case Tag::STRUCT:
+        filter_schema_struct(schema,
+                             ignore_case,
+                             current_input_schema_index,
+                             next_input_chunk_index,
+                             chunk_map,
+                             schema_map,
+                             schema_num_children);
+        break;
+      case Tag::VALUE:
+        filter_schema_value(schema,
+                            current_input_schema_index,
+                            next_input_chunk_index,
+                            chunk_map,
+                            schema_map,
+                            schema_num_children);
+        break;
+      case Tag::LIST:
+        filter_schema_list(schema,
+                           ignore_case,
+                           current_input_schema_index,
+                           next_input_chunk_index,
+                           chunk_map,
+                           schema_map,
+                           schema_num_children);
+        break;
+      case Tag::MAP:
+        filter_schema_map(schema,
+                          ignore_case,
+                          current_input_schema_index,
+                          next_input_chunk_index,
+                          chunk_map,
+                          schema_map,
+                          schema_num_children);
+        break;
+      default:
+        throw std::runtime_error(std::string("INTERNAL ERROR UNEXPECTED TAG FOUND ") +
+                                 std::to_string(static_cast<int>(tag)));
+    }
+  }
+
+  /**
+   * Do a depth first traversal to build up column_pruner into a tree that matches the schema we
+   * want to filter using.
+   */
+  void add_depth_first(std::vector<std::string> const& names,
+                       std::vector<int> const& num_children,
+                       std::vector<Tag> const& tags,
+                       int parent_num_children)
+  {
+    CUDF_FUNC_RANGE();
+    if (parent_num_children == 0) {
+      // There is no point in doing more the tree is empty, and it lets us avoid some corner cases
+      // in the code below
+      return;
+    }
+    auto num = names.size();
+    std::vector<column_pruner*> tree_stack;
+    std::vector<int> num_children_stack;
+    tree_stack.push_back(this);
+    num_children_stack.push_back(parent_num_children);
+    for (uint64_t i = 0; i < num; ++i) {
+      auto name  = names[i];
+      auto num_c = num_children[i];
+      auto t     = tags[i];
+      tree_stack.back()->children.try_emplace(name, t);
+      if (num_c > 0) {
+        tree_stack.push_back(&tree_stack.back()->children[name]);
+        num_children_stack.push_back(num_c);
+      } else {
+        // go back up the stack/tree removing children until we hit one with more children
+        bool done = false;
+        while (!done) {
+          int parent_children_left = num_children_stack.back() - 1;
+          if (parent_children_left > 0) {
+            num_children_stack.back() = parent_children_left;
+            done                      = true;
           } else {
-            // No match was found so skip the child.
-            skip(schema, current_input_schema_index, next_input_chunk_index);
+            tree_stack.pop_back();
+            num_children_stack.pop_back();
           }
-        }
-    }
 
-    /**
-     * filter_schema, but specific to Tag::VALUE.
-     */
-    void filter_schema_value(std::vector<parquet::format::SchemaElement> const & schema,
-            std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
-            std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
-        auto schema_item = schema.at(current_input_schema_index);
-        bool is_leaf = schema_item.__isset.type;
-        if (!is_leaf) {
-          throw std::runtime_error("found a non-leaf entry when reading a leaf value");
-        }
-        if (get_num_children(schema_item) != 0) {
-          throw std::runtime_error("found an entry with children when reading a leaf value");
-        }
-        schema_map.push_back(current_input_schema_index);
-        schema_num_children.push_back(0);
-        ++current_input_schema_index;
-        chunk_map.push_back(next_input_chunk_index);
-        ++next_input_chunk_index;
-    }
-
-    /**
-     * filter_schema, but specific to Tag::LIST.
-     */
-    void filter_schema_list(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
-            std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
-            std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
-        // By convention with the java code the child is always called "element"...  
-        auto found = children.at("element");
-        // A list starts out as a group element(not leaf) with a ConvertedType that is a LIST
-        // Under it will be a repeated element
-        auto list_schema_item = schema.at(current_input_schema_index);
-        std::string list_name = list_schema_item.name;
-        bool is_group = !list_schema_item.__isset.type;
-
-        // Rules for how to parse lists from the parquet format docs
-        // 1. If the repeated field is not a group, then its type is the element type and elements are required.
-        // 2. If the repeated field is a group with multiple fields, then its type is the element type and elements are required.
-        // 3. If the repeated field is a group with one field and is named either array or uses the LIST-annotated group's name
-        //    with _tuple appended then the repeated type is the element type and elements are required.
-        // 4. Otherwise, the repeated field's type is the element type with the repeated field's repetition.
-
-        if (!is_group) {
-          if (!list_schema_item.__isset.repetition_type ||
-              list_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
-            throw std::runtime_error("expected list item to be repeating");
-          }
-          return filter_schema_value(schema, current_input_schema_index, next_input_chunk_index,
-                                     chunk_map, schema_map, schema_num_children);
-        }
-        if (!list_schema_item.__isset.converted_type || list_schema_item.converted_type != parquet::format::ConvertedType::LIST) {
-          throw std::runtime_error("expected a list type, but it was not found.");
-        }
-        if (get_num_children(list_schema_item) != 1) {
-          throw std::runtime_error("the structure of the outer list group is not standard");
-        }
-
-        // Now that the top level group looks good add it into the maps, and then start to look at the children
-        schema_map.push_back(current_input_schema_index);
-        schema_num_children.push_back(1);
-        ++current_input_schema_index;
-
-        auto repeated_field_schema_item = schema.at(current_input_schema_index);
-        if (!repeated_field_schema_item.__isset.repetition_type || repeated_field_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
-          throw std::runtime_error("the structure of the list's child is not standard (non repeating)");
-        }
-
-        bool repeated_field_is_group = !repeated_field_schema_item.__isset.type;
-        int repeated_field_num_children = get_num_children(repeated_field_schema_item);
-        std::string repeated_field_name = repeated_field_schema_item.name;
-        if (repeated_field_is_group && repeated_field_num_children == 1 && 
-                repeated_field_name != "array" && repeated_field_name != (list_name + "_tuple")) {
-          // This is the "standard" format where there are two groups and then a child under the the second group that holds the data.
-          // so add in the middle repeated group to the map
-          schema_map.push_back(current_input_schema_index);
-          schema_num_children.push_back(1);
-          ++current_input_schema_index;
-
-          // And let the child filter itself.
-          found.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-        } else {
-          // This is for an older format that is some times used where it is just two levels
-          found.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-        }
-    }
-
-    /**
-     * filter_schema, but specific to Tag::MAP.
-     */
-    void filter_schema_map(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
-            std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
-            std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
-        // By convention with the java code the children are always called "key" and "value"...  
-        auto key_found = children.at("key");
-        auto value_found = children.at("value");
-        auto map_schema_item = schema.at(current_input_schema_index);
-
-        // Maps are two levels. An outer group that has a ConvertedType of MAP or MAP_KEY_VALUE
-        // and then an inner group that has two fields a key (that is required) and a value, that is optional. 
-
-        bool is_map_group = !map_schema_item.__isset.type;
-        if (!is_map_group) {
-          throw std::runtime_error("expected a map item, but found a single value");
-        }
-        if (!map_schema_item.__isset.converted_type || 
-                (map_schema_item.converted_type != parquet::format::ConvertedType::MAP && 
-                 map_schema_item.converted_type != parquet::format::ConvertedType::MAP_KEY_VALUE)) {
-          throw std::runtime_error("expected a map type, but it was not found.");
-        }
-        if (get_num_children(map_schema_item) != 1) {
-          throw std::runtime_error("the structure of the outer map group is not standard");
-        }
-
-        // The outer group looks good so lets add it in.
-        schema_map.push_back(current_input_schema_index);
-        schema_num_children.push_back(1);
-        ++current_input_schema_index;
-
-        // Now lets look at the repeated child.
-        auto repeated_field_schema_item = schema.at(current_input_schema_index);
-        if (!repeated_field_schema_item.__isset.repetition_type || repeated_field_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
-          throw std::runtime_error("found non repeating map child");
-        }
-
-        int repeated_field_num_children = get_num_children(repeated_field_schema_item);
-
-        if (repeated_field_num_children != 1 && repeated_field_num_children != 2) {
-          throw std::runtime_error("found map with wrong number of children");
-        }
-
-        schema_map.push_back(current_input_schema_index);
-        schema_num_children.push_back(repeated_field_num_children);
-        ++current_input_schema_index;
-
-        // Process the key...
-        key_found.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-        if (repeated_field_num_children == 2) {
-          // Process the value...
-          value_found.filter_schema(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-        }
-    }
-
-    /**
-     * Recursive method to parse and update the maps to filter out columns in the schema and chunks.
-     * Each column_pruner is responsible to parse out from schema what it holds and skip anything
-     * that does not match. chunk_map, schema_map, and schema_num_children are the final outputs.
-     * current_input_schema_index and next_input_chunk_index are also outputs but are state that is
-     * passed to each child and returned when it comsumes comething.
-     */
-    void filter_schema(std::vector<parquet::format::SchemaElement> const & schema, bool const ignore_case,
-            std::size_t & current_input_schema_index, std::size_t & next_input_chunk_index,
-            std::vector<int> & chunk_map, std::vector<int> & schema_map, std::vector<int> & schema_num_children) const {
-      switch(tag) {
-        case Tag::STRUCT:
-          filter_schema_struct(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-          break;
-        case Tag::VALUE:
-          filter_schema_value(schema, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-          break;
-        case Tag::LIST:
-          filter_schema_list(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-          break;
-        case Tag::MAP:
-          filter_schema_map(schema, ignore_case, current_input_schema_index, next_input_chunk_index, chunk_map, schema_map, schema_num_children);
-          break;
-        default:
-          throw std::runtime_error(std::string("INTERNAL ERROR UNEXPECTED TAG FOUND ") + std::to_string(static_cast<int>(tag)));
-      }
-    }
-
-    /**
-     * Do a depth first traversal to build up column_pruner into a tree that matches the schema we want to filter using.
-     */
-    void add_depth_first(std::vector<std::string> const& names,
-            std::vector<int> const& num_children,
-            std::vector<Tag> const& tags,
-            int parent_num_children) {
-      CUDF_FUNC_RANGE();
-      if (parent_num_children == 0) {
-        // There is no point in doing more the tree is empty, and it lets us avoid some corner cases
-        // in the code below
-        return;
-      }
-      auto num = names.size();
-      std::vector<column_pruner*> tree_stack;
-      std::vector<int> num_children_stack;
-      tree_stack.push_back(this);
-      num_children_stack.push_back(parent_num_children);
-      for(uint64_t i = 0; i < num; ++i) {
-        auto name = names[i];
-        auto num_c = num_children[i];
-        auto t = tags[i];
-        tree_stack.back()->children.try_emplace(name, t);
-        if (num_c > 0) {
-          tree_stack.push_back(&tree_stack.back()->children[name]);
-          num_children_stack.push_back(num_c);
-        } else {
-          // go back up the stack/tree removing children until we hit one with more children
-          bool done = false;
-          while (!done) {
-              int parent_children_left = num_children_stack.back() - 1;
-              if (parent_children_left > 0) {
-                num_children_stack.back() = parent_children_left;
-                done = true;
-              } else {
-                tree_stack.pop_back();
-                num_children_stack.pop_back();
-              }
-
-              if (tree_stack.size() <= 0) {
-                done = true;
-              }
-          }
+          if (tree_stack.size() <= 0) { done = true; }
         }
       }
-      if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
-        throw std::invalid_argument("DIDN'T CONSUME EVERYTHING...");
-      }
     }
+    if (tree_stack.size() != 0 || num_children_stack.size() != 0) {
+      throw std::invalid_argument("DIDN'T CONSUME EVERYTHING...");
+    }
+  }
 
-    std::map<std::string, column_pruner> children;
-    Tag tag;
+  std::map<std::string, column_pruner> children;
+  Tag tag;
 };
 
-static bool invalid_file_offset(long start_index, long pre_start_index, long pre_compressed_size) {
+static bool invalid_file_offset(long start_index, long pre_start_index, long pre_compressed_size)
+{
   bool invalid = false;
   // checking the first rowGroup
   if (pre_start_index == 0 && start_index != 4) {
@@ -454,7 +551,7 @@ static bool invalid_file_offset(long start_index, long pre_start_index, long pre
     return invalid;
   }
 
-  //calculate start index for other blocks
+  // calculate start index for other blocks
   int64_t min_start_index = pre_start_index + pre_compressed_size;
   if (start_index < min_start_index) {
     // a bad offset detected, try first column's offset
@@ -465,8 +562,9 @@ static bool invalid_file_offset(long start_index, long pre_start_index, long pre
   return invalid;
 }
 
-static int64_t get_offset(parquet::format::ColumnChunk const& column_chunk) {
-  auto md = column_chunk.meta_data;
+static int64_t get_offset(parquet::format::ColumnChunk const& column_chunk)
+{
+  auto md        = column_chunk.meta_data;
   int64_t offset = md.data_page_offset;
   if (md.__isset.dictionary_page_offset && offset > md.dictionary_page_offset) {
     offset = md.dictionary_page_offset;
@@ -474,73 +572,75 @@ static int64_t get_offset(parquet::format::ColumnChunk const& column_chunk) {
   return offset;
 }
 
-static std::vector<parquet::format::RowGroup> filter_groups(parquet::format::FileMetaData const& meta, 
-        int64_t part_offset, int64_t part_length) {
-    CUDF_FUNC_RANGE();
-    // This is based off of the java parquet_mr code to find the groups in a range... 
-    auto num_row_groups = meta.row_groups.size();
-    int64_t pre_start_index = 0;
-    int64_t pre_compressed_size = 0;
-    bool first_column_with_metadata = true;
-    if (num_row_groups > 0) {
-        first_column_with_metadata = meta.row_groups[0].columns[0].__isset.meta_data;
-    }
+static std::vector<parquet::format::RowGroup> filter_groups(
+  parquet::format::FileMetaData const& meta, int64_t part_offset, int64_t part_length)
+{
+  CUDF_FUNC_RANGE();
+  // This is based off of the java parquet_mr code to find the groups in a range...
+  auto num_row_groups             = meta.row_groups.size();
+  int64_t pre_start_index         = 0;
+  int64_t pre_compressed_size     = 0;
+  bool first_column_with_metadata = true;
+  if (num_row_groups > 0) {
+    first_column_with_metadata = meta.row_groups[0].columns[0].__isset.meta_data;
+  }
 
-    std::vector<parquet::format::RowGroup> filtered_groups;
-    for (uint64_t rg_i = 0; rg_i < num_row_groups; ++rg_i) {
-        parquet::format::RowGroup const& row_group = meta.row_groups[rg_i];
-        int64_t total_size = 0;
-        int64_t start_index;
-        auto column_chunk = row_group.columns[0];
-        if (first_column_with_metadata) {
-            start_index = get_offset(column_chunk);
+  std::vector<parquet::format::RowGroup> filtered_groups;
+  for (uint64_t rg_i = 0; rg_i < num_row_groups; ++rg_i) {
+    parquet::format::RowGroup const& row_group = meta.row_groups[rg_i];
+    int64_t total_size                         = 0;
+    int64_t start_index;
+    auto column_chunk = row_group.columns[0];
+    if (first_column_with_metadata) {
+      start_index = get_offset(column_chunk);
+    } else {
+      // the file_offset of first block always holds the truth, while other blocks don't :
+      // see PARQUET-2078 for details
+      start_index = row_group.file_offset;
+      if (invalid_file_offset(start_index, pre_start_index, pre_compressed_size)) {
+        // first row group's offset is always 4
+        if (pre_start_index == 0) {
+          start_index = 4;
         } else {
-          //the file_offset of first block always holds the truth, while other blocks don't :
-          //see PARQUET-2078 for details
-          start_index = row_group.file_offset;
-          if (invalid_file_offset(start_index, pre_start_index, pre_compressed_size)) {
-            //first row group's offset is always 4
-            if (pre_start_index == 0) {
-              start_index = 4;
-            } else {
-              // use minStartIndex(imprecise in case of padding, but good enough for filtering)
-              start_index = pre_start_index + pre_compressed_size;
-            }
-          }
-          pre_start_index = start_index;
-          pre_compressed_size = row_group.total_compressed_size;
-      }
-      if (row_group.__isset.total_compressed_size) {
-        total_size = row_group.total_compressed_size;
-      } else {
-        auto num_columns = row_group.columns.size();
-        for (uint64_t cc_i = 0; cc_i < num_columns; ++cc_i) {
-            parquet::format::ColumnChunk const& col = row_group.columns[cc_i];
-            total_size += col.meta_data.total_compressed_size;
+          // use minStartIndex(imprecise in case of padding, but good enough for filtering)
+          start_index = pre_start_index + pre_compressed_size;
         }
       }
-
-      int64_t mid_point = start_index + total_size / 2;
-      if (mid_point >= part_offset && mid_point < (part_offset + part_length)) {
-        filtered_groups.push_back(row_group);
+      pre_start_index     = start_index;
+      pre_compressed_size = row_group.total_compressed_size;
+    }
+    if (row_group.__isset.total_compressed_size) {
+      total_size = row_group.total_compressed_size;
+    } else {
+      auto num_columns = row_group.columns.size();
+      for (uint64_t cc_i = 0; cc_i < num_columns; ++cc_i) {
+        parquet::format::ColumnChunk const& col = row_group.columns[cc_i];
+        total_size += col.meta_data.total_compressed_size;
       }
     }
-    return filtered_groups;
+
+    int64_t mid_point = start_index + total_size / 2;
+    if (mid_point >= part_offset && mid_point < (part_offset + part_length)) {
+      filtered_groups.push_back(row_group);
+    }
+  }
+  return filtered_groups;
 }
 
-void deserialize_parquet_footer(uint8_t * buffer, uint32_t len, parquet::format::FileMetaData * meta) {
+void deserialize_parquet_footer(uint8_t* buffer, uint32_t len, parquet::format::FileMetaData* meta)
+{
   using ThriftBuffer = apache::thrift::transport::TMemoryBuffer;
 
   CUDF_FUNC_RANGE();
-  // A lot of this came from the parquet source code...
-  // Deserialize msg bytes into c++ thrift msg using memory transport.
-  #if PARQUET_THRIFT_VERSION_MAJOR > 0 || PARQUET_THRIFT_VERSION_MINOR >= 14
+// A lot of this came from the parquet source code...
+// Deserialize msg bytes into c++ thrift msg using memory transport.
+#if PARQUET_THRIFT_VERSION_MAJOR > 0 || PARQUET_THRIFT_VERSION_MINOR >= 14
   auto conf = std::make_shared<apache::thrift::TConfiguration>();
   conf->setMaxMessageSize(std::numeric_limits<int>::max());
   auto tmem_transport = std::make_shared<ThriftBuffer>(buffer, len, ThriftBuffer::OBSERVE, conf);
-  #else
+#else
   auto tmem_transport = std::make_shared<ThriftBuffer>(buffer, len);
-  #endif
+#endif
 
   apache::thrift::protocol::TCompactProtocolFactoryT<ThriftBuffer> tproto_factory;
   // Protect against CPU and memory bombs
@@ -549,7 +649,7 @@ void deserialize_parquet_footer(uint8_t * buffer, uint32_t len, parquet::format:
   // This limits total memory to the same order of magnitude as stringSize.
   tproto_factory.setContainerSizeLimit(1000 * 1000);
   std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
-      tproto_factory.getProtocol(tmem_transport);
+    tproto_factory.getProtocol(tmem_transport);
   try {
     meta->read(tproto.get());
   } catch (std::exception& e) {
@@ -559,7 +659,8 @@ void deserialize_parquet_footer(uint8_t * buffer, uint32_t len, parquet::format:
   }
 }
 
-void filter_columns(std::vector<parquet::format::RowGroup> & groups, std::vector<int> & chunk_filter) {
+void filter_columns(std::vector<parquet::format::RowGroup>& groups, std::vector<int>& chunk_filter)
+{
   CUDF_FUNC_RANGE();
   for (auto group_it = groups.begin(); group_it != groups.end(); ++group_it) {
     std::vector<parquet::format::ColumnChunk> new_chunks;
@@ -570,24 +671,27 @@ void filter_columns(std::vector<parquet::format::RowGroup> & groups, std::vector
   }
 }
 
-}
-}
+}  // namespace jni
+}  // namespace rapids
 
 extern "C" {
 
-JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv * env, jclass,
-                                                                                    jlong buffer,
-                                                                                    jlong buffer_length,
-                                                                                    jlong part_offset,
-                                                                                    jlong part_length,
-                                                                                    jobjectArray filter_col_names,
-                                                                                    jintArray num_children,
-                                                                                    jintArray tags,
-                                                                                    jint parent_num_children,
-                                                                                    jboolean ignore_case) {
+JNIEXPORT long JNICALL
+Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
+                                                             jclass,
+                                                             jlong buffer,
+                                                             jlong buffer_length,
+                                                             jlong part_offset,
+                                                             jlong part_length,
+                                                             jobjectArray filter_col_names,
+                                                             jintArray num_children,
+                                                             jintArray tags,
+                                                             jint parent_num_children,
+                                                             jboolean ignore_case)
+{
   CUDF_FUNC_RANGE();
   try {
-    auto meta = std::make_unique<parquet::format::FileMetaData>();
+    auto meta    = std::make_unique<parquet::format::FileMetaData>();
     uint32_t len = static_cast<uint32_t>(buffer_length);
     // We don't support encrypted parquet...
     rapids::jni::deserialize_parquet_footer(reinterpret_cast<uint8_t*>(buffer), len, meta.get());
@@ -603,18 +707,18 @@ JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFil
     }
 
     rapids::jni::column_pruner pruner(n_filter_col_names.as_cpp_vector(),
-            std::vector(n_num_children.begin(), n_num_children.end()),
-            tags,
-            parent_num_children);
+                                      std::vector(n_num_children.begin(), n_num_children.end()),
+                                      tags,
+                                      parent_num_children);
     auto filter = pruner.filter_schema(meta->schema, ignore_case);
 
     // start by filtering the schema and the chunks
     std::size_t new_schema_size = filter.schema_map.size();
     std::vector<parquet::format::SchemaElement> new_schema(new_schema_size);
     for (std::size_t i = 0; i < new_schema_size; ++i) {
-      int orig_index = filter.schema_map[i];
-      int new_num_children = filter.schema_num_children[i];
-      new_schema[i] = meta->schema[orig_index];
+      int orig_index             = filter.schema_map[i];
+      int new_num_children       = filter.schema_num_children[i];
+      new_schema[i]              = meta->schema[orig_index];
       new_schema[i].num_children = new_num_children;
     }
     meta->schema = std::move(new_schema);
@@ -636,21 +740,25 @@ JNIEXPORT long JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFil
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIEnv * env, jclass,
-                                                                            jlong handle) {
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIEnv* env,
+                                                                            jclass,
+                                                                            jlong handle)
+{
   try {
-    parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
+    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     delete ptr;
   }
   CATCH_STD(env, );
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRows(JNIEnv * env, jclass,
-                                                                                 jlong handle) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRows(JNIEnv* env,
+                                                                                  jclass,
+                                                                                  jlong handle)
+{
   try {
-    parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
-    long ret = 0;
-    for(auto it = ptr->row_groups.begin(); it != ptr->row_groups.end(); ++it) {
+    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
+    long ret                           = 0;
+    for (auto it = ptr->row_groups.begin(); it != ptr->row_groups.end(); ++it) {
       ret = ret + it->num_rows;
     }
     return ret;
@@ -658,55 +766,56 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRow
   CATCH_STD(env, -1);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumColumns(JNIEnv * env, jclass,
-                                                                                     jlong handle) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumColumns(JNIEnv* env,
+                                                                                     jclass,
+                                                                                     jlong handle)
+{
   try {
-    parquet::format::FileMetaData * ptr = reinterpret_cast<parquet::format::FileMetaData *>(handle);
-    int ret = 0;
+    parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
+    int ret                            = 0;
     if (ptr->schema.size() > 0) {
-      if (ptr->schema[0].__isset.num_children) {
-        ret = ptr->schema[0].num_children;
-      }
+      if (ptr->schema[0].__isset.num_children) { ret = ptr->schema[0].num_children; }
     }
     return ret;
   }
   CATCH_STD(env, -1);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(JNIEnv * env, jclass,
-                                                                                             jlong handle) {
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(
+  JNIEnv* env, jclass, jlong handle)
+{
   CUDF_FUNC_RANGE();
   try {
-    parquet::format::FileMetaData * meta = reinterpret_cast<parquet::format::FileMetaData *>(handle);
+    parquet::format::FileMetaData* meta = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> transportOut(
-            new apache::thrift::transport::TMemoryBuffer());
-    apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer> factory;
+      new apache::thrift::transport::TMemoryBuffer());
+    apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
+      factory;
     auto protocolOut = factory.getProtocol(transportOut);
     meta->write(protocolOut.get());
-    uint8_t * buf_ptr;
+    uint8_t* buf_ptr;
     uint32_t buf_size;
     transportOut->getBuffer(&buf_ptr, &buf_size);
 
     // 12 extra is for the MAGIC thrift_footer length MAGIC
-    jobject ret = cudf::jni::allocate_host_buffer(env, buf_size + 12, false);
+    jobject ret       = cudf::jni::allocate_host_buffer(env, buf_size + 12, false);
     uint8_t* ret_addr = reinterpret_cast<uint8_t*>(cudf::jni::get_host_buffer_address(env, ret));
-    ret_addr[0] = 'P';
-    ret_addr[1] = 'A';
-    ret_addr[2] = 'R';
-    ret_addr[3] = '1';
+    ret_addr[0]       = 'P';
+    ret_addr[1]       = 'A';
+    ret_addr[2]       = 'R';
+    ret_addr[3]       = '1';
     std::memcpy(ret_addr + 4, buf_ptr, buf_size);
-    uint8_t * after = ret_addr + buf_size + 4;
-    after[0] = static_cast<uint8_t>(0xFF & buf_size);
-    after[1] = static_cast<uint8_t>(0xFF & (buf_size >> 8));
-    after[2] = static_cast<uint8_t>(0xFF & (buf_size >> 16));
-    after[3] = static_cast<uint8_t>(0xFF & (buf_size >> 24));
-    after[4] = 'P';
-    after[5] = 'A';
-    after[6] = 'R';
-    after[7] = '1';
+    uint8_t* after = ret_addr + buf_size + 4;
+    after[0]       = static_cast<uint8_t>(0xFF & buf_size);
+    after[1]       = static_cast<uint8_t>(0xFF & (buf_size >> 8));
+    after[2]       = static_cast<uint8_t>(0xFF & (buf_size >> 16));
+    after[3]       = static_cast<uint8_t>(0xFF & (buf_size >> 24));
+    after[4]       = 'P';
+    after[5]       = 'A';
+    after[6]       = 'R';
+    after[7]       = '1';
     return ret;
   }
   CATCH_STD(env, nullptr);
 }
-
 }

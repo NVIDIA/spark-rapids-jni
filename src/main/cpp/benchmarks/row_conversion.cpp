@@ -28,15 +28,15 @@ void fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
   auto const direction = state.get_string("direction");
-  auto const table = create_random_table(cycle_dtypes({cudf::type_id::INT8,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::INT16,
-                                                       cudf::type_id::INT64,
-                                                       cudf::type_id::INT32,
-                                                       cudf::type_id::BOOL8,
-                                                       cudf::type_id::UINT16,
-                                                       cudf::type_id::UINT8,
-                                                       cudf::type_id::UINT64},
+  auto const table     = create_random_table(cycle_dtypes({cudf::type_id::INT8,
+                                                           cudf::type_id::INT32,
+                                                           cudf::type_id::INT16,
+                                                           cudf::type_id::INT64,
+                                                           cudf::type_id::INT32,
+                                                           cudf::type_id::BOOL8,
+                                                           cudf::type_id::UINT16,
+                                                           cudf::type_id::UINT8,
+                                                           cudf::type_id::UINT64},
                                                       212),
                                          row_count{n_rows});
 
@@ -50,16 +50,15 @@ void fixed_width(nvbench::state& state)
 
   auto rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
 
-  state.exec(nvbench::exec_tag::sync,
-  [&](nvbench::launch& launch) {
-      if (direction == "to row") {
-        auto _rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
-      } else {
-        for (auto const &r : rows) {
-          cudf::lists_column_view const l(r->view());
-          auto out = spark_rapids_jni::convert_from_rows_fixed_width_optimized(l, schema);
-        }
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
+    if (direction == "to row") {
+      auto _rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
+    } else {
+      for (auto const& r : rows) {
+        cudf::lists_column_view const l(r->view());
+        auto out = spark_rapids_jni::convert_from_rows_fixed_width_optimized(l, schema);
       }
+    }
   });
 
   state.add_buffer_size(n_rows, "trc", "Total Rows");
@@ -69,7 +68,7 @@ void fixed_width(nvbench::state& state)
 static void variable_or_fixed_width(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  auto const direction = state.get_string("direction");
+  auto const direction       = state.get_string("direction");
   auto const include_strings = state.get_string("strings");
 
   if (n_rows > 1 * 1024 * 1024 && include_strings == "include strings") {
@@ -120,17 +119,16 @@ static void variable_or_fixed_width(nvbench::state& state)
 
   auto rows = spark_rapids_jni::convert_to_rows(table->view());
 
-  state.exec(nvbench::exec_tag::sync,
-  [&](nvbench::launch& launch) {
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     auto new_rows = spark_rapids_jni::convert_to_rows(table->view());
-          if (direction == "to row") {
-        auto _rows = spark_rapids_jni::convert_to_rows(table->view());
-      } else {
-        for (auto const &r : rows) {
-          cudf::lists_column_view const l(r->view());
-          auto out = spark_rapids_jni::convert_from_rows(l, schema);
-        }
+    if (direction == "to row") {
+      auto _rows = spark_rapids_jni::convert_to_rows(table->view());
+    } else {
+      for (auto const& r : rows) {
+        cudf::lists_column_view const l(r->view());
+        auto out = spark_rapids_jni::convert_from_rows(l, schema);
       }
+    }
   });
 
   state.add_buffer_size(n_rows, "trc", "Total Rows");
@@ -138,12 +136,12 @@ static void variable_or_fixed_width(nvbench::state& state)
 }
 
 NVBENCH_BENCH(fixed_width)
-    .set_name("Fixed Width Only")
-    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
-    .add_string_axis("direction", {"to row", "from row"});
+  .set_name("Fixed Width Only")
+  .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
+  .add_string_axis("direction", {"to row", "from row"});
 
 NVBENCH_BENCH(variable_or_fixed_width)
-    .set_name("Fixed or Variable Width")
-    .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
-    .add_string_axis("direction", {"to row", "from row"})
-    .add_string_axis("strings", {"include strings", "no strings"});
+  .set_name("Fixed or Variable Width")
+  .add_int64_axis("num_rows", {1 * 1024 * 1024, 4 * 1024 * 1024})
+  .add_string_axis("direction", {"to row", "from row"})
+  .add_string_axis("strings", {"include strings", "no strings"});

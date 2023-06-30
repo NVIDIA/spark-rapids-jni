@@ -48,4 +48,4 @@ std::unique_ptr<cudf::table> convert_from_rows(
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
