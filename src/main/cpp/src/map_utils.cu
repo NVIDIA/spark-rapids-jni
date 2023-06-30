@@ -75,7 +75,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
   auto const d_strings  = cudf::column_device_view::create(input, stream);
   auto const chars_size = input.child(cudf::strings_column_view::chars_column_index).size();
   auto const output_size =
-    2l +  // two extra bracket characters '[' and ']'
+    2l +                                            // two extra bracket characters '[' and ']'
     static_cast<int64_t>(chars_size) +
     static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
     static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
