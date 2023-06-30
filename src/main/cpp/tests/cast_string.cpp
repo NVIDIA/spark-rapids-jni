@@ -30,14 +30,12 @@
 using namespace cudf;
 
 template <typename T>
-struct StringToIntegerTests : public test::BaseFixture {
-};
+struct StringToIntegerTests : public test::BaseFixture {};
 
 struct StringToDecimalTests : public test::BaseFixture {};
 
 template <typename T>
-struct StringToFloatTests : public test::BaseFixture {
-};
+struct StringToFloatTests : public test::BaseFixture {};
 
 TYPED_TEST_SUITE(StringToIntegerTests, cudf::test::IntegralTypesNotBool);
 TYPED_TEST_SUITE(StringToFloatTests, cudf::test::FloatingPointTypes);

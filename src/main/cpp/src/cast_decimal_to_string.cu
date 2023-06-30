@@ -87,9 +87,9 @@ struct decimal_to_non_ansi_string_fn {
     } else {
       // positive scale or adjusted exponent < -6 means scientific notation
       auto const extra_digits = abs_value_digits > 1 ? 3 : 2;
-      return static_cast<int32_t>(value < 0) +  // sign if negative
-             abs_value_digits +                 // number of digits
-             extra_digits +                     // decimal point if exists, E, +/-
+      return static_cast<int32_t>(value < 0) +            // sign if negative
+             abs_value_digits +                           // number of digits
+             extra_digits +                               // decimal point if exists, E, +/-
              strings::detail::count_digits(
                numeric::detail::abs(adjusted_exponent));  // exponent portion
     }
@@ -127,7 +127,7 @@ struct decimal_to_non_ansi_string_fn {
       d_buffer +=
         strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add the integer part
       if (scale != 0) {
-        *d_buffer++ = '.';  // add decimal point
+        *d_buffer++ = '.';                                                  // add decimal point
 
         thrust::generate_n(thrust::seq, d_buffer, num_zeros, []() { return '0'; });  // add zeros
         d_buffer += num_zeros;
