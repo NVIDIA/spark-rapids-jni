@@ -21,8 +21,9 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_ZOrder_interleaveBits(JNIEnv *env, jclass, jlongArray input_columns) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ZOrder_interleaveBits(
+  JNIEnv* env, jclass, jlongArray input_columns)
+{
   JNI_NULL_CHECK(env, input_columns, "input is null", 0);
 
   try {
@@ -35,8 +36,9 @@ Java_com_nvidia_spark_rapids_jni_ZOrder_interleaveBits(JNIEnv *env, jclass, jlon
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_ZOrder_hilbertIndex(JNIEnv *env, jclass, jint num_bits, jlongArray input_columns) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ZOrder_hilbertIndex(
+  JNIEnv* env, jclass, jint num_bits, jlongArray input_columns)
+{
   JNI_NULL_CHECK(env, input_columns, "input is null", 0);
 
   try {
@@ -48,7 +50,4 @@ Java_com_nvidia_spark_rapids_jni_ZOrder_hilbertIndex(JNIEnv *env, jclass, jint n
   }
   CATCH_STD(env, 0);
 }
-
-
-
 }
