@@ -44,8 +44,12 @@ public class Hash {
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
       columnViews[i] = columns[i].getNativeView(); 
     }
-    return new ColumnVector(murmurHash32(columnViews, seed));
+    return new ColumnVector(murmurHash32(seed, columnViews));
   }
 
-  private static native long murmurHash32(long[] viewHandles, int seed) throws CudfException;
+  public static ColumnVector murmurHash32(ColumnView columns[]) {
+    return murmurHash32(0, columns);
+  }
+
+  private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
 }

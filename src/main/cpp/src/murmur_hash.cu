@@ -206,7 +206,7 @@ spark_hash_value_type __device__ inline SparkMurmurHash3_32<numeric::decimal128>
   numeric::decimal128 const& key) const
 {
   auto [java_d, length] = to_java_bigdecimal(key);
-  auto bytes = reinterpret_cast<std::byte*>(&java_d);
+  auto bytes            = reinterpret_cast<std::byte*>(&java_d);
   return compute_bytes(bytes, length);
 }
 
@@ -296,7 +296,8 @@ class spark_murmur_device_row_hasher {
                                                 cudf::size_type row_index) const noexcept
     {
       cudf::column_device_view curr_col = col.slice(row_index, 1);
-      while (curr_col.type().id() == cudf::type_id::STRUCT || curr_col.type().id() == cudf::type_id::LIST) {
+      while (curr_col.type().id() == cudf::type_id::STRUCT ||
+             curr_col.type().id() == cudf::type_id::LIST) {
         if (curr_col.type().id() == cudf::type_id::STRUCT) {
           if (curr_col.num_child_columns() == 0) { return _seed; }
           // Non-empty structs are assumed to be decomposed and contain only one child
@@ -366,11 +367,12 @@ std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
-  auto output = cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<spark_hash_value_type>()),
-                                          input.num_rows(),
-                                          cudf::mask_state::UNALLOCATED,
-                                          stream,
-                                          mr);
+  auto output =
+    cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<spark_hash_value_type>()),
+                              input.num_rows(),
+                              cudf::mask_state::UNALLOCATED,
+                              stream,
+                              mr);
 
   // Return early if there's nothing to hash
   if (input.num_columns() == 0 || input.num_rows() == 0) { return output; }

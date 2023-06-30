@@ -21,6 +21,8 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
+#include <thrust/reverse.h>
+
 namespace spark_rapids_jni {
 
 /**
@@ -30,10 +32,11 @@ namespace spark_rapids_jni {
  *
  * @returns A 128 bit value containing the converted decimal bits and a length
  *          representing the relevant number of bytes in the value.
- * 
+ *
  */
-__device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(numeric::decimal128 key)
-{  
+__device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
+  numeric::decimal128 key)
+{
   // java.math.BigDecimal.valueOf(unscaled_value, _scale).unscaledValue().toByteArray()
   // https://github.com/apache/spark/blob/master/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/hash.scala#L381
   __int128_t const val               = key.value();
@@ -72,7 +75,6 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
   return {big_endian_value, length};
 }
 
-
 /**
  * @brief Computes the murmur32 hash value of each row in the input set of columns.
  *
@@ -83,24 +85,10 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
  *
  * @returns A column where each row is the hash of a column from the input.
  */
-std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
-                                              uint32_t seed,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr);
-
-/**
- * @brief Computes the xxhash64 hash value of each row in the input set of columns.
- *
- * @param input The table of columns to hash
- * @param seed Optional seed value to use for the hash function
- * @param stream CUDA stream used for device memory operations and kernel launches
- * @param mr Device memory resource used to allocate the returned column's device memory
- *
- * @returns A column where each row is the hash of a column from the input.
- */
-std::unique_ptr<cudf::column> xxhash64(cudf::table_view const& input,
-                                       uint32_t seed,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::mr::device_memory_resource* mr);
+std::unique_ptr<cudf::column> murmur_hash3_32(
+  cudf::table_view const& input,
+  uint32_t seed,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni

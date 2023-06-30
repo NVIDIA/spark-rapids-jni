@@ -148,6 +148,7 @@ add_library(
   spark_rapids_jni SHARED
   src/CastStringJni.cpp
   src/DecimalUtilsJni.cpp
+  src/HashJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/RowConversionJni.cpp

@@ -14,25 +14,25 @@
  * limitations under the License.
  */
 
-#include <cudf_jni_apis.hpp>
-#include <dtype_utils.hpp>
+#include "cudf_jni_apis.hpp"
+#include "dtype_utils.hpp"
+#include "jni_utils.hpp"
 
 #include "hash.cuh"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Hash_murmurHash32(JNIEnv *env, jobject j_object,
-                                                              jlongArray column_handles,
-                                                              jint seed) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
+  JNIEnv* env, jobject j_object, jint seed, jlongArray column_handles)
+{
   JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
 
   try {
     auto column_views =
-        cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
-    return release_as_jlong(spark_rapids_jni::murmur_hash3_32(cudf::table_view{column_views},
-                            seed));
+      cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::murmur_hash3_32(cudf::table_view{column_views}, seed));
   }
   CATCH_STD(env, 0);
 }
-
 }
