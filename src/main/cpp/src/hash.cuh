@@ -28,7 +28,7 @@ namespace spark_rapids_jni {
 /**
  * @brief Converts a cudf decimal128 value to a java bigdecimal value.
  *
- * @param d The cudf decimal value
+ * @param key The cudf decimal value
  *
  * @returns A 128 bit value containing the converted decimal bits and a length
  *          representing the relevant number of bytes in the value.
