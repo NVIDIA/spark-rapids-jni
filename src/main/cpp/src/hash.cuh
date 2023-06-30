@@ -87,7 +87,7 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
  */
 std::unique_ptr<cudf::column> murmur_hash3_32(
   cudf::table_view const& input,
-  uint32_t seed,
+  uint32_t seed                       = 0,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

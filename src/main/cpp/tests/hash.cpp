@@ -24,6 +24,8 @@
 #include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
 
+#include "hash.cuh"
+
 constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::ALL_ERRORS};
 
 class HashTest : public cudf::test::BaseFixture {};
@@ -119,8 +121,8 @@ TEST_F(HashTest, MultiValueNulls)
   EXPECT_EQ(input1.num_rows(), output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
 
-  auto const spark_output1 = cudf::hash(input1, cudf::hash_id::HASH_SPARK_MURMUR3, 0);
-  auto const spark_output2 = cudf::hash(input2, cudf::hash_id::HASH_SPARK_MURMUR3);
+  auto const spark_output1 = spark_rapids_jni::murmur_hash3_32(input1, 0);
+  auto const spark_output2 = spark_rapids_jni::murmur_hash3_32(input2);
 
   EXPECT_EQ(input1.num_rows(), spark_output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(spark_output1->view(), spark_output2->view());
@@ -358,8 +360,8 @@ TYPED_TEST(HashTestTyped, Equality)
   EXPECT_EQ(input.num_rows(), output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
 
-  auto const spark_output1 = cudf::hash(input, cudf::hash_id::HASH_SPARK_MURMUR3, 0);
-  auto const spark_output2 = cudf::hash(input, cudf::hash_id::HASH_SPARK_MURMUR3);
+  auto const spark_output1 = spark_rapids_jni::murmur_hash3_32(input, 0);
+  auto const spark_output2 = spark_rapids_jni::murmur_hash3_32(input);
 
   EXPECT_EQ(input.num_rows(), spark_output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(spark_output1->view(), spark_output2->view());
@@ -382,8 +384,8 @@ TYPED_TEST(HashTestTyped, EqualityNulls)
   EXPECT_EQ(input1.num_rows(), output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
 
-  auto const spark_output1 = cudf::hash(input1, cudf::hash_id::HASH_SPARK_MURMUR3, 0);
-  auto const spark_output2 = cudf::hash(input2, cudf::hash_id::HASH_SPARK_MURMUR3);
+  auto const spark_output1 = spark_rapids_jni::murmur_hash3_32(input1, 0);
+  auto const spark_output2 = spark_rapids_jni::murmur_hash3_32(input2);
 
   EXPECT_EQ(input1.num_rows(), spark_output1->size());
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(spark_output1->view(), spark_output2->view());
@@ -421,9 +423,8 @@ TYPED_TEST(HashTestFloatTyped, TestExtremes)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_col, *hash_col_neg_nan, verbosity);
 
   // Spark hash is sensitive to 0 and -0
-  constexpr auto spark_hasher  = cudf::hash_id::HASH_SPARK_MURMUR3;
-  auto const spark_col         = cudf::hash(table_col, spark_hasher, 0);
-  auto const spark_col_neg_nan = cudf::hash(table_col_neg_nan, spark_hasher);
+  auto const spark_col         = spark_rapids_jni::murmur_hash3_32(table_col, 0);
+  auto const spark_col_neg_nan = spark_rapids_jni::murmur_hash3_32(table_col_neg_nan);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*spark_col, *spark_col_neg_nan);
 }
@@ -575,22 +576,25 @@ TEST_F(SparkMurmurHash3Test, MultiValueWithSeeds)
      (static_cast<__int128>(0x0785'EE10'D5DA'46D9u) << 64 | 0x00F4'369F'FFFF'FFFFu)},
     numeric::scale_type{-11});
 
-  constexpr auto hasher      = cudf::hash_id::HASH_SPARK_MURMUR3;
-  auto const hash_structs    = cudf::hash(cudf::table_view({structs_col}), hasher, 42);
-  auto const hash_strings    = cudf::hash(cudf::table_view({strings_col}), hasher, 42);
-  auto const hash_doubles    = cudf::hash(cudf::table_view({doubles_col}), hasher, 42);
-  auto const hash_timestamps = cudf::hash(cudf::table_view({timestamps_col}), hasher, 42);
-  auto const hash_decimal64  = cudf::hash(cudf::table_view({decimal64_col}), hasher, 42);
-  auto const hash_longs      = cudf::hash(cudf::table_view({longs_col}), hasher, 42);
-  auto const hash_floats     = cudf::hash(cudf::table_view({floats_col}), hasher, 42);
-  auto const hash_dates      = cudf::hash(cudf::table_view({dates_col}), hasher, 42);
-  auto const hash_decimal32  = cudf::hash(cudf::table_view({decimal32_col}), hasher, 42);
-  auto const hash_ints       = cudf::hash(cudf::table_view({ints_col}), hasher, 42);
-  auto const hash_shorts     = cudf::hash(cudf::table_view({shorts_col}), hasher, 42);
-  auto const hash_bytes      = cudf::hash(cudf::table_view({bytes_col}), hasher, 42);
-  auto const hash_bools1     = cudf::hash(cudf::table_view({bools_col1}), hasher, 42);
-  auto const hash_bools2     = cudf::hash(cudf::table_view({bools_col2}), hasher, 42);
-  auto const hash_decimal128 = cudf::hash(cudf::table_view({decimal128_col}), hasher, 42);
+  auto const hash_structs = spark_rapids_jni::murmur_hash3_32(cudf::table_view({structs_col}), 42);
+  auto const hash_strings = spark_rapids_jni::murmur_hash3_32(cudf::table_view({strings_col}), 42);
+  auto const hash_doubles = spark_rapids_jni::murmur_hash3_32(cudf::table_view({doubles_col}), 42);
+  auto const hash_timestamps =
+    spark_rapids_jni::murmur_hash3_32(cudf::table_view({timestamps_col}), 42);
+  auto const hash_decimal64 =
+    spark_rapids_jni::murmur_hash3_32(cudf::table_view({decimal64_col}), 42);
+  auto const hash_longs  = spark_rapids_jni::murmur_hash3_32(cudf::table_view({longs_col}), 42);
+  auto const hash_floats = spark_rapids_jni::murmur_hash3_32(cudf::table_view({floats_col}), 42);
+  auto const hash_dates  = spark_rapids_jni::murmur_hash3_32(cudf::table_view({dates_col}), 42);
+  auto const hash_decimal32 =
+    spark_rapids_jni::murmur_hash3_32(cudf::table_view({decimal32_col}), 42);
+  auto const hash_ints   = spark_rapids_jni::murmur_hash3_32(cudf::table_view({ints_col}), 42);
+  auto const hash_shorts = spark_rapids_jni::murmur_hash3_32(cudf::table_view({shorts_col}), 42);
+  auto const hash_bytes  = spark_rapids_jni::murmur_hash3_32(cudf::table_view({bytes_col}), 42);
+  auto const hash_bools1 = spark_rapids_jni::murmur_hash3_32(cudf::table_view({bools_col1}), 42);
+  auto const hash_bools2 = spark_rapids_jni::murmur_hash3_32(cudf::table_view({bools_col2}), 42);
+  auto const hash_decimal128 =
+    spark_rapids_jni::murmur_hash3_32(cudf::table_view({decimal128_col}), 42);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_structs, hash_structs_expected, verbosity);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_strings, hash_strings_expected, verbosity);
@@ -622,7 +626,7 @@ TEST_F(SparkMurmurHash3Test, MultiValueWithSeeds)
                                                 bytes_col,
                                                 bools_col2,
                                                 decimal128_col});
-  auto const hash_combined  = cudf::hash(combined_table, hasher, 42);
+  auto const hash_combined  = spark_rapids_jni::murmur_hash3_32(combined_table, 42);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_combined, hash_combined_expected, verbosity);
 }
 
@@ -647,8 +651,7 @@ TEST_F(SparkMurmurHash3Test, StringsWithSeed)
      "All work and no play makes Jack a dull boy",
      "!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~\ud720\ud721"});
 
-  constexpr auto hasher   = cudf::hash_id::HASH_SPARK_MURMUR3;
-  auto const hash_strings = cudf::hash(cudf::table_view({strings_col}), hasher, 314);
+  auto const hash_strings = spark_rapids_jni::murmur_hash3_32(cudf::table_view({strings_col}), 314);
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_strings, hash_strings_expected_seed_314, verbosity);
 }
@@ -724,7 +727,7 @@ TEST_F(SparkMurmurHash3Test, ListValues)
                                                                 -912918097,
                                                                 -912918097};
 
-  auto output = cudf::hash(cudf::table_view({*list_column}), cudf::hash_id::HASH_SPARK_MURMUR3, 42);
+  auto output = spark_rapids_jni::murmur_hash3_32(cudf::table_view({*list_column}), 42);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expect, output->view(), verbosity);
 }
 
@@ -776,8 +779,7 @@ TEST_F(SparkMurmurHash3Test, StructOfListValues)
   auto expect = cudf::test::fixed_width_column_wrapper<int32_t>{
     42, 59727262, -559580957, -559580957, -559580957, -559580957, 170038658};
 
-  auto output =
-    cudf::hash(cudf::table_view({struct_column}), cudf::hash_id::HASH_SPARK_MURMUR3, 42);
+  auto output = spark_rapids_jni::murmur_hash3_32(cudf::table_view({struct_column}), 42);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expect, output->view(), verbosity);
 }
 
@@ -830,14 +832,14 @@ TEST_F(SparkMurmurHash3Test, ListOfStructValues)
 
   // TODO: Lists of structs are not yet supported. Once support is added,
   // remove this EXPECT_THROW and uncomment the rest of this test.
-  EXPECT_THROW(cudf::hash(cudf::table_view({*list_column}), cudf::hash_id::HASH_SPARK_MURMUR3, 42),
+  EXPECT_THROW(spark_rapids_jni::murmur_hash3_32(cudf::table_view({*list_column}), 42),
                cudf::logic_error);
 
   /*
   auto expect = cudf::test::fixed_width_column_wrapper<int32_t>{
     59727262, 42, 42, -559580957, -559580957, -912918097, 1092624418, 170038658};
 
-  auto output = cudf::hash(cudf::table_view({*list_column}), cudf::hash_id::HASH_SPARK_MURMUR3, 42);
+  auto output = spark_rapids_jni::murmur_hash3_32(cudf::table_view({*list_column}), 42);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expect, output->view(), verbosity);
   */
 }
