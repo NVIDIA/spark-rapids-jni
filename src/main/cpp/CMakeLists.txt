@@ -158,6 +158,7 @@ add_library(
   src/cast_string_to_float.cu
   src/decimal_utils.cu
   src/map_utils.cu
+  src/murmur_hash.cu
   src/row_conversion.cu
   src/zorder.cu
 )
