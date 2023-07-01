@@ -20,7 +20,7 @@ import ai.rapids.cudf.*;
 
 public class Hash {
   // there doesn't appear to be a useful constant in spark to reference. this could break.
-  static final int SPARK_DEFAULT_XXHASH64_SEED = 42;  
+  static final long SPARK_DEFAULT_XXHASH64_SEED = 42;  
 
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -61,7 +61,7 @@ public class Hash {
    * @param columns array of columns to hash, must have identical number of rows.
    * @return the new ColumnVector of 64-bit values representing each row's hash value.
    */
-  public static ColumnVector xxhash64(int seed, ColumnView columns[]) {
+  public static ColumnVector xxhash64(long seed, ColumnView columns[]) {
     if (columns.length < 1) {
       throw new IllegalArgumentException("xxhash64 hashing requires at least 1 column of input");
     }
@@ -84,5 +84,5 @@ public class Hash {
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
   
-  private static native long xxhash64(int seed, long[] viewHandles) throws CudfException;
+  private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
 }

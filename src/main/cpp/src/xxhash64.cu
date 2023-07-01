@@ -330,7 +330,7 @@ class device_row_hasher {
 }  // namespace
 
 std::unique_ptr<cudf::column> xxhash64(cudf::table_view const& input,
-                                       uint64_t _seed,
+                                       int64_t _seed,
                                        rmm::cuda_stream_view stream,
                                        rmm::mr::device_memory_resource* mr)
 {

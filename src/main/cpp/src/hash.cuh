@@ -105,7 +105,7 @@ std::unique_ptr<cudf::column> murmur_hash3_32(
  */
 std::unique_ptr<cudf::column> xxhash64(
   cudf::table_view const& input,
-  uint64_t seed                       = SPARK_DEFAULT_XXHASH64_SEED,
+  int64_t seed                        = SPARK_DEFAULT_XXHASH64_SEED,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

@@ -38,7 +38,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_xxhash64(JNIEnv* env,
                                                                        jobject j_object,
-                                                                       jint seed,
+                                                                       jlong seed,
                                                                        jlongArray column_handles)
 {
   JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
