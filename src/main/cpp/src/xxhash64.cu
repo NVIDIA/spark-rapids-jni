@@ -31,36 +31,37 @@ namespace spark_rapids_jni {
 namespace {
 
 __device__ inline int64_t rotate_bits_left_signed(int64_t h, int8_t r)
-{ 
+{
   return (h << r) | (h >> (64 - r)) & ~(-1 << r);
 }
 
 using hash_value_type = int64_t;
-using half_size_type = int32_t;
+using half_size_type  = int32_t;
 
 template <typename Key>
 struct XXHash_64 {
   using result_type = hash_value_type;
 
   constexpr XXHash_64() = default;
-  constexpr XXHash_64(hash_value_type seed, int _row_index) : m_seed(seed), m_row_index(_row_index) {}
+  constexpr XXHash_64(hash_value_type seed, int _row_index) : m_seed(seed), m_row_index(_row_index)
+  {
+  }
 
-  template<typename T>
+  template <typename T>
   __device__ inline T getblock32(std::byte const* data, cudf::size_type offset) const
   {
     // Read a 4-byte value from the data pointer as individual bytes for safe
     // unaligned access (very likely for string types).
-    auto block = reinterpret_cast<std::uint8_t const*>(data + offset);
-    uint32_t result = static_cast<uint32_t>(block[0])          | 
-                      (static_cast<uint32_t>(block[1]) << 8)   |
-                      (static_cast<uint32_t>(block[2]) << 16)  |
+    auto block      = reinterpret_cast<std::uint8_t const*>(data + offset);
+    uint32_t result = static_cast<uint32_t>(block[0]) | (static_cast<uint32_t>(block[1]) << 8) |
+                      (static_cast<uint32_t>(block[2]) << 16) |
                       (static_cast<uint32_t>(block[3]) << 24);
     return reinterpret_cast<T const*>(&result)[0];
   }
 
   __device__ inline hash_value_type getblock64(std::byte const* data, cudf::size_type offset) const
   {
-    uint64_t result = static_cast<uint64_t>(getblock32<uint32_t>(data, offset)) | 
+    uint64_t result = static_cast<uint64_t>(getblock32<uint32_t>(data, offset)) |
                       static_cast<uint64_t>(getblock32<uint32_t>(data, offset + 4)) << 32;
     return reinterpret_cast<hash_value_type const*>(&result)[0];
   }
@@ -82,8 +83,8 @@ struct XXHash_64 {
     if ((nbytes % 32) >= 8) {
       for (; offset <= nbytes - 8; offset += 8) {
         hash_value_type k1 = getblock64(data, offset) * prime2;
-        k1 = rotate_bits_left_signed(k1, 31) * prime1;
-        h64 ^= k1;        
+        k1                 = rotate_bits_left_signed(k1, 31) * prime1;
+        h64 ^= k1;
         h64 = rotate_bits_left_signed(h64, 27) * prime1 + prime4;
       }
     }
@@ -113,7 +114,7 @@ struct XXHash_64 {
     hash_value_type h64;
     // data can be processed in 32-byte chunks
     if (nbytes >= 32) {
-      auto limit  = nbytes - 32;
+      auto limit         = nbytes - 32;
       hash_value_type v1 = m_seed + prime1 + prime2;
       hash_value_type v2 = m_seed + prime2;
       hash_value_type v3 = m_seed;
@@ -139,8 +140,8 @@ struct XXHash_64 {
         offset += 8;
       } while (offset <= limit);
 
-      h64 = rotate_bits_left_signed(v1, 1) + rotate_bits_left_signed(v2, 7) + rotate_bits_left_signed(v3, 12) +
-            rotate_bits_left_signed(v4, 18);
+      h64 = rotate_bits_left_signed(v1, 1) + rotate_bits_left_signed(v2, 7) +
+            rotate_bits_left_signed(v3, 12) + rotate_bits_left_signed(v4, 18);
 
       v1 *= prime2;
       v1 = rotate_bits_left_signed(v1, 31);
@@ -183,7 +184,7 @@ struct XXHash_64 {
     h *= prime3;
     h ^= static_cast<hash_value_type>(static_cast<uint64_t>(h) >> 32);
     return h;
-  }  
+  }
 
  private:
   hash_value_type m_seed{};
@@ -306,9 +307,7 @@ class device_row_hasher {
                                           Nullate const _check_nulls,
                                           hash_value_type const _seed) const noexcept
     {
-      if (_check_nulls && col.is_null(row_index)) {
-        return _seed;
-      }
+      if (_check_nulls && col.is_null(row_index)) { return _seed; }
       auto const hasher = XXHash_64<T>{_seed, row_index};
       return hasher(col.element<T>(row_index));
     }

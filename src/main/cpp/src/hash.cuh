@@ -25,7 +25,7 @@
 
 namespace spark_rapids_jni {
 
-constexpr int SPARK_DEFAULT_XXHASH64_SEED = 42;
+constexpr int64_t SPARK_DEFAULT_XXHASH64_SEED = 42;
 
 /**
  * @brief Converts a cudf decimal128 value to a java bigdecimal value.
