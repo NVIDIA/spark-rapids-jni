@@ -28,6 +28,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
   JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
 
   try {
+    cudf::jni::auto_set_device(env);
     auto column_views =
       cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
     return cudf::jni::release_as_jlong(
@@ -37,13 +38,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_xxhash64(JNIEnv* env,
-                                                                       jobject j_object,
+                                                                       jclass,
                                                                        jlong seed,
                                                                        jlongArray column_handles)
 {
   JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
 
   try {
+    cudf::jni::auto_set_device(env);
     auto column_views =
       cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
     return cudf::jni::release_as_jlong(
