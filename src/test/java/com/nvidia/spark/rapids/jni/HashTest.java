@@ -323,8 +323,7 @@ public class HashTest {
       assertColumnsAreEqual(expected, result);
     }
   }
-  
-  /*
+    
   @Test
   void testXXHash64Decimal32() {
     // The hash values were derived from Apache Spark in a manner similar to the one documented at
@@ -332,11 +331,10 @@ public class HashTest {
     try (ColumnVector v = ColumnVector.decimalFromInts(-3,
         0, 100, -100, 0x12345678, -0x12345678);
          ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
-         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, 8713583529807266080L, 5675770457807661948L, -958054811, -1447702630)) {
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, 8713583529807266080L, 5675770457807661948L, -7728554078125612835L, 3142315292375031143L)) {
       assertColumnsAreEqual(expected, result);
     }
   }
-  */  
 
   @Test
   void testXXHash64Dates() {
