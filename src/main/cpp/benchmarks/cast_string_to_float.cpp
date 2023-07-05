@@ -27,16 +27,18 @@
 void string_to_float(nvbench::state& state)
 {
   cudf::size_type const n_rows{(cudf::size_type)state.get_int64("num_rows")};
-  auto const float_tbl = create_random_table({cudf::type_id::FLOAT32}, row_count{n_rows});
-  auto const float_col = float_tbl->get_column(0);
+  auto const float_tbl  = create_random_table({cudf::type_id::FLOAT32}, row_count{n_rows});
+  auto const float_col  = float_tbl->get_column(0);
   auto const string_col = cudf::strings::from_floats(float_col.view());
 
-  state.exec(nvbench::exec_tag::sync,
-  [&](nvbench::launch& launch) {
-      auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT32}, string_col->view(), false, cudf::get_default_stream());
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
+    auto rows = spark_rapids_jni::string_to_float(cudf::data_type{cudf::type_id::FLOAT32},
+                                                  string_col->view(),
+                                                  false,
+                                                  cudf::get_default_stream());
   });
 }
 
 NVBENCH_BENCH(string_to_float)
-    .set_name("Strings to Float Cast")
-    .add_int64_axis("num_rows", {1 * 1024 * 1024, 100 * 1024 * 1024});
+  .set_name("Strings to Float Cast")
+  .add_int64_axis("num_rows", {1 * 1024 * 1024, 100 * 1024 * 1024});

@@ -30,14 +30,12 @@
 using namespace cudf;
 
 template <typename T>
-struct StringToIntegerTests : public test::BaseFixture {
-};
+struct StringToIntegerTests : public test::BaseFixture {};
 
 struct StringToDecimalTests : public test::BaseFixture {};
 
 template <typename T>
-struct StringToFloatTests : public test::BaseFixture {
-};
+struct StringToFloatTests : public test::BaseFixture {};
 
 TYPED_TEST_SUITE(StringToIntegerTests, cudf::test::IntegralTypesNotBool);
 TYPED_TEST_SUITE(StringToFloatTests, cudf::test::FloatingPointTypes);
@@ -240,8 +238,8 @@ TYPED_TEST(StringToIntegerTests, Overflow)
 
 TYPED_TEST(StringToIntegerTests, Empty)
 {
-  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{},
-          rmm::device_buffer{}, 0);
+  auto empty = std::make_unique<column>(
+    data_type{type_id::STRING}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
 
   auto result = spark_rapids_jni::string_to_integer(data_type{type_to_id<TypeParam>()},
                                                     strings_column_view{empty->view()},
@@ -542,8 +540,8 @@ TEST_F(StringToDecimalTests, Edges)
 
 TEST_F(StringToDecimalTests, Empty)
 {
-  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{},
-          rmm::device_buffer{}, 0);
+  auto empty = std::make_unique<column>(
+    data_type{type_id::STRING}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
 
   auto const result = spark_rapids_jni::string_to_decimal(
     8, 2, strings_column_view{empty->view()}, false, true, cudf::get_default_stream());
@@ -698,8 +696,8 @@ TYPED_TEST(StringToFloatTests, TrickyValues)
 
 TYPED_TEST(StringToFloatTests, Empty)
 {
-  auto empty = std::make_unique<column>(data_type{type_id::STRING}, 0, rmm::device_buffer{},
-          rmm::device_buffer{}, 0);
+  auto empty = std::make_unique<column>(
+    data_type{type_id::STRING}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
 
   auto const result = spark_rapids_jni::string_to_float(data_type{type_to_id<TypeParam>()},
                                                         strings_column_view{empty->view()},
