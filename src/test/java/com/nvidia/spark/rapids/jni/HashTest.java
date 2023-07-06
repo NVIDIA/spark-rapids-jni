@@ -262,7 +262,6 @@ public class HashTest {
     }
   }
 
-
   @Test
   void testXXHash64Strings() {
     try (ColumnVector v0 = ColumnVector.fromStrings(
