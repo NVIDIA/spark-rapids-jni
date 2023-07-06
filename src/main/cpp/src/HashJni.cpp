@@ -23,11 +23,12 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
-  JNIEnv* env, jobject j_object, jint seed, jlongArray column_handles)
+  JNIEnv* env, jclass, jint seed, jlongArray column_handles)
 {
   JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
 
   try {
+    cudf::jni::auto_set_device(env);
     auto column_views =
       cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
     return cudf::jni::release_as_jlong(
