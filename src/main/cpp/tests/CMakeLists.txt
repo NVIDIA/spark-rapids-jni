@@ -54,3 +54,5 @@ ConfigureTest(CAST_DECIMAL_TO_STRING
 ConfigureTest(ROW_CONVERSION
     row_conversion.cpp)
 
+ConfigureTest(HASH
+    hash.cpp)
