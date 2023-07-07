@@ -367,6 +367,7 @@ TYPED_TEST(HashTestTyped, Equality)
   auto const input = cudf::table_view({col});
 
   // Hash of same input should be equal
+<<<<<<< HEAD
 
   {
     auto const output1 = cudf::hash(input);
@@ -392,6 +393,19 @@ TYPED_TEST(HashTestTyped, Equality)
     EXPECT_EQ(input.num_rows(), output1->size());
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
   }
+=======
+  auto const output1 = cudf::hash(input);
+  auto const output2 = cudf::hash(input);
+
+  EXPECT_EQ(input.num_rows(), output1->size());
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
+
+  auto const spark_output1 = spark_rapids_jni::murmur_hash3_32(input, 0);
+  auto const spark_output2 = spark_rapids_jni::murmur_hash3_32(input);
+
+  EXPECT_EQ(input.num_rows(), spark_output1->size());
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(spark_output1->view(), spark_output2->view());
+>>>>>>> branch-23.08
 }
 
 TYPED_TEST(HashTestTyped, EqualityNulls)
@@ -405,6 +419,7 @@ TYPED_TEST(HashTestTyped, EqualityNulls)
   auto const input1 = cudf::table_view({col1});
   auto const input2 = cudf::table_view({col2});
 
+<<<<<<< HEAD
   {
     auto const output1 = cudf::hash(input1);
     auto const output2 = cudf::hash(input2);
@@ -429,6 +444,19 @@ TYPED_TEST(HashTestTyped, EqualityNulls)
     EXPECT_EQ(input1.num_rows(), output1->size());
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
   }
+=======
+  auto const output1 = cudf::hash(input1);
+  auto const output2 = cudf::hash(input2);
+
+  EXPECT_EQ(input1.num_rows(), output1->size());
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(output1->view(), output2->view());
+
+  auto const spark_output1 = spark_rapids_jni::murmur_hash3_32(input1, 0);
+  auto const spark_output2 = spark_rapids_jni::murmur_hash3_32(input2);
+
+  EXPECT_EQ(input1.num_rows(), spark_output1->size());
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(spark_output1->view(), spark_output2->view());
+>>>>>>> branch-23.08
 }
 
 template <typename T>
@@ -463,6 +491,7 @@ TYPED_TEST(HashTestFloatTyped, TestExtremes)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_col, *hash_col_neg_nan, verbosity);
 
   // Spark hash is sensitive to 0 and -0
+<<<<<<< HEAD
   {
     auto const spark_col         = spark_rapids_jni::murmur_hash3_32(table_col, 0);
     auto const spark_col_neg_nan = spark_rapids_jni::murmur_hash3_32(table_col_neg_nan);
@@ -477,6 +506,12 @@ TYPED_TEST(HashTestFloatTyped, TestExtremes)
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(*spark_col, *spark_col_neg_nan);
   }
+=======
+  auto const spark_col         = spark_rapids_jni::murmur_hash3_32(table_col, 0);
+  auto const spark_col_neg_nan = spark_rapids_jni::murmur_hash3_32(table_col_neg_nan);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*spark_col, *spark_col_neg_nan);
+>>>>>>> branch-23.08
 }
 
 class SparkMurmurHash3Test : public cudf::test::BaseFixture {};
@@ -893,6 +928,7 @@ TEST_F(SparkMurmurHash3Test, ListOfStructValues)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expect, output->view(), verbosity);
   */
 }
+<<<<<<< HEAD
 
 class SparkXXHash64Test : public cudf::test::BaseFixture {};
 
@@ -1272,3 +1308,5 @@ TEST_F(SparkXXHash64Test, Strings)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_strings, hash_strings_expected, verbosity);
 }
+=======
+>>>>>>> branch-23.08

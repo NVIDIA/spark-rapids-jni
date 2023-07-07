@@ -93,6 +93,7 @@ std::unique_ptr<cudf::column> murmur_hash3_32(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+<<<<<<< HEAD
 /**
  * @brief Computes the xxhash64 hash value of each row in the input set of columns.
  *
@@ -109,4 +110,6 @@ std::unique_ptr<cudf::column> xxhash64(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+=======
+>>>>>>> branch-23.08
 }  // namespace spark_rapids_jni

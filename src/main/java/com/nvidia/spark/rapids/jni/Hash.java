@@ -23,7 +23,7 @@ import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
   // there doesn't appear to be a useful constant in spark to reference. this could break.
-  static final long SPARK_DEFAULT_XXHASH64_SEED = 42;  
+  static final long SPARK_DEFAULT_XXHASH64_SEED = 42;
 
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -57,6 +57,7 @@ public class Hash {
     return murmurHash32(0, columns);
   }
 
+<<<<<<< HEAD
   /**
    * Create a new vector containing the xxhash64 hash of each row in the table.
    *
@@ -88,4 +89,7 @@ public class Hash {
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
   
   private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
+=======
+  private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
+>>>>>>> branch-23.08
 }
