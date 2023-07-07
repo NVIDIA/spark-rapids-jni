@@ -42,10 +42,8 @@ template <typename Key>
 struct XXHash_64 {
   using result_type = hash_value_type;
 
-  constexpr XXHash_64() = default;
-  constexpr XXHash_64(hash_value_type seed, int _row_index) : m_seed(seed), m_row_index(_row_index)
-  {
-  }
+  constexpr XXHash_64() = delete;
+  constexpr XXHash_64(hash_value_type seed) : m_seed(seed) {}
 
   template <typename T>
   __device__ inline T getblock32(std::byte const* data, cudf::size_type offset) const
@@ -188,7 +186,6 @@ struct XXHash_64 {
 
  private:
   hash_value_type m_seed{};
-  int m_row_index;
 
   static constexpr hash_value_type prime1 = 0x9E3779B185EBCA87L;
   static constexpr hash_value_type prime2 = 0xC2B2AE3D27D4EB4FL;
@@ -308,7 +305,7 @@ class device_row_hasher {
                                           hash_value_type const _seed) const noexcept
     {
       if (_check_nulls && col.is_null(row_index)) { return _seed; }
-      auto const hasher = XXHash_64<T>{_seed, row_index};
+      auto const hasher = XXHash_64<T>{_seed};
       return hasher(col.element<T>(row_index));
     }
 
