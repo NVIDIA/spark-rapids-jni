@@ -25,7 +25,7 @@
 
 namespace spark_rapids_jni {
 
-constexpr int64_t SPARK_DEFAULT_XXHASH64_SEED = 42;
+constexpr int64_t DEFAULT_XXHASH64_SEED = 42;
 
 /**
  * @brief Converts a cudf decimal128 value to a java bigdecimal value.
@@ -93,7 +93,6 @@ std::unique_ptr<cudf::column> murmur_hash3_32(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-<<<<<<< HEAD
 /**
  * @brief Computes the xxhash64 hash value of each row in the input set of columns.
  *
@@ -106,10 +105,8 @@ std::unique_ptr<cudf::column> murmur_hash3_32(
  */
 std::unique_ptr<cudf::column> xxhash64(
   cudf::table_view const& input,
-  int64_t seed                        = SPARK_DEFAULT_XXHASH64_SEED,
+  int64_t seed                        = DEFAULT_XXHASH64_SEED,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-=======
->>>>>>> branch-23.08
 }  // namespace spark_rapids_jni
