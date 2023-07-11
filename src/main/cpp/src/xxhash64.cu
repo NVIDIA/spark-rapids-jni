@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#include "hash.cuh"
+
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/hashing.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/hash_functions.cuh>
 #include <cudf/table/table_device_view.cuh>
-
-#include "hash.cuh"
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -30,13 +31,13 @@ namespace spark_rapids_jni {
 
 namespace {
 
-__device__ inline int64_t rotate_bits_left_signed(int64_t h, int8_t r)
+using hash_value_type = int64_t;
+using half_size_type  = int32_t;
+
+constexpr __device__ inline int64_t rotate_bits_left_signed(hash_value_type h, int8_t r)
 {
   return (h << r) | (h >> (64 - r)) & ~(-1 << r);
 }
-
-using hash_value_type = int64_t;
-using half_size_type  = int32_t;
 
 template <typename Key>
 struct XXHash_64 {
@@ -73,7 +74,7 @@ struct XXHash_64 {
   }
 
   result_type __device__ inline compute_remaining_bytes(std::byte const* data,
-                                                        cudf::size_type nbytes,
+                                                        cudf::size_type const nbytes,
                                                         cudf::size_type offset,
                                                         result_type h64) const
   {
