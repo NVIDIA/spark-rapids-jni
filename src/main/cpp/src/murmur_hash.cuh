@@ -127,8 +127,7 @@ murmur_hash_value_type __device__ inline MurmurHash3_32<bool>::operator()(bool c
 }
 
 template <>
-murmur_hash_value_type __device__ inline MurmurHash3_32<int8_t>::operator()(
-  int8_t const& key) const
+murmur_hash_value_type __device__ inline MurmurHash3_32<int8_t>::operator()(int8_t const& key) const
 {
   return compute<uint32_t>(key);
 }
@@ -155,15 +154,13 @@ murmur_hash_value_type __device__ inline MurmurHash3_32<uint16_t>::operator()(
 }
 
 template <>
-murmur_hash_value_type __device__ inline MurmurHash3_32<float>::operator()(
-  float const& key) const
+murmur_hash_value_type __device__ inline MurmurHash3_32<float>::operator()(float const& key) const
 {
   return compute<float>(cudf::detail::normalize_nans(key));
 }
 
 template <>
-murmur_hash_value_type __device__ inline MurmurHash3_32<double>::operator()(
-  double const& key) const
+murmur_hash_value_type __device__ inline MurmurHash3_32<double>::operator()(double const& key) const
 {
   return compute<double>(cudf::detail::normalize_nans(key));
 }
@@ -200,4 +197,4 @@ murmur_hash_value_type __device__ inline MurmurHash3_32<numeric::decimal128>::op
   return compute_bytes(bytes, length);
 }
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni

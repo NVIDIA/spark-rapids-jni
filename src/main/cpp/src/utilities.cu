@@ -25,40 +25,45 @@
 
 namespace spark_rapids_jni {
 
-rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(std::vector<rmm::device_uvector<cudf::bitmask_type>const*> const& input,  
-                                                           rmm::cuda_stream_view stream,
-                                                           rmm::mr::device_memory_resource* mr)
-{  
-  auto const mask_size = (*input.begin())->size();
-
+rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(
+  std::vector<rmm::device_uvector<cudf::bitmask_type> const*> const& input,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
+{
   CUDF_EXPECTS(input.size() > 0, "Empty input");
-  CUDF_EXPECTS(std::all_of(input.begin(), input.end(), [mask_size] (auto mask) {
-                              return mask->size() == mask_size;
-                           }),
-                           "Encountered size mismatch in inputs");
-  
+  auto const mask_size = (*input.begin())->size();
+  CUDF_EXPECTS(
+    std::all_of(
+      input.begin(), input.end(), [mask_size](auto mask) { return mask->size() == mask_size; }),
+    "Encountered size mismatch in inputs");
+  if (mask_size == 0) { return rmm::device_uvector<cudf::bitmask_type>(0, stream, mr); }
+
   // move the pointers to the gpu
   std::vector<cudf::bitmask_type const*> h_input(input.size());
-  std::transform(input.begin(), input.end(), h_input.begin(), [](auto mask){
-    return mask->data();
-  });
-  rmm::device_uvector<cudf::bitmask_type const*> d_input(h_input.size(), stream, rmm::mr::get_current_device_resource());
-  cudaMemcpyAsync(d_input.data(), h_input.data(), sizeof(cudf::bitmask_type const*) * h_input.size(), cudaMemcpyHostToDevice);
-    
+  std::transform(
+    input.begin(), input.end(), h_input.begin(), [](auto mask) { return mask->data(); });
+  rmm::device_uvector<cudf::bitmask_type const*> d_input(
+    h_input.size(), stream, rmm::mr::get_current_device_resource());
+  cudaMemcpyAsync(d_input.data(),
+                  h_input.data(),
+                  sizeof(cudf::bitmask_type const*) * h_input.size(),
+                  cudaMemcpyHostToDevice);
+
   rmm::device_uvector<cudf::bitmask_type> out(mask_size, stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(0) + mask_size,
-                    out.begin(),
-                    [buffers = d_input.data(), num_buffers = input.size()] __device__(cudf::size_type word_index) {
-                      cudf::bitmask_type out = buffers[0][word_index];
-                      for(auto idx=1; idx<num_buffers; idx++){
-                        out |= buffers[idx][word_index];
-                      }
-                      return out;
-                    });
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(0) + mask_size,
+    out.begin(),
+    [buffers = d_input.data(), num_buffers = input.size()] __device__(cudf::size_type word_index) {
+      cudf::bitmask_type out = buffers[0][word_index];
+      for (auto idx = 1; idx < num_buffers; idx++) {
+        out |= buffers[idx][word_index];
+      }
+      return out;
+    });
 
   return out;
 }
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni

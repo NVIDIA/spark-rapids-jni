@@ -22,15 +22,25 @@
 
 namespace spark_rapids_jni {
 
-rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(cudf::size_type bloom_filter_bits,
-                                                            rmm::cuda_stream_view stream = cudf::get_default_stream(),
-                                                            rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+/**
+ * @brief Create an empty bloom filter of the specified size in bits.
+ *
+ * @param bloom_filter_bits Size of the bloom filter in bits.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned bloom filter's memory.
+ * @returns An allocated bloom filter initialized to empty.
+ *
+ */
+rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(
+  cudf::size_type bloom_filter_bits,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Builds a bloom filter by hashing input int64_t values using xxhash64.
  *
- * @param[in,out] bloom_filter The bloom filter to be constructed. The function expects that the buffer
- * has already been initialized to 0.
+ * @param[in,out] bloom_filter The bloom filter to be constructed. The function expects that the
+ * buffer has already been initialized to 0.
  * @param bloom_filter_bits Size of the bloom filter in bits.
  * @param input Input column of int64_t values to be inserted into the bloom filter.
  * @param num_hashes Number of hashes to apply.
@@ -39,7 +49,7 @@ rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(cudf::size_type bloo
  */
 void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
                         cudf::size_type bloom_filter_bits,
-                        cudf::column_view const &input,
+                        cudf::column_view const& input,
                         cudf::size_type num_hashes,
                         rmm::cuda_stream_view stream = cudf::get_default_stream());
 
@@ -53,14 +63,15 @@ void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned boolean column's memory.
  *
- * @returns A column of booleans where a true value indicates a value may be present in the bloom 
+ * @returns A column of booleans where a true value indicates a value may be present in the bloom
  * filter, and a false indicates the value is not present.
  */
-std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const &input,
-                                                 rmm::device_uvector<cudf::bitmask_type> const& bloom_filter,
-                                                 cudf::size_type bloom_filter_bits,
-                                                 cudf::size_type num_hashes,
-                                                 rmm::cuda_stream_view stream = cudf::get_default_stream(),
-                                                 rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+std::unique_ptr<cudf::column> bloom_filter_probe(
+  cudf::column_view const& input,
+  rmm::device_uvector<cudf::bitmask_type> const& bloom_filter,
+  cudf::size_type bloom_filter_bits,
+  cudf::size_type num_hashes,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni

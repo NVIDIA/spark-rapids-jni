@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -31,8 +32,9 @@ namespace spark_rapids_jni {
  * @param mr Device memory resource used to allocate the returned bloom filter's memory.
  *
  */
-rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(std::vector<rmm::device_uvector<cudf::bitmask_type>const*> const& input,  
-                                                           rmm::cuda_stream_view stream = cudf::get_default_stream(),
-                                                           rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(
+  std::vector<rmm::device_uvector<cudf::bitmask_type> const*> const& input,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
