@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
+#include "murmur_hash.cuh"
+
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/hashing.hpp>
-#include <cudf/detail/utilities/hash_functions.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
-
-#include "hash.cuh"
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -32,183 +31,6 @@
 namespace spark_rapids_jni {
 
 namespace {
-
-using spark_hash_value_type = int32_t;
-
-template <typename Key, CUDF_ENABLE_IF(not cudf::is_nested<Key>())>
-struct SparkMurmurHash3_32 {
-  using result_type = spark_hash_value_type;
-
-  constexpr SparkMurmurHash3_32() = default;
-  constexpr SparkMurmurHash3_32(uint32_t seed) : m_seed(seed) {}
-
-  [[nodiscard]] __device__ inline uint32_t fmix32(uint32_t h) const
-  {
-    h ^= h >> 16;
-    h *= 0x85ebca6b;
-    h ^= h >> 13;
-    h *= 0xc2b2ae35;
-    h ^= h >> 16;
-    return h;
-  }
-
-  [[nodiscard]] __device__ inline uint32_t getblock32(std::byte const* data,
-                                                      cudf::size_type offset) const
-  {
-    // Read a 4-byte value from the data pointer as individual bytes for safe
-    // unaligned access (very likely for string types).
-    auto block = reinterpret_cast<uint8_t const*>(data + offset);
-    return block[0] | (block[1] << 8) | (block[2] << 16) | (block[3] << 24);
-  }
-
-  [[nodiscard]] result_type __device__ inline operator()(Key const& key) const
-  {
-    return compute(key);
-  }
-
-  template <typename T>
-  result_type __device__ inline compute(T const& key) const
-  {
-    return compute_bytes(reinterpret_cast<std::byte const*>(&key), sizeof(T));
-  }
-
-  result_type __device__ inline compute_remaining_bytes(std::byte const* data,
-                                                        cudf::size_type len,
-                                                        cudf::size_type tail_offset,
-                                                        result_type h) const
-  {
-    // Process remaining bytes that do not fill a four-byte chunk using Spark's approach
-    // (does not conform to normal MurmurHash3).
-    for (auto i = tail_offset; i < len; i++) {
-      // We require a two-step cast to get the k1 value from the byte. First,
-      // we must cast to a signed int8_t. Then, the sign bit is preserved when
-      // casting to uint32_t under 2's complement. Java preserves the sign when
-      // casting byte-to-int, but C++ does not.
-      uint32_t k1 = static_cast<uint32_t>(std::to_integer<int8_t>(data[i]));
-      k1 *= c1;
-      k1 = cudf::detail::rotate_bits_left(k1, rot_c1);
-      k1 *= c2;
-      h ^= k1;
-      h = cudf::detail::rotate_bits_left(h, rot_c2);
-      h = h * 5 + c3;
-    }
-    return h;
-  }
-
-  result_type __device__ compute_bytes(std::byte const* data, cudf::size_type const len) const
-  {
-    constexpr cudf::size_type BLOCK_SIZE = 4;
-    cudf::size_type const nblocks        = len / BLOCK_SIZE;
-    cudf::size_type const tail_offset    = nblocks * BLOCK_SIZE;
-    result_type h                        = m_seed;
-
-    // Process all four-byte chunks.
-    for (cudf::size_type i = 0; i < nblocks; i++) {
-      uint32_t k1 = getblock32(data, i * BLOCK_SIZE);
-      k1 *= c1;
-      k1 = cudf::detail::rotate_bits_left(k1, rot_c1);
-      k1 *= c2;
-      h ^= k1;
-      h = cudf::detail::rotate_bits_left(h, rot_c2);
-      h = h * 5 + c3;
-    }
-
-    h = compute_remaining_bytes(data, len, tail_offset, h);
-
-    // Finalize hash.
-    h ^= len;
-    h = fmix32(h);
-    return h;
-  }
-
- private:
-  uint32_t m_seed{cudf::DEFAULT_HASH_SEED};
-  static constexpr uint32_t c1     = 0xcc9e2d51;
-  static constexpr uint32_t c2     = 0x1b873593;
-  static constexpr uint32_t c3     = 0xe6546b64;
-  static constexpr uint32_t rot_c1 = 15;
-  static constexpr uint32_t rot_c2 = 13;
-};
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<bool>::operator()(bool const& key) const
-{
-  return compute<uint32_t>(key);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<int8_t>::operator()(
-  int8_t const& key) const
-{
-  return compute<uint32_t>(key);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<uint8_t>::operator()(
-  uint8_t const& key) const
-{
-  return compute<uint32_t>(key);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<int16_t>::operator()(
-  int16_t const& key) const
-{
-  return compute<uint32_t>(key);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<uint16_t>::operator()(
-  uint16_t const& key) const
-{
-  return compute<uint32_t>(key);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<float>::operator()(
-  float const& key) const
-{
-  return compute<float>(cudf::detail::normalize_nans(key));
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<double>::operator()(
-  double const& key) const
-{
-  return compute<double>(cudf::detail::normalize_nans(key));
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<cudf::string_view>::operator()(
-  cudf::string_view const& key) const
-{
-  auto const data = reinterpret_cast<std::byte const*>(key.data());
-  auto const len  = key.size_bytes();
-  return compute_bytes(data, len);
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<numeric::decimal32>::operator()(
-  numeric::decimal32 const& key) const
-{
-  return compute<uint64_t>(key.value());
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<numeric::decimal64>::operator()(
-  numeric::decimal64 const& key) const
-{
-  return compute<uint64_t>(key.value());
-}
-
-template <>
-spark_hash_value_type __device__ inline SparkMurmurHash3_32<numeric::decimal128>::operator()(
-  numeric::decimal128 const& key) const
-{
-  auto [java_d, length] = to_java_bigdecimal(key);
-  auto bytes            = reinterpret_cast<std::byte*>(&java_d);
-  return compute_bytes(bytes, length);
-}
 
 /**
  * @brief Computes the hash value of a row in the given table.
@@ -239,7 +61,7 @@ spark_hash_value_type __device__ inline SparkMurmurHash3_32<numeric::decimal128>
  * @tparam Nullate A cudf::nullate type describing whether to check for nulls.
  */
 template <template <typename> class hash_function, typename Nullate>
-class spark_murmur_device_row_hasher {
+class murmur_device_row_hasher {
   friend class cudf::experimental::row::hash::row_hasher;  ///< Allow row_hasher to access private
                                                            ///< members.
 
@@ -284,16 +106,16 @@ class spark_murmur_device_row_hasher {
     using hash_functor = cudf::experimental::row::hash::element_hasher<hash_fn, Nullate>;
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
-    __device__ spark_hash_value_type operator()(cudf::column_device_view const& col,
-                                                cudf::size_type row_index) const noexcept
+    __device__ murmur_hash_value_type operator()(cudf::column_device_view const& col,
+                                                 cudf::size_type row_index) const noexcept
     {
       auto const hasher = hash_functor{_check_nulls, _seed, _seed};
       return hasher.template operator()<T>(col, row_index);
     }
 
     template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
-    __device__ spark_hash_value_type operator()(cudf::column_device_view const& col,
-                                                cudf::size_type row_index) const noexcept
+    __device__ murmur_hash_value_type operator()(cudf::column_device_view const& col,
+                                                 cudf::size_type row_index) const noexcept
     {
       cudf::column_device_view curr_col = col.slice(row_index, 1);
       while (curr_col.type().id() == cudf::type_id::STRUCT ||
@@ -322,15 +144,14 @@ class spark_murmur_device_row_hasher {
     uint32_t const _seed;        ///< The seed to use for hashing, also returned for null elements
   };
 
-  CUDF_HOST_DEVICE spark_murmur_device_row_hasher(Nullate check_nulls,
-                                                  cudf::table_device_view t,
-                                                  uint32_t seed = cudf::DEFAULT_HASH_SEED) noexcept
+  CUDF_HOST_DEVICE murmur_device_row_hasher(Nullate check_nulls,
+                                            cudf::table_device_view t,
+                                            uint32_t seed = cudf::DEFAULT_HASH_SEED) noexcept
     : _check_nulls{check_nulls}, _table{t}, _seed(seed)
   {
     // Error out if passed an unsupported hash_function
-    static_assert(
-      std::is_base_of_v<SparkMurmurHash3_32<int>, hash_function<int>>,
-      "spark_murmur_device_row_hasher only supports the SparkMurmurHash3_32 hash function");
+    static_assert(std::is_base_of_v<MurmurHash3_32<int>, hash_function<int>>,
+                  "murmur_device_row_hasher only supports the MurmurHash3_32 hash function");
   }
 
   Nullate const _check_nulls;
@@ -368,7 +189,7 @@ std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
                                               rmm::mr::device_memory_resource* mr)
 {
   auto output =
-    cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<spark_hash_value_type>()),
+    cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<murmur_hash_value_type>()),
                               input.num_rows(),
                               cudf::mask_state::UNALLOCATED,
                               stream,
@@ -387,9 +208,9 @@ std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
   // Compute the hash value for each row
   thrust::tabulate(
     rmm::exec_policy(stream),
-    output_view.begin<spark_hash_value_type>(),
-    output_view.end<spark_hash_value_type>(),
-    row_hasher.device_hasher<SparkMurmurHash3_32, spark_murmur_device_row_hasher>(nullable, seed));
+    output_view.begin<murmur_hash_value_type>(),
+    output_view.end<murmur_hash_value_type>(),
+    row_hasher.device_hasher<MurmurHash3_32, murmur_device_row_hasher>(nullable, seed));
 
   return output;
 }

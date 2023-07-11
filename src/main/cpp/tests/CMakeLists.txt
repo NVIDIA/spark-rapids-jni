@@ -56,3 +56,6 @@ ConfigureTest(ROW_CONVERSION
 
 ConfigureTest(HASH
     hash.cpp)
+
+ConfigureTest(BLOOM_FILTER
+    bloom_filter.cu)

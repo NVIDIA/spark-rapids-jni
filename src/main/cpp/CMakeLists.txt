@@ -154,6 +154,7 @@ add_library(
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
+  src/bloom_filter.cu
   src/cast_decimal_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
@@ -161,6 +162,7 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/row_conversion.cu
+  src/utilities.cu
   src/xxhash64.cu
   src/zorder.cu
 )
