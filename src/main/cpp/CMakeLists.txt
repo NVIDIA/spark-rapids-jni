@@ -161,6 +161,7 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/row_conversion.cu
+  src/xxhash64.cu
   src/zorder.cu
 )
 
