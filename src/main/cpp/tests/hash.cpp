@@ -133,7 +133,7 @@ TEST_F(HashTest, MultiValueNulls)
 
   {
     auto const output1 =
-      spark_rapids_jni::xxhash64(input1, spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+      spark_rapids_jni::xxhash64(input1, spark_rapids_jni::DEFAULT_XXHASH64_SEED);
     auto const output2 = spark_rapids_jni::xxhash64(input2);
 
     EXPECT_EQ(input1.num_rows(), output1->size());
@@ -385,8 +385,7 @@ TYPED_TEST(HashTestTyped, Equality)
   }
 
   {
-    auto const output1 =
-      spark_rapids_jni::xxhash64(input, spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+    auto const output1 = spark_rapids_jni::xxhash64(input, spark_rapids_jni::DEFAULT_XXHASH64_SEED);
     auto const output2 = spark_rapids_jni::xxhash64(input);
 
     EXPECT_EQ(input.num_rows(), output1->size());
@@ -423,7 +422,7 @@ TYPED_TEST(HashTestTyped, EqualityNulls)
 
   {
     auto const output1 =
-      spark_rapids_jni::xxhash64(input1, spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+      spark_rapids_jni::xxhash64(input1, spark_rapids_jni::DEFAULT_XXHASH64_SEED);
     auto const output2 = spark_rapids_jni::xxhash64(input2);
 
     EXPECT_EQ(input1.num_rows(), output1->size());
@@ -472,7 +471,7 @@ TYPED_TEST(HashTestFloatTyped, TestExtremes)
 
   {
     auto const spark_col =
-      spark_rapids_jni::xxhash64(table_col, spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+      spark_rapids_jni::xxhash64(table_col, spark_rapids_jni::DEFAULT_XXHASH64_SEED);
     auto const spark_col_neg_nan = spark_rapids_jni::xxhash64(table_col_neg_nan);
 
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(*spark_col, *spark_col_neg_nan);
@@ -972,7 +971,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      8198945020833482635,
      -5346617152005100141,
      6614298085531227868,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      2470326616177429180,
      -7093207067522615973});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_doubles_expected(
@@ -981,7 +980,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      -3127944061524951246,
      9065082843545458248,
      -4222314252576420879,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -7996023612001835843,
      -8838535416664833914});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_timestamps_expected(
@@ -990,7 +989,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      5675770457807661948,
      7123048472642709644,
      -5141505295506489983,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -1244884446866925109,
      1772389229253425430});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_decimal64_expected(
@@ -999,7 +998,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      5675770457807661948,
      4265531446127695490,
      2162198894918931945,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -3178482946328430151,
      4788666723486520022});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_longs_expected(
@@ -1008,7 +1007,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      5675770457807661948,
      -8619748838626508300,
      -3246596055638297850,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      1941233597257011502,
      -1318946533059658749});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_floats_expected(
@@ -1017,7 +1016,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      2692338816207849720,
      -8545425418825163117,
      -1065250890878313112,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -5940311692336719973,
      -7580553461823983095});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_dates_expected(
@@ -1026,7 +1025,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      8990748234399402673,
      -8442426365007754391,
      -1447590449373190349,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -953008374380745918,
      2895908635257747121});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_decimal32_expected(
@@ -1035,7 +1034,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      5675770457807661948,
      8670643431269007867,
      6810183316718625826,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      7277994511003214036,
      6264187449999859617});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_ints_expected(
@@ -1044,7 +1043,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      8990748234399402673,
      2073849959933241805,
      1508894993788531228,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -953008374380745918,
      2895908635257747121});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_shorts_expected(
@@ -1053,7 +1052,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      8990748234399402673,
      -904511417458573795,
      8952525448871805501,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -953008374380745918,
      2895908635257747121});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_bytes_expected(
@@ -1062,7 +1061,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      8990748234399402673,
      4160238337661960656,
      8632298611707923906,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -4008061843281999337,
      6690883199412647955});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_bools_expected(
@@ -1071,7 +1070,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      -6698625589789238999,
      -6698625589789238999,
      3614696996920510707,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      3614696996920510707,
      3614696996920510707});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_decimal128_expected(
@@ -1080,7 +1079,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      -4006032525457443936,
      -5423362182451591024,
      7041733194569950081,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -5423362182451591024,
      7041733194569950081});
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_combined_expected(
@@ -1089,7 +1088,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
      3834379147931449211,
      -5406325166887725795,
      7797509897614041972,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -9032872913521304524,
      -604070008711895908});
 
@@ -1175,35 +1174,35 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
     numeric::scale_type{-11});
 
   // auto const hash_structs = spark_rapids_jni::xxhash64(cudf::table_view({structs_col}),
-  // spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_strings = spark_rapids_jni::xxhash64(
-    cudf::table_view({strings_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_doubles = spark_rapids_jni::xxhash64(
-    cudf::table_view({doubles_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_timestamps = spark_rapids_jni::xxhash64(
-    cudf::table_view({timestamps_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_decimal64 = spark_rapids_jni::xxhash64(
-    cudf::table_view({decimal64_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_longs  = spark_rapids_jni::xxhash64(cudf::table_view({longs_col}),
-                                                     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_floats = spark_rapids_jni::xxhash64(
-    cudf::table_view({floats_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_dates     = spark_rapids_jni::xxhash64(cudf::table_view({dates_col}),
-                                                     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_decimal32 = spark_rapids_jni::xxhash64(
-    cudf::table_view({decimal32_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_ints   = spark_rapids_jni::xxhash64(cudf::table_view({ints_col}),
-                                                    spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_shorts = spark_rapids_jni::xxhash64(
-    cudf::table_view({shorts_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_bytes  = spark_rapids_jni::xxhash64(cudf::table_view({bytes_col}),
-                                                     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_bools1 = spark_rapids_jni::xxhash64(
-    cudf::table_view({bools_col1}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_bools2 = spark_rapids_jni::xxhash64(
-    cudf::table_view({bools_col2}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
-  auto const hash_decimal128 = spark_rapids_jni::xxhash64(
-    cudf::table_view({decimal128_col}), spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+  // spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_strings    = spark_rapids_jni::xxhash64(cudf::table_view({strings_col}),
+                                                       spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_doubles    = spark_rapids_jni::xxhash64(cudf::table_view({doubles_col}),
+                                                       spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_timestamps = spark_rapids_jni::xxhash64(cudf::table_view({timestamps_col}),
+                                                          spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_decimal64  = spark_rapids_jni::xxhash64(cudf::table_view({decimal64_col}),
+                                                         spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_longs      = spark_rapids_jni::xxhash64(cudf::table_view({longs_col}),
+                                                     spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_floats     = spark_rapids_jni::xxhash64(cudf::table_view({floats_col}),
+                                                      spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_dates      = spark_rapids_jni::xxhash64(cudf::table_view({dates_col}),
+                                                     spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_decimal32  = spark_rapids_jni::xxhash64(cudf::table_view({decimal32_col}),
+                                                         spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_ints       = spark_rapids_jni::xxhash64(cudf::table_view({ints_col}),
+                                                    spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_shorts     = spark_rapids_jni::xxhash64(cudf::table_view({shorts_col}),
+                                                      spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_bytes      = spark_rapids_jni::xxhash64(cudf::table_view({bytes_col}),
+                                                     spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_bools1     = spark_rapids_jni::xxhash64(cudf::table_view({bools_col1}),
+                                                      spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_bools2     = spark_rapids_jni::xxhash64(cudf::table_view({bools_col2}),
+                                                      spark_rapids_jni::DEFAULT_XXHASH64_SEED);
+  auto const hash_decimal128 = spark_rapids_jni::xxhash64(cudf::table_view({decimal128_col}),
+                                                          spark_rapids_jni::DEFAULT_XXHASH64_SEED);
 
   // CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_structs, hash_structs_expected, verbosity);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_strings, hash_strings_expected, verbosity);
@@ -1236,7 +1235,7 @@ TEST_F(SparkXXHash64Test, MultiValueWithSeeds)
                                                 bools_col2,
                                                 decimal128_col});
   auto const hash_combined =
-    spark_rapids_jni::xxhash64(combined_table, spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED);
+    spark_rapids_jni::xxhash64(combined_table, spark_rapids_jni::DEFAULT_XXHASH64_SEED);
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(*hash_combined, hash_combined_expected, verbosity);
 }
 
@@ -1253,7 +1252,7 @@ TEST_F(SparkXXHash64Test, Strings)
 
   cudf::test::fixed_width_column_wrapper<int64_t> const hash_strings_expected(
     {-7444071767201028348,
-     spark_rapids_jni::SPARK_DEFAULT_XXHASH64_SEED,
+     spark_rapids_jni::DEFAULT_XXHASH64_SEED,
      -3617261401988713833,
      8198945020833482635,
      -5346617152005100141,
