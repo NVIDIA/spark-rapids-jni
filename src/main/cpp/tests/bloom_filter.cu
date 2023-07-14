@@ -61,7 +61,7 @@ TEST_F(BloomFilterTest, BuildAndProbe)
     static_cast<cudf::bitmask_type*>(_bloom_filter->data()),
     _bloom_filter->size() / sizeof(cudf::bitmask_type)};
 
-  spark_rapids_jni::bloom_filter_build(bloom_filter, bloom_filter_bits, input, 3, stream);
+  spark_rapids_jni::bloom_filter_put(bloom_filter, bloom_filter_bits, input, 3, stream);
 
   // probe
   cudf::test::fixed_width_column_wrapper<int64_t> probe{
@@ -83,19 +83,19 @@ TEST_F(BloomFilterTest, ProbeMerged)
   cudf::test::fixed_width_column_wrapper<int64_t> col_a{20, 80, 100, 99, 47, -9, 234000000};
   auto _bloom_filter_a = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
   auto bloom_filter_a  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_a);
-  spark_rapids_jni::bloom_filter_build(bloom_filter_a, bloom_filter_bits, col_a, 3, stream);
+  spark_rapids_jni::bloom_filter_put(bloom_filter_a, bloom_filter_bits, col_a, 3, stream);
 
   // column b
   cudf::test::fixed_width_column_wrapper<int64_t> col_b{100, 200, 300, 400};
   auto _bloom_filter_b = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
   auto bloom_filter_b  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_b);
-  spark_rapids_jni::bloom_filter_build(bloom_filter_b, bloom_filter_bits, col_b, 3, stream);
+  spark_rapids_jni::bloom_filter_put(bloom_filter_b, bloom_filter_bits, col_b, 3, stream);
 
   // column c
   cudf::test::fixed_width_column_wrapper<int64_t> col_c{-100, -200, -300, -400};
   auto _bloom_filter_c = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
   auto bloom_filter_c  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_c);
-  spark_rapids_jni::bloom_filter_build(bloom_filter_c, bloom_filter_bits, col_c, 3, stream);
+  spark_rapids_jni::bloom_filter_put(bloom_filter_c, bloom_filter_bits, col_c, 3, stream);
 
   // merged bloom filter
   auto _bloom_filter_merged =

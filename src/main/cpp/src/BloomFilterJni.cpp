@@ -23,33 +23,46 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_build(
-  JNIEnv* env, jclass, jlong bloom_filter, jlong bloom_filter_bytes, jint bloom_filter_bits, jlong cv, jint num_hashes)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv* env,
+                                                                         jclass,
+                                                                         jlong bloom_filter,
+                                                                         jlong bloom_filter_bytes,
+                                                                         long bloom_filter_bits,
+                                                                         jlong cv,
+                                                                         jint num_hashes)
 {
   try {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view input_column{*reinterpret_cast<cudf::column_view const*>(cv)};
-    spark_rapids_jni::bloom_filter_build({reinterpret_cast<cudf::bitmask_type*>(bloom_filter), static_cast<std::size_t>(bloom_filter_bytes / 4)},
-                                         bloom_filter_bits,
-                                         input_column,
-                                         num_hashes);
+    spark_rapids_jni::bloom_filter_put({reinterpret_cast<cudf::bitmask_type*>(bloom_filter),
+                                        static_cast<std::size_t>(bloom_filter_bytes / 4)},
+                                       bloom_filter_bits,
+                                       input_column,
+                                       num_hashes);
     return 0;
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probe(
-  JNIEnv* env, jclass, jlong cv, jlong bloom_filter, jlong bloom_filter_bytes, jint bloom_filter_bits, jint num_hashes)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probe(JNIEnv* env,
+                                                                           jclass,
+                                                                           jlong cv,
+                                                                           jlong bloom_filter,
+                                                                           jlong bloom_filter_bytes,
+                                                                           long bloom_filter_bits,
+                                                                           jint num_hashes)
 {
   try {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view input_column{*reinterpret_cast<cudf::column_view const*>(cv)};
-    return cudf::jni::release_as_jlong(spark_rapids_jni::bloom_filter_probe(input_column,
-                                                                            {reinterpret_cast<cudf::bitmask_type const*>(bloom_filter), static_cast<std::size_t>(bloom_filter_bytes / 4)},
-                                                                            bloom_filter_bits,
-                                                                            num_hashes));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::bloom_filter_probe(
+      input_column,
+      {reinterpret_cast<cudf::bitmask_type const*>(bloom_filter),
+       static_cast<std::size_t>(bloom_filter_bytes / 4)},
+      bloom_filter_bits,
+      num_hashes));
   }
   CATCH_STD(env, 0);
 }
@@ -59,13 +72,17 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_merge(
 {
   try {
     cudf::jni::auto_set_device(env);
-        
+
     cudf::jni::native_jpointerArray<cudf::bitmask_type> jbuffers{env, bloom_filters};
     std::vector<cudf::device_span<cudf::bitmask_type const>> cbloom_filters(jbuffers.size());
-    std::transform(jbuffers.begin(), jbuffers.end(), cbloom_filters.begin(), [bloom_filter_bytes](cudf::bitmask_type const* buf){
-      return cudf::device_span<cudf::bitmask_type const>{buf, static_cast<std::size_t>(bloom_filter_bytes / 4)};
-    });    
-  
+    std::transform(jbuffers.begin(),
+                   jbuffers.end(),
+                   cbloom_filters.begin(),
+                   [bloom_filter_bytes](cudf::bitmask_type const* buf) {
+                     return cudf::device_span<cudf::bitmask_type const>{
+                       buf, static_cast<std::size_t>(bloom_filter_bytes / 4)};
+                   });
+
     auto merged = spark_rapids_jni::bitmask_bitwise_or(cbloom_filters);
 
     cudf::jni::native_jlongArray result(env, 2);
@@ -75,5 +92,4 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_merge(
   }
   CATCH_STD(env, 0);
 }
-
 }

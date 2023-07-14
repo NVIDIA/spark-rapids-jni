@@ -41,10 +41,10 @@ __device__ inline std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_ma
   return {word_index, (1 << bit_index)};
 }
 
-__global__ void gpu_bloom_filter_build(cudf::bitmask_type* const bloom_filter,
-                                       cudf::size_type bloom_filter_bits,
-                                       cudf::device_span<int64_t const> input,
-                                       cudf::size_type num_hashes)
+__global__ void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
+                                     cudf::size_type bloom_filter_bits,
+                                     cudf::device_span<int64_t const> input,
+                                     cudf::size_type num_hashes)
 {
   int const tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid >= input.size()) { return; }
@@ -70,7 +70,7 @@ struct bloom_probe_functor {
   __device__ bool operator()(int64_t input)
   {
     // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L110
-    // this code could be combined with the very similar code in gpu_bloom_filter_build. i've
+    // this code could be combined with the very similar code in gpu_bloom_filter_put. i've
     // left it this way since the expectation is that we will early out fairly often, whereas
     // in the build case we never early out so doing the additional if() return check is pointless.
     bloom_hash_type const h1 = MurmurHash3_32<int64_t>(0)(input);
@@ -88,21 +88,21 @@ struct bloom_probe_functor {
 
 }  // anonymous namespace
 
-std::unique_ptr<rmm::device_buffer> bloom_filter_create(cudf::size_type bloom_filter_bits,
+std::unique_ptr<rmm::device_buffer> bloom_filter_create(int64_t bloom_filter_bits,
                                                         rmm::cuda_stream_view stream,
                                                         rmm::mr::device_memory_resource* mr)
 {
   std::unique_ptr<rmm::device_buffer> out = std::make_unique<rmm::device_buffer>(
     cudf::num_bitmask_words(bloom_filter_bits) * sizeof(cudf::bitmask_type), stream, mr);
-  cudaMemsetAsync(out->data(), 0, out->size() * sizeof(cudf::bitmask_type), stream);
+  cudaMemsetAsync(out->data(), 0, out->size(), stream);
   return out;
 }
 
-void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
-                        cudf::size_type bloom_filter_bits,
-                        cudf::column_view const& input,
-                        cudf::size_type num_hashes,
-                        rmm::cuda_stream_view stream)
+void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
+                      int64_t bloom_filter_bits,
+                      cudf::column_view const& input,
+                      cudf::size_type num_hashes,
+                      rmm::cuda_stream_view stream)
 {
   CUDF_EXPECTS(input.type() == cudf::data_type{cudf::type_id::INT64} && !input.nullable(),
                "bloom filter input expects a non-nullable column of int64s");
@@ -110,14 +110,14 @@ void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
 
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
-  gpu_bloom_filter_build<<<grid.num_blocks, block_size, 0, stream.value()>>>(
+  gpu_bloom_filter_put<<<grid.num_blocks, block_size, 0, stream.value()>>>(
     bloom_filter.data(), bloom_filter_bits, input, num_hashes);
 }
 
 std::unique_ptr<cudf::column> bloom_filter_probe(
   cudf::column_view const& input,
   cudf::device_span<cudf::bitmask_type const> bloom_filter,
-  cudf::size_type bloom_filter_bits,
+  int64_t bloom_filter_bits,
   cudf::size_type num_hashes,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
@@ -128,11 +128,13 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
 
   auto out = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
-  thrust::transform(rmm::exec_policy(stream),
-                    input.begin<int64_t>(),
-                    input.end<int64_t>(),
-                    out->mutable_view().begin<bool>(),
-                    bloom_probe_functor{bloom_filter.data(), bloom_filter_bits, num_hashes});
+  thrust::transform(
+    rmm::exec_policy(stream),
+    input.begin<int64_t>(),
+    input.end<int64_t>(),
+    out->mutable_view().begin<bool>(),
+    bloom_probe_functor{
+      bloom_filter.data(), static_cast<cudf::size_type>(bloom_filter_bits), num_hashes});
   return out;
 }
 

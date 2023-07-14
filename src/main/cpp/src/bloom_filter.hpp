@@ -32,12 +32,14 @@ namespace spark_rapids_jni {
  *
  */
 std::unique_ptr<rmm::device_buffer> bloom_filter_create(
-  cudf::size_type bloom_filter_bits,
+  int64_t bloom_filter_bits,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Builds a bloom filter by hashing input int64_t values using xxhash64.
+ *
+ * Can be called multiple times on the same bloom_filter buffer.
  *
  * @param[in,out] bloom_filter The bloom filter to be constructed. The function expects that the
  * buffer has already been initialized to 0.
@@ -47,11 +49,11 @@ std::unique_ptr<rmm::device_buffer> bloom_filter_create(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  *
  */
-void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
-                        cudf::size_type bloom_filter_bits,
-                        cudf::column_view const& input,
-                        cudf::size_type num_hashes,
-                        rmm::cuda_stream_view stream = cudf::get_default_stream());
+void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
+                      int64_t bloom_filter_bits,
+                      cudf::column_view const& input,
+                      cudf::size_type num_hashes,
+                      rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 /**
  * @brief Probe a bloom filter with an input column of int64_t values.
@@ -69,7 +71,7 @@ void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
 std::unique_ptr<cudf::column> bloom_filter_probe(
   cudf::column_view const& input,
   cudf::device_span<cudf::bitmask_type const> bloom_filter,
-  cudf::size_type bloom_filter_bits,
+  int64_t bloom_filter_bits,
   cudf::size_type num_hashes,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());

@@ -30,56 +30,52 @@ import ai.rapids.cudf.NativeDepsLoader;
 public class BloomFilter implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(BloomFilter.class);
   private final int numHashes;
-  private final int bloomFilterBits;
+  private final long bloomFilterBits;
   private DeviceMemoryBuffer bloomFilter;
 
   static {
     NativeDepsLoader.loadNativeDeps();
   }
-  
-  private static final class BloomFilterCleaner extends MemoryCleaner.Cleaner {
-    private BloomFilter parent;
 
-    BloomFilterCleaner(BloomFilter parent) {
-      this.parent = parent;
+  /**
+   * Construct an empty BloomFilter which uses the specified number of hashes and bits.
+   * @param numHashes The number of hashes to use when adding values and probing.
+   * @param bloomFilterBits The size of the bloom filter in bits.
+   */
+  public BloomFilter(int numHashes, long bloomFilterBits){
+    if(numHashes <= 0){
+      throw new IllegalArgumentException("Bloom filters must have a positive hash count");
+    }
+    if(bloomFilterBits <= 0){
+      throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
     }
 
-    @Override
-    protected synchronized boolean cleanImpl(boolean logErrorIfNotClean) {
-      if (parent != null) {
-        if (logErrorIfNotClean) {
-          log.error("A BLOOM FILTER BUFFER WAS LEAKED(ID: " + id + " parent: " + parent + ")");
-          logRefCountDebug("Leaked bloom filter buffer");
-        }
-        try {
-          parent.close();
-        } finally {
-          // Always mark the resource as freed even if an exception is thrown.
-          // We cannot know how far it progressed before the exception, and
-          // therefore it is unsafe to retry.
-          parent = null;
-        }
-        return true;
-      }
-      return false;
-    }
-
-    @Override
-    public boolean isClean() {
-      return parent == null;
-    }
-  }  
-
-  BloomFilter(int numHashes, int bloomFilterBits){
-    this.numHashes = numHashes;
+    this.numHashes = numHashes;    
     this.bloomFilterBits = bloomFilterBits;
     
-    int bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
+    long bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
     bloomFilter = DeviceMemoryBuffer.allocate(bloomFilterBytes);
-    bloomFilter.memset(0, (byte)0, bloomFilterBytes);
+    Cuda.asyncMemset(bloomFilter.getAddress(), (byte)0, bloomFilterBytes);
   }  
 
-  BloomFilter(int numHashes, int bloomFilterBits, DeviceMemoryBuffer buffer){
+  /**
+   * Construct a BloomFilter from a pre-existing buffer, using the specified number of
+   * hashes and bits.
+   * @param numHashes The number of hashes to use when adding values and probing.
+   * @param bloomFilterBits The size of the bloom filter in bits.
+   * @param buffer The pre-existing buffer of.
+   */
+  public BloomFilter(int numHashes, long bloomFilterBits, DeviceMemoryBuffer buffer){
+    if(numHashes <= 0){
+      throw new IllegalArgumentException("Bloom filters must have a positive hash count");
+    }
+    if(bloomFilterBits <= 0){
+      throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
+    }
+    if(buffer.getLength() != bloomFilterByteSize(bloomFilterBits)){
+      throw new IllegalArgumentException("Invalid pre-existing buffer passed. Size mismatch");
+    }
+
     this.numHashes = numHashes;
     this.bloomFilterBits = bloomFilterBits;
     bloomFilter = buffer;
@@ -90,15 +86,44 @@ public class BloomFilter implements AutoCloseable {
     bloomFilter.close();
   }
 
-  public void build(ColumnView cv){
-    build(bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, cv.getNativeView(), numHashes);
+  /**
+   * Insert a column of longs into the bloom filter.
+   * @param cv The column containing the values to add.
+   */
+  public void put(ColumnView cv){
+    put(bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, cv.getNativeView(), numHashes);
   }
 
+  /**
+   * Probe the bloom filter with a column of longs. Returns a column of booleans. For 
+   * each row in the output; a value of true indicates that the corresponding input value
+   * -may- be in the set of values used to build the bloom filter; a value of false indicates
+   * that the corresponding input value is conclusively not in the set of values used to build
+   * the bloom filter.
+   * @param cv The column containing the values to check.
+   * @return A boolean column indicating the results of the probe.
+   */
   public ColumnVector probe(ColumnView cv){
      return new ColumnVector(probe(cv.getNativeView(), bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, numHashes));
   }
 
+  /**
+   * Retrieve the underlying device memory buffer
+   * @return The buffer containing the bloom filter.
+   */
+  public DeviceMemoryBuffer getBuffer(){
+    return bloomFilter;
+  }
+
+  /**
+   * Merge one or more bloom filters into a new bloom filter.
+   * @param bloomFilters The bloom filters to be merged
+   * @return A new bloom filter containing the merged inputs.
+   */
   public static BloomFilter merge(BloomFilter bloomFilters[]){
+    if(bloomFilters.length < 1){
+      throw new IllegalArgumentException("Must pass at least 1 bloom filters to merge");
+    }    
     // verify all the bloom filters match in size
     for (int i = 1; i < bloomFilters.length; i++) {
       if(bloomFilters[i].numHashes != bloomFilters[0].numHashes){
@@ -115,22 +140,25 @@ public class BloomFilter implements AutoCloseable {
     }
 
     int numHashes = bloomFilters[0].numHashes;
-    int bloomFilterBits = bloomFilters[0].bloomFilterBits;
-    int bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
+    long bloomFilterBits = bloomFilters[0].bloomFilterBits;
+    long bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
 
     long[] merged = merge(buffers, bloomFilterBytes);
-    return new BloomFilter(numHashes, bloomFilterBits, DeviceMemoryBuffer.fromRmm(merged[0], (long)bloomFilterBytes, merged[1]));
+    return new BloomFilter(numHashes, bloomFilterBits, DeviceMemoryBuffer.fromRmm(merged[0], bloomFilterBytes, merged[1]));
   }
 
-  public DeviceMemoryBuffer getBuffer(){
-    return bloomFilter;
-  }
-
-  public static int bloomFilterByteSize(int numBits){
+  /**
+   * Return the size in bytes of the underlying device buffer.  It is important
+   * to note that this value may not correspond exactly to the number of bits in the
+   * bloom filter itself.  The total byte size is rounded up to the number of 32 bit
+   * words needed to represent the specified bit size.
+   * @return The size of the bloom filter in bytes.
+   */
+  static long bloomFilterByteSize(long numBits){
     return ((numBits + 31) / 32) * 4;
   }
 
-  private static native void build(long bloomFilter, long bloomFilterBytes, int bloomFilterBits, long cv, int numHashes) throws CudfException;
-  private static native long probe(long cv, long bloomFilter, long bloomFilterBytes, int bloomFilterBits, int numHashes) throws CudfException;
+  private static native void put(long bloomFilter, long bloomFilterBytes, long bloomFilterBits, long cv, int numHashes) throws CudfException;
+  private static native long probe(long cv, long bloomFilter, long bloomFilterBytes, long bloomFilterBits, int numHashes) throws CudfException;
   private static native long[] merge(long bloomFilter[], long bloomFilterBytes) throws CudfException;
 }
