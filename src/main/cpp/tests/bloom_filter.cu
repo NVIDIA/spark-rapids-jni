@@ -36,12 +36,14 @@ TEST_F(BloomFilterTest, Initialization)
   std::vector<std::pair<int, int>> expected({{1, 1}, {32, 1}, {33, 2}, {64, 2}});
 
   for (size_t idx = 0; idx < expected.size(); idx++) {
-    rmm::device_uvector<cudf::bitmask_type> bloom_filter =
+    auto bloom_filter =
       spark_rapids_jni::bloom_filter_create(expected[idx].first, cudf::get_default_stream());
-    CUDF_EXPECTS(bloom_filter.size() == expected[idx].second, "Bloom filter not of expected size");
+    CUDF_EXPECTS(bloom_filter->size() == expected[idx].second * sizeof(cudf::bitmask_type),
+                 "Bloom filter not of expected size");
+    auto bytes = static_cast<uint8_t const*>(bloom_filter->data());
     CUDF_EXPECTS(thrust::all_of(rmm::exec_policy(cudf::get_default_stream()),
-                                bloom_filter.begin(),
-                                bloom_filter.end(),
+                                bytes,
+                                bytes + bloom_filter->size(),
                                 is_zero{}),
                  "Bloom filter not initialized to 0");
   }
@@ -54,8 +56,11 @@ TEST_F(BloomFilterTest, BuildAndProbe)
   constexpr int num_hashes        = 3;
 
   cudf::test::fixed_width_column_wrapper<int64_t> input{20, 80, 100, 99, 47, -9, 234000000};
-  rmm::device_uvector<cudf::bitmask_type> bloom_filter =
-    spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto _bloom_filter = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  cudf::device_span<cudf::bitmask_type> bloom_filter{
+    static_cast<cudf::bitmask_type*>(_bloom_filter->data()),
+    _bloom_filter->size() / sizeof(cudf::bitmask_type)};
+
   spark_rapids_jni::bloom_filter_build(bloom_filter, bloom_filter_bits, input, 3, stream);
 
   // probe
@@ -76,25 +81,26 @@ TEST_F(BloomFilterTest, ProbeMerged)
 
   // column a
   cudf::test::fixed_width_column_wrapper<int64_t> col_a{20, 80, 100, 99, 47, -9, 234000000};
-  rmm::device_uvector<cudf::bitmask_type> bloom_filter_a =
-    spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto _bloom_filter_a = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto bloom_filter_a  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_a);
   spark_rapids_jni::bloom_filter_build(bloom_filter_a, bloom_filter_bits, col_a, 3, stream);
 
   // column b
   cudf::test::fixed_width_column_wrapper<int64_t> col_b{100, 200, 300, 400};
-  rmm::device_uvector<cudf::bitmask_type> bloom_filter_b =
-    spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto _bloom_filter_b = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto bloom_filter_b  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_b);
   spark_rapids_jni::bloom_filter_build(bloom_filter_b, bloom_filter_bits, col_b, 3, stream);
 
   // column c
   cudf::test::fixed_width_column_wrapper<int64_t> col_c{-100, -200, -300, -400};
-  rmm::device_uvector<cudf::bitmask_type> bloom_filter_c =
-    spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto _bloom_filter_c = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  auto bloom_filter_c  = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_c);
   spark_rapids_jni::bloom_filter_build(bloom_filter_c, bloom_filter_bits, col_c, 3, stream);
 
   // merged bloom filter
-  auto bloom_filter_merged = spark_rapids_jni::bitmask_bitwise_or(
-    {{&bloom_filter_a, &bloom_filter_b, &bloom_filter_c}}, stream);
+  auto _bloom_filter_merged =
+    spark_rapids_jni::bitmask_bitwise_or({bloom_filter_a, bloom_filter_b, bloom_filter_c}, stream);
+  auto bloom_filter_merged = spark_rapids_jni::bloom_filter_to_span(*_bloom_filter_merged);
 
   // probe
   cudf::test::fixed_width_column_wrapper<int64_t> probe{

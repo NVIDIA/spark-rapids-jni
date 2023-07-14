@@ -31,7 +31,7 @@ namespace spark_rapids_jni {
  * @returns An allocated bloom filter initialized to empty.
  *
  */
-rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(
+std::unique_ptr<rmm::device_buffer> bloom_filter_create(
   cudf::size_type bloom_filter_bits,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
@@ -47,7 +47,7 @@ rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  *
  */
-void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
+void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
                         cudf::size_type bloom_filter_bits,
                         cudf::column_view const& input,
                         cudf::size_type num_hashes,
@@ -68,10 +68,20 @@ void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
  */
 std::unique_ptr<cudf::column> bloom_filter_probe(
   cudf::column_view const& input,
-  rmm::device_uvector<cudf::bitmask_type> const& bloom_filter,
+  cudf::device_span<cudf::bitmask_type const> bloom_filter,
   cudf::size_type bloom_filter_bits,
   cudf::size_type num_hashes,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Create a device span from an rmm::device_buffer
+ *
+ * @param bloom_filter The bloom filter buffer to be converted.
+ *
+ * @returns A device span representing a view into the bloom filter
+ *
+ */
+cudf::device_span<cudf::bitmask_type> bloom_filter_to_span(rmm::device_buffer& bloom_filter);
 
 }  // namespace spark_rapids_jni

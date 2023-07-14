@@ -16,6 +16,7 @@
 
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -25,23 +26,25 @@
 
 namespace spark_rapids_jni {
 
-rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(
-  std::vector<rmm::device_uvector<cudf::bitmask_type> const*> const& input,
+std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
+  std::vector<cudf::device_span<cudf::bitmask_type const>> const& input,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
   CUDF_EXPECTS(input.size() > 0, "Empty input");
-  auto const mask_size = (*input.begin())->size();
+  auto const mask_size = (*input.begin()).size();
   CUDF_EXPECTS(
     std::all_of(
-      input.begin(), input.end(), [mask_size](auto mask) { return mask->size() == mask_size; }),
+      input.begin(), input.end(), [mask_size](auto mask) { return mask.size() == mask_size; }),
     "Encountered size mismatch in inputs");
-  if (mask_size == 0) { return rmm::device_uvector<cudf::bitmask_type>(0, stream, mr); }
+  if (mask_size == 0) {
+    return std::make_unique<rmm::device_buffer>(rmm::device_buffer{0, stream, mr});
+  }
 
   // move the pointers to the gpu
   std::vector<cudf::bitmask_type const*> h_input(input.size());
   std::transform(
-    input.begin(), input.end(), h_input.begin(), [](auto mask) { return mask->data(); });
+    input.begin(), input.end(), h_input.begin(), [](auto mask) { return mask.data(); });
   rmm::device_uvector<cudf::bitmask_type const*> d_input(
     h_input.size(), stream, rmm::mr::get_current_device_resource());
   cudaMemcpyAsync(d_input.data(),
@@ -49,12 +52,13 @@ rmm::device_uvector<cudf::bitmask_type> bitmask_bitwise_or(
                   sizeof(cudf::bitmask_type const*) * h_input.size(),
                   cudaMemcpyHostToDevice);
 
-  rmm::device_uvector<cudf::bitmask_type> out(mask_size, stream, mr);
+  std::unique_ptr<rmm::device_buffer> out =
+    std::make_unique<rmm::device_buffer>(mask_size * sizeof(cudf::bitmask_type), stream, mr);
   thrust::transform(
     rmm::exec_policy(stream),
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(0) + mask_size,
-    out.begin(),
+    static_cast<cudf::bitmask_type*>(out->data()),
     [buffers = d_input.data(), num_buffers = input.size()] __device__(cudf::size_type word_index) {
       cudf::bitmask_type out = buffers[0][word_index];
       for (auto idx = 1; idx < num_buffers; idx++) {

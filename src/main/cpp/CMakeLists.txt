@@ -146,6 +146,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/BloomFilterJni.cpp
   src/CastStringJni.cpp
   src/DecimalUtilsJni.cpp
   src/HashJni.cpp

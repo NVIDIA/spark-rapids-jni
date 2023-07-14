@@ -1,0 +1,136 @@
+/*
+ * Copyright (c) 2023, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.nvidia.spark.rapids.jni;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.CudfException;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.MemoryCleaner;
+import ai.rapids.cudf.NativeDepsLoader;
+
+public class BloomFilter implements AutoCloseable {
+  private static final Logger log = LoggerFactory.getLogger(BloomFilter.class);
+  private final int numHashes;
+  private final int bloomFilterBits;
+  private DeviceMemoryBuffer bloomFilter;
+
+  static {
+    NativeDepsLoader.loadNativeDeps();
+  }
+  
+  private static final class BloomFilterCleaner extends MemoryCleaner.Cleaner {
+    private BloomFilter parent;
+
+    BloomFilterCleaner(BloomFilter parent) {
+      this.parent = parent;
+    }
+
+    @Override
+    protected synchronized boolean cleanImpl(boolean logErrorIfNotClean) {
+      if (parent != null) {
+        if (logErrorIfNotClean) {
+          log.error("A BLOOM FILTER BUFFER WAS LEAKED(ID: " + id + " parent: " + parent + ")");
+          logRefCountDebug("Leaked bloom filter buffer");
+        }
+        try {
+          parent.close();
+        } finally {
+          // Always mark the resource as freed even if an exception is thrown.
+          // We cannot know how far it progressed before the exception, and
+          // therefore it is unsafe to retry.
+          parent = null;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    @Override
+    public boolean isClean() {
+      return parent == null;
+    }
+  }  
+
+  BloomFilter(int numHashes, int bloomFilterBits){
+    this.numHashes = numHashes;
+    this.bloomFilterBits = bloomFilterBits;
+    
+    int bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
+    bloomFilter = DeviceMemoryBuffer.allocate(bloomFilterBytes);
+    bloomFilter.memset(0, (byte)0, bloomFilterBytes);
+  }  
+
+  BloomFilter(int numHashes, int bloomFilterBits, DeviceMemoryBuffer buffer){
+    this.numHashes = numHashes;
+    this.bloomFilterBits = bloomFilterBits;
+    bloomFilter = buffer;
+  }
+
+  @Override
+  public void close() {
+    bloomFilter.close();
+  }
+
+  public void build(ColumnView cv){
+    build(bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, cv.getNativeView(), numHashes);
+  }
+
+  public ColumnVector probe(ColumnView cv){
+     return new ColumnVector(probe(cv.getNativeView(), bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, numHashes));
+  }
+
+  public static BloomFilter merge(BloomFilter bloomFilters[]){
+    // verify all the bloom filters match in size
+    for (int i = 1; i < bloomFilters.length; i++) {
+      if(bloomFilters[i].numHashes != bloomFilters[0].numHashes){
+        throw new IllegalArgumentException("All bloom filters must use the same number of hashes");
+      }
+      if(bloomFilters[i].bloomFilterBits != bloomFilters[0].bloomFilterBits){
+        throw new IllegalArgumentException("All bloom filters must have the same number of bits");
+      }
+    }
+
+    long buffers[] = new long[bloomFilters.length];
+    for (int i = 0; i < bloomFilters.length; i++) {
+      buffers[i] = bloomFilters[i].getBuffer().getAddress();
+    }
+
+    int numHashes = bloomFilters[0].numHashes;
+    int bloomFilterBits = bloomFilters[0].bloomFilterBits;
+    int bloomFilterBytes = bloomFilterByteSize(bloomFilterBits);
+
+    long[] merged = merge(buffers, bloomFilterBytes);
+    return new BloomFilter(numHashes, bloomFilterBits, DeviceMemoryBuffer.fromRmm(merged[0], (long)bloomFilterBytes, merged[1]));
+  }
+
+  public DeviceMemoryBuffer getBuffer(){
+    return bloomFilter;
+  }
+
+  public static int bloomFilterByteSize(int numBits){
+    return ((numBits + 31) / 32) * 4;
+  }
+
+  private static native void build(long bloomFilter, long bloomFilterBytes, int bloomFilterBits, long cv, int numHashes) throws CudfException;
+  private static native long probe(long cv, long bloomFilter, long bloomFilterBytes, int bloomFilterBits, int numHashes) throws CudfException;
+  private static native long[] merge(long bloomFilter[], long bloomFilterBytes) throws CudfException;
+}

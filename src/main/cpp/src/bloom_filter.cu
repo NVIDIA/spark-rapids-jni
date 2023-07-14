@@ -88,17 +88,17 @@ struct bloom_probe_functor {
 
 }  // anonymous namespace
 
-rmm::device_uvector<cudf::bitmask_type> bloom_filter_create(cudf::size_type bloom_filter_bits,
-                                                            rmm::cuda_stream_view stream,
-                                                            rmm::mr::device_memory_resource* mr)
+std::unique_ptr<rmm::device_buffer> bloom_filter_create(cudf::size_type bloom_filter_bits,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::mr::device_memory_resource* mr)
 {
-  rmm::device_uvector<cudf::bitmask_type> out(
-    cudf::num_bitmask_words(bloom_filter_bits), stream, mr);
-  cudaMemsetAsync(out.data(), 0, out.size() * sizeof(cudf::bitmask_type), stream);
+  std::unique_ptr<rmm::device_buffer> out = std::make_unique<rmm::device_buffer>(
+    cudf::num_bitmask_words(bloom_filter_bits) * sizeof(cudf::bitmask_type), stream, mr);
+  cudaMemsetAsync(out->data(), 0, out->size() * sizeof(cudf::bitmask_type), stream);
   return out;
 }
 
-void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
+void bloom_filter_build(cudf::device_span<cudf::bitmask_type> bloom_filter,
                         cudf::size_type bloom_filter_bits,
                         cudf::column_view const& input,
                         cudf::size_type num_hashes,
@@ -114,29 +114,9 @@ void bloom_filter_build(rmm::device_uvector<cudf::bitmask_type>& bloom_filter,
     bloom_filter.data(), bloom_filter_bits, input, num_hashes);
 }
 
-rmm::device_uvector<cudf::bitmask_type> bloom_filter_merge(
-  rmm::device_uvector<cudf::bitmask_type> const& a,
-  rmm::device_uvector<cudf::bitmask_type> const& b,
-  rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
-{
-  CUDF_EXPECTS(a.size() == b.size(),
-               "bloom_filter_merge encountered mismatched input filter sizes");
-
-  rmm::device_uvector<cudf::bitmask_type> out(a.size(), stream, mr);
-  thrust::transform(
-    rmm::exec_policy(stream),
-    thrust::make_counting_iterator(0),
-    thrust::make_counting_iterator(0) + a.size(),
-    out.begin(),
-    [a = a.begin(), b = b.begin()] __device__(cudf::size_type i) { return a[i] | b[i]; });
-
-  return out;
-}
-
 std::unique_ptr<cudf::column> bloom_filter_probe(
   cudf::column_view const& input,
-  rmm::device_uvector<cudf::bitmask_type> const& bloom_filter,
+  cudf::device_span<cudf::bitmask_type const> bloom_filter,
   cudf::size_type bloom_filter_bits,
   cudf::size_type num_hashes,
   rmm::cuda_stream_view stream,
@@ -154,6 +134,13 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
                     out->mutable_view().begin<bool>(),
                     bloom_probe_functor{bloom_filter.data(), bloom_filter_bits, num_hashes});
   return out;
+}
+
+cudf::device_span<cudf::bitmask_type> bloom_filter_to_span(rmm::device_buffer& bloom_filter)
+{
+  CUDF_EXPECTS(bloom_filter.size() % 4 == 0, "Unexpected bloom filter buffer size");
+  return {static_cast<cudf::bitmask_type*>(bloom_filter.data()),
+          bloom_filter.size() / sizeof(cudf::bitmask_type)};
 }
 
 }  // namespace spark_rapids_jni
