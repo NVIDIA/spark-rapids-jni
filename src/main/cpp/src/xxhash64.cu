@@ -17,9 +17,8 @@
 #include "hash.cuh"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/hashing.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
-#include <cudf/detail/utilities/hash_functions.cuh>
+#include <cudf/hashing/detail/hash_functions.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -228,13 +227,13 @@ hash_value_type __device__ inline XXHash_64<uint16_t>::operator()(uint16_t const
 template <>
 hash_value_type __device__ inline XXHash_64<float>::operator()(float const& key) const
 {
-  return compute<float>(cudf::detail::normalize_nans_and_zeros(key));
+  return compute<float>(cudf::hashing::detail::normalize_nans_and_zeros(key));
 }
 
 template <>
 hash_value_type __device__ inline XXHash_64<double>::operator()(double const& key) const
 {
-  return compute<double>(cudf::detail::normalize_nans_and_zeros(key));
+  return compute<double>(cudf::hashing::detail::normalize_nans_and_zeros(key));
 }
 
 template <>
