@@ -28,6 +28,30 @@ namespace spark_rapids_jni {
 constexpr int64_t DEFAULT_XXHASH64_SEED = 42;
 
 /**
+ * Normalization of floating point NaNs, passthrough for all other values.
+ */
+template <typename T>
+T __device__ inline normalize_nans(T const& key)
+{
+  if constexpr (cudf::is_floating_point<T>()) {
+    if (std::isnan(key)) { return std::numeric_limits<T>::quiet_NaN(); }
+  }
+  return key;
+}
+
+/**
+ * Normalization of floating point NaNs and zeros, passthrough for all other values.
+ */
+template <typename T>
+T __device__ inline normalize_nans_and_zeros(T const& key)
+{
+  if constexpr (cudf::is_floating_point<T>()) {
+    if (key == T{0.0}) { return T{0.0}; }
+  }
+  return normalize_nans(key);
+}
+
+/**
  * @brief Converts a cudf decimal128 value to a java bigdecimal value.
  *
  * @param key The cudf decimal value
