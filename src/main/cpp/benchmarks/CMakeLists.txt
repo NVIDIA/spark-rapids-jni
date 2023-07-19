@@ -74,3 +74,6 @@ ConfigureBench(ROW_CONVERSION_BENCH
 
 ConfigureBench(STRING_TO_FLOAT_BENCH
   cast_string_to_float.cpp)
+
+ConfigureBench(BLOOM_FILTER_BENCH
+  bloom_filter.cu)
