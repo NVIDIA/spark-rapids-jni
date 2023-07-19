@@ -163,13 +163,13 @@ murmur_hash_value_type __device__ inline MurmurHash3_32<uint16_t>::operator()(
 template <>
 murmur_hash_value_type __device__ inline MurmurHash3_32<float>::operator()(float const& key) const
 {
-  return compute<float>(cudf::hashing::detail::normalize_nans(key));
+  return compute<float>(spark_rapids_jni::normalize_nans(key));
 }
 
 template <>
 murmur_hash_value_type __device__ inline MurmurHash3_32<double>::operator()(double const& key) const
 {
-  return compute<double>(cudf::hashing::detail::normalize_nans(key));
+  return compute<double>(spark_rapids_jni::normalize_nans(key));
 }
 
 template <>
