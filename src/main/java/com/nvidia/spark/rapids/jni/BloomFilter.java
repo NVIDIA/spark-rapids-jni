@@ -60,12 +60,14 @@ public class BloomFilter implements AutoCloseable {
 
   /**
    * Construct a BloomFilter from a pre-existing buffer, using the specified number of
-   * hashes and bits.
+   * hashes and bits. This constructor takes ownership of the buffer and will be responsible
+   * for closing it.
+   * 
    * @param numHashes The number of hashes to use when adding values and probing.
    * @param bloomFilterBits The size of the bloom filter in bits.
    * @param buffer The pre-existing buffer of.
    */
-  public BloomFilter(int numHashes, long bloomFilterBits, DeviceMemoryBuffer buffer){
+  public BloomFilter(int numHashes, long bloomFilterBits, DeviceMemoryBuffer buffer) {
     if(numHashes <= 0){
       throw new IllegalArgumentException("Bloom filters must have a positive hash count");
     }

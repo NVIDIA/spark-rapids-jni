@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
@@ -45,12 +46,8 @@ std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
   std::vector<cudf::bitmask_type const*> h_input(input.size());
   std::transform(
     input.begin(), input.end(), h_input.begin(), [](auto mask) { return mask.data(); });
-  rmm::device_uvector<cudf::bitmask_type const*> d_input(
-    h_input.size(), stream, rmm::mr::get_current_device_resource());
-  cudaMemcpyAsync(d_input.data(),
-                  h_input.data(),
-                  sizeof(cudf::bitmask_type const*) * h_input.size(),
-                  cudaMemcpyHostToDevice);
+  auto d_input = cudf::detail::make_device_uvector_async(
+    h_input, stream, rmm::mr::get_current_device_resource());
 
   std::unique_ptr<rmm::device_buffer> out =
     std::make_unique<rmm::device_buffer>(mask_size * sizeof(cudf::bitmask_type), stream, mr);

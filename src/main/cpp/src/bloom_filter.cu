@@ -46,7 +46,7 @@ __global__ void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
                                      cudf::device_span<int64_t const> input,
                                      cudf::size_type num_hashes)
 {
-  int const tid = threadIdx.x + blockIdx.x * blockDim.x;
+  size_t const tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid >= input.size()) { return; }
 
   // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L87
@@ -67,7 +67,7 @@ struct bloom_probe_functor {
   cudf::size_type const bloom_filter_bits;
   cudf::size_type const num_hashes;
 
-  __device__ bool operator()(int64_t input)
+  __device__ bool operator()(int64_t input) const
   {
     // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L110
     // this code could be combined with the very similar code in gpu_bloom_filter_put. i've
@@ -94,7 +94,7 @@ std::unique_ptr<rmm::device_buffer> bloom_filter_create(int64_t bloom_filter_bit
 {
   std::unique_ptr<rmm::device_buffer> out = std::make_unique<rmm::device_buffer>(
     cudf::num_bitmask_words(bloom_filter_bits) * sizeof(cudf::bitmask_type), stream, mr);
-  cudaMemsetAsync(out->data(), 0, out->size(), stream);
+  CUDF_CUDA_TRY(cudaMemsetAsync(out->data(), 0, out->size(), stream));
   return out;
 }
 
