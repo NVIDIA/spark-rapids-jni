@@ -19,6 +19,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/null_mask.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/span.hpp>
 
@@ -106,7 +107,9 @@ void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
 {
   CUDF_EXPECTS(input.type() == cudf::data_type{cudf::type_id::INT64} && !input.nullable(),
                "bloom filter input expects a non-nullable column of int64s");
-  CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size specified");
+  CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size");
+  CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
+               "Bloom filter bit/length mismatch");
 
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
@@ -125,6 +128,8 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
   CUDF_EXPECTS(input.type() == cudf::data_type{cudf::type_id::INT64} && !input.nullable(),
                "bloom filter input expects a non-nullable column of int64s");
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter");
+  CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
+               "Bloom filter bit/length mismatch");
 
   auto out = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);

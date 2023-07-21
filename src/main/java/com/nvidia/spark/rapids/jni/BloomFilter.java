@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ai.rapids.cudf.BaseDeviceMemoryBuffer;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.Cuda;
@@ -31,7 +32,7 @@ public class BloomFilter implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(BloomFilter.class);
   private final int numHashes;
   private final long bloomFilterBits;
-  private DeviceMemoryBuffer bloomFilter;
+  private BaseDeviceMemoryBuffer bloomFilter;
 
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -67,15 +68,20 @@ public class BloomFilter implements AutoCloseable {
    * @param bloomFilterBits The size of the bloom filter in bits.
    * @param buffer The pre-existing buffer of.
    */
-  public BloomFilter(int numHashes, long bloomFilterBits, DeviceMemoryBuffer buffer) {
-    if(numHashes <= 0){
-      throw new IllegalArgumentException("Bloom filters must have a positive hash count");
-    }
-    if(bloomFilterBits <= 0){
-      throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
-    }
-    if(buffer.getLength() != bloomFilterByteSize(bloomFilterBits)){
-      throw new IllegalArgumentException("Invalid pre-existing buffer passed. Size mismatch");
+  public BloomFilter(int numHashes, long bloomFilterBits, BaseDeviceMemoryBuffer buffer) {
+    try {
+      if(numHashes <= 0){
+        throw new IllegalArgumentException("Bloom filters must have a positive hash count");
+      }
+      if(bloomFilterBits <= 0){
+        throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
+      }
+      if(buffer.getLength() != bloomFilterByteSize(bloomFilterBits)){
+        throw new IllegalArgumentException("Invalid pre-existing buffer passed. Size mismatch");
+      }
+    } catch (Exception e) {
+      buffer.close();
+      throw e;
     }
 
     this.numHashes = numHashes;
@@ -93,7 +99,7 @@ public class BloomFilter implements AutoCloseable {
    * @param cv The column containing the values to add.
    */
   public void put(ColumnView cv){
-    put(bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, cv.getNativeView(), numHashes);
+    put(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView());
   }
 
   /**
@@ -106,15 +112,36 @@ public class BloomFilter implements AutoCloseable {
    * @return A boolean column indicating the results of the probe.
    */
   public ColumnVector probe(ColumnView cv){
-     return new ColumnVector(probe(cv.getNativeView(), bloomFilter.getAddress(), bloomFilter.getLength(), bloomFilterBits, numHashes));
+     return new ColumnVector(probe(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
   }
 
   /**
    * Retrieve the underlying device memory buffer
    * @return The buffer containing the bloom filter.
    */
-  public DeviceMemoryBuffer getBuffer(){
+  public BaseDeviceMemoryBuffer getBuffer(){
     return bloomFilter;
+  }
+
+  /**
+   * Insert a column of longs into a bloom filter.
+   * @param cv The column containing the values to add.
+   */
+  public static void put(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+    put(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView());
+  }
+
+  /**
+   * Probe a bloom filter with a column of longs. Returns a column of booleans. For 
+   * each row in the output; a value of true indicates that the corresponding input value
+   * -may- be in the set of values used to build the bloom filter; a value of false indicates
+   * that the corresponding input value is conclusively not in the set of values used to build
+   * the bloom filter.
+   * @param cv The column containing the values to check.
+   * @return A boolean column indicating the results of the probe.
+   */
+  public static ColumnVector probe(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+     return new ColumnVector(probe(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
   }
 
   /**
@@ -160,7 +187,7 @@ public class BloomFilter implements AutoCloseable {
     return ((numBits + 31) / 32) * 4;
   }
 
-  private static native void put(long bloomFilter, long bloomFilterBytes, long bloomFilterBits, long cv, int numHashes) throws CudfException;
-  private static native long probe(long cv, long bloomFilter, long bloomFilterBytes, long bloomFilterBits, int numHashes) throws CudfException;
+  private static native void put(int numHashes, long bloomFilterBits, long bloomFilter, long bloomFilterBytes, long cv) throws CudfException;
+  private static native long probe(int numHashes, long bloomFilterBits, long bloomFilter, long bloomFilterBytes, long cv) throws CudfException;
   private static native long[] merge(long bloomFilter[], long bloomFilterBytes) throws CudfException;
 }

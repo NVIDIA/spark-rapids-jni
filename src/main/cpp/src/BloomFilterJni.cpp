@@ -25,11 +25,11 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv* env,
                                                                          jclass,
+                                                                         jint num_hashes,
+                                                                         jlong bloom_filter_bits,
                                                                          jlong bloom_filter,
                                                                          jlong bloom_filter_bytes,
-                                                                         jlong bloom_filter_bits,
-                                                                         jlong cv,
-                                                                         jint num_hashes)
+                                                                         jlong cv)
 {
   try {
     cudf::jni::auto_set_device(env);
@@ -48,11 +48,11 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv*
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probe(JNIEnv* env,
                                                                            jclass,
-                                                                           jlong cv,
+                                                                           jint num_hashes,
+                                                                           jlong bloom_filter_bits,
                                                                            jlong bloom_filter,
                                                                            jlong bloom_filter_bytes,
-                                                                           jlong bloom_filter_bits,
-                                                                           jint num_hashes)
+                                                                           jlong cv)
 {
   try {
     cudf::jni::auto_set_device(env);

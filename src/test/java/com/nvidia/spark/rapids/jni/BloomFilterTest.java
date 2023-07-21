@@ -30,7 +30,7 @@ public class BloomFilterTest {
   @Test
   void testBuildAndProbe(){
     int numHashes = 3;
-    long bloomFilterBits = 4 * 1024 * 1024;
+    int bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
          BloomFilter bloomFilter = new BloomFilter(numHashes, bloomFilterBits)){
@@ -46,13 +46,14 @@ public class BloomFilterTest {
 
   @Test
   void testBuildFromBufferAndProbe(){
-    long bloomFilterBits = 4 * 1024 * 1024;
+    int numHashes = 3;
+    int bloomFilterBits = 4 * 1024 * 1024;
     long bloomFilterBytes = BloomFilter.bloomFilterByteSize(bloomFilterBits);
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000)){
       DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(bloomFilterBytes);
       Cuda.asyncMemset(bloomFilterBuf.getAddress(), (byte)0, bloomFilterBytes);
-      BloomFilter bloomFilter = new BloomFilter(3, bloomFilterBits, bloomFilterBuf);
+      BloomFilter bloomFilter = new BloomFilter(numHashes, bloomFilterBits, bloomFilterBuf);
       bloomFilter.put(input);
       try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
@@ -62,10 +63,29 @@ public class BloomFilterTest {
     }
   }
 
+  @Test
+  void testBuildFromBufferAndProbeStatic(){
+    int numHashes = 3;
+    int bloomFilterBits = 4 * 1024 * 1024;
+    long bloomFilterBytes = BloomFilter.bloomFilterByteSize(bloomFilterBits);
+
+    try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000)){
+      DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(bloomFilterBytes);
+      Cuda.asyncMemset(bloomFilterBuf.getAddress(), (byte)0, bloomFilterBytes);
+      
+      BloomFilter.put(numHashes, bloomFilterBits, bloomFilterBuf, input);
+      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+          ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+          ColumnVector result = BloomFilter.probe(numHashes, bloomFilterBits, bloomFilterBuf, probe)){
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
     @Test
   void testBuildMergeProbe(){
     int numHashes = 3;
-    long bloomFilterBits = 4 * 1024 * 1024;
+    int bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector colA = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
          ColumnVector colB = ColumnVector.fromLongs(100, 200, 300, 400);
