@@ -79,7 +79,7 @@ public class BloomFilter implements AutoCloseable {
       if(buffer.getLength() != bloomFilterByteSize(bloomFilterBits)){
         throw new IllegalArgumentException("Invalid pre-existing buffer passed. Size mismatch");
       }
-    } catch (Exception e) {
+    } catch (Throwable e) {
       buffer.close();
       throw e;
     }
