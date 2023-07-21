@@ -36,9 +36,15 @@ __device__ inline std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_ma
   bloom_hash_type h, cudf::size_type bloom_filter_bits)
 {
   // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L94
-  auto const index      = (h < 0 ? ~h : h) % static_cast<bloom_hash_type>(bloom_filter_bits);
-  auto const word_index = cudf::word_index(index);
-  auto const bit_index  = cudf::intra_word_index(index);
+  auto const index = (h < 0 ? ~h : h) % static_cast<bloom_hash_type>(bloom_filter_bits);
+
+  // spark expects serialized bloom filters to be big endian (64 bit longs),
+  // so we will produce a big endian buffer. if spark CPU ends up consuming it, it can do so
+  // directly. the gpu bloom filter implementation will always be handed the same serialized buffer.
+  auto const word_index = cudf::word_index(index) ^ 0x1;  // word-swizzle within 64 bit long
+  auto const bit_index =
+    cudf::intra_word_index(index) ^ 0x18;                 // byte swizzle within the 32 bit word
+
   return {word_index, (1 << bit_index)};
 }
 
@@ -110,6 +116,7 @@ void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size");
   CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
                "Bloom filter bit/length mismatch");
+  CUDF_EXPECTS(bloom_filter.size() % 8 == 0, "Bloom is not a whole number of 64 bit longs");
 
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
@@ -130,6 +137,7 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter");
   CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
                "Bloom filter bit/length mismatch");
+  CUDF_EXPECTS(bloom_filter.size() % 8 == 0, "Bloom is not a whole number of 64 bit longs");
 
   auto out = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);

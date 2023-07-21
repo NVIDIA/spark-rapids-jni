@@ -50,6 +50,9 @@ public class BloomFilter implements AutoCloseable {
     if(bloomFilterBits <= 0){
       throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
     }
+    if(bloomFilterBits % 64 != 0){
+      throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
+    }
 
     this.numHashes = numHashes;    
     this.bloomFilterBits = bloomFilterBits;
@@ -62,7 +65,7 @@ public class BloomFilter implements AutoCloseable {
   /**
    * Construct a BloomFilter from a pre-existing buffer, using the specified number of
    * hashes and bits. This constructor takes ownership of the buffer and will be responsible
-   * for closing it.
+   * for closing it. It is expected that bloomFilterBits is a multiple of 64.
    * 
    * @param numHashes The number of hashes to use when adding values and probing.
    * @param bloomFilterBits The size of the bloom filter in bits.
@@ -75,6 +78,9 @@ public class BloomFilter implements AutoCloseable {
       }
       if(bloomFilterBits <= 0){
         throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
+      }
+      if(bloomFilterBits % 64 != 0){
+        throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
       }
       if(buffer.getLength() != bloomFilterByteSize(bloomFilterBits)){
         throw new IllegalArgumentException("Invalid pre-existing buffer passed. Size mismatch");
@@ -124,10 +130,13 @@ public class BloomFilter implements AutoCloseable {
   }
 
   /**
-   * Insert a column of longs into a bloom filter.
+   * Insert a column of longs into a bloom filter. It is expected that bloomFilterBits is a multiple of 64.
    * @param cv The column containing the values to add.
    */
   public static void put(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+    if(bloomFilterBits % 64 != 0){
+      throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
+    }
     put(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView());
   }
 
@@ -136,11 +145,14 @@ public class BloomFilter implements AutoCloseable {
    * each row in the output; a value of true indicates that the corresponding input value
    * -may- be in the set of values used to build the bloom filter; a value of false indicates
    * that the corresponding input value is conclusively not in the set of values used to build
-   * the bloom filter.
+   * the bloom filter. It is expected that bloomFilterBits is a multiple of 64.
    * @param cv The column containing the values to check.
    * @return A boolean column indicating the results of the probe.
    */
   public static ColumnVector probe(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+     if(bloomFilterBits % 64 != 0){
+       throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
+     }
      return new ColumnVector(probe(numHashes, bloomFilterBits, bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
   }
 

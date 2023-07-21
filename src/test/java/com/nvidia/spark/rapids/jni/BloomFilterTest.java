@@ -142,6 +142,20 @@ public class BloomFilterTest {
       try (BloomFilter bloomFilter = new BloomFilter(3, 0, bloomFilterBuf)){}
     });
 
+    // bloom filter with invalid bit size
+    assertThrows(IllegalArgumentException.class, () -> {
+      DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(0);
+      try (BloomFilter bloomFilter = new BloomFilter(3, 31)){}
+    });
+    assertThrows(IllegalArgumentException.class, () -> {
+      DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(0);
+      try (BloomFilter bloomFilter = new BloomFilter(3, 63)){}
+    });
+    assertThrows(IllegalArgumentException.class, () -> {
+      DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(0);
+      try (BloomFilter bloomFilter = new BloomFilter(3, 65)){}
+    });
+
     // bloom filter with an incorrectly sized pre-existing buffer
     assertThrows(IllegalArgumentException.class, () -> {
       DeviceMemoryBuffer bloomFilterBuf = DeviceMemoryBuffer.allocate(8);
