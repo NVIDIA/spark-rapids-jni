@@ -16,6 +16,7 @@
 
 #include "murmur_hash.cuh"
 
+#include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -48,17 +49,23 @@ __device__ inline std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_ma
   return {word_index, (1 << bit_index)};
 }
 
+template <bool nullable>
 __global__ void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
                                      cudf::size_type bloom_filter_bits,
-                                     cudf::device_span<int64_t const> input,
+                                     cudf::column_device_view input,
                                      cudf::size_type num_hashes)
 {
   size_t const tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid >= input.size()) { return; }
 
+  if constexpr (nullable) {
+    if (!input.is_valid(tid)) { return; }
+  }
+
   // https://github.com/apache/spark/blob/7bfbeb62cb1dc58d81243d22888faa688bad8064/common/sketch/src/main/java/org/apache/spark/util/sketch/BloomFilterImpl.java#L87
-  bloom_hash_type const h1 = MurmurHash3_32<int64_t>(0)(input[tid]);
-  bloom_hash_type const h2 = MurmurHash3_32<int64_t>(h1)(input[tid]);
+  auto const el            = input.element<int64_t>(tid);
+  bloom_hash_type const h1 = MurmurHash3_32<int64_t>(0)(el);
+  bloom_hash_type const h2 = MurmurHash3_32<int64_t>(h1)(el);
 
   // set a bit in the bloom filter for each hashed value
   for (auto idx = 1; idx <= num_hashes; idx++) {
@@ -111,8 +118,6 @@ void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
                       cudf::size_type num_hashes,
                       rmm::cuda_stream_view stream)
 {
-  CUDF_EXPECTS(input.type() == cudf::data_type{cudf::type_id::INT64} && !input.nullable(),
-               "bloom filter input expects a non-nullable column of int64s");
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter size");
   CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
                "Bloom filter bit/length mismatch");
@@ -120,8 +125,15 @@ void bloom_filter_put(cudf::device_span<cudf::bitmask_type> bloom_filter,
 
   constexpr int block_size = 256;
   auto grid                = cudf::detail::grid_1d{input.size(), block_size, 1};
-  gpu_bloom_filter_put<<<grid.num_blocks, block_size, 0, stream.value()>>>(
-    bloom_filter.data(), bloom_filter_bits, input, num_hashes);
+  auto d_input             = cudf::column_device_view::create(input);
+
+  if (input.has_nulls()) {
+    gpu_bloom_filter_put<true><<<grid.num_blocks, block_size, 0, stream.value()>>>(
+      bloom_filter.data(), bloom_filter_bits, *d_input, num_hashes);
+  } else {
+    gpu_bloom_filter_put<false><<<grid.num_blocks, block_size, 0, stream.value()>>>(
+      bloom_filter.data(), bloom_filter_bits, *d_input, num_hashes);
+  }
 }
 
 std::unique_ptr<cudf::column> bloom_filter_probe(
@@ -132,15 +144,19 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  CUDF_EXPECTS(input.type() == cudf::data_type{cudf::type_id::INT64} && !input.nullable(),
-               "bloom filter input expects a non-nullable column of int64s");
   CUDF_EXPECTS(bloom_filter_bits > 0, "Invalid empty bloom filter");
   CUDF_EXPECTS(bloom_filter.size() == cudf::num_bitmask_words(bloom_filter_bits),
                "Bloom filter bit/length mismatch");
   CUDF_EXPECTS(bloom_filter.size() % 8 == 0, "Bloom is not a whole number of 64 bit longs");
 
-  auto out = cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
+  // duplicate input mask
+  auto out = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
+                                           input.size(),
+                                           cudf::copy_bitmask(input),
+                                           input.null_count(),
+                                           stream,
+                                           mr);
+
   thrust::transform(
     rmm::exec_policy(stream),
     input.begin<int64_t>(),

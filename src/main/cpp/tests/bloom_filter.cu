@@ -73,6 +73,56 @@ TEST_F(BloomFilterTest, BuildAndProbe)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
 }
 
+TEST_F(BloomFilterTest, BuildWithNullsAndProbe)
+{
+  auto stream                     = cudf::get_default_stream();
+  constexpr int bloom_filter_bits = (1024 * 1024) * 8;
+  constexpr int num_hashes        = 3;
+
+  auto _bloom_filter = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  cudf::test::fixed_width_column_wrapper<int64_t> input{{20, 80, 100, 99, 47, -9, 234000000},
+                                                        {0, 1, 1, 1, 0, 1, 1}};
+  cudf::device_span<cudf::bitmask_type> bloom_filter{
+    static_cast<cudf::bitmask_type*>(_bloom_filter->data()),
+    _bloom_filter->size() / sizeof(cudf::bitmask_type)};
+
+  spark_rapids_jni::bloom_filter_put(bloom_filter, bloom_filter_bits, input, 3, stream);
+
+  // probe
+  cudf::test::fixed_width_column_wrapper<int64_t> probe{
+    20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3};
+  cudf::test::fixed_width_column_wrapper<bool> expected{0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0};
+  auto result = spark_rapids_jni::bloom_filter_probe(
+    probe, bloom_filter, bloom_filter_bits, num_hashes, stream);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
+}
+
+TEST_F(BloomFilterTest, BuildAndProbeWithNulls)
+{
+  auto stream                     = cudf::get_default_stream();
+  constexpr int bloom_filter_bits = (1024 * 1024) * 8;
+  constexpr int num_hashes        = 3;
+
+  cudf::test::fixed_width_column_wrapper<int64_t> input{20, 80, 100, 99, 47, -9, 234000000};
+  auto _bloom_filter = spark_rapids_jni::bloom_filter_create(bloom_filter_bits, stream);
+  cudf::device_span<cudf::bitmask_type> bloom_filter{
+    static_cast<cudf::bitmask_type*>(_bloom_filter->data()),
+    _bloom_filter->size() / sizeof(cudf::bitmask_type)};
+
+  spark_rapids_jni::bloom_filter_put(bloom_filter, bloom_filter_bits, input, 3, stream);
+
+  // probe
+  cudf::test::fixed_width_column_wrapper<int64_t> probe{
+    {20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3}, {0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1}};
+  cudf::test::fixed_width_column_wrapper<bool> expected{{1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0},
+                                                        {0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1}};
+  auto result = spark_rapids_jni::bloom_filter_probe(
+    probe, bloom_filter, bloom_filter_bits, num_hashes, stream);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *result);
+}
+
 TEST_F(BloomFilterTest, ProbeMerged)
 {
   auto stream                     = cudf::get_default_stream();

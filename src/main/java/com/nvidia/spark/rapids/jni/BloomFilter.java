@@ -133,7 +133,7 @@ public class BloomFilter implements AutoCloseable {
    * Insert a column of longs into a bloom filter. It is expected that bloomFilterBits is a multiple of 64.
    * @param cv The column containing the values to add.
    */
-  public static void put(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+  public static void put(int numHashes, long bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
     if(bloomFilterBits % 64 != 0){
       throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
     }
@@ -149,7 +149,7 @@ public class BloomFilter implements AutoCloseable {
    * @param cv The column containing the values to check.
    * @return A boolean column indicating the results of the probe.
    */
-  public static ColumnVector probe(int numHashes, int bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
+  public static ColumnVector probe(int numHashes, long bloomFilterBits, BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
      if(bloomFilterBits % 64 != 0){
        throw new IllegalArgumentException("Bloom is not a whole number of 64 bit longs");
      }

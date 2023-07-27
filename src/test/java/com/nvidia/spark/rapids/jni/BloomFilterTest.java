@@ -30,7 +30,7 @@ public class BloomFilterTest {
   @Test
   void testBuildAndProbe(){
     int numHashes = 3;
-    int bloomFilterBits = 4 * 1024 * 1024;
+    long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
          BloomFilter bloomFilter = new BloomFilter(numHashes, bloomFilterBits)){
@@ -47,7 +47,7 @@ public class BloomFilterTest {
   @Test
   void testBuildFromBufferAndProbe(){
     int numHashes = 3;
-    int bloomFilterBits = 4 * 1024 * 1024;
+    long bloomFilterBits = 4 * 1024 * 1024;
     long bloomFilterBytes = BloomFilter.bloomFilterByteSize(bloomFilterBits);
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000)){
@@ -66,7 +66,7 @@ public class BloomFilterTest {
   @Test
   void testBuildFromBufferAndProbeStatic(){
     int numHashes = 3;
-    int bloomFilterBits = 4 * 1024 * 1024;
+    long bloomFilterBits = 4 * 1024 * 1024;
     long bloomFilterBytes = BloomFilter.bloomFilterByteSize(bloomFilterBits);
 
     try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000)){
@@ -82,10 +82,10 @@ public class BloomFilterTest {
     }
   }
 
-    @Test
+  @Test
   void testBuildMergeProbe(){
     int numHashes = 3;
-    int bloomFilterBits = 4 * 1024 * 1024;
+    long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector colA = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
          ColumnVector colB = ColumnVector.fromLongs(100, 200, 300, 400);
