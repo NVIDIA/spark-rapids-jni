@@ -45,6 +45,40 @@ public class BloomFilterTest {
   }
 
   @Test
+  void testBuildWithNullsAndProbe(){
+    int numHashes = 3;
+    long bloomFilterBits = 4 * 1024 * 1024;
+
+    try (ColumnVector input = ColumnVector.fromBoxedLongs(null, 80L, 100L, null, 47L, -9L, 234000000L);
+         BloomFilter bloomFilter = new BloomFilter(numHashes, bloomFilterBits)){
+      
+      bloomFilter.put(input);
+      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+          ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false, true, true, true, false, false, false, false);
+          ColumnVector result = bloomFilter.probe(probe)){
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
+  @Test
+  void testBuildAndProbeWithNulls(){
+    int numHashes = 3;
+    long bloomFilterBits = 4 * 1024 * 1024;
+
+    try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
+         BloomFilter bloomFilter = new BloomFilter(numHashes, bloomFilterBits)){
+      
+      bloomFilter.put(input);
+      try(ColumnVector probe = ColumnVector.fromBoxedLongs(null, null, null, 99L, 47L, -9L, 234000000L, null, null, 2L, 3L);
+          ColumnVector expected = ColumnVector.fromBoxedBooleans(null, null, null, true, true, true, true, null, null, false, false);
+          ColumnVector result = bloomFilter.probe(probe)){
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
+  @Test
   void testBuildFromBufferAndProbe(){
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
