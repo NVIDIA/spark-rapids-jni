@@ -21,13 +21,14 @@ import com.nvidia.spark.rapids.jni.BloomFilter;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.DeviceMemoryBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 
-public class BloomFilterTest {  
+public class BloomFilterTest {
   @Test
   void testBuildAndProbe(){
     int numHashes = 3;
@@ -78,8 +79,7 @@ public class BloomFilterTest {
       }
     }
   }
-
-  /*
+  
   @Test
   void testBuildMergeProbe(){
     int numHashes = 3;
@@ -95,37 +95,40 @@ public class BloomFilterTest {
       BloomFilter.put(bloomFilterA, colA);
       BloomFilter.put(bloomFilterB, colB);
       BloomFilter.put(bloomFilterC, colC);
+      
+      ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
+                                                       ColumnVector.fromScalar(bloomFilterB, 1),
+                                                       ColumnVector.fromScalar(bloomFilterC, 1));
 
       try(ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
           ColumnVector expected = ColumnVector.fromBooleans(true, true, true, false, false, true, false, false, true, true, true, true);
-          BloomFilter merged = BloomFilter.merge(new BloomFilter[]{bloomFilterA, bloomFilterB, bloomFilterC});
-          ColumnVector result = merged.probe(probe)){
+          Scalar merged = BloomFilter.merge(premerge);
+          ColumnVector result = BloomFilter.probe(merged, probe)){
           AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
-  */
 
-/*
   @Test
   void testBuildTrivialMergeProbe(){
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
 
     try (ColumnVector colA = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
-         Scalar bloomFilter = BloomFilter.crate(numHashes, bloomFilterBits)){
+         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
 
       BloomFilter.put(bloomFilter, colA);
 
+      ColumnVector premerge = ColumnVector.fromScalar(bloomFilter, 1);
+
       try(ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
           ColumnVector expected = ColumnVector.fromBooleans(true, false, false, false, false, true, false, false, false, false, false, false);
-          BloomFilter merged = BloomFilter.merge(new BloomFilter[]{bloomFilterA});
-          ColumnVector result = merged.probe(probe)){
+          Scalar merged = BloomFilter.merge(premerge);
+          ColumnVector result = BloomFilter.probe(merged, probe)){
           AssertUtils.assertColumnsAreEqual(expected, result);
       }
     }
   }
-  */
 
   @Test
   void testBuildExpectedFailures(){
@@ -138,30 +141,27 @@ public class BloomFilterTest {
     assertThrows(IllegalArgumentException.class, () -> {
       try (Scalar bloomFilter = BloomFilter.create(3, 0)){}
     });
-
-  /*
-    // empty merge
-    assertThrows(IllegalArgumentException.class, () -> {
-      try (BloomFilter merged = BloomFilter.merge(new BloomFilter[]{})){}
-    });    
-
+    
     // merge with mixed hash counts
-    assertThrows(IllegalArgumentException.class, () -> {
-      try (BloomFilter bloomFilterA = new BloomFilter(3, 1024);
-           BloomFilter bloomFilterB = new BloomFilter(4, 1024);
-           BloomFilter bloomFilterC = new BloomFilter(4, 1024);
-           BloomFilter merged = BloomFilter.merge(new BloomFilter[]{bloomFilterA, bloomFilterB, bloomFilterC})){}
+    assertThrows(CudfException.class, () -> {
+      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
+           Scalar bloomFilterB = BloomFilter.create(4, 1024);
+           Scalar bloomFilterC = BloomFilter.create(4, 1024);
+           ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
+                                                            ColumnVector.fromScalar(bloomFilterB, 1),
+                                                            ColumnVector.fromScalar(bloomFilterC, 1));
+           Scalar merged = BloomFilter.merge(premerge)){}
     });
-    */
 
-   /*
     // merge with mixed hash bit sizes
-    assertThrows(IllegalArgumentException.class, () -> {
-      try (BloomFilter bloomFilterA = new BloomFilter(3, 1024);
-           BloomFilter bloomFilterB = new BloomFilter(3, 1024);
-           BloomFilter bloomFilterC = new BloomFilter(3, 2048);
-           BloomFilter merged = BloomFilter.merge(new BloomFilter[]{bloomFilterA, bloomFilterB, bloomFilterC})){}
+    assertThrows(CudfException.class, () -> {
+      try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
+           Scalar bloomFilterB = BloomFilter.create(3, 1024);
+           Scalar bloomFilterC = BloomFilter.create(3, 2048);
+           ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
+                                                            ColumnVector.fromScalar(bloomFilterB, 1),
+                                                            ColumnVector.fromScalar(bloomFilterC, 1));
+           Scalar merged = BloomFilter.merge(premerge)){}
     });
-    */
   }
 }

@@ -30,8 +30,8 @@ static void bloom_filter_put(nvbench::state& state)
 
   // create the bloom filter
   cudf::size_type const bloom_filter_bytes = state.get_int64("bloom_filter_bytes");
-  cudf::size_type const bloom_filter_bits  = bloom_filter_bytes * CHAR_BIT;
-  auto bloom_filter = spark_rapids_jni::bloom_filter_create(bloom_filter_bits);
+  cudf::size_type const bloom_filter_longs = bloom_filter_bytes / sizeof(int64_t);
+  auto bloom_filter = spark_rapids_jni::bloom_filter_create(num_hashes, bloom_filter_longs);
 
   // create a column of hashed values
   data_profile_builder builder;
@@ -41,20 +41,13 @@ static void bloom_filter_put(nvbench::state& state)
 
   auto const stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
-  state.exec(
-    nvbench::exec_tag::timer | nvbench::exec_tag::sync, [&](nvbench::launch& launch, auto& timer) {
-      timer.start();
-      spark_rapids_jni::bloom_filter_put(
-        {reinterpret_cast<cudf::bitmask_type*>(bloom_filter->data()), bloom_filter->size()},
-        bloom_filter_bits,
-        *input,
-        num_hashes);
-      stream.synchronize();
-      timer.stop();
-
-      // clear the bloom filter
-      cudaMemset(bloom_filter->data(), 0, bloom_filter->size());
-    });
+  state.exec(nvbench::exec_tag::timer | nvbench::exec_tag::sync,
+             [&](nvbench::launch& launch, auto& timer) {
+               timer.start();
+               spark_rapids_jni::bloom_filter_put(*bloom_filter, *input);
+               stream.synchronize();
+               timer.stop();
+             });
 
   size_t const bytes_read    = num_rows * sizeof(int64_t);
   size_t const bytes_written = num_rows * sizeof(cudf::bitmask_type) * num_hashes;
