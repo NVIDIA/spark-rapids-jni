@@ -32,12 +32,14 @@ struct bloom_filter_header {
 constexpr int bloom_filter_header_size = sizeof(bloom_filter_header);
 
 /**
- * @brief Create an empty bloom filter of the specified size in bits.
+ * @brief Create an empty bloom filter of the specified size in (64 bit) longs with using
+ * the specified number of hashes to be used when operating on the filter.
  *
- * @param bloom_filter_bits Size of the bloom filter in bits.
+ * @param num_hashes The number of hashes to use.
+ * @param bloom_filter_longs Size of the bloom filter in bits.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned bloom filter's memory.
- * @returns An list_scalar wrapping a packed Spark bloom_filter
+ * @returns An list_scalar wrapping a packed Spark bloom_filter.
  *
  */
 std::unique_ptr<cudf::list_scalar> bloom_filter_create(
@@ -47,15 +49,12 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_create(
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
- * @brief Builds a bloom filter by hashing input int64_t values using xxhash64.
+ * @brief Inserts input values into a bloom filter.
  *
  * Can be called multiple times on the same bloom_filter buffer.
  *
- * @param[in,out] bloom_filter The bloom filter to be constructed. The function expects that the
- * buffer has already been initialized to 0.
- * @param bloom_filter_bits Size of the bloom filter in bits.
+ * @param[in,out] bloom_filter The bloom filter to be added to.
  * @param input Input column of int64_t values to be inserted into the bloom filter.
- * @param num_hashes Number of hashes to apply.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  *
  */
@@ -68,8 +67,6 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
  *
  * @param input The column of int64_t values to probe with.
  * @param bloom_filter The bloom filter to be probed.
- * @param bloom_filter_bits The size in bits of the bloom filter.
- * @param num_hashes The number of hashes to apply.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned boolean column's memory.
  *
@@ -82,6 +79,19 @@ std::unique_ptr<cudf::column> bloom_filter_probe(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+/**
+ * @brief Merge multiple bloom filters into a single output.
+ *
+ * The incoming bloom filters are expected to be in the form of a list column, with
+ * each row corresponding to an invidual bloom filter.  Each bloom filter must have the
+ * same number of hashes and size.
+ *
+ * @param bloom_filters The bloom filters to be probed.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned boolean column's memory.
+ *
+ * @returns The new bloom filter.
+ */
 std::unique_ptr<cudf::list_scalar> bloom_filter_merge(
   cudf::column_view const& bloom_filters,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),

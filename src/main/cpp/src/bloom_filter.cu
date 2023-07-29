@@ -22,6 +22,7 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/get_value.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -30,6 +31,8 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+
+#include <thrust/logical.h>
 
 #include <byteswap.h>
 
@@ -108,6 +111,13 @@ struct bloom_probe_functor {
 
 constexpr int spark_bloom_filter_version = 1;
 
+bloom_filter_header byte_swap_header(bloom_filter_header const& header)
+{
+  return {static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.version))),
+          static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.num_hashes))),
+          static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.num_longs)))};
+}
+
 /*
   Pack a bloom_filter_header (passed as little endian) into a bloom filter buffer.
 */
@@ -116,10 +126,7 @@ void pack_bloom_filter_header(cudf::device_span<int8_t> buf,
                               rmm::cuda_stream_view stream)
 {
   // swizzle to big endian
-  bloom_filter_header header_swizzled{
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.version))),
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.num_hashes))),
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header.num_longs)))};
+  bloom_filter_header header_swizzled = byte_swap_header(header);
 
   // header goes at the top of the buffer
   cudaMemcpyAsync(
@@ -142,10 +149,7 @@ std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int> unpa
   stream.synchronize();
 
   // swizzle to little endian.
-  bloom_filter_header header{
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header_swizzled.version))),
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header_swizzled.num_hashes))),
-    static_cast<int32_t>(bswap_32(static_cast<uint32_t>(header_swizzled.num_longs)))};
+  bloom_filter_header header = byte_swap_header(header_swizzled);
   return {header,
           {reinterpret_cast<cudf::bitmask_type*>(bloom_filter.data() + bloom_filter_header_size),
            static_cast<size_t>(header.num_longs) * 2},
@@ -153,8 +157,8 @@ std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int> unpa
 }
 
 /*
-  Unpack bloom filter information from column_view that wraps a bloom filter buffer. returns the
-  header, a span representing the bloom filter bits and the number of bloom filter bits.
+  Unpack bloom filter information a from column_view that wraps a single bloom filter buffer.
+  returns the header, a span representing the bloom filter bits and the number of bloom filter bits.
 */
 std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int> unpack_bloom_filter(
   cudf::column_view const& bloom_filter, rmm::cuda_stream_view stream)
@@ -166,22 +170,59 @@ std::tuple<bloom_filter_header, cudf::device_span<cudf::bitmask_type>, int> unpa
     stream);
 }
 
+struct bloom_filter_same {
+  bloom_filter_header header;
+  cudf::detail::lists_column_device_view ldv;
+  cudf::size_type stride;
+
+  bool __device__ operator()(cudf::size_type i)
+  {
+    bloom_filter_header const* a =
+      reinterpret_cast<bloom_filter_header const*>(ldv.child().data<int8_t>() + stride * i);
+    return (a->version == header.version) && (a->num_hashes == header.num_hashes) &&
+           (a->num_longs == header.num_longs);
+  }
+};
+
+/*
+  Returns a pair indicating:
+  - size of the bloom filter bits
+  - total size of the bloom filter buffer (header + bits)
+*/
+std::pair<int, int> get_bloom_filter_stride(int bloom_filter_longs)
+{
+  auto const bloom_filter_size = (bloom_filter_longs * sizeof(int64_t));
+  auto const buf_size          = bloom_filter_header_size + bloom_filter_size;
+  return {bloom_filter_size, buf_size};
+}
+
 }  // anonymous namespace
 
+/*
+  Creates a new bloom filter.  The bloom filter is stored using a cudf list_scalar with a specific
+  structure.
+  - The data type is int8, representing a generic buffer
+  - The first 12 bytes of the buffer are a bloom_filter_header
+  - The remaining bytes are the bloom filter buffer itself. The length of the remaining bytes must
+  be bloom_filter_header.num_longs * 8
+  - All of the data in the buffer is stored in big-endian format.  unpack_bloom_filter() unpacks
+  this into a usable form, and pack_bloom_filter_header packs new data into the output (big-endian)
+  form.
+*/
 std::unique_ptr<cudf::list_scalar> bloom_filter_create(int num_hashes,
                                                        int bloom_filter_longs,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::mr::device_memory_resource* mr)
 {
-  auto const bloom_filter_size = (bloom_filter_longs * sizeof(int64_t));
-  auto const buf_size          = bloom_filter_header_size + bloom_filter_size;
+  auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(bloom_filter_longs);
 
   // build the packed bloom filter buffer ------------------
-  rmm::device_buffer buf{buf_size, stream, mr};
+  rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
 
   // pack the header
   bloom_filter_header header{spark_bloom_filter_version, num_hashes, bloom_filter_longs};
-  pack_bloom_filter_header({reinterpret_cast<int8_t*>(buf.data()), buf_size}, header, stream);
+  pack_bloom_filter_header(
+    {reinterpret_cast<int8_t*>(buf.data()), static_cast<size_t>(buf_size)}, header, stream);
   // memset the bloom filter bits to 0.
 
   CUDF_CUDA_TRY(cudaMemsetAsync(reinterpret_cast<int8_t*>(buf.data()) + bloom_filter_header_size,
@@ -229,16 +270,26 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
 {
   // unpack the bloom filter
   cudf::lists_column_view lcv(bloom_filters);
+
   // since the list child column is just a bunch of packed bloom filter buffers one after another,
   // we can just pass the base data pointer to unpack the first one.
   auto [header, _, bloom_filter_bits] = unpack_bloom_filter(lcv.child(), stream);
 
-  auto const bloom_filter_size = (header.num_longs * sizeof(int64_t));
-  auto const buf_size          = bloom_filter_header_size + bloom_filter_size;
+  auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(header.num_longs);
+
+  // validate all the bloom filters are the same
+  auto dv                             = cudf::column_device_view::create(bloom_filters);
+  bloom_filter_header header_swizzled = byte_swap_header(header);
+  CUDF_EXPECTS(thrust::all_of(rmm::exec_policy(cudf::get_default_stream()),
+                              thrust::make_counting_iterator(1),
+                              thrust::make_counting_iterator(bloom_filters.size()),
+                              bloom_filter_same{header_swizzled, *dv, buf_size}),
+               "Mismatch of bloom filter parameters");
 
   // build the packed bloom filter buffer ------------------
-  rmm::device_buffer buf{buf_size, stream, mr};
-  pack_bloom_filter_header({reinterpret_cast<int8_t*>(buf.data()), buf_size}, header, stream);
+  rmm::device_buffer buf{static_cast<size_t>(buf_size), stream, mr};
+  pack_bloom_filter_header(
+    {reinterpret_cast<int8_t*>(buf.data()), static_cast<size_t>(buf_size)}, header, stream);
 
   auto src = lcv.child().data<int8_t>() + bloom_filter_header_size;
   auto dst = reinterpret_cast<cudf::bitmask_type*>(reinterpret_cast<int8_t*>(buf.data()) +
