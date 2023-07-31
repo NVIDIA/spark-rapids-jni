@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ai.rapids.cudf.BaseDeviceMemoryBuffer;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.CudfAccessor;
 import ai.rapids.cudf.CudfException;
@@ -79,9 +80,25 @@ public class BloomFilter {
   public static ColumnVector probe(Scalar bloomFilter, ColumnVector cv){
     return new ColumnVector(probe(CudfAccessor.getScalarHandle(bloomFilter), cv.getNativeView()));
   }
+
+  /**
+   * Probe a bloom filter with a column of longs. Returns a column of booleans. For 
+   * each row in the output; a value of true indicates that the corresponding input value
+   * -may- be in the set of values used to build the bloom filter; a value of false indicates
+   * that the corresponding input value is conclusively not in the set of values used to build
+   * the bloom filter. 
+   * @param bloomFilter The bloom filter to be probed. This buffer is expected to be the 
+   * fully packed Spark bloom filter, including header.
+   * @param cv The column containing the values to check.
+   * @return A boolean column indicating the results of the probe.
+   */
+  public static ColumnVector probe(BaseDeviceMemoryBuffer bloomFilter, ColumnVector cv){
+    return new ColumnVector(probebuffer(bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
+  }
   
   private static native long creategpu(int numHashes, long bloomFilterBits) throws CudfException;
   private static native int put(long bloomFilter, long cv) throws CudfException;
   private static native long merge(long bloomFilters) throws CudfException;
   private static native long probe(long bloomFilter, long cv) throws CudfException;  
+  private static native long probebuffer(long bloomFilter, long bloomFilterSize, long cv) throws CudfException;  
 }

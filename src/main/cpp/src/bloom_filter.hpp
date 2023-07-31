@@ -75,6 +75,23 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
  */
 std::unique_ptr<cudf::column> bloom_filter_probe(
   cudf::column_view const& input,
+  cudf::device_span<uint8_t const> bloom_filter,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Probe a bloom filter with an input column of int64_t values.
+ *
+ * @param input The column of int64_t values to probe with.
+ * @param bloom_filter A list_scalar encapsulating the bloom filter to be probed.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned boolean column's memory.
+ *
+ * @returns A column of booleans where a true value indicates a value may be present in the bloom
+ * filter, and a false indicates the value is not present.
+ */
+std::unique_ptr<cudf::column> bloom_filter_probe(
+  cudf::column_view const& input,
   cudf::list_scalar& bloom_filter,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());

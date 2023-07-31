@@ -47,6 +47,24 @@ public class BloomFilterTest {
   }
 
   @Test
+  void testBuildAndProbeBuffer(){
+    int numHashes = 3;
+    long bloomFilterBits = 4 * 1024 * 1024;
+
+    try (ColumnVector input = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000);
+         Scalar bloomFilter = BloomFilter.create(numHashes, bloomFilterBits)){
+      
+      BloomFilter.put(bloomFilter, input);
+
+      try(ColumnVector probe = ColumnVector.fromLongs(20, 80, 100, 99, 47, -9, 234000000, -10, 1, 2, 3);
+          ColumnVector expected = ColumnVector.fromBooleans(true, true, true, true, true, true, true, false, false, false, false);
+          ColumnVector result = BloomFilter.probe(bloomFilter.getListAsColumnView().getData(), probe)){
+        AssertUtils.assertColumnsAreEqual(expected, result);
+      }
+    }
+  }
+
+  @Test
   void testBuildWithNullsAndProbe(){
     int numHashes = 3;
     long bloomFilterBits = 4 * 1024 * 1024;
