@@ -16,6 +16,8 @@
 
 package ai.rapids.cudf;
 
+// TODO: properly expose these functions in the actual Scalar API and remove this layer.
+// https://github.com/NVIDIA/spark-rapids-jni/issues/1307
 public class CudfAccessor {
   public static long getScalarHandle(Scalar s) {
     return s.getScalarHandle();
