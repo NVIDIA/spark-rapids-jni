@@ -82,7 +82,7 @@ public class CastStrings {
 
   /**
    * Convert a decimal column to a string column.
-   * 
+   *
    * @param cv the column data to process
    * @return the converted column
    */
@@ -102,10 +102,16 @@ public class CastStrings {
     return new ColumnVector(toFloat(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
   }
 
+
+  public static ColumnVector changeRadix(ColumnView cv, int fromRadix, int toRadix) {
+    return new ColumnVector(changeRadix(cv.getNativeView(), fromRadix, toRadix));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
+  private static native long changeRadix(long nativeColumnView, int fromRadix, int toRadix);
 }

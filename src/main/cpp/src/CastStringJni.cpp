@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cudf/strings/convert/convert_integers.hpp>
 #include "cast_string.hpp"
 
 #include "cudf_jni_apis.hpp"
@@ -108,6 +109,53 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
     cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::decimal_to_non_ansi_string(cv, cudf::get_default_stream()));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix(JNIEnv* env,
+                                                                                 jclass,
+                                                                                 jlong input_column,
+                                                                                 jint fromRadix,
+                                                                                 jint toRadix)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto const uint64_cv = [&] {
+      switch (fromRadix) {
+        case 10: {
+          return spark_rapids_jni::string_to_integer(
+            cudf::data_type(cudf::type_id::UINT64),
+            cv,
+            JNI_FALSE,
+            JNI_TRUE,
+            cudf::get_default_stream());
+        } break;
+        case 16: {
+          return cudf::strings::hex_to_integers(cv, cudf::data_type(cudf::type_id::UINT64));
+        }
+      }
+      return std::unique_ptr<cudf::column>(nullptr);
+    }();
+
+    std::unique_ptr<cudf::column> result_col = [&] {
+      switch (toRadix) {
+        case 16: {
+          return cudf::strings::integers_to_hex(*uint64_cv);
+        } break;
+        case 10: {
+          return cudf::strings::from_integers(*uint64_cv);
+        } break;
+      }
+      return std::unique_ptr<cudf::column>(nullptr);
+    }();
+
+    return cudf::jni::release_as_jlong(result_col);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
