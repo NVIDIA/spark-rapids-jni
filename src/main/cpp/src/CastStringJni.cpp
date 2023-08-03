@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include <cudf/strings/convert/convert_integers.hpp>
 #include "cast_string.hpp"
+#include <cudf/strings/convert/convert_integers.hpp>
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
@@ -113,12 +113,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix(JNIEnv* env,
-                                                                                 jclass,
-                                                                                 jlong input_column,
-                                                                                 jint fromRadix,
-                                                                                 jint toRadix)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix(
+  JNIEnv* env, jclass, jlong input_column, jint fromRadix, jint toRadix)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
@@ -129,12 +125,11 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix
     auto const uint64_cv = [&] {
       switch (fromRadix) {
         case 10: {
-          return spark_rapids_jni::string_to_integer(
-            cudf::data_type(cudf::type_id::UINT64),
-            cv,
-            JNI_FALSE,
-            JNI_TRUE,
-            cudf::get_default_stream());
+          return spark_rapids_jni::string_to_integer(cudf::data_type(cudf::type_id::UINT64),
+                                                     cv,
+                                                     JNI_FALSE,
+                                                     JNI_TRUE,
+                                                     cudf::get_default_stream());
         } break;
         case 16: {
           return cudf::strings::hex_to_integers(cv, cudf::data_type(cudf::type_id::UINT64));
