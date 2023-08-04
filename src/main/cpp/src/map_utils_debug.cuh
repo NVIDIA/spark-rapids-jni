@@ -108,7 +108,7 @@ void print_pair_debug(rmm::device_uvector<T> const& input,
 }
 
 // Print the final output map data (Spark's MapType, i.e., List<Struct<String,String>>).
-void print_output_spark_map(rmm::device_uvector<cudf::offset_type> const& list_offsets,
+void print_output_spark_map(rmm::device_uvector<cudf::size_type> const& list_offsets,
                             std::unique_ptr<cudf::column> const& extracted_keys,
                             std::unique_ptr<cudf::column> const& extracted_values,
                             rmm::cuda_stream_view stream)
@@ -138,7 +138,7 @@ void print_output_spark_map(rmm::device_uvector<cudf::offset_type> const& list_o
     stream);
 
   auto const h_list_offsets = cudf::detail::make_host_vector_sync(
-    cudf::device_span<cudf::offset_type const>{list_offsets.data(), list_offsets.size()}, stream);
+    cudf::device_span<cudf::size_type const>{list_offsets.data(), list_offsets.size()}, stream);
   CUDF_EXPECTS(h_list_offsets.back() == extracted_keys->size(),
                "Invalid list offsets computation.");
 
