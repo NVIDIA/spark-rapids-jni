@@ -52,7 +52,7 @@ namespace {
 template <typename DecimalType>
 struct decimal_to_non_ansi_string_fn {
   column_device_view d_decimals;
-  offset_type* d_offsets{};
+  size_type* d_offsets{};
   char* d_chars{};
 
   /**

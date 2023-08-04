@@ -118,7 +118,7 @@ TEST_F(BloomFilterTest, BuildAndProbeWithNulls)
 struct bloom_filter_stride_transform {
   int const stride;
 
-  cudf::offset_type __device__ operator()(cudf::size_type i) { return i * stride; }
+  cudf::size_type __device__ operator()(cudf::size_type i) { return i * stride; }
 };
 
 TEST_F(BloomFilterTest, ProbeMerged)
@@ -154,7 +154,7 @@ TEST_F(BloomFilterTest, ProbeMerged)
   thrust::transform(rmm::exec_policy(cudf::get_default_stream()),
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(0) + 4,
-                    premerge_offsets->mutable_view().begin<cudf::offset_type>(),
+                    premerge_offsets->mutable_view().begin<cudf::size_type>(),
                     bloom_filter_stride_transform{bloom_filter_a->view().size()});
   auto premerged = cudf::make_lists_column(
     3, std::move(premerge_offsets), std::move(premerge_children), 0, rmm::device_buffer{});
