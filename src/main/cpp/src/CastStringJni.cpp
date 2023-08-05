@@ -121,30 +121,26 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix
   try {
     cudf::jni::auto_set_device(env);
 
-    cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    auto const uint64_cv = [&] {
+    cudf::column_view input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto integer_view  = [&] {
       switch (fromRadix) {
         case 10: {
-          return spark_rapids_jni::string_to_integer(cudf::data_type(cudf::type_id::UINT64),
-                                                     cv,
-                                                     JNI_FALSE,
-                                                     JNI_TRUE,
-                                                     cudf::get_default_stream());
+          return cudf::strings::from_integers(input_view);
         } break;
         case 16: {
-          return cudf::strings::hex_to_integers(cv, cudf::data_type(cudf::type_id::UINT64));
+          return cudf::strings::hex_to_integers(input_view, cudf::data_type(cudf::type_id::UINT64));
         }
       }
       return std::unique_ptr<cudf::column>(nullptr);
     }();
 
-    std::unique_ptr<cudf::column> result_col = [&] {
+    auto result_col = [&] {
       switch (toRadix) {
         case 16: {
-          return cudf::strings::integers_to_hex(*uint64_cv);
+          return cudf::strings::integers_to_hex(*integer_view);
         } break;
         case 10: {
-          return cudf::strings::from_integers(*uint64_cv);
+          return cudf::strings::from_integers(*integer_view);
         } break;
       }
       return std::unique_ptr<cudf::column>(nullptr);
