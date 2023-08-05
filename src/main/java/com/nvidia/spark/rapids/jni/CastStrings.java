@@ -103,8 +103,12 @@ public class CastStrings {
   }
 
 
-  public static ColumnVector changeRadix(ColumnView cv, int fromRadix, int toRadix) {
-    return new ColumnVector(changeRadix(cv.getNativeView(), fromRadix, toRadix));
+  public static ColumnVector toIntegerUsingBase(ColumnView cv, int base) {
+    return new ColumnVector(toIntegerUsingBase(cv.getNativeView(), base));
+  }
+
+  public static ColumnVector fromIntegerUsingBase(ColumnView cv, int base) {
+    return new ColumnVector(fromIntegerUsingBase(cv.getNativeView(), base));
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -113,5 +117,6 @@ public class CastStrings {
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
-  private static native long changeRadix(long nativeColumnView, int fromRadix, int toRadix);
+  private static native long toIntegerUsingBase(long nativeColumnView, int base);
+  private static native long fromIntegerUsingBase(long nativeColumnView, int base);
 }

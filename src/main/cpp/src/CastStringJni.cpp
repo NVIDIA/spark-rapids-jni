@@ -15,7 +15,11 @@
  */
 
 #include "cast_string.hpp"
+#include <cudf/replace.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/convert/convert_integers.hpp>
+#include <cudf/strings/strip.hpp>
+#include <cudf/strings/strings_column_view.hpp>
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
@@ -113,41 +117,65 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_changeRadix(
-  JNIEnv* env, jclass, jlong input_column, jint fromRadix, jint toRadix)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUsingBase(
+  JNIEnv* env, jclass, jlong input_column, jint base)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
 
-    cudf::column_view input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    auto integer_view  = [&] {
-      switch (fromRadix) {
+    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto integer_view_with_nulls  = [&] {
+      switch (base) {
         case 10: {
-          return cudf::strings::from_integers(input_view);
+          return cudf::strings::to_integers(input_view, cudf::data_type(cudf::type_id::UINT64));
         } break;
         case 16: {
           return cudf::strings::hex_to_integers(input_view, cudf::data_type(cudf::type_id::UINT64));
         }
+        default: {
+          return std::unique_ptr<cudf::column>(nullptr); // TODO all zeros
+        }
       }
-      return std::unique_ptr<cudf::column>(nullptr);
     }();
 
-    auto result_col = [&] {
-      switch (toRadix) {
-        case 16: {
-          return cudf::strings::integers_to_hex(*integer_view);
-        } break;
-        case 10: {
-          return cudf::strings::from_integers(*integer_view);
-        } break;
-      }
-      return std::unique_ptr<cudf::column>(nullptr);
-    }();
-
-    return cudf::jni::release_as_jlong(result_col);
+    cudf::numeric_scalar<uint64_t> zero(0);
+    auto integer_view = cudf::replace_nulls(*integer_view_with_nulls, zero);
+    return cudf::jni::release_as_jlong(integer_view);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
+
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromIntegerUsingBase(
+  JNIEnv* env, jclass, jlong input_column, jint base)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto result  = [&] {
+      switch (base) {
+        case 10: {
+          return cudf::strings::from_integers(input_view);
+        } break;
+        case 16: {
+          auto hex_with_leading_zeros = cudf::strings::integers_to_hex(input_view);
+          return cudf::strings::strip(
+            cudf::strings_column_view(*hex_with_leading_zeros),
+            cudf::strings::side_type::LEFT, cudf::string_scalar("0"));
+        }
+        default: {
+          return std::unique_ptr<cudf::column>(nullptr); // TODO all zeros
+        }
+      }
+    }();
+    return cudf::jni::release_as_jlong(result);
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
 }
