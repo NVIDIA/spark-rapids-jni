@@ -26,7 +26,8 @@ MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 CUDA_VER=${CUDA_VER:-cuda`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 USE_GDS=${USE_GDS:-ON}
-${MVN} clean package ${MVN_MIRROR}  \
+SANITIZER_CMD="compute-sanitizer --tool memcheck --target-processes all $SANITIZER_OPTS"
+${SANITIZER_CMD} ${MVN} clean package ${MVN_MIRROR}  \
   -Psource-javadoc \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
