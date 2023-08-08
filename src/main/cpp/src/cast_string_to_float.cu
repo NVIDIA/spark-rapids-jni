@@ -362,9 +362,9 @@ class string_to_float {
         __ballot_sync(0xffffffff, _warp_lane < num_chars && !is_digit(_c));
       auto const first_non_digit = __ffs(non_digit_mask);
 
-      // first non-digit after location 1 means there is something valid here, note ffs is 0 with no set bits,
-      // so 1 is the 0th character is not a digit.
-      // first non-digit of 0 means all digits, and that means we have seen a valid digit as well.
+      // first non-digit after location 1 means there is something valid here, note ffs is 0 with no
+      // set bits, so 1 is the 0th character is not a digit. first non-digit of 0 means all digits,
+      // and that means we have seen a valid digit as well.
       seen_valid_digit |= (num_chars > 0 && first_non_digit != 1);
 
       num_chars = min(num_chars, first_non_digit > 0 ? first_non_digit - 1 : num_chars);

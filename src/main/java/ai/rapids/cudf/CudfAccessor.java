@@ -14,19 +14,16 @@
  * limitations under the License.
  */
 
-#pragma once
+package ai.rapids.cudf;
 
-#include <memory>
+// TODO: properly expose these functions in the actual Scalar API and remove this layer.
+// https://github.com/NVIDIA/spark-rapids-jni/issues/1307
+public class CudfAccessor {
+  public static long getScalarHandle(Scalar s) {
+    return s.getScalarHandle();
+  }
 
-#include <cudf/column/column_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
-#include <rmm/cuda_stream_view.hpp>
-
-namespace spark_rapids_jni {
-
-std::unique_ptr<cudf::column> from_json(
-  cudf::column_view const& input,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
-
-}  // namespace spark_rapids_jni
+  public static Scalar scalarFromHandle(DType type, long scalarHandle) {
+    return new Scalar(type, scalarHandle);
+  }
+}

@@ -314,18 +314,27 @@ public class RmmSparkTest {
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+    assertEquals(0, RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid));
     RmmSpark.associateThreadWithTask(threadId, taskid);
     assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
     try {
+      RmmSpark.startRetryBlock(threadId);
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
       assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
 
+      try {
+        Thread.sleep(1); // Just in case we run on a really fast system in the future where
+        // all of this is sub-nanosecond...
+      } catch (InterruptedException e) {
+        // Ignored
+      }
       // Force an exception
       RmmSpark.forceRetryOOM(threadId);
       // No change in the state after a force
       assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
       assertThrows(RetryOOM.class, () -> Rmm.alloc(100).close());
+      assert(RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
 
       // Verify that injecting OOM does not cause the block to actually happen or
       // the state to change

@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 23.06.00
+  VERSION 23.08.00
   LANGUAGES C CXX CUDA
 )
 
@@ -146,19 +146,25 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/BloomFilterJni.cpp
   src/CastStringJni.cpp
   src/DecimalUtilsJni.cpp
+  src/HashJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
+  src/bloom_filter.cu
   src/cast_decimal_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/decimal_utils.cu
   src/map_utils.cu
+  src/murmur_hash.cu
   src/row_conversion.cu
+  src/utilities.cu
+  src/xxhash64.cu
   src/zorder.cu
 )
 
