@@ -15,8 +15,8 @@
  */
 
 #include "cast_string.hpp"
-#include <cudf/replace.hpp>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/replace.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_integers.hpp>
 #include <cudf/strings/strings_column_view.hpp>
@@ -128,7 +128,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUs
     auto const uint64_data_type = data_type(type_id::UINT64);
 
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
-    auto integer_view  = [&] {
+    auto integer_view = [&] {
       switch (base) {
         case 10: {
           return strings::to_integers(input_view, uint64_data_type);
@@ -148,7 +148,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUs
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromIntegerUsingBase(
   JNIEnv* env, jclass, jlong input_column, jint base)
 {
@@ -158,7 +157,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
     cudf::jni::auto_set_device(env);
 
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    auto result  = [&] {
+    auto result = [&] {
       switch (base) {
         case 10: {
           return cudf::strings::from_integers(input_view);
@@ -167,7 +166,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
           return cudf::strings::integers_to_hex(input_view);
         }
         default: {
-          return std::unique_ptr<cudf::column>(nullptr); // TODO all zeros
+          return std::unique_ptr<cudf::column>(nullptr);  // TODO all zeros
         }
       }
     }();
@@ -175,5 +174,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
-
 }
