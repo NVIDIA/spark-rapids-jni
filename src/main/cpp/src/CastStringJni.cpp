@@ -16,9 +16,9 @@
 
 #include "cast_string.hpp"
 #include <cudf/replace.hpp>
-#include <cudf/scalar/scalar.hpp>
+#include <cudf/column/column_factories.hpp>
+#include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_integers.hpp>
-#include <cudf/strings/strip.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include "cudf_jni_apis.hpp"
@@ -121,28 +121,29 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUs
   JNIEnv* env, jclass, jlong input_column, jint base)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  using namespace cudf;
 
   try {
-    cudf::jni::auto_set_device(env);
+    jni::auto_set_device(env);
+    auto const uint64_data_type = data_type(type_id::UINT64);
 
-    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    auto integer_view_with_nulls  = [&] {
+    auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
+    auto integer_view  = [&] {
       switch (base) {
         case 10: {
-          return cudf::strings::to_integers(input_view, cudf::data_type(cudf::type_id::UINT64));
+          return strings::to_integers(input_view, uint64_data_type);
         } break;
         case 16: {
-          return cudf::strings::hex_to_integers(input_view, cudf::data_type(cudf::type_id::UINT64));
+          return strings::hex_to_integers(input_view, uint64_data_type);
         }
         default: {
-          return std::unique_ptr<cudf::column>(nullptr); // TODO all zeros
+          auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
+          throw spark_rapids_jni::cast_error(0, error_msg);
         }
       }
     }();
 
-    cudf::numeric_scalar<uint64_t> zero(0);
-    auto integer_view = cudf::replace_nulls(*integer_view_with_nulls, zero);
-    return cudf::jni::release_as_jlong(integer_view);
+    return jni::release_as_jlong(integer_view);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
@@ -163,10 +164,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
           return cudf::strings::from_integers(input_view);
         } break;
         case 16: {
-          auto hex_with_leading_zeros = cudf::strings::integers_to_hex(input_view);
-          return cudf::strings::strip(
-            cudf::strings_column_view(*hex_with_leading_zeros),
-            cudf::strings::side_type::LEFT, cudf::string_scalar("0"));
+          return cudf::strings::integers_to_hex(input_view);
         }
         default: {
           return std::unique_ptr<cudf::column>(nullptr); // TODO all zeros
