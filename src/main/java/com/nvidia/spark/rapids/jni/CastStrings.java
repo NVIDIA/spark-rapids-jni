@@ -103,12 +103,12 @@ public class CastStrings {
   }
 
 
-  public static ColumnVector toIntegerUsingBase(ColumnView cv, int base) {
-    return new ColumnVector(toIntegerUsingBase(cv.getNativeView(), base));
+  public static ColumnVector toIntegersWithBase(ColumnView cv, int base) {
+    return new ColumnVector(toIntegersWithBase(cv.getNativeView(), base));
   }
 
-  public static ColumnVector fromIntegerUsingBase(ColumnView cv, int base) {
-    return new ColumnVector(fromIntegerUsingBase(cv.getNativeView(), base));
+  public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
+    return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -117,6 +117,6 @@ public class CastStrings {
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
-  private static native long toIntegerUsingBase(long nativeColumnView, int base);
-  private static native long fromIntegerUsingBase(long nativeColumnView, int base);
+  private static native long toIntegersWithBase(long nativeColumnView, int base);
+  private static native long fromIntegersWithBase(long nativeColumnView, int base);
 }

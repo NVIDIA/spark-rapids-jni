@@ -117,7 +117,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUsingBase(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersWithBase(
   JNIEnv* env, jclass, jlong input_column, jint base)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -148,7 +148,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegerUs
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromIntegerUsingBase(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromIntegersWithBase(
   JNIEnv* env, jclass, jlong input_column, jint base)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -166,7 +166,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
           return cudf::strings::integers_to_hex(input_view);
         }
         default: {
-          return std::unique_ptr<cudf::column>(nullptr);  // TODO all zeros
+          auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
+          throw spark_rapids_jni::cast_error(0, error_msg);
         }
       }
     }();
