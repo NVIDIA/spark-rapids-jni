@@ -426,14 +426,19 @@ std::unique_ptr<cudf::column> create_random_column(data_profile const& profile,
                    null_mask.begin());
   }
 
-  auto [result_bitmask, null_count] = cudf::detail::valid_if(
-    null_mask.begin(), null_mask.end(), thrust::identity<bool>{}, cudf::get_default_stream());
+  auto [result_bitmask, null_count] =
+    cudf::detail::valid_if(null_mask.begin(),
+                           null_mask.end(),
+                           thrust::identity<bool>{},
+                           cudf::get_default_stream(),
+                           rmm::mr::get_current_device_resource());
 
   return std::make_unique<cudf::column>(
     cudf::data_type{cudf::type_to_id<T>()},
     num_rows,
     data.release(),
-    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{});
+    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{},
+    null_count);
 }
 
 struct valid_or_zero {
@@ -505,13 +510,19 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
                      thrust::make_zip_iterator(offsets.begin(), offsets.begin() + 1),
                      num_rows,
                      string_generator{chars.data(), engine});
-  auto [result_bitmask, null_count] = cudf::detail::valid_if(
-    null_mask.begin(), null_mask.end() - 1, thrust::identity<bool>{}, cudf::get_default_stream());
+  auto [result_bitmask, null_count] =
+    cudf::detail::valid_if(null_mask.begin(),
+                           null_mask.end() - 1,
+                           thrust::identity<bool>{},
+                           cudf::get_default_stream(),
+                           rmm::mr::get_current_device_resource());
+
   return cudf::make_strings_column(
     num_rows,
     std::move(offsets),
     std::move(chars),
-    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{});
+    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{},
+    null_count);
 }
 
 /**
@@ -539,7 +550,8 @@ std::unique_ptr<cudf::column> create_random_column<cudf::string_view>(data_profi
                                         sample_indices,
                                         cudf::out_of_bounds_policy::DONT_CHECK,
                                         cudf::detail::negative_index_policy::NOT_ALLOWED,
-                                        cudf::get_default_stream());
+                                        cudf::get_default_stream(),
+                                        rmm::mr::get_current_device_resource());
   return std::move(str_table->release()[0]);
 }
 
@@ -623,8 +635,11 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
       auto [null_mask, null_count] = [&]() {
         if (profile.get_null_frequency().has_value()) {
           auto valids = valid_dist(engine, num_rows);
-          return cudf::detail::valid_if(
-            valids.begin(), valids.end(), thrust::identity<bool>{}, cudf::get_default_stream());
+          return cudf::detail::valid_if(valids.begin(),
+                                        valids.end(),
+                                        thrust::identity<bool>{},
+                                        cudf::get_default_stream(),
+                                        rmm::mr::get_current_device_resource());
         }
         return std::pair<rmm::device_buffer, cudf::size_type>{};
       }();
@@ -704,12 +719,18 @@ std::unique_ptr<cudf::column> create_random_column<cudf::list_view>(data_profile
     thrust::device_pointer_cast(offsets.end())[-1] =
       current_child_column->size();  // Always include all elements
 
-    auto offsets_column = std::make_unique<cudf::column>(
-      cudf::data_type{cudf::type_id::INT32}, num_rows + 1, offsets.release());
+    auto offsets_column = std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
+                                                         num_rows + 1,
+                                                         offsets.release(),
+                                                         rmm::device_buffer{},
+                                                         0);
 
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-      valids.begin(), valids.end(), thrust::identity<bool>{}, cudf::get_default_stream());
-    list_column = cudf::make_lists_column(
+    auto [null_mask, null_count] = cudf::detail::valid_if(valids.begin(),
+                                                          valids.end(),
+                                                          thrust::identity<bool>{},
+                                                          cudf::get_default_stream(),
+                                                          rmm::mr::get_current_device_resource());
+    list_column                  = cudf::make_lists_column(
       num_rows,
       std::move(offsets_column),
       std::move(current_child_column),
@@ -827,7 +848,8 @@ std::pair<rmm::device_buffer, cudf::size_type> create_random_null_mask(
     return cudf::detail::valid_if(thrust::make_counting_iterator<cudf::size_type>(0),
                                   thrust::make_counting_iterator<cudf::size_type>(size),
                                   bool_generator{seed, 1.0 - *null_probability},
-                                  cudf::get_default_stream());
+                                  cudf::get_default_stream(),
+                                  rmm::mr::get_current_device_resource());
   }
 }
 

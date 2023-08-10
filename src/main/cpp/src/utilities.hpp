@@ -16,16 +16,25 @@
 
 #pragma once
 
-#include <memory>
-
-#include <cudf/column/column_view.hpp>
+#include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_uvector.hpp>
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::column> from_json(
-  cudf::column_view const& input,
+/**
+ * @brief Bitwise-or an array of equally-sized bitmask buffers into a single output buffer
+ *
+ * @param input The array of input bitmask buffers.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned bloom filter's memory.
+ *
+ */
+std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
+  std::vector<cudf::device_span<cudf::bitmask_type const>> const& input,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

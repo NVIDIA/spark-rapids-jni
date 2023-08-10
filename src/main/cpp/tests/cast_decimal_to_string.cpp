@@ -30,8 +30,7 @@
 using namespace cudf;
 
 template <typename T>
-struct DecimalToStringTests : public test::BaseFixture {
-};
+struct DecimalToStringTests : public test::BaseFixture {};
 
 TYPED_TEST_SUITE(DecimalToStringTests, cudf::test::FixedPointTypes);
 

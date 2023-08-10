@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -53,4 +53,13 @@ ConfigureTest(CAST_DECIMAL_TO_STRING
 
 ConfigureTest(ROW_CONVERSION
     row_conversion.cpp)
+
+ConfigureTest(HASH
+    hash.cpp)
+
+ConfigureTest(BLOOM_FILTER
+    bloom_filter.cu)
+
+ConfigureTest(UTILITIES
+    utilities.cpp)
 

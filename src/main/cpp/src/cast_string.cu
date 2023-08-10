@@ -653,8 +653,8 @@ struct string_to_integer_impl {
                                      rmm::mr::device_memory_resource* mr)
   {
     if (string_col.size() == 0) {
-      return std::make_unique<column>(data_type{type_to_id<T>()}, 0, rmm::device_buffer{},
-              rmm::device_buffer{}, 0);
+      return std::make_unique<column>(
+        data_type{type_to_id<T>()}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
     }
 
     rmm::device_uvector<T> data(string_col.size(), stream, mr);
@@ -676,8 +676,11 @@ struct string_to_integer_impl {
 
     auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
 
-    auto col = std::make_unique<column>(
-      data_type{type_to_id<T>()}, string_col.size(), data.release(), null_mask.release(), null_count);
+    auto col = std::make_unique<column>(data_type{type_to_id<T>()},
+                                        string_col.size(),
+                                        data.release(),
+                                        null_mask.release(),
+                                        null_count);
 
     if (ansi_mode) { validate_ansi_column(col->view(), string_col, stream); }
 
@@ -743,9 +746,8 @@ struct string_to_decimal_impl {
 
     auto null_count = cudf::detail::null_count(null_mask.data(), 0, string_col.size(), stream);
 
-    auto col =
-      std::make_unique<column>(dtype, string_col.size(), data.release(),
-              null_mask.release(), null_count);
+    auto col = std::make_unique<column>(
+      dtype, string_col.size(), data.release(), null_mask.release(), null_count);
 
     if (ansi_mode) { validate_ansi_column(col->view(), string_col, stream); }
 
@@ -829,8 +831,15 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
     return std::make_unique<column>(dtype, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0);
   }
 
-  return type_dispatcher(
-    dtype, detail::string_to_decimal_impl{}, dtype, precision, string_col, ansi_mode, strip, stream, mr);
+  return type_dispatcher(dtype,
+                         detail::string_to_decimal_impl{},
+                         dtype,
+                         precision,
+                         string_col,
+                         ansi_mode,
+                         strip,
+                         stream,
+                         mr);
 }
 
 }  // namespace spark_rapids_jni
