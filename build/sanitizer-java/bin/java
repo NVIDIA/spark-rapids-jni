@@ -1,0 +1,5 @@
+compute-sanitizer --tool memcheck \
+    --launch-timeout 600 \
+    --error-exitcode -2 \
+    --log-file "./sanitizer_for_pid_%p.log" \
+    java "$@"
