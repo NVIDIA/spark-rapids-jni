@@ -18,8 +18,10 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/replace.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
+#include <cudf/strings/extract.hpp>
 #include <cudf/strings/convert/convert_integers.hpp>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/strings/regex/regex_program.hpp>
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
@@ -122,19 +124,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
-
   try {
     jni::auto_set_device(env);
-    auto const uint64_data_type = data_type(type_id::UINT64);
+    auto const res_data_type = data_type(type_id::UINT64);
 
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
     auto integer_view = [&] {
       switch (base) {
         case 10: {
-          return strings::to_integers(input_view, uint64_data_type);
+          return strings::to_integers(input_view, res_data_type);
         } break;
         case 16: {
-          return strings::hex_to_integers(input_view, uint64_data_type);
+          return strings::hex_to_integers(input_view, res_data_type);
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
@@ -152,18 +153,20 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
   JNIEnv* env, jclass, jlong input_column, jint base)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-
+  using namespace cudf;
   try {
-    cudf::jni::auto_set_device(env);
-
-    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    jni::auto_set_device(env);
+    auto input_view{*reinterpret_cast<column_view const*>(input_column)};
     auto result = [&] {
       switch (base) {
         case 10: {
-          return cudf::strings::from_integers(input_view);
+          return strings::from_integers(input_view);
         } break;
         case 16: {
-          return cudf::strings::integers_to_hex(input_view);
+          auto pre_res = strings::integers_to_hex(input_view);
+          auto const regex = strings::regex_program::create("^0?([0-9a-fA-F]+)$");
+          auto const wo_leading_zeros = strings::extract(strings_column_view(*pre_res), *regex);
+          return std::move(wo_leading_zeros->release()[0]);
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
@@ -171,7 +174,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
         }
       }
     }();
-    return cudf::jni::release_as_jlong(result);
+    return jni::release_as_jlong(result);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
