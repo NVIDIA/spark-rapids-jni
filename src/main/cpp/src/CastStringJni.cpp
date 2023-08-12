@@ -129,13 +129,21 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
     auto const res_data_type = data_type(type_id::UINT64);
 
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
+    const strings_column_view input_strings{input_view};
     auto integer_view = [&] {
       switch (base) {
         case 10: {
-          return strings::to_integers(input_view, res_data_type);
+          // TODO implement it in the kernel
+          auto const regex = strings::regex_program::create(R"(^\s*([0-9]+).*)");
+          auto const dec_str_table = strings::extract(input_strings, *regex);
+          const strings_column_view dec_str_view{dec_str_table->get_column(0)};
+          return strings::to_integers(dec_str_view, res_data_type);
         } break;
         case 16: {
-          return strings::hex_to_integers(input_view, res_data_type);
+          auto const regex = strings::regex_program::create(R"(^\s*([0-9a-fA-F]+).*)");
+          auto const hex_str_table = strings::extract(input_strings, *regex);
+          const strings_column_view hex_str_view{hex_str_table->get_column(0)};
+          return strings::hex_to_integers(hex_str_view, res_data_type);
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
