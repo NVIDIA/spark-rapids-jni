@@ -227,13 +227,16 @@ arguments to get into an interactive shell inside the container.
 
 #### Testing with Compute Sanitizer
 [Compute Sanitizer](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html) is a
-functional correctness checking suite included in the CUDA toolkit. And RAPIDS Accelerator JNI now
-supports leveraging Compute Sanitizer in memcheck mode in the unit tests to help catch any kernels
-that may be doing something incorrectly. To run the unit tests with Compute Sanitizer, append the
+functional correctness checking suite included in the CUDA toolkit. And the RAPIDS Accelerator JNI now
+supports leveraging the Compute Sanitizer in memcheck mode in the unit tests to help catch any kernels
+that may be doing something incorrectly. To run the unit tests with the Compute Sanitizer, append the
 `-DUSE_SANITIZER=ON` to the build command. e.g.
 ```
 >  ./build/build-in-docker clean package -DUSE_SANITIZER=ON
 ```
+
+The Compute Sanitizer will output its report into one or multiple log files named as
+`sanitizer_for_pid_<pid number>.log` under the current workspace root path.
 
 Please note not all the unit tests can run with Compute Sanitizer. For example, `RmmTest#testEventHandler`,
 a problematic test, intentionally tries an illegal allocation because of a too big size as part of the

@@ -27,4 +27,4 @@ ${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON
+  -DBUILD_TESTS=ON -DUSE_SANITIZER=ON
