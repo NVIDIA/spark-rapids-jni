@@ -225,20 +225,20 @@ situation. A test can be run directly using this script or the script can be run
 arguments to get into an interactive shell inside the container.
 ```build/run-in-docker target/cmake-build/gtests/ROW_CONVERSION```
 
-#### Testing with Compute Sanitier
+#### Testing with Compute Sanitizer
 [Compute Sanitizer](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html) is a
 functional correctness checking suite included in the CUDA toolkit. And RAPIDS Accelerator JNI now
 supports leveraging Compute Sanitizer in memcheck mode in the unit tests to help catch any kernels
-that may be doing something incorrectly. To run the unit tests with Compute Sanitier, append the
+that may be doing something incorrectly. To run the unit tests with Compute Sanitizer, append the
 `-DUSE_SANITIZER=ON` to the build command. e.g.
 ```
 >  ./build/build-in-docker clean package -DUSE_SANITIZER=ON
 ```
 
-Please note not all the unit tests can run with Compute Sanitier. For example, `RmmTest#testEventHandler`,
+Please note not all the unit tests can run with Compute Sanitizer. For example, `RmmTest#testEventHandler`,
 a problematic test, intentionally tries an illegal allocation because of a too big size as part of the
 test, but Compute Sanitier will still report the errors and fail the whole build process. And
-`UnsafeMemoryAccessorTest` is for host memory only, so no need to run with Compute Sanitier either.
+`UnsafeMemoryAccessorTest` is for host memory only, so there is no need to run it with Compute Sanitier either.
 
 If you think your tests are not suitable for Compute Sanitier, please add the JUnit5 tag (`@Tag("noSanitizer")`)
 to the tests or the test class.
