@@ -15,6 +15,8 @@
  */
 
 #include "cast_string.hpp"
+#include <cudf/binaryop.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/replace.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -22,6 +24,7 @@
 #include <cudf/strings/convert/convert_integers.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/strings/regex/regex_program.hpp>
+#include <cudf/unary.hpp>
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
@@ -133,17 +136,21 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
     auto integer_view = [&] {
       switch (base) {
         case 10: {
-          // TODO implement it in the kernel
-          auto const regex = strings::regex_program::create(R"(^\s*([0-9]+).*)");
+          auto const regex = strings::regex_program::create(R"(^\s*(-?[0-9]+).*)");
           auto const dec_str_table = strings::extract(input_strings, *regex);
           const strings_column_view dec_str_view{dec_str_table->get_column(0)};
           return strings::to_integers(dec_str_view, res_data_type);
         } break;
         case 16: {
-          auto const regex = strings::regex_program::create(R"(^\s*([0-9a-fA-F]+).*)");
+          auto const regex = strings::regex_program::create(R"(^\s*(-?)([0-9a-fA-F]+).*)");
           auto const hex_str_table = strings::extract(input_strings, *regex);
-          const strings_column_view hex_str_view{hex_str_table->get_column(0)};
-          return strings::hex_to_integers(hex_str_view, res_data_type);
+          const strings_column_view sign_str_view{hex_str_table->get_column(0)};
+          const strings_column_view hex_str_view{hex_str_table->get_column(1)};
+          auto const pos_vals = strings::hex_to_integers(hex_str_view, res_data_type);
+          auto neg_vals = binary_operation(numeric_scalar<uint64_t>(0), *pos_vals,
+            binary_operator::SUB, res_data_type);
+          auto res = copy_if_else(*pos_vals, *neg_vals, *cast(hex_str_table->get_column(0), data_type(type_id::BOOL8)));
+          return res;
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);

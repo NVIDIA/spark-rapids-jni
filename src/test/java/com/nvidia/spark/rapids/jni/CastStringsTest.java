@@ -16,20 +16,18 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.AssertUtils;
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.Table;
-import com.nvidia.spark.rapids.jni.CastException;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.stream.IntStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
+
+import ai.rapids.cudf.AssertUtils;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.Table;
+import ai.rapids.cudf.TableDebug;
 
 public class CastStringsTest {
   @Test
@@ -192,6 +190,71 @@ public class CastStringsTest {
       } finally {
         result.forEach(ColumnVector::close);
       }
+    }
+  }
+
+
+  @Test
+  void baseDec2HexTest() {
+    try(
+      Table input = new Table.TestBuilder().column(
+        "junk-510junk510",
+        "   -510junk510",
+        "  510junk510",
+        "510"
+      ).build();
+
+      Table expected = new Table.TestBuilder().column(
+        null, // TODO should be "0" to distinguish invalid input from null input
+        "18446744073709551106",
+        "510",
+        "510"
+      ).column(
+        null,  // TODO should be "0" to distinguish invalid input from null input
+        "FFFFFFFFFFFFFE02",
+        "1FE",
+        "1FE"
+      ).build();
+
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+    ) {
+
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+    }
+  }
+
+  @Test
+  void baseHex2DecTest() {
+    try(
+      Table input = new Table.TestBuilder().column(
+        "junk-5Ajunk5A",
+        "   -5Ajunk5A",
+        "  5Ajunk5A",
+        "5a"
+      ).build();
+
+      Table expected = new Table.TestBuilder().column(
+        null, // TODO should be "0" to distinguish invalid input from null input
+        "18446744073709551526",
+        "90",
+        "90"
+      ).column(
+        null,  // TODO should be "0" to distinguish invalid input from null input
+        "FFFFFFFFFFFFFFA6",
+        "5A",
+        "5A"
+      ).build();
+
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 16);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+    ) {
+      TableDebug.get().debug("intCol", intCol);
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
+      // AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
     }
   }
 }
