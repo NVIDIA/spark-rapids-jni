@@ -131,10 +131,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
   try {
     jni::auto_set_device(env);
     auto const res_data_type = data_type(type_id::UINT64);
-
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
-    const strings_column_view input_strings{input_view};
-    auto integer_view = [&] {
+    auto const input_without_nulls = replace_nulls(input_view, string_scalar("0"));
+    const strings_column_view input_strings{*input_without_nulls};
+    auto int_col = [&] {
       switch (base) {
         case 10: {
           auto const regex = strings::regex_program::create(R"(^\s*(-?[0-9]+).*)");
@@ -150,8 +150,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
           auto const pos_vals = strings::hex_to_integers(hex_str_view, res_data_type);
           auto neg_vals = binary_operation(numeric_scalar<uint64_t>(0), *pos_vals,
             binary_operator::SUB, res_data_type);
-          auto res = copy_if_else(*neg_vals, *pos_vals, *is_negative);
-          return res;
+          return copy_if_else(*neg_vals, *pos_vals, *is_negative);
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
@@ -159,8 +158,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
         }
       }
     }();
-
-    return jni::release_as_jlong(integer_view);
+    int_col->set_null_mask(copy_bitmask(input_view), input_view.null_count());
+    return jni::release_as_jlong(int_col);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }

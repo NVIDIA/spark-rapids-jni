@@ -197,6 +197,7 @@ public class CastStringsTest {
   void baseDec2HexTest() {
     try(
       Table input = new Table.TestBuilder().column(
+        null,
         "junk-510junk510",
         "--510",
         "   -510junk510",
@@ -205,14 +206,16 @@ public class CastStringsTest {
       ).build();
 
       Table expected = new Table.TestBuilder().column(
-        null, // TODO should be "0" to distinguish invalid input from null input
-        null, // TODO should be "0" to distinguish invalid input from null input
+        null,
+        "0",
+        "0",
         "18446744073709551106",
         "510",
         "510"
       ).column(
-        null,  // TODO should be "0" to distinguish invalid input from null input
-        null, // TODO should be "0" to distinguish invalid input from null input
+        null,
+        "0",
+        "0",
         "FFFFFFFFFFFFFE02",
         "1FE",
         "1FE"
@@ -232,6 +235,9 @@ public class CastStringsTest {
   void baseHex2DecTest() {
     try(
       Table input = new Table.TestBuilder().column(
+        null,
+        "0",
+        "f",
         "junk-5Ajunk5A",
         "--5A",
         "   -5Ajunk5A",
@@ -240,14 +246,20 @@ public class CastStringsTest {
       ).build();
 
       Table expected = new Table.TestBuilder().column(
-        null, // TODO should be "0" to distinguish invalid input from null input
-        null, // TODO should be "0" to distinguish invalid input from null input
+        null,
+        "0",
+        "15",
+        "0",
+        "0",
         "18446744073709551526",
         "90",
         "90"
       ).column(
-        null,  // TODO should be "0" to distinguish invalid input from null input
-        null,  // TODO should be "0" to distinguish invalid input from null input
+        null,
+        "0",
+        "F",
+        "0",
+        "0",
         "FFFFFFFFFFFFFFA6",
         "5A",
         "5A"
