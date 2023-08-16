@@ -224,6 +224,40 @@ in errors finding libraries. The script `build/run-in-docker` was created to hel
 situation. A test can be run directly using this script or the script can be run without any
 arguments to get into an interactive shell inside the container.
 ```build/run-in-docker target/cmake-build/gtests/ROW_CONVERSION```
+
+#### Testing with Compute Sanitizer
+[Compute Sanitizer](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html) is a
+functional correctness checking suite included in the CUDA toolkit. The RAPIDS Accelerator JNI
+supports leveraging the Compute Sanitizer in memcheck mode in the unit tests to help catch any kernels
+that may be doing something incorrectly. To run the unit tests with the Compute Sanitizer, append the
+`-DUSE_SANITIZER=ON` to the build command. e.g.
+```
+>  ./build/build-in-docker clean package -DUSE_SANITIZER=ON
+```
+
+The Compute Sanitizer will output its report into one or multiple log files named as
+`sanitizer_for_pid_<pid number>.log` under the current workspace root path.
+
+Please note not all the unit tests can run with Compute Sanitizer. For example, `RmmTest#testEventHandler`,
+a problematic test, intentionally tries an illegal allocation because of a too big size as part of the
+test, but Compute Sanitizer will still report the errors and fail the whole build process.
+`UnsafeMemoryAccessorTest` is for host memory only, so there is no need to run it with
+Compute Sanitizer either.
+
+If you think your tests are not suitable for Compute Sanitizer, please add the JUnit5 tag (`@Tag("noSanitizer")`)
+to the tests or the test class.
+```
+@Tag("noSanitizer")
+class ExceptionCaseTest { ... }
+
+# or for a single test
+class NormalCaseTest {
+
+  @Tag("noSanitizer")
+  public void testOneErrorCase(){ ... }
+}
+```
+
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
 To build these benchmarks requires the `-DBUILD_BENCHMARKS` build option. Once built, the benchmarks

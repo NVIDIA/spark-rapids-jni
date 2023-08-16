@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,17 +15,11 @@
 # limitations under the License.
 #
 
-set -ex
-
-nvidia-smi
-
-git submodule update --init --recursive
-
-MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
-PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
-${MVN} verify ${MVN_MIRROR} \
-  -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
-  -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON \
-  -DUSE_SANITIZER=ON
+# This special Java executable is specified to the "jvm" configuration of the
+# the surefire plugin to intercept forking the processes for tests. Then
+# the tests will run with the compute-sanitizer tool.
+exec compute-sanitizer --tool memcheck \
+    --launch-timeout 600 \
+    --error-exitcode -2 \
+    --log-file "./sanitizer_for_pid_%p.log" \
+    java "$@"

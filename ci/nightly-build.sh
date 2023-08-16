@@ -31,4 +31,5 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -Dcuda.version=$CUDA_VER
+  -DBUILD_TESTS=ON -Dcuda.version=$CUDA_VER \
+  -DUSE_SANITIZER=ON
