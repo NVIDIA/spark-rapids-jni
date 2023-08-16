@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Table;
-import ai.rapids.cudf.TableDebug;
 
 public class CastStringsTest {
   @Test
@@ -199,6 +198,7 @@ public class CastStringsTest {
     try(
       Table input = new Table.TestBuilder().column(
         "junk-510junk510",
+        "--510",
         "   -510junk510",
         "  510junk510",
         "510"
@@ -206,11 +206,13 @@ public class CastStringsTest {
 
       Table expected = new Table.TestBuilder().column(
         null, // TODO should be "0" to distinguish invalid input from null input
+        null, // TODO should be "0" to distinguish invalid input from null input
         "18446744073709551106",
         "510",
         "510"
       ).column(
         null,  // TODO should be "0" to distinguish invalid input from null input
+        null, // TODO should be "0" to distinguish invalid input from null input
         "FFFFFFFFFFFFFE02",
         "1FE",
         "1FE"
@@ -231,6 +233,7 @@ public class CastStringsTest {
     try(
       Table input = new Table.TestBuilder().column(
         "junk-5Ajunk5A",
+        "--5A",
         "   -5Ajunk5A",
         "  5Ajunk5A",
         "5a"
@@ -238,10 +241,12 @@ public class CastStringsTest {
 
       Table expected = new Table.TestBuilder().column(
         null, // TODO should be "0" to distinguish invalid input from null input
+        null, // TODO should be "0" to distinguish invalid input from null input
         "18446744073709551526",
         "90",
         "90"
       ).column(
+        null,  // TODO should be "0" to distinguish invalid input from null input
         null,  // TODO should be "0" to distinguish invalid input from null input
         "FFFFFFFFFFFFFFA6",
         "5A",
@@ -252,9 +257,8 @@ public class CastStringsTest {
       ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
       ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
     ) {
-      TableDebug.get().debug("intCol", intCol);
       AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
-      // AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
     }
   }
 }
