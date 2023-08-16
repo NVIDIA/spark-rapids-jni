@@ -202,7 +202,9 @@ public class CastStringsTest {
         "--510",
         "   -510junk510",
         "  510junk510",
-        "510"
+        "510",
+        "00510",
+        "00-510"
       ).build();
 
       Table expected = new Table.TestBuilder().column(
@@ -211,14 +213,18 @@ public class CastStringsTest {
         "0",
         "18446744073709551106",
         "510",
-        "510"
+        "510",
+        "510",
+        "0"
       ).column(
         null,
         "0",
         "0",
         "FFFFFFFFFFFFFE02",
         "1FE",
-        "1FE"
+        "1FE",
+        "1FE",
+        "0"
       ).build();
 
       ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10);
