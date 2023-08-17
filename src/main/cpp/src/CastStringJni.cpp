@@ -126,7 +126,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersWithBase(
-  JNIEnv* env, jclass, jlong input_column, jint base)
+  JNIEnv* env, jclass, jlong input_column, jint base, jboolean ansi_enabled, jint j_dtype)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
@@ -138,7 +138,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
 
     jni::auto_set_device(env);
     auto const zero_scalar   = numeric_scalar<uint64_t>(0);
-    auto const res_data_type = data_type(type_id::UINT64);
+    auto const res_data_type = jni::make_data_type(j_dtype, 0);
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
     auto const validity_regex_str = [&] {
       switch (base) {

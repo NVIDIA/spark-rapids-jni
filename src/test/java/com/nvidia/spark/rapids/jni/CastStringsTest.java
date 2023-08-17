@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Table;
 
 public class CastStringsTest {
@@ -230,7 +231,8 @@ public class CastStringsTest {
         "0"
       ).build();
 
-      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10);
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10, false,
+        DType.UINT64);
       ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
       ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
     ) {
@@ -289,7 +291,7 @@ public class CastStringsTest {
         "0"
       ).build();
 
-      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 16);
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 16, false, DType.UINT64);
       ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
       ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
     ) {
