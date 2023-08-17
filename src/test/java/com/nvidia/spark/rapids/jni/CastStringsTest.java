@@ -255,12 +255,13 @@ public class CastStringsTest {
         "5a",
         "05a",
         "005a",
-        "00-5a"
+        "00-5a",
+        "NzGGImWNRh"
       ).build();
 
       Table expected = new Table.TestBuilder().column(
         null,
-        null,
+        "0",
         "0",
         "15",
         "0",
@@ -270,10 +271,11 @@ public class CastStringsTest {
         "90",
         "90",
         "90",
+        "0",
         "0"
       ).column(
         null,
-        null,
+        "0",
         "0",
         "F",
         "0",
@@ -283,6 +285,7 @@ public class CastStringsTest {
         "5A",
         "5A",
         "5A",
+        "0",
         "0"
       ).build();
 

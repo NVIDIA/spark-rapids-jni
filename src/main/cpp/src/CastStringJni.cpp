@@ -171,6 +171,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
       }
     }();
 
+    auto unmatched_implies_zero = copy_if_else(*int_col, zero_scalar, *valid_rows);
+
+    // output nulls: original + all rows matching \s*
+
     auto const space_only_regex = strings::regex_program::create(R"(^\s*$)");
     auto const extra_null_rows  = strings::matches_re(input_view, *space_only_regex);
     auto const extra_mask       = unary_operation(*extra_null_rows, unary_operator::NOT);
@@ -180,8 +184,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
       *original_mask, *extra_mask, binary_operator::BITWISE_AND, data_type(type_id::BOOL8));
 
     auto const [null_mask, null_count] = bools_to_mask(*new_mask);
-    int_col->set_null_mask(*null_mask, null_count);
-    return jni::release_as_jlong(int_col);
+    unmatched_implies_zero->set_null_mask(*null_mask, null_count);
+    return jni::release_as_jlong(unmatched_implies_zero);
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
