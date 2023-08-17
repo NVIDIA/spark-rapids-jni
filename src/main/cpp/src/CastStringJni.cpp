@@ -16,15 +16,17 @@
 
 #include "cast_string.hpp"
 #include <cudf/binaryop.hpp>
-#include <cudf/copying.hpp>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/replace.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
+#include <cudf/strings/contains.hpp>
 #include <cudf/strings/convert/convert_integers.hpp>
 #include <cudf/strings/extract.hpp>
 #include <cudf/strings/find.hpp>
-#include <cudf/strings/strings_column_view.hpp>
 #include <cudf/strings/regex/regex_program.hpp>
+#include <cudf/strings/strings_column_view.hpp>
+#include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
 
 #include "cudf_jni_apis.hpp"
@@ -129,36 +131,56 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
   try {
+    if (base != 10 && base != 16) {
+      auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
+      throw spark_rapids_jni::cast_error(0, error_msg);
+    }
+
     jni::auto_set_device(env);
+    auto const zero_scalar   = numeric_scalar<uint64_t>(0);
     auto const res_data_type = data_type(type_id::UINT64);
     auto const input_view{*reinterpret_cast<column_view const*>(input_column)};
-    auto const input_without_nulls = replace_nulls(input_view, string_scalar("0"));
-    const strings_column_view input_strings{*input_without_nulls};
+    auto const validity_regex_str = [&] {
+      switch (base) {
+        case 10: return R"(^\s*(-?[0-9]+).*)"; break;
+        case 16: return R"(^\s*(-?[0-9a-fA-F]+).*)"; break;
+        default: throw spark_rapids_jni::cast_error(0, "INFEASIBLE"); break;
+      }
+    }();
+
+    auto const validity_regex = strings::regex_program::create(validity_regex_str);
+    auto const valid_rows     = strings::matches_re(input_view, *validity_regex);
+    auto const prepped_table  = strings::extract(input_view, *validity_regex);
+    const strings_column_view prepped_view{prepped_table->get_column(0)};
     auto int_col = [&] {
       switch (base) {
         case 10: {
-          auto const regex = strings::regex_program::create(R"(^\s*(-?[0-9]+).*)");
-          auto const dec_str_table = strings::extract(input_strings, *regex);
-          const strings_column_view dec_str_view{dec_str_table->get_column(0)};
-          return strings::to_integers(dec_str_view, res_data_type);
+          return strings::to_integers(prepped_view, res_data_type);
         } break;
         case 16: {
-          auto const regex = strings::regex_program::create(R"(^\s*(-?[0-9a-fA-F]+).*)");
-          auto const hex_str_table = strings::extract(input_strings, *regex);
-          const strings_column_view hex_str_view{hex_str_table->get_column(0)};
-          auto const is_negative = strings::starts_with(hex_str_view, string_scalar("-"));
-          auto const pos_vals = strings::hex_to_integers(hex_str_view, res_data_type);
-          auto neg_vals = binary_operation(numeric_scalar<uint64_t>(0), *pos_vals,
-            binary_operator::SUB, res_data_type);
+          auto const is_negative = strings::starts_with(prepped_view, string_scalar("-"));
+          auto const pos_vals    = strings::hex_to_integers(prepped_view, res_data_type);
+          auto neg_vals =
+            binary_operation(zero_scalar, *pos_vals, binary_operator::SUB, res_data_type);
           return copy_if_else(*neg_vals, *pos_vals, *is_negative);
         }
         default: {
-          auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
-          throw spark_rapids_jni::cast_error(0, error_msg);
+          throw spark_rapids_jni::cast_error(0, "INFEASIBLE");
+          break;
         }
       }
     }();
-    int_col->set_null_mask(copy_bitmask(input_view), input_view.null_count());
+
+    auto const space_only_regex = strings::regex_program::create(R"(^\s*$)");
+    auto const extra_null_rows  = strings::matches_re(input_view, *space_only_regex);
+    auto const extra_mask       = unary_operation(*extra_null_rows, unary_operator::NOT);
+
+    auto const original_mask = mask_to_bools(input_view.null_mask(), 0, input_view.size());
+    auto const new_mask      = binary_operation(
+      *original_mask, *extra_mask, binary_operator::BITWISE_AND, data_type(type_id::BOOL8));
+
+    auto const [null_mask, null_count] = bools_to_mask(*new_mask);
+    int_col->set_null_mask(*null_mask, null_count);
     return jni::release_as_jlong(int_col);
   }
   CATCH_CAST_EXCEPTION(env, 0);
@@ -178,8 +200,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
           return strings::from_integers(input_view);
         } break;
         case 16: {
-          auto pre_res = strings::integers_to_hex(input_view);
-          auto const regex = strings::regex_program::create("^0?([0-9a-fA-F]+)$");
+          auto pre_res                = strings::integers_to_hex(input_view);
+          auto const regex            = strings::regex_program::create("^0?([0-9a-fA-F]+)$");
           auto const wo_leading_zeros = strings::extract(strings_column_view(*pre_res), *regex);
           return std::move(wo_leading_zeros->release()[0]);
         }

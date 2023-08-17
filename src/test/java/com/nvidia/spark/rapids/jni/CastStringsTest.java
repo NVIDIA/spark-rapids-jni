@@ -198,6 +198,7 @@ public class CastStringsTest {
     try(
       Table input = new Table.TestBuilder().column(
         null,
+        " ",
         "junk-510junk510",
         "--510",
         "   -510junk510",
@@ -209,6 +210,7 @@ public class CastStringsTest {
 
       Table expected = new Table.TestBuilder().column(
         null,
+        null,
         "0",
         "0",
         "18446744073709551106",
@@ -217,6 +219,7 @@ public class CastStringsTest {
         "510",
         "0"
       ).column(
+        null,
         null,
         "0",
         "0",
@@ -231,7 +234,7 @@ public class CastStringsTest {
       ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
       ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
     ) {
-
+      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
       AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
       AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
     }
@@ -242,6 +245,7 @@ public class CastStringsTest {
     try(
       Table input = new Table.TestBuilder().column(
         null,
+        "junk",
         "0",
         "f",
         "junk-5Ajunk5A",
@@ -256,6 +260,7 @@ public class CastStringsTest {
 
       Table expected = new Table.TestBuilder().column(
         null,
+        null,
         "0",
         "15",
         "0",
@@ -267,6 +272,7 @@ public class CastStringsTest {
         "90",
         "0"
       ).column(
+        null,
         null,
         "0",
         "F",
@@ -284,6 +290,7 @@ public class CastStringsTest {
       ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
       ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
     ) {
+      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
       AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
       AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
     }
