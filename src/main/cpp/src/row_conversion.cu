@@ -181,8 +181,8 @@ struct tile_info {
  *
  */
 struct row_batch {
-  size_type num_bytes;                      // number of bytes in this batch
-  size_type row_count;                      // number of rows in the batch
+  size_type num_bytes;                    // number of bytes in this batch
+  size_type row_count;                    // number of rows in the batch
   device_uvector<size_type> row_offsets;  // offsets column of output cudf column
 };
 

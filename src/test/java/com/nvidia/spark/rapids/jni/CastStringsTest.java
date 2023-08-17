@@ -16,20 +16,18 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Table;
-import com.nvidia.spark.rapids.jni.CastException;
-import org.junit.jupiter.api.Test;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.stream.IntStream;
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 public class CastStringsTest {
   @Test
@@ -192,6 +190,114 @@ public class CastStringsTest {
       } finally {
         result.forEach(ColumnVector::close);
       }
+    }
+  }
+
+
+  @Test
+  void baseDec2HexTest() {
+    try(
+      Table input = new Table.TestBuilder().column(
+        null,
+        " ",
+        "junk-510junk510",
+        "--510",
+        "   -510junk510",
+        "  510junk510",
+        "510",
+        "00510",
+        "00-510"
+      ).build();
+
+      Table expected = new Table.TestBuilder().column(
+        null,
+        null,
+        "0",
+        "0",
+        "18446744073709551106",
+        "510",
+        "510",
+        "510",
+        "0"
+      ).column(
+        null,
+        null,
+        "0",
+        "0",
+        "FFFFFFFFFFFFFE02",
+        "1FE",
+        "1FE",
+        "1FE",
+        "0"
+      ).build();
+
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10, false,
+        DType.UINT64);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+    ) {
+      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+    }
+  }
+
+  @Test
+  void baseHex2DecTest() {
+    try(
+      Table input = new Table.TestBuilder().column(
+        null,
+        "junk",
+        "0",
+        "f",
+        "junk-5Ajunk5A",
+        "--5A",
+        "   -5Ajunk5A",
+        "  5Ajunk5A",
+        "5a",
+        "05a",
+        "005a",
+        "00-5a",
+        "NzGGImWNRh"
+      ).build();
+
+      Table expected = new Table.TestBuilder().column(
+        null,
+        "0",
+        "0",
+        "15",
+        "0",
+        "0",
+        "18446744073709551526",
+        "90",
+        "90",
+        "90",
+        "90",
+        "0",
+        "0"
+      ).column(
+        null,
+        "0",
+        "0",
+        "F",
+        "0",
+        "0",
+        "FFFFFFFFFFFFFFA6",
+        "5A",
+        "5A",
+        "5A",
+        "5A",
+        "0",
+        "0"
+      ).build();
+
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 16, false, DType.UINT64);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+    ) {
+      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
     }
   }
 }
