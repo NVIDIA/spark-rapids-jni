@@ -150,9 +150,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
 
     auto const validity_regex = strings::regex_program::create(validity_regex_str);
     auto const valid_rows     = strings::matches_re(input_view, *validity_regex);
-    auto const prepped_table  = strings::extract(input_view, *validity_regex);
-    const strings_column_view prepped_view{prepped_table->get_column(0)};
-    auto int_col = [&] {
+    auto const int_col        = [&] {
+      auto const prepped_table = strings::extract(input_view, *validity_regex);
+      const strings_column_view prepped_view{prepped_table->get_column(0)};
       switch (base) {
         case 10: {
           return strings::to_integers(prepped_view, res_data_type);
@@ -174,14 +174,19 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
     auto unmatched_implies_zero = copy_if_else(*int_col, zero_scalar, *valid_rows);
 
     // output nulls: original + all rows matching \s*
-
     auto const space_only_regex = strings::regex_program::create(R"(^\s*$)");
-    auto const extra_null_rows  = strings::matches_re(input_view, *space_only_regex);
-    auto const extra_mask       = unary_operation(*extra_null_rows, unary_operator::NOT);
-
-    auto const original_mask = mask_to_bools(input_view.null_mask(), 0, input_view.size());
-    auto const new_mask      = binary_operation(
-      *original_mask, *extra_mask, binary_operator::BITWISE_AND, data_type(type_id::BOOL8));
+    auto const new_mask         = [&] {
+      auto const extra_null_rows = strings::matches_re(input_view, *space_only_regex);
+      auto extra_mask            = unary_operation(*extra_null_rows, unary_operator::NOT);
+      if (input_view.null_count() > 0) {
+        return binary_operation(*mask_to_bools(input_view.null_mask(), 0, input_view.size()),
+                                *extra_mask,
+                                binary_operator::BITWISE_AND,
+                                data_type(type_id::BOOL8));
+      } else {
+        return extra_mask;
+      }
+    }();
 
     auto const [null_mask, null_count] = bools_to_mask(*new_mask);
     unmatched_implies_zero->set_null_mask(*null_mask, null_count);
