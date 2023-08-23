@@ -193,10 +193,45 @@ public class CastStringsTest {
     }
   }
 
+  private void convTestInternal(Table input, Table expected, int fromBase) {
+    try(
+      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), fromBase, false,
+        DType.UINT64);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+    ) {
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
+      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+    }
+  }
 
   @Test
-  void baseDec2HexTest() {
-    try(
+  void  baseDec2HexTestNoNulls() {
+    try (
+      Table input = new Table.TestBuilder().column(
+        "510",
+        "00510",
+        "00-510"
+      ).build();
+
+      Table expected = new Table.TestBuilder().column(
+        "510",
+        "510",
+        "0"
+      ).column(
+        "1FE",
+        "1FE",
+        "0"
+      ).build()
+    )
+    {
+      convTestInternal(input, expected, 10);
+    }
+  }
+
+  @Test
+  void  baseDec2HexTestMixed() {
+    try (
       Table input = new Table.TestBuilder().column(
         null,
         " ",
@@ -229,16 +264,10 @@ public class CastStringsTest {
         "1FE",
         "1FE",
         "0"
-      ).build();
-
-      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 10, false,
-        DType.UINT64);
-      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
-      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
-    ) {
-      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
-      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
-      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+      ).build()
+    )
+    {
+      convTestInternal(input, expected, 10);
     }
   }
 
@@ -290,14 +319,9 @@ public class CastStringsTest {
         "0",
         "0"
       ).build();
-
-      ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), 16, false, DType.UINT64);
-      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
-      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
-    ) {
-      ai.rapids.cudf.TableDebug.get().debug("intCol", intCol);
-      AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
-      AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+    )
+    {
+      convTestInternal(input, expected, 16);
     }
   }
 }
