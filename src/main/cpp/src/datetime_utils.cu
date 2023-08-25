@@ -18,10 +18,10 @@
 
 //
 #include <cudf/column/column.hpp>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/column/column_factories.hpp>
 
 //
 #include <rmm/exec_policy.hpp>
@@ -58,39 +58,39 @@ auto __device__ days_from_julian(cuda::std::chrono::year_month_day const &ymd) {
   return era * 1461 + static_cast<int32_t>(day_of_era) - 719470;
 }
 
-std::unique_ptr<cudf::column> rebase_to_julian_days(cudf::column_view const &input,
-                                                    rmm::cuda_stream_view stream,
-                                                    rmm::mr::device_memory_resource *mr) {
+std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &input,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::mr::device_memory_resource *mr) {
   if (input.size() == 0) {
     return cudf::empty_like(input);
   }
 
-  auto output = cudf::make_timestamp_column(input.type(),
-                                      input.size(),
-                                      cudf::detail::copy_bitmask(input, stream, mr),
-                                      input.null_count(),
-                                      stream,
-                                      mr);
+  auto output = cudf::make_timestamp_column(input.type(), input.size(),
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            input.null_count(), stream, mr);
 
-  thrust::transform(
-      rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(input.size()),
-      output->mutable_view().begin<cudf::timestamp_D>(),
-      [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
-        auto constexpr julian_end = cuda::std::chrono::year_month_day{
-            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
-        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
-            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
-            cuda::std::chrono::day{15}};
+  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(input.size()),
+                    output->mutable_view().begin<cudf::timestamp_D>(),
+                    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+                      auto constexpr julian_end = cuda::std::chrono::year_month_day{
+                          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
+                          cuda::std::chrono::day{4}};
+                      auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
+                          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
+                          cuda::std::chrono::day{15}};
 
-        auto const ymd = get_ymd(d_input[idx].time_since_epoch().count());
-        if (ymd > julian_end && ymd < gregorian_start) {
-            return cudf::timestamp_D{cudf::timestamp_D::duration{-141417}}; // the same as rebasing from `ts = gregorian_start.local_days()`.
-        }
+                      auto const ymd = get_ymd(d_input[idx].time_since_epoch().count());
+                      if (ymd > julian_end && ymd < gregorian_start) {
+                        // The same as rebasing from `ts = gregorian_start`.
+                        // -141417 is the value of rebasing it.
+                        return cudf::timestamp_D{cudf::timestamp_D::duration{-141417}};
+                      }
 
-        // Reinterpret year/month/day as in Julian date, then compute Julian days since epoch.
-        return cudf::timestamp_D{cudf::timestamp_D::duration{days_from_julian(ymd)}};
-      });
+                      // Reinterpret year/month/day as in Julian calendar then compute the Julian
+                      // days since epoch.
+                      return cudf::timestamp_D{cudf::timestamp_D::duration{days_from_julian(ymd)}};
+                    });
 
   return output;
 }
@@ -135,12 +135,12 @@ __device__ int64_t scale_time(int64_t time, int64_t base) {
   return (time - ((time < 0) * (base - 1L))) / base;
 }
 
-int64_t constexpr micros_per_second = 1'000'000L;
+int64_t constexpr MICROS_PER_SECOND = 1'000'000L;
 
 __device__ time_components get_time_components(int64_t micros) {
 
-  auto const subsecond = modulo_time(micros, micros_per_second);
-  micros = micros / micros_per_second - ((micros < 0) && (subsecond != 0));
+  auto const subsecond = modulo_time(micros, MICROS_PER_SECOND);
+  micros = micros / MICROS_PER_SECOND - ((micros < 0) && (subsecond != 0));
   auto const hour = modulo_time(scale_time(micros, 3600), 24);
   auto const minute = modulo_time(scale_time(micros, 60), 60);
   auto const second = modulo_time(micros, 60);
@@ -148,19 +148,16 @@ __device__ time_components get_time_components(int64_t micros) {
   return time_components{hour, minute, second, subsecond};
 }
 
-std::unique_ptr<cudf::column> rebase_to_julian_micros(cudf::column_view const &input,
-                                                      rmm::cuda_stream_view stream,
-                                                      rmm::mr::device_memory_resource *mr) {
+std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const &input,
+                                                         rmm::cuda_stream_view stream,
+                                                         rmm::mr::device_memory_resource *mr) {
   if (input.size() == 0) {
     return cudf::empty_like(input);
   }
 
-  auto output = cudf::make_timestamp_column(input.type(),
-                                      input.size(),
-                                      cudf::detail::copy_bitmask(input, stream, mr),
-                                      input.null_count(),
-                                      stream,
-                                      mr);
+  auto output = cudf::make_timestamp_column(input.type(), input.size(),
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            input.null_count(), stream, mr);
 
   thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(input.size()),
@@ -184,7 +181,7 @@ std::unique_ptr<cudf::column> rebase_to_julian_micros(cudf::column_view const &i
 
                       int64_t timestamp = (days * 24L * 3600L) + (timeparts.hour * 3600L) +
                                           (timeparts.minute * 60L) + timeparts.second;
-                      timestamp *= micros_per_second; // to microseconds
+                      timestamp *= MICROS_PER_SECOND; // to microseconds
                       timestamp += timeparts.subsecond;
 
                       return cudf::timestamp_us{cudf::timestamp_us::duration{timestamp}};
@@ -193,9 +190,9 @@ std::unique_ptr<cudf::column> rebase_to_julian_micros(cudf::column_view const &i
   return output;
 }
 
-std::unique_ptr<cudf::column> rebase_to_julian_millis(cudf::column_view const &input,
-                                                      rmm::cuda_stream_view stream,
-                                                      rmm::mr::device_memory_resource *mr) {
+std::unique_ptr<cudf::column> gregorian_to_julian_millis(cudf::column_view const &input,
+                                                         rmm::cuda_stream_view stream,
+                                                         rmm::mr::device_memory_resource *mr) {
   if (input.size() == 0) {
     return cudf::empty_like(input);
   }
@@ -207,7 +204,7 @@ std::unique_ptr<cudf::column> rebase_to_julian_millis(cudf::column_view const &i
 
 namespace cudf::jni {
 
-std::unique_ptr<cudf::column> rebase_to_julian(cudf::column_view const &input) {
+std::unique_ptr<cudf::column> gregorian_to_julian(cudf::column_view const &input) {
   auto const type = input.type().id();
   CUDF_EXPECTS(type == cudf::type_id::TIMESTAMP_DAYS ||
                    type == cudf::type_id::TIMESTAMP_MILLISECONDS ||
@@ -222,12 +219,12 @@ std::unique_ptr<cudf::column> rebase_to_julian(cudf::column_view const &input) {
   auto const mr = rmm::mr::get_current_device_resource();
 
   if (type == cudf::type_id::TIMESTAMP_DAYS) {
-    return rebase_to_julian_days(input, stream, mr);
+    return gregorian_to_julian_days(input, stream, mr);
   }
   if (type == cudf::type_id::TIMESTAMP_MILLISECONDS) {
-    return rebase_to_julian_millis(input, stream, mr);
+    return gregorian_to_julian_millis(input, stream, mr);
   }
-  return rebase_to_julian_micros(input, stream, mr);
+  return gregorian_to_julian_micros(input, stream, mr);
 }
 
 } // namespace cudf::jni

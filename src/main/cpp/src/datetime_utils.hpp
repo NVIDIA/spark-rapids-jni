@@ -18,6 +18,6 @@
 
 namespace cudf::jni {
 
-std::unique_ptr<cudf::column> rebase_to_julian(cudf::column_view const &input);
+std::unique_ptr<cudf::column> gregorian_to_julian(cudf::column_view const &input);
 
 } // namespace cudf::jni
