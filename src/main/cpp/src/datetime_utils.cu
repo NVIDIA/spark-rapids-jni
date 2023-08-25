@@ -34,12 +34,19 @@
 
 namespace {
 
-__device__ cuda::std::chrono::year_month_day get_ymd(int64_t micros) {
+__device__ cuda::std::chrono::year_month_day get_ymd_from_days(int32_t days) {
+  auto const days_since_epoch = cuda::std::chrono::sys_days(
+      cuda::std::chrono::duration<int32_t, cuda::std::chrono::days::period>{days});
+  return cuda::std::chrono::year_month_day(days_since_epoch);
+}
+
+__device__ cuda::std::chrono::year_month_day get_ymd_from_micros(int64_t micros) {
   auto const days_since_epoch = cuda::std::chrono::sys_days(
       static_cast<cuda::std::chrono::duration<int32_t, cuda::std::chrono::days::period>>(
           cuda::std::chrono::floor<cuda::std::chrono::days>(
               cuda::std::chrono::duration<int64_t, cuda::std::chrono::microseconds::period>(
                   micros))));
+
   return cuda::std::chrono::year_month_day(days_since_epoch);
 }
 
@@ -80,11 +87,16 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
                           cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
                           cuda::std::chrono::day{15}};
 
-                      auto const ymd = get_ymd(d_input[idx].time_since_epoch().count());
+                      auto const ymd = get_ymd_from_days(d_input[idx].time_since_epoch().count());
                       if (ymd > julian_end && ymd < gregorian_start) {
                         // The same as rebasing from `ts = gregorian_start`.
                         // -141417 is the value of rebasing it.
-                        return cudf::timestamp_D{cudf::timestamp_D::duration{-141417}};
+                        return cudf::timestamp_D{cudf::timestamp_D::duration{-141427}};
+                      }
+
+                      // No change since this time.
+                      if (ymd >= gregorian_start) {
+                        return d_input[idx];
                       }
 
                       // Reinterpret year/month/day as in Julian calendar then compute the Julian
@@ -175,7 +187,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
 
                       // Reinterpret the input timestamp as in local Julian calendar and takes
                       // microseconds since the epoch from the Julian local date-time.
-                      auto const ymd = get_ymd(micros);
+                      auto const ymd = get_ymd_from_micros(micros);
                       auto const days = days_from_julian(ymd);
                       auto const timeparts = get_time_components(micros);
 
