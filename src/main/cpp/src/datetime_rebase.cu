@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "datetime_utils.hpp"
+#include "datetime_rebase.hpp"
 
 //
 #include <cudf/column/column.hpp>
@@ -206,7 +206,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
 
 namespace cudf::jni {
 
-std::unique_ptr<cudf::column> gregorian_to_julian(cudf::column_view const &input) {
+std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const &input) {
   auto const type = input.type().id();
   CUDF_EXPECTS(type == cudf::type_id::TIMESTAMP_DAYS ||
                    type == cudf::type_id::TIMESTAMP_MICROSECONDS,
