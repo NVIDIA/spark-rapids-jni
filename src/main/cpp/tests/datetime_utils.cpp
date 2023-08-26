@@ -115,17 +115,3 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
   }
 }
-
-#if 1
-TEST_F(TimestampRebaseTest, x) {
-  // Check the correctness of ts_val. It should be the instant as given in ts_string.
-  {
-    auto const ts_strings = cudf::test::strings_column_wrapper{"1582-10-10"};
-    auto const parsed_ts =
-        cudf::strings::to_timestamps(cudf::strings_column_view(ts_strings),
-                                     cudf::data_type{cudf::type_id::TIMESTAMP_DAYS}, "%Y-%m-%d");
-    auto x = cudf::bit_cast(parsed_ts->view(), cudf::data_type{cudf::type_id::INT32});
-    cudf::test::print(x);
-  }
-}
-#endif

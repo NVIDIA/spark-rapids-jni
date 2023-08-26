@@ -202,16 +202,6 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
   return output;
 }
 
-std::unique_ptr<cudf::column> gregorian_to_julian_millis(cudf::column_view const &input,
-                                                         rmm::cuda_stream_view stream,
-                                                         rmm::mr::device_memory_resource *mr) {
-  if (input.size() == 0) {
-    return cudf::empty_like(input);
-  }
-
-  return nullptr;
-}
-
 } // namespace
 
 namespace cudf::jni {
@@ -219,9 +209,8 @@ namespace cudf::jni {
 std::unique_ptr<cudf::column> gregorian_to_julian(cudf::column_view const &input) {
   auto const type = input.type().id();
   CUDF_EXPECTS(type == cudf::type_id::TIMESTAMP_DAYS ||
-                   type == cudf::type_id::TIMESTAMP_MILLISECONDS ||
                    type == cudf::type_id::TIMESTAMP_MICROSECONDS,
-               "The input is not a valid date/timestamp type to rebase.");
+               "The input must be either day or microsecond timestamps to rebase.");
 
   if (input.size() == 0) {
     return cudf::empty_like(input);
@@ -232,9 +221,6 @@ std::unique_ptr<cudf::column> gregorian_to_julian(cudf::column_view const &input
 
   if (type == cudf::type_id::TIMESTAMP_DAYS) {
     return gregorian_to_julian_days(input, stream, mr);
-  }
-  if (type == cudf::type_id::TIMESTAMP_MILLISECONDS) {
-    return gregorian_to_julian_millis(input, stream, mr);
   }
   return gregorian_to_julian_micros(input, stream, mr);
 }
