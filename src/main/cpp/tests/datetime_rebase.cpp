@@ -63,7 +63,7 @@ TEST_F(TimestampRebaseTest, DayTimestamp) {
   }
 }
 
-TEST_F(TimestampRebaseTest, NegativeDayTimestamp) {
+TEST_F(TimestampRebaseTest, DayTimestampOfNegativeYear) {
   // Negative years cannot be parsed by cudf from strings.
   auto const ts_col = days_col{
       -1121294, // -1100-1-1
@@ -112,6 +112,22 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
                                      -45446999900L,
                                      1L,
                                      1584178381500000L};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
+  }
+}
+
+TEST_F(TimestampRebaseTest, MicroTimestampOfNegativeYear) {
+  auto const ts_col = micros_col{
+      -93755660276345679L,  //-1001-01-01T01:02:03.654321
+      -219958671476876544L, //-5001-10-15T01:02:03.123456
+      -62188210676345679L   //-0001-05-03T01:02:03.654321
+  };
+
+  // Check the rebased values.
+  {
+    auto const rebased = cudf::jni::rebase_gregorian_to_julian(ts_col);
+    auto const expected =
+        micros_col{-93756524276345679L, -219962127476876544L, -62188383476345679L};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
   }
 }
