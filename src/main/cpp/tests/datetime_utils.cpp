@@ -28,12 +28,13 @@
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
+using days_col = cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep>;
+using micros_col =
+    cudf::test::fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep>;
+
 struct TimestampRebaseTest : public cudf::test::BaseFixture {};
 
 TEST_F(TimestampRebaseTest, DayTimestamp) {
-  using days_col =
-      cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep>;
-
   auto const ts_col = days_col{-719162, -354285, -141714, -141438, -141437, -141432,
                                -141427, -31463,  -31453,  -1,      0,       18335};
 
@@ -63,9 +64,6 @@ TEST_F(TimestampRebaseTest, DayTimestamp) {
 }
 
 TEST_F(TimestampRebaseTest, NegativeDayTimestamp) {
-  using days_col =
-      cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_D::rep>;
-
   // Negative years cannot be parsed by cudf from strings.
   auto const ts_col = days_col{
       -1121294, // -1100-1-1
@@ -77,32 +75,46 @@ TEST_F(TimestampRebaseTest, NegativeDayTimestamp) {
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
 }
 
-#if 0
-TEST_F(TimestampRebaseTest, MicroTimestamp)
-{
-  using micros_col =
-    cudf::test::fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_us::rep>;
-
-  auto const ts_col = micros_col{-12244061221876544L};
+TEST_F(TimestampRebaseTest, MicroTimestamp) {
+  auto const ts_col = micros_col{-62135593076345679L,
+                                 -30610213078876544L,
+                                 -12244061221876544L,
+                                 -12220243200000000L,
+                                 -12219292799000001L,
+                                 -45446999900L,
+                                 1L,
+                                 1584178381500000L};
 
   // Check the correctness of ts_val. It should be the instant as given in ts_string.
   {
-    auto const ts_string = cudf::test::strings_column_wrapper{"1582-01-01 07:52:58.123456Z"};
-    auto const parsed_ts =
-      cudf::strings::to_timestamps(cudf::strings_column_view(ts_string),
-                                   cudf::data_type{cudf::type_id::TIMESTAMP_MICROSECONDS},
-                                   "%Y-%m-%d %H:%M:%S.%6fz");
+
+    auto const ts_string = cudf::test::strings_column_wrapper{
+        "0001-01-01 01:02:03.654321", "1000-01-01 03:02:01.123456",
+        "1582-01-01 07:52:58.123456", "1582-10-04 00:00:00.000000",
+        "1582-10-15 00:00:00.999999", // Gregorian cutover day
+        "1969-12-31 11:22:33.000100",
+        "1970-01-01 00:00:00.000001", // The epoch day
+        "2020-03-14 09:33:01.500000"};
+    auto const parsed_ts = cudf::strings::to_timestamps(
+        cudf::strings_column_view(ts_string),
+        cudf::data_type{cudf::type_id::TIMESTAMP_MICROSECONDS}, "%Y-%m-%d %H:%M:%S.%6fz");
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(ts_col, *parsed_ts);
   }
 
   // Check the rebased values.
   {
-    auto const rebased  = cudf::jni::gregorian_to_julian(ts_col);
-    auto const expected = micros_col{-12243197221876544L};
-    //    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
+    auto const rebased = cudf::jni::gregorian_to_julian(ts_col);
+    auto const expected = micros_col{-62135765876345679L,
+                                     -30609781078876544L,
+                                     -12243197221876544L,
+                                     -12219379200000000L,
+                                     -12219292799000001L,
+                                     -45446999900L,
+                                     1L,
+                                     1584178381500000L};
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
   }
 }
-#endif
 
 #if 1
 TEST_F(TimestampRebaseTest, x) {
