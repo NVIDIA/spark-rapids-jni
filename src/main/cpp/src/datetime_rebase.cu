@@ -27,30 +27,12 @@
 #include <rmm/exec_policy.hpp>
 
 //
-#include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
-#include <thrust/tuple.h>
 
 namespace {
 
-__device__ cuda::std::chrono::year_month_day get_ymd_from_days(int32_t days) {
-  auto const days_since_epoch = cuda::std::chrono::sys_days(
-      cuda::std::chrono::duration<int32_t, cuda::std::chrono::days::period>{days});
-  return cuda::std::chrono::year_month_day(days_since_epoch);
-}
-
-__device__ cuda::std::chrono::year_month_day get_ymd_from_micros(int64_t micros) {
-  auto const days_since_epoch = cuda::std::chrono::sys_days(
-      static_cast<cuda::std::chrono::duration<int32_t, cuda::std::chrono::days::period>>(
-          cuda::std::chrono::floor<cuda::std::chrono::days>(
-              cuda::std::chrono::duration<int64_t, cuda::std::chrono::microseconds::period>(
-                  micros))));
-
-  return cuda::std::chrono::year_month_day(days_since_epoch);
-}
-
-auto __device__ days_from_julian(cuda::std::chrono::year_month_day const &ymd) {
+__device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day const &ymd) {
   auto year = static_cast<int32_t>(ymd.year());
   auto const month = static_cast<uint32_t>(ymd.month());
   auto const day = static_cast<uint32_t>(ymd.day());
@@ -76,33 +58,35 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
 
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(input.size()),
-                    output->mutable_view().begin<cudf::timestamp_D>(),
-                    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
-                      auto constexpr julian_end = cuda::std::chrono::year_month_day{
-                          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
-                          cuda::std::chrono::day{4}};
-                      auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
-                          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
-                          cuda::std::chrono::day{15}};
+  thrust::transform(
+      rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(input.size()),
+      output->mutable_view().begin<cudf::timestamp_D>(),
+      [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+        auto constexpr julian_end = cuda::std::chrono::year_month_day{
+            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
+        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
+            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
+            cuda::std::chrono::day{15}};
 
-                      auto const ymd = get_ymd_from_days(d_input[idx].time_since_epoch().count());
-                      if (ymd > julian_end && ymd < gregorian_start) {
-                        // The same as rebasing from `ts = gregorian_start`.
-                        // -141417 is the value of rebasing it.
-                        return cudf::timestamp_D{cudf::timestamp_D::duration{-141427}};
-                      }
+        auto const days_ts = d_input[idx].time_since_epoch().count();
+        auto const days_since_epoch = cuda::std::chrono::sys_days(cudf::duration_D{days_ts});
+        auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
+        if (ymd > julian_end && ymd < gregorian_start) {
+          // The same as rebasing from `ts = gregorian_start`.
+          // -141427 is the value of rebasing it.
+          return cudf::timestamp_D{cudf::duration_D{-141427}};
+        }
 
-                      // No change since this time.
-                      if (ymd >= gregorian_start) {
-                        return d_input[idx];
-                      }
+        // No change since this time.
+        if (ymd >= gregorian_start) {
+          return d_input[idx];
+        }
 
-                      // Reinterpret year/month/day as in Julian calendar then compute the Julian
-                      // days since epoch.
-                      return cudf::timestamp_D{cudf::timestamp_D::duration{days_from_julian(ymd)}};
-                    });
+        // Reinterpret year/month/day as in Julian calendar then compute the Julian
+        // days since epoch.
+        return cudf::timestamp_D{cudf::duration_D{days_from_julian(ymd)}};
+      });
 
   return output;
 }
@@ -171,33 +155,36 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
 
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(input.size()),
-                    output->mutable_view().begin<cudf::timestamp_us>(),
-                    [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
-                      // October 15th, 1582 UTC.
-                      // After this day, there is no difference in micros value between Gregorian
-                      // and Julian calendars.
-                      int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
+  thrust::transform(
+      rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(input.size()),
+      output->mutable_view().begin<cudf::timestamp_us>(),
+      [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
+        // October 15th, 1582 UTC.
+        // After this day, there is no difference in micros value between Gregorian
+        // and Julian calendars.
+        int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
 
-                      auto const micros = d_input[idx].time_since_epoch().count();
-                      if (micros >= last_switch_gregorian_ts) {
-                        return d_input[idx];
-                      }
+        auto const micros_ts = d_input[idx].time_since_epoch().count();
+        if (micros_ts >= last_switch_gregorian_ts) {
+          return d_input[idx];
+        }
 
-                      // Reinterpret the input timestamp as in local Julian calendar and takes
-                      // microseconds since the epoch from the Julian local date-time.
-                      auto const ymd = get_ymd_from_micros(micros);
-                      auto const days = days_from_julian(ymd);
-                      auto const timeparts = get_time_components(micros);
+        // Reinterpret the input timestamp as in local Julian calendar and takes
+        // microseconds since the epoch from the Julian local date-time.
+        auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
+            cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
+        auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
+        auto const julian_days = days_from_julian(ymd);
+        auto const timeparts = get_time_components(micros_ts);
 
-                      int64_t timestamp = (days * 24L * 3600L) + (timeparts.hour * 3600L) +
-                                          (timeparts.minute * 60L) + timeparts.second;
-                      timestamp *= MICROS_PER_SECOND; // to microseconds
-                      timestamp += timeparts.subsecond;
+        int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
+                            (timeparts.minute * 60L) + timeparts.second;
+        result *= MICROS_PER_SECOND; // to microseconds
+        result += timeparts.subsecond;
 
-                      return cudf::timestamp_us{cudf::timestamp_us::duration{timestamp}};
-                    });
+        return cudf::timestamp_us{cudf::duration_us{result}};
+      });
 
   return output;
 }
