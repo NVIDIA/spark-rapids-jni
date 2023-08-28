@@ -25,7 +25,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGr
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const cv_ptr = reinterpret_cast<cudf::column_view const *>(input);
+    auto const input_cv = reinterpret_cast<cudf::column_view const *>(input);
     auto output = spark_rapids_jni::rebase_gregorian_to_julian(*input_cv);
     return reinterpret_cast<jlong>(output.release());
   }
