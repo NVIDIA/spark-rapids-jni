@@ -47,7 +47,7 @@ __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day co
 }
 
 // Convert the given number of days since the epoch day 1970-01-01 to a local date in Proleptic
-// Gregorian calendar, reinterpreting the resull as in Julian calendar, then compute the number of
+// Gregorian calendar, reinterpreting the result as in Julian calendar, then compute the number of
 // days since the epoch from that Julian local date.
 // This is to match with Apache Spark's `localRebaseGregorianToJulianDays` function.
 std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &input,
@@ -144,7 +144,7 @@ __device__ __inline__ time_components get_time_components(int64_t micros) {
 }
 
 // Convert the given number of microseconds since the epoch day 1970-01-01T00:00:00Z to a local
-// date-time in Proleptic Gregorian calendar, reinterpreting the resull as in Julian calendar, then
+// date-time in Proleptic Gregorian calendar, reinterpreting the result as in Julian calendar, then
 // compute the number of microseconds since the epoch from that Julian local date-time.
 // This is to match with Apache Spark's `rebaseGregorianToJulianMicros` function with timezone
 // fixed to UTC.
