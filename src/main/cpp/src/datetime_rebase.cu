@@ -32,14 +32,13 @@
 
 namespace {
 
+// Convert a date in Julian calendar to the number of days since epoch.
 __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day const &ymd) {
-  auto year = static_cast<int32_t>(ymd.year());
   auto const month = static_cast<uint32_t>(ymd.month());
   auto const day = static_cast<uint32_t>(ymd.day());
+  auto const year = static_cast<int32_t>(ymd.year()) - (month <= 2);
 
-  // https://howardhinnant.github.io/date_algorithms.html#Example:%20Converting%20between%20the%20civil%20calendar%20and%20the%20Julian%20calendar
-  // https://www.wikiwand.com/en/Julian_day#/Converting_Julian_calendar_date_to_Julian_Day_Number
-  year -= (month <= 2);
+  // Follow the implementation from https://howardhinnant.github.io/date_algorithms.html
   int32_t const era = (year >= 0 ? year : year - 3) / 4;
   uint32_t const year_of_era = static_cast<uint32_t>(year - era * 4);                    // [0, 3]
   uint32_t const day_of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1; // [0, 365]
@@ -47,13 +46,13 @@ __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day co
   return era * 1461 + static_cast<int32_t>(day_of_era) - 719470;
 }
 
+// Convert the given number of days since the epoch day 1970-01-01 to a local date in Proleptic
+// Gregorian calendar, reinterpreting the resull as in Julian calendar, then compute the number of
+// days since the epoch from that Julian local date.
+// This is to match with Apache Spark's `localRebaseGregorianToJulianDays` function.
 std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &input,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::mr::device_memory_resource *mr) {
-  if (input.size() == 0) {
-    return cudf::empty_like(input);
-  }
-
   auto output = cudf::make_timestamp_column(input.type(), input.size(),
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
@@ -71,10 +70,11 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
 
         auto const days_ts = d_input[idx].time_since_epoch().count();
         auto const days_since_epoch = cuda::std::chrono::sys_days(cudf::duration_D{days_ts});
+
+        // Convert the input into local date in Proleptic Gregorian calendar.
         auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
         if (ymd > julian_end && ymd < gregorian_start) {
-          // The same as rebasing from `ts = gregorian_start`.
-          // -141427 is the value of rebasing it.
+          // This is the same as rebasing from `ymd = gregorian_start`.
           return cudf::timestamp_D{cudf::duration_D{-141427}};
         }
 
@@ -83,8 +83,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
           return d_input[idx];
         }
 
-        // Reinterpret year/month/day as in Julian calendar then compute the Julian
-        // days since epoch.
+        // Reinterpret year/month/day as in Julian calendar then compute the days since epoch.
         return cudf::timestamp_D{cudf::duration_D{days_from_julian(ymd)}};
       });
 
@@ -92,7 +91,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
 }
 
 /**
- * @brief Time components used by the date_time_formatter
+ * @brief Struct store results of extracting time components from a timestamp.
  */
 struct time_components {
   int32_t hour;
@@ -110,7 +109,7 @@ struct time_components {
  *     modulo(-1,60) -> 59
  * @endcode
  */
-__device__ int32_t modulo_time(int64_t time, int64_t base) {
+__device__ __inline__ auto modulo_time(int64_t time, int64_t base) {
   return static_cast<int32_t>(((time % base) + base) % base);
 }
 
@@ -127,16 +126,16 @@ __device__ int32_t modulo_time(int64_t time, int64_t base) {
  *     scale( 61,60) ->  1
  * @endcode
  */
-__device__ int64_t scale_time(int64_t time, int64_t base) {
+__device__ __inline__ int64_t scale_time(int64_t time, int64_t base) {
   return (time - ((time < 0) * (base - 1L))) / base;
 }
 
 int64_t constexpr MICROS_PER_SECOND = 1'000'000L;
 
-__device__ time_components get_time_components(int64_t micros) {
-
+__device__ __inline__ time_components get_time_components(int64_t micros) {
   auto const subsecond = modulo_time(micros, MICROS_PER_SECOND);
   micros = micros / MICROS_PER_SECOND - ((micros < 0) && (subsecond != 0));
+
   auto const hour = modulo_time(scale_time(micros, 3600), 24);
   auto const minute = modulo_time(scale_time(micros, 60), 60);
   auto const second = modulo_time(micros, 60);
@@ -144,13 +143,14 @@ __device__ time_components get_time_components(int64_t micros) {
   return time_components{hour, minute, second, subsecond};
 }
 
+// Convert the given number of microseconds since the epoch day 1970-01-01T00:00:00Z to a local
+// date-time in Proleptic Gregorian calendar, reinterpreting the resull as in Julian calendar, then
+// compute the number of microseconds since the epoch from that Julian local date-time.
+// This is to match with Apache Spark's `rebaseGregorianToJulianMicros` function with timezone
+// fixed to UTC.
 std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const &input,
                                                          rmm::cuda_stream_view stream,
                                                          rmm::mr::device_memory_resource *mr) {
-  if (input.size() == 0) {
-    return cudf::empty_like(input);
-  }
-
   auto output = cudf::make_timestamp_column(input.type(), input.size(),
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
@@ -160,8 +160,8 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
       thrust::make_counting_iterator(input.size()),
       output->mutable_view().begin<cudf::timestamp_us>(),
       [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
-        // October 15th, 1582 UTC.
-        // After this day, there is no difference in micros value between Gregorian
+        // This timestamp corresponds to October 15th, 1582 UTC.
+        // After this day, there is no difference in microsecond values between Gregorian
         // and Julian calendars.
         int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
 
@@ -170,16 +170,17 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
           return d_input[idx];
         }
 
-        // Reinterpret the input timestamp as in local Julian calendar and takes
-        // microseconds since the epoch from the Julian local date-time.
+        // Convert the input into local date-time in Proleptic Gregorian calendar.
         auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
             cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
         auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
-        auto const julian_days = days_from_julian(ymd);
         auto const timeparts = get_time_components(micros_ts);
 
+        // Reinterpret the local date-time as in Julian calendar and compute microseconds since
+        // the epoch from that Julian local date-time.
+        auto const julian_days = days_from_julian(ymd);
         int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
-                            (timeparts.minute * 60L) + timeparts.second;
+                         (timeparts.minute * 60L) + timeparts.second;
         result *= MICROS_PER_SECOND; // to microseconds
         result += timeparts.subsecond;
 
@@ -205,11 +206,8 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
 
   auto const stream = cudf::get_default_stream();
   auto const mr = rmm::mr::get_current_device_resource();
-
-  if (type == cudf::type_id::TIMESTAMP_DAYS) {
-    return gregorian_to_julian_days(input, stream, mr);
-  }
-  return gregorian_to_julian_micros(input, stream, mr);
+  return type == cudf::type_id::TIMESTAMP_DAYS ? gregorian_to_julian_days(input, stream, mr) :
+                                                 gregorian_to_julian_micros(input, stream, mr);
 }
 
 } // namespace cudf::jni
