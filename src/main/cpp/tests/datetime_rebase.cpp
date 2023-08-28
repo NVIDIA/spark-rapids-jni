@@ -55,7 +55,7 @@ TEST_F(TimestampRebaseTest, DayTimestamp) {
 
   // Check the rebased values.
   {
-    auto const rebased = cudf::jni::rebase_gregorian_to_julian(ts_col);
+    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
     auto const expected = days_col{-719164, -354280, -141704, -141428, -141427, -141427,
                                    -141427, -31463,  -31453,  -1,      0,       18335};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
@@ -69,7 +69,7 @@ TEST_F(TimestampRebaseTest, DayTimestampOfNegativeYear) {
       -1100777, // -1044-3-5
       -735535   // -44-3-5
   };
-  auto const rebased = cudf::jni::rebase_gregorian_to_julian(ts_col);
+  auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
   auto const expected = days_col{-1121305, -1100787, -735537};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
 }
@@ -102,7 +102,7 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
 
   // Check the rebased values.
   {
-    auto const rebased = cudf::jni::rebase_gregorian_to_julian(ts_col);
+    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
     auto const expected = micros_col{-62135765876345679L,
                                      -30609781078876544L,
                                      -12243197221876544L,
@@ -124,7 +124,7 @@ TEST_F(TimestampRebaseTest, MicroTimestampOfNegativeYear) {
 
   // Check the rebased values.
   {
-    auto const rebased = cudf::jni::rebase_gregorian_to_julian(ts_col);
+    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
     auto const expected =
         micros_col{-93756524276345679L, -219962127476876544L, -62188383476345679L};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
