@@ -19,9 +19,8 @@
 
 extern "C" {
 
-JNIEXPORT jlongArray JNICALL
-Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGregorianToJulian(JNIEnv *env, jclass,
-                                                                        jlong input) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGregorianToJulian(
+    JNIEnv *env, jclass, jlong input) {
   JNI_NULL_CHECK(env, input, "input column is null", 0);
 
   try {
