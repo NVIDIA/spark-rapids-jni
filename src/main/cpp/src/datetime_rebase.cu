@@ -192,7 +192,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
 
 } // namespace
 
-namespace cudf::jni {
+namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const &input) {
   auto const type = input.type().id();
@@ -210,4 +210,4 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
                                                  gregorian_to_julian_micros(input, stream, mr);
 }
 
-} // namespace cudf::jni
+} // namespace spark_rapids_jni

@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-// #include <datetime_utils.hpp>
-#include "/home/nghiat/Devel/jni/src/main/cpp/src/datetime_rebase.hpp"
+#include <datetime_rebase.hpp>
 //
 
 #include <cudf/strings/convert/convert_datetime.hpp>

@@ -16,8 +16,8 @@
 
 #include <cudf/column/column_view.hpp>
 
-namespace cudf::jni {
+namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const &input);
 
-} // namespace cudf::jni
+} // namespace spark_rapids_jni

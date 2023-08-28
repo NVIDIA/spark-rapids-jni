@@ -15,6 +15,22 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "datetime_utils.hpp"
+#include "datetime_rebase.hpp"
 
-extern "C" {} // extern "C"
+extern "C" {
+
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGregorianToJulian(JNIEnv *env, jclass,
+                                                                        jlong input) {
+  JNI_NULL_CHECK(env, input, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const cv_ptr = reinterpret_cast<cudf::column_view const *>(input);
+    auto output = spark_rapids_jni::rebase_gregorian_to_julian(*input_cv);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  CATCH_STD(env, 0);
+}
+
+} // extern "C"
