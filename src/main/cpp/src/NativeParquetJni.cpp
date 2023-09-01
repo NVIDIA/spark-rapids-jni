@@ -782,7 +782,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumCol
 }
 
 JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(
-  JNIEnv* env, jclass, jlong handle)
+  JNIEnv* env, jclass, jlong handle, jobject host_memory_allocator)
 {
   CUDF_FUNC_RANGE();
   try {
@@ -798,7 +798,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
     transportOut->getBuffer(&buf_ptr, &buf_size);
 
     // 12 extra is for the MAGIC thrift_footer length MAGIC
-    jobject ret       = cudf::jni::allocate_host_buffer(env, buf_size + 12, false);
+    jobject ret = cudf::jni::allocate_host_buffer(env, buf_size + 12, false, host_memory_allocator);
     uint8_t* ret_addr = reinterpret_cast<uint8_t*>(cudf::jni::get_host_buffer_address(env, ret));
     ret_addr[0]       = 'P';
     ret_addr[1]       = 'A';
