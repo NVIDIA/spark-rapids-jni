@@ -77,7 +77,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
         // Convert the input into local date in Proleptic Gregorian calendar.
         auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
         if (ymd > julian_end && ymd < gregorian_start) {
-          // This is the same as rebasing from `ymd = gregorian_start`.
+          // This is the same as rebasing from the local date given at `gregorian_start`.
           return cudf::timestamp_D{cudf::duration_D{-141427}};
         }
 
@@ -184,9 +184,18 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
         auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
         auto const timeparts = get_time_components(micros_ts);
 
+        auto constexpr julian_end = cuda::std::chrono::year_month_day{
+            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
+        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
+            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
+            cuda::std::chrono::day{15}};
+
         // Reinterpret the local date-time as in Julian calendar and compute microseconds since
         // the epoch from that Julian local date-time.
-        auto const julian_days = days_from_julian(ymd);
+        // If the input date is outside of both calendars, consider it as it is a local date
+        // given at `gregorian_start` (-141427 Julian days since epoch).
+        auto const julian_days =
+            (ymd > julian_end && ymd < gregorian_start) ? -141427 : days_from_julian(ymd);
         int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
                          (timeparts.minute * 60L) + timeparts.second;
         result *= MICROS_PER_SECOND; // to microseconds
