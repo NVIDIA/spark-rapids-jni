@@ -53,6 +53,9 @@ __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day co
 std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &input,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::mr::device_memory_resource *mr) {
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_DAYS,
+               "The input column type must be microsecond timestamp.", std::invalid_argument);
+
   auto output = cudf::make_timestamp_column(input.type(), input.size(),
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
@@ -134,6 +137,8 @@ int64_t constexpr MICROS_PER_SECOND = 1'000'000L;
 
 __device__ __inline__ time_components get_time_components(int64_t micros) {
   auto const subsecond = modulo_time(micros, MICROS_PER_SECOND);
+
+  // Convert microseconds to seconds.
   micros = micros / MICROS_PER_SECOND - ((micros < 0) && (subsecond != 0));
 
   auto const hour = modulo_time(scale_time(micros, 3600), 24);
@@ -151,6 +156,9 @@ __device__ __inline__ time_components get_time_components(int64_t micros) {
 std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const &input,
                                                          rmm::cuda_stream_view stream,
                                                          rmm::mr::device_memory_resource *mr) {
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
+               "The input column type must be microsecond timestamp.", std::invalid_argument);
+
   auto output = cudf::make_timestamp_column(input.type(), input.size(),
                                             cudf::detail::copy_bitmask(input, stream, mr),
                                             input.null_count(), stream, mr);
