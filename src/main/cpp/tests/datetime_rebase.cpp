@@ -75,14 +75,10 @@ TEST_F(TimestampRebaseTest, DayTimestampOfNegativeYear) {
 }
 
 TEST_F(TimestampRebaseTest, MicroTimestamp) {
-  auto const ts_col = micros_col{-62135593076345679L,
-                                 -30610213078876544L,
-                                 -12244061221876544L,
-                                 -12220243200000000L,
-                                 -12219292799000001L,
-                                 -45446999900L,
-                                 1L,
-                                 1584178381500000L};
+  auto const ts_col =
+      micros_col{-62135593076345679L, -30610213078876544L, -12244061221876544L, -12220243200000000L,
+                 -12219639001448163L, -12219292799000001L, -45446999900L,       1L,
+                 1584178381500000L};
 
   // Check the correctness of ts_val. It should be the instant as given in ts_string.
   {
@@ -90,6 +86,7 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
     auto const ts_string = cudf::test::strings_column_wrapper{
         "0001-01-01 01:02:03.654321", "1000-01-01 03:02:01.123456",
         "1582-01-01 07:52:58.123456", "1582-10-04 00:00:00.000000",
+        "1582-10-10 23:49:58.551837", // After Julian but before Gregorian
         "1582-10-15 00:00:00.999999", // Gregorian cutover day
         "1969-12-31 11:22:33.000100",
         "1970-01-01 00:00:00.000001", // The epoch day
@@ -103,14 +100,10 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
   // Check the rebased values.
   {
     auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
-    auto const expected = micros_col{-62135765876345679L,
-                                     -30609781078876544L,
-                                     -12243197221876544L,
-                                     -12219379200000000L,
-                                     -12219292799000001L,
-                                     -45446999900L,
-                                     1L,
-                                     1584178381500000L};
+    auto const expected = micros_col{
+        -62135765876345679L, -30609781078876544L, -12243197221876544L, -12219379200000000L,
+        -12219207001448163L, -12219292799000001L, -45446999900L,       1L,
+        1584178381500000L};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
   }
 }
