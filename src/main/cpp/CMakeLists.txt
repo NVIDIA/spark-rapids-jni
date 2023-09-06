@@ -148,6 +148,7 @@ add_library(
   spark_rapids_jni SHARED
   src/BloomFilterJni.cpp
   src/CastStringJni.cpp
+  src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
   src/HashJni.cpp
   src/MapUtilsJni.cpp
@@ -159,6 +160,7 @@ add_library(
   src/cast_decimal_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
+  src/datetime_rebase.cu
   src/decimal_utils.cu
   src/map_utils.cu
   src/murmur_hash.cu
