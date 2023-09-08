@@ -26,10 +26,22 @@ MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 CUDA_VER=${CUDA_VER:-cuda`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 USE_GDS=${USE_GDS:-ON}
+USE_SANITIZER=${USE_SANITIZER:-ON}
+BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
+ARM64=${ARM64:-false}
+
+profiles="source-javadoc"
+if [ "${ARM64}" == "true" ]; then
+  profiles="${profiles},arm64"
+  USE_GDS="OFF"
+  USE_SANITIZER="OFF"
+  BUILD_FAULTINJ="OFF"
+fi
+
 ${MVN} clean package ${MVN_MIRROR}  \
-  -Psource-javadoc \
+  -P${profiles} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -Dcuda.version=$CUDA_VER \
-  -DUSE_SANITIZER=ON
+  -DBUILD_TESTS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
+  -DUSE_SANITIZER=${USE_SANITIZER}

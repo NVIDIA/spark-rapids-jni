@@ -71,18 +71,19 @@ settings. If an explicit reconfigure of libcudf is needed (e.g.: when changing c
 The following build properties can be set on the Maven command-line (e.g.: `-DCPP_PARALLEL_LEVEL=4`)
 to control aspects of the build:
 
-|Property Name                       |Description                            | Default |
-|------------------------------------|---------------------------------------|---------|
-|`CPP_PARALLEL_LEVEL`                |Parallelism of the C++ builds          | 10      |
-|`GPU_ARCHS`                         |CUDA architectures to target           | RAPIDS  |
-|`CUDF_USE_PER_THREAD_DEFAULT_STREAM`|CUDA per-thread default stream         | ON      |
-|`RMM_LOGGING_LEVEL`                 |RMM logging control                    | OFF     |
-|`USE_GDS`                           |Compile with GPU Direct Storage support| OFF     |
-|`BUILD_TESTS`                       |Compile tests                          | OFF     |
-|`BUILD_BENCHMARKS`                  |Compile benchmarks                     | OFF     |
-|`libcudf.build.configure`           |Force libcudf build to configure       | false   |
-|`libcudf.clean.skip`                |Whether to skip cleaning libcudf build | true    |
-|`submodule.check.skip`              |Whether to skip checking git submodules| false   |
+| Property Name                        | Description                             | Default |
+|--------------------------------------|-----------------------------------------|---------|
+| `CPP_PARALLEL_LEVEL`                 | Parallelism of the C++ builds           | 10      |
+| `GPU_ARCHS`                          | CUDA architectures to target            | RAPIDS  |
+| `CUDF_USE_PER_THREAD_DEFAULT_STREAM` | CUDA per-thread default stream          | ON      |
+| `RMM_LOGGING_LEVEL`                  | RMM logging control                     | OFF     |
+| `USE_GDS`                            | Compile with GPU Direct Storage support | OFF     |
+| `BUILD_TESTS`                        | Compile tests                           | OFF     |
+| `BUILD_BENCHMARKS`                   | Compile benchmarks                      | OFF     |
+| `BUILD_FAULTINJ`                     | Compile fault injection                 | ON      |
+| `libcudf.build.configure`            | Force libcudf build to configure        | false   |
+| `libcudf.clean.skip`                 | Whether to skip cleaning libcudf build  | true    |
+| `submodule.check.skip`               | Whether to skip checking git submodules | false   |
 
 
 ### Local testing of cross-repo contributions cudf, spark-rapids-jni, and spark-rapids

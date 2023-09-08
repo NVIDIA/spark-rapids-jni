@@ -43,6 +43,7 @@ option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream"
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" OFF)
 option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
+option(BUILD_FAULTINJ "Configure CMake to build fault injection" ON)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
@@ -50,6 +51,7 @@ message(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build fault injection: ${BUILD_FAULTINJ}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
@@ -57,6 +59,7 @@ set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
+set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -279,4 +282,6 @@ if(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-add_subdirectory(faultinj)
+if(SPARK_RAPIDS_JNI_BUILD_FAULTINJ)
+  add_subdirectory(faultinj)
+endif()
