@@ -636,9 +636,12 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const& input,
   // Tokenize the input json strings.
   static_assert(sizeof(SymbolT) == sizeof(char),
                 "Invalid internal data for nested json tokenizer.");
+
+  cudf::io::json_reader_options reader_options{};
+  reader_options.set_recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL);
   auto const [tokens, token_indices] = cudf::io::json::detail::get_token_stream(
     cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
-    cudf::io::json_reader_options{},
+    reader_options,
     stream,
     rmm::mr::get_current_device_resource());
 
