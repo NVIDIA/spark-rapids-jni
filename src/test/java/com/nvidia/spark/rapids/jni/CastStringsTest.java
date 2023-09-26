@@ -193,13 +193,17 @@ public class CastStringsTest {
     }
   }
 
-  private void baseConversionHelper(Table input, Table expected, int fromBase,
+  private void testRoundTripToBase10And16(Table input, Table expected, int fromBase,
     boolean dropLeadingZeros) {
     try(
       ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), fromBase, false,
         DType.UINT64);
-      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10, dropLeadingZeros);
-      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16, dropLeadingZeros);
+      // Deliberately not passing the value of dropLeadingZeros so we can test both
+      // functions in the API
+      ColumnVector decStrCol = dropLeadingZeros ? CastStrings.fromIntegersWithBase(intCol, 10)
+          : CastStrings.fromIntegersWithBase(intCol, 10, false);
+      ColumnVector hexStrCol = dropLeadingZeros ? CastStrings.fromIntegersWithBase(intCol, 16)
+          : CastStrings.fromIntegersWithBase(intCol, 16, false)
     ) {
       AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
       AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
@@ -207,7 +211,7 @@ public class CastStringsTest {
   }
 
   private void convTestInternal(Table input, Table expected, int fromBase) {
-    baseConversionHelper(input, expected, fromBase, true);
+    testRoundTripToBase10And16(input, expected, fromBase, true);
   }
 
   @Test
@@ -230,7 +234,7 @@ public class CastStringsTest {
         ).build()
     )
     {
-      baseConversionHelper(input, expected, 10, true);
+      testRoundTripToBase10And16(input, expected, 10, true);
     }
   }
 
@@ -254,7 +258,7 @@ public class CastStringsTest {
         ).build()
     )
     {
-      baseConversionHelper(input, expected, 10, false);
+      testRoundTripToBase10And16(input, expected, 10, false);
     }
   }
 

@@ -109,6 +109,44 @@ public class CastStrings {
       type.getTypeId().getNativeId()));
   }
 
+  /**
+   * Returns a new strings column converting integer column to the desired base i.e. base 10
+   * or base 16 (hexadecimal characters). The hexadecimal value will be returned with the leading
+   * zeros dropped
+   *
+   * Example:
+   * input = [123, -1, 0, 27, 342718233]
+   * s = fromIntegersWithBase(input, 16)
+   * s is [ '4D2', 'FFFFFFFF', '0', '1B', '146D7719']
+   * s = fromIntegersWithBase(input, 10)
+   * s is ['123', '-1', '0', '27', '342718233']
+   *
+   * @param cv input column to be converted
+   * @param base base that we want to convert to
+   * @return a new String ColumnVector
+   */
+  public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
+    return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base, true));
+  }
+
+  /**
+   * Returns a new strings column converting integer column to the desired base i.e. base 10
+   * or base 16 (hexadecimal characters).
+   *
+   * Example:
+   * input = [123, -1, 0, 27, 342718233]
+   * s = fromIntegersWithBase(input, 16, false)
+   * s is [ '04D2', 'FFFFFFFF', '00', '1B', '146D7719']
+   * s = fromIntegersWithBase(input, 16, true)
+   * s is [ '4D2', 'FFFFFFFF', '0', '1B', '146D7719']
+   * s = fromIntegersWithBase(input, 10, false)
+   * s is ['123', '-1', '0', '27', '342718233']
+   *
+   * @param cv input column to be converted
+   * @param base base that we want to convert to
+   * @param dropLeadingZeros whether we want to drop the leading zeros e.g. 'E' instead of '0E'
+   * @return a new String ColumnVector
+   */
   public static ColumnVector fromIntegersWithBase(ColumnView cv, int base,
     boolean dropLeadingZeros) {
     return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base, dropLeadingZeros));
