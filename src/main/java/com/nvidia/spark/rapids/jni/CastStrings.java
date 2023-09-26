@@ -109,8 +109,9 @@ public class CastStrings {
       type.getTypeId().getNativeId()));
   }
 
-  public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
-    return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
+  public static ColumnVector fromIntegersWithBase(ColumnView cv, int base,
+    boolean dropLeadingZeros) {
+    return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base, dropLeadingZeros));
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -121,5 +122,6 @@ public class CastStrings {
   private static native long fromDecimal(long nativeColumnView);
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
-  private static native long fromIntegersWithBase(long nativeColumnView, int base);
+  private static native long fromIntegersWithBase(long nativeColumnView, int base,
+    boolean dropLeadingZeros);
 }

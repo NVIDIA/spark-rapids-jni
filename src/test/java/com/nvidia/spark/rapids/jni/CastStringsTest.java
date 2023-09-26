@@ -193,15 +193,44 @@ public class CastStringsTest {
     }
   }
 
-  private void convTestInternal(Table input, Table expected, int fromBase) {
+  private void baseConversionHelper(Table input, Table expected, int fromBase,
+    boolean dropLeadingZeros) {
     try(
       ColumnVector intCol = CastStrings.toIntegersWithBase(input.getColumn(0), fromBase, false,
         DType.UINT64);
-      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10);
-      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16);
+      ColumnVector decStrCol = CastStrings.fromIntegersWithBase(intCol, 10, dropLeadingZeros);
+      ColumnVector hexStrCol = CastStrings.fromIntegersWithBase(intCol, 16, dropLeadingZeros);
     ) {
       AssertUtils.assertColumnsAreEqual(expected.getColumn(0), decStrCol, "decStrCol");
       AssertUtils.assertColumnsAreEqual(expected.getColumn(1), hexStrCol, "hexStrCol");
+    }
+  }
+
+  private void convTestInternal(Table input, Table expected, int fromBase) {
+    baseConversionHelper(input, expected, fromBase, true);
+  }
+
+  @Test
+  void baseDec2HexTestNoDropLeadingZeros() {
+    try (
+        Table input = new Table.TestBuilder().column(
+            "14",
+            "2621",
+            "50"
+        ).build();
+
+        Table expected = new Table.TestBuilder().column(
+            "14",
+            "2621",
+            "50"
+        ).column(
+            "0E",
+            "0A3D",
+            "32"
+        ).build()
+    )
+    {
+      baseConversionHelper(input, expected, 10, false);
     }
   }
 

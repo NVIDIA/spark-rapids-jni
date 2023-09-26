@@ -196,7 +196,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromIntegersWithBase(
-  JNIEnv* env, jclass, jlong input_column, jint base)
+  JNIEnv* env, jclass, jlong input_column, jint base, jboolean drop_leading_zeros)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
@@ -210,9 +210,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
         } break;
         case 16: {
           auto pre_res                = strings::integers_to_hex(input_view);
-          auto const regex            = strings::regex_program::create("^0?([0-9a-fA-F]+)$");
-          auto const wo_leading_zeros = strings::extract(strings_column_view(*pre_res), *regex);
-          return std::move(wo_leading_zeros->release()[0]);
+          if (drop_leading_zeros) {
+            auto const regex            = strings::regex_program::create("^0?([0-9a-fA-F]+)$");
+            auto const wo_leading_zeros = strings::extract(strings_column_view(*pre_res), *regex);
+            return std::move(wo_leading_zeros->release()[0]);
+          } else {
+            return pre_res;
+          }
         }
         default: {
           auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
