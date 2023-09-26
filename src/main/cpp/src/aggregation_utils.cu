@@ -32,6 +32,8 @@
 #include <thrust/scan.h>
 #include <thrust/transform.h>
 
+#include <type_traits>
+
 namespace spark_rapids_jni {
 
 namespace {
@@ -76,7 +78,7 @@ private:
 };
 
 struct percentile_dispatcher {
-  template <typename T> static constexpr bool is_supported() { return std::is_same_v<T, double>; }
+  template <typename T> static constexpr bool is_supported() { return std::is_arithmetic_v<T>; }
 
   template <typename T, typename... Args>
   std::enable_if_t<!is_supported<T>(), std::unique_ptr<cudf::column>> operator()(Args &&...) const {
@@ -88,10 +90,11 @@ struct percentile_dispatcher {
   operator()(cudf::size_type const *const ordered_indices, cudf::column_device_view const &data,
              cudf::column_device_view const &counts,
              cudf::device_span<int64_t const> accumulated_counts,
-             cudf::device_span<double const> percentages, rmm::cuda_stream_view stream,
+             cudf::column_device_view const & percentages, rmm::cuda_stream_view stream,
              rmm::mr::device_memory_resource *mr) const {
-    auto output = cudf::make_numeric_column(data.type(), percentages.size(),
-                                            cudf::mask_state::UNALLOCATED, stream, mr);
+    auto output =
+        cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64}, percentages.size(),
+                                  cudf::mask_state::UNALLOCATED, stream, mr);
     if (output->size() == 0) {
       return output;
     }
@@ -106,8 +109,8 @@ struct percentile_dispatcher {
 
     auto const sorted_input_it =
         thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
-    thrust::transform(rmm::exec_policy(stream), percentages.begin(), percentages.end(),
-                      output->mutable_view().begin<T>(),
+    thrust::transform(rmm::exec_policy(stream), percentages.begin<double>(), percentages.end<double>(),
+                      output->mutable_view().begin<double>(),
                       percentile_fn{accumulated_counts, sorted_input_it});
 
     return output;
@@ -117,7 +120,7 @@ struct percentile_dispatcher {
 } // namespace
 
 std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const &input,
-                                                        std::vector<double> const &percentages,
+                                                        cudf::column_view const &percentages,
                                                         rmm::cuda_stream_view stream,
                                                         rmm::mr::device_memory_resource *mr) {
 
@@ -138,8 +141,10 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
       cudf::structs_column_view{input}.get_sliced_child(0), stream);
   auto const d_counts = cudf::column_device_view::create(
       cudf::structs_column_view{input}.get_sliced_child(1), stream);
-  auto const d_percentages =
-      cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
+  auto const d_percentages= cudf::column_device_view::create(
+              percentages, stream);
+//  auto const d_percentages =
+//      cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
 
   auto const counts = cudf::structs_column_view{input}.get_sliced_child(1);
   auto const sorted_counts = thrust::make_permutation_iterator(
@@ -153,7 +158,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
 
   return type_dispatcher(input.child(0).type(), percentile_dispatcher{},
                          ordered_indices->view().begin<cudf::size_type>(), *d_data, *d_counts,
-                         d_accumulated_counts, d_percentages, stream, mr);
+                         d_accumulated_counts, *d_percentages, stream, mr);
 }
 
 } // namespace spark_rapids_jni

@@ -30,11 +30,12 @@ public class AggregationUtils {
   /**
    * TODO
    */
-  public static ColumnVector percentileFromHistogram(ColumnView input, double[] percentages) {
-    assert input.getType().equals(DType.STRUCT) : "Input type must be Struct";
-    return new ColumnVector(percentileFromHistogram(input.getNativeView(), percentages));
+  public static ColumnVector percentileFromHistogram(ColumnView value, ColumnView percentage) {
+    assert value.getType().equals(DType.STRUCT) : "Input type must be Struct";
+    return new ColumnVector(percentileFromHistogram(value.getNativeView(),
+        percentage.getNativeView()));
   }
 
 
-  private static native long percentileFromHistogram(long inputHandle, double[] percentages);
+  private static native long percentileFromHistogram(long inputHandle, long percentageHandle);
 }

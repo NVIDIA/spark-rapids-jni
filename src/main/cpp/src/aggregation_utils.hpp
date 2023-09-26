@@ -23,7 +23,7 @@
 namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> percentile_from_histogram(
-    cudf::column_view const &input, std::vector<double> const &percentages,
+    cudf::column_view const &input, cudf::column_view const &percentages,
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
 
