@@ -22,8 +22,18 @@
 #include <rmm/cuda_stream_view.hpp>
 namespace spark_rapids_jni {
 
+/**
+ * @brief percentile_from_histogram
+ * @param input
+ * @param percentages
+ * @param stream
+ * @param mr
+ * @return
+ *
+ * a lists column
+ */
 std::unique_ptr<cudf::column> percentile_from_histogram(
-    cudf::column_view const &input, cudf::column_view const &percentages,
+    cudf::column_view const &input, cudf::column_view const &percentages, bool output_as_list,
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
 

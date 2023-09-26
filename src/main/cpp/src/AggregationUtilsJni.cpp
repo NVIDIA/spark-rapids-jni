@@ -20,7 +20,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percentileFromHistogram(
-    JNIEnv *env, jclass, jlong input_handle, jlong percentage_handle) {
+    JNIEnv *env, jclass, jlong input_handle, jlong percentage_handle, jboolean output_as_list) {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
   JNI_NULL_CHECK(env, percentage_handle, "percentage_handle is null", 0);
 
@@ -31,7 +31,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percen
     auto const percentage = reinterpret_cast<cudf::column_view const *>(percentage_handle);
 
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::percentile_from_histogram(*value, *percentage).release());
+        spark_rapids_jni::percentile_from_histogram(*value, *percentage, output_as_list).release());
   }
   CATCH_STD(env, 0);
 }
