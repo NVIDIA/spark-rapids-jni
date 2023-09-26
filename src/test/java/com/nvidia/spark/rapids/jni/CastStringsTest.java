@@ -211,6 +211,30 @@ public class CastStringsTest {
   }
 
   @Test
+  void baseDec2HexTestDropLeadingZeros() {
+    try (
+        Table input = new Table.TestBuilder().column(
+            "14",
+            "2621",
+            "50"
+        ).build();
+
+        Table expected = new Table.TestBuilder().column(
+            "14",
+            "2621",
+            "50"
+        ).column(
+            "E",
+            "A3D",
+            "32"
+        ).build()
+    )
+    {
+      baseConversionHelper(input, expected, 10, true);
+    }
+  }
+
+  @Test
   void baseDec2HexTestNoDropLeadingZeros() {
     try (
         Table input = new Table.TestBuilder().column(
