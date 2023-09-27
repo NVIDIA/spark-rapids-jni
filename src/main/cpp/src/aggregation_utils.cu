@@ -120,6 +120,17 @@ struct percentile_dispatcher {
   }
 };
 
+void check_input(cudf::column_view const &input) {
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT && input.num_children() == 2,
+               "The input histogram must be a structs column having two children.",
+               std::invalid_argument);
+  CUDF_EXPECTS(!input.has_nulls() && !input.child(0).has_nulls() && !input.child(1).has_nulls(),
+               "The input histogram and its children must not have nulls.", std::invalid_argument);
+  CUDF_EXPECTS(input.child(1).type().id() == cudf::type_id::INT64,
+               "The second child of the input histogram must be of type INT64.",
+               std::invalid_argument);
+}
+
 // Wrap the input column in a lists column, to satisfy the requirement type in Spark.
 std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input,
                                            rmm::cuda_stream_view stream,
@@ -135,22 +146,12 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input
                                  stream, mr);
 }
 
-} // namespace
-
-std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const &input,
-                                                        cudf::column_view const &percentages,
-                                                        bool output_as_list,
-                                                        rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource *mr) {
-
-  //    CUDF_EXPECTS(input.)
-
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT && input.num_children() == 2,
-               "The input histogram must be a structs column having two children.");
-  CUDF_EXPECTS(!input.has_nulls() && !input.child(0).has_nulls() && !input.child(1).has_nulls(),
-               "The input column and its children must not have nulls.");
-  CUDF_EXPECTS(input.child(1).type().id() == cudf::type_id::INT64,
-               "The second child of the input column must be INT64 type.");
+std::unique_ptr<cudf::column> reduction_percentile(cudf::column_view const &input,
+                                                   cudf::column_view const &percentages,
+                                                   bool output_as_list,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::mr::device_memory_resource *mr) {
+  check_input(input);
 
   // TODO:
   // invalid argument
@@ -196,6 +197,33 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
     return wrap_in_list(std::move(out_percentiles), stream, mr);
   }
   return out_percentiles;
+}
+
+std::unique_ptr<cudf::column> groupby_percentile(cudf::column_view const &input,
+                                                 cudf::column_view const &percentages,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource *mr) {
+
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "The input column must be of type LIST.",
+               std::invalid_argument);
+
+  auto const child = cudf::lists_column_view{input}.get_sliced_child(stream);
+  check_input(child);
+}
+
+} // namespace
+
+std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const &input,
+                                                        cudf::column_view const &percentages,
+                                                        bool output_as_list,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::mr::device_memory_resource *mr) {
+
+  return input.type().id() == cudf::type_id::STRUCT ?
+             reduction_percentile(input, percentages, output_as_list, stream, mr) :
+             groupby_percentile(input, percentages, stream, mr);
+
+  //    CUDF_EXPECTS(input.)
 }
 
 } // namespace spark_rapids_jni
