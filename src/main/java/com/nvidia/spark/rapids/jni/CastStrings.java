@@ -119,12 +119,12 @@ public class CastStrings {
    * Example:
    * input = [123, -1, 0, 27, 342718233]
    * s = fromIntegersWithBase(input, 16)
-   * s is [ '4D2', 'FFFFFFFF', '0', '1B', '146D7719']
+   * s is [ '7B', 'FFFFFFFF', '0', '1B', '146D7719']
    * s = fromIntegersWithBase(input, 10)
    * s is ['123', '-1', '0', '27', '342718233']
    *
    * @param cv The input integer column to be converted.
-   * @param base base that we want to convert to either 10 or 16
+   * @param base base that we want to convert to (currently only 10/16)
    * @return a new String ColumnVector
    */
   public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
