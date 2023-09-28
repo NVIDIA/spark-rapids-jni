@@ -110,10 +110,11 @@ public class CastStrings {
   }
 
   /**
-   * Converts an integer column to a strings column with either decimal or hexadecimal values 
-   * based on the base provided. 
-   * 
-   * Note: The hexadecimal value will be returned without leading zeros or padding at the end
+   * Converts an integer column to a string column by converting the underlying integers to the
+   * specified base.
+   *
+   * Note: Right now we only support base 10 and 16. The hexadecimal values will be
+   * returned without leading zeros or padding at the end
    * 
    * Example:
    * input = [123, -1, 0, 27, 342718233]
