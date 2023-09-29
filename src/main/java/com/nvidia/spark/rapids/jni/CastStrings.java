@@ -109,6 +109,24 @@ public class CastStrings {
       type.getTypeId().getNativeId()));
   }
 
+  /**
+   * Converts an integer column to a string column by converting the underlying integers to the
+   * specified base.
+   *
+   * Note: Right now we only support base 10 and 16. The hexadecimal values will be
+   * returned without leading zeros or padding at the end
+   * 
+   * Example:
+   * input = [123, -1, 0, 27, 342718233]
+   * s = fromIntegersWithBase(input, 16)
+   * s is [ '7B', 'FFFFFFFF', '0', '1B', '146D7719']
+   * s = fromIntegersWithBase(input, 10)
+   * s is ['123', '-1', '0', '27', '342718233']
+   *
+   * @param cv The input integer column to be converted.
+   * @param base base that we want to convert to (currently only 10/16)
+   * @return a new String ColumnVector
+   */
   public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
     return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
   }
