@@ -26,18 +26,24 @@ public class AggregationUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-
   /**
-   * TODO
+   * Compute percentiles from the given histograms and percentage values.
+   * <p>
+   * The input histograms must be given in the form of List<Struct<ElementType, LongType>>.
+   *
+   * @param input        The lists of input histograms
+   * @param percentages  The input percentage values
+   * @param outputAsList Specify whether the output percentiles will be wrapped into a list
+   * @return A lists column, each list stores the percentile value(s) of the corresponding row in
+   * the input column
    */
-  public static ColumnVector percentileFromHistogram(ColumnView value, ColumnView percentage,
+  public static ColumnVector percentileFromHistogram(ColumnView input, double[] percentages,
                                                      boolean outputAsList) {
-    assert value.getType().equals(DType.STRUCT) : "Input type must be Struct";
-    return new ColumnVector(percentileFromHistogram(value.getNativeView(),
-        percentage.getNativeView(), outputAsList));
+    return new ColumnVector(percentileFromHistogram(input.getNativeView(), percentages,
+        outputAsList));
   }
 
 
-  private static native long percentileFromHistogram(long inputHandle, long percentageHandle,
+  private static native long percentileFromHistogram(long inputHandle, double[] percentage,
                                                      boolean outputAsList);
 }

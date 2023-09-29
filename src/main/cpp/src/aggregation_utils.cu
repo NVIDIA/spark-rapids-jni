@@ -20,6 +20,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/null_mask.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/sorting.hpp>
@@ -31,10 +32,13 @@
 
 //
 #include <thrust/binary_search.h>
+#include <thrust/for_each.h>
 #include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/scan.h>
-#include <thrust/transform.h>
+
+//
 #include <type_traits>
 
 namespace spark_rapids_jni {
@@ -43,41 +47,61 @@ namespace {
 
 template <typename ElementIterator> //
 struct percentile_fn {
-  __device__ double operator()(double percentile) const {
-    auto const max_positions = accumulated_counts.back() - 1L;
-    auto const position = static_cast<double>(max_positions) * percentile;
+  __device__ void operator()(cudf::size_type const idx) const {
+    auto const histogram_idx = idx / percentages.size();
+    auto const start = offsets[histogram_idx];
+    auto const end = offsets[histogram_idx + 1];
 
+    // This should never happen here, but let's check it for sure.
+    if (start == end) {
+      return;
+    }
+
+    auto const max_positions = accumulated_counts[end - 1] - 1L;
+    auto const percentage = percentages[idx - histogram_idx * percentages.size()];
+    auto const position = static_cast<double>(max_positions) * percentage;
     auto const lower = static_cast<int64_t>(floor(position));
     auto const higher = static_cast<int64_t>(ceil(position));
 
-    auto const lower_index = search_counts(lower + 1);
-    auto const lower_element = sorted_input[lower_index];
+    auto const lower_index = search_counts(lower + 1, start, end);
+    auto const lower_element = sorted_input[start + lower_index];
     if (higher == lower) {
-      return lower_element;
+      output[idx] = lower_element;
+      return;
     }
 
-    auto const higher_index = search_counts(higher + 1);
-    auto const higher_element = sorted_input[higher_index];
+    auto const higher_index = search_counts(higher + 1, start, end);
+    auto const higher_element = sorted_input[start + higher_index];
     if (higher_element == lower_element) {
-      return lower_element;
+      output[idx] = lower_element;
+      return;
     }
 
-    return (higher - position) * lower_element + (position - lower) * higher_element;
+    printf("position: %f, lower idx: %d, higher idx: %d,  lower el: %f, higher el: %f \n",
+           (float)position, lower_index, higher_index, (float)lower_element, (float)higher_element);
+
+    output[idx] = (higher - position) * lower_element + (position - lower) * higher_element;
   }
 
-  percentile_fn(cudf::device_span<int64_t const> const accumulated_counts_,
-                ElementIterator const sorted_input_)
-      : accumulated_counts{accumulated_counts_}, sorted_input{sorted_input_} {}
+  percentile_fn(cudf::size_type const *const offsets_, ElementIterator const sorted_input_,
+                cudf::device_span<int64_t const> const accumulated_counts_,
+                cudf::device_span<double const> const percentages_, double *const output_)
+      : offsets{offsets_}, sorted_input{sorted_input_}, accumulated_counts{accumulated_counts_},
+        percentages{percentages_}, output{output_} {}
 
 private:
-  __device__ cudf::size_type search_counts(int64_t position) const {
-    auto const it = thrust::lower_bound(thrust::seq, accumulated_counts.begin(),
-                                        accumulated_counts.end(), position);
+  __device__ cudf::size_type search_counts(int64_t position, cudf::size_type start,
+                                           cudf::size_type end) const {
+    auto const it = thrust::lower_bound(thrust::seq, accumulated_counts.begin() + start,
+                                        accumulated_counts.begin() + end, position);
     return static_cast<cudf::size_type>(thrust::distance(accumulated_counts.begin(), it));
   }
 
-  cudf::device_span<int64_t const> const accumulated_counts;
+  cudf::size_type const *const offsets;
   ElementIterator const sorted_input;
+  cudf::device_span<int64_t const> const accumulated_counts;
+  cudf::device_span<double const> const percentages;
+  double *const output;
 };
 
 struct percentile_dispatcher {
@@ -89,21 +113,22 @@ struct percentile_dispatcher {
   }
 
   template <typename T, CUDF_ENABLE_IF(is_supported<T>())>
-  std::unique_ptr<cudf::column>
-  operator()(cudf::size_type const *const ordered_indices, cudf::column_device_view const &data,
-             cudf::column_device_view const &counts,
-             cudf::device_span<int64_t const> accumulated_counts,
-             cudf::column_device_view const &percentages, rmm::cuda_stream_view stream,
-             rmm::mr::device_memory_resource *mr) const {
+  std::unique_ptr<cudf::column> operator()(
+      cudf::size_type const *const offsets, cudf::size_type const *const ordered_indices,
+      cudf::column_device_view const &data, cudf::device_span<int64_t const> accumulated_counts,
+      cudf::device_span<double const> percentages, bool has_null, cudf::size_type num_histograms,
+      rmm::cuda_stream_view stream, rmm::mr::device_memory_resource *mr) const {
     auto out_percentiles =
-        cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64}, percentages.size(),
+        cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
+                                  num_histograms * static_cast<cudf::size_type>(percentages.size()),
                                   cudf::mask_state::UNALLOCATED, stream, mr);
+
     if (out_percentiles->size() == 0) {
       return out_percentiles;
     }
 
     // Returns nulls for empty input.
-    if (data.size() == 0) {
+    if (data.size() == 0 || (data.size() == 1 && has_null)) {
       out_percentiles->set_null_mask(cudf::detail::create_null_mask(out_percentiles->size(),
                                                                     cudf::mask_state::ALL_NULL,
                                                                     stream, mr),
@@ -111,24 +136,34 @@ struct percentile_dispatcher {
     } else {
       auto const sorted_input_it =
           thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
-      thrust::transform(rmm::exec_policy(stream), percentages.begin<double>(),
-                        percentages.end<double>(), out_percentiles->mutable_view().begin<double>(),
-                        percentile_fn{accumulated_counts, sorted_input_it});
+      thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                       thrust::make_counting_iterator(
+                           num_histograms * static_cast<cudf::size_type>(percentages.size())),
+                       percentile_fn{offsets, sorted_input_it, accumulated_counts, percentages,
+                                     out_percentiles->mutable_view().begin<double>()});
     }
 
     return out_percentiles;
   }
 };
 
-void check_input(cudf::column_view const &input) {
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT && input.num_children() == 2,
-               "The input histogram must be a structs column having two children.",
+void check_input(cudf::column_view const &input, std::vector<double> const &percentages) {
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "The input column must be of type LIST.",
                std::invalid_argument);
-  CUDF_EXPECTS(!input.has_nulls() && !input.child(0).has_nulls() && !input.child(1).has_nulls(),
-               "The input histogram and its children must not have nulls.", std::invalid_argument);
-  CUDF_EXPECTS(input.child(1).type().id() == cudf::type_id::INT64,
-               "The second child of the input histogram must be of type INT64.",
+
+  auto const child = input.child(cudf::lists_column_view::child_column_index);
+  CUDF_EXPECTS(!child.has_nulls(), "Child of the input column must not have nulls.",
                std::invalid_argument);
+  CUDF_EXPECTS(child.type().id() == cudf::type_id::STRUCT && child.num_children() == 2,
+               "The input column has invalid histogram format.", std::invalid_argument);
+  CUDF_EXPECTS(!child.child(1).has_nulls(), "The input column has invalid histogram format.",
+               std::invalid_argument);
+  CUDF_EXPECTS(child.child(1).type().id() == cudf::type_id::INT64,
+               "The input column has invalid histogram format.", std::invalid_argument);
+
+  CUDF_EXPECTS(static_cast<std::size_t>(input.size()) * percentages.size() <=
+                   static_cast<std::size_t>(std::numeric_limits<cudf::size_type>::max()),
+               "Size of output exceeds the column size limit.", std::overflow_error);
 }
 
 // Wrap the input column in a lists column, to satisfy the requirement type in Spark.
@@ -146,84 +181,61 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input
                                  stream, mr);
 }
 
-std::unique_ptr<cudf::column> reduction_percentile(cudf::column_view const &input,
-                                                   cudf::column_view const &percentages,
-                                                   bool output_as_list,
-                                                   rmm::cuda_stream_view stream,
-                                                   rmm::mr::device_memory_resource *mr) {
-  check_input(input);
+} // namespace
 
-  // TODO:
-  // invalid argument
-
-  // TODO:
-  // cudf_expect(percentages)
+std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const &input,
+                                                        std::vector<double> const &percentages,
+                                                        bool output_as_list,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::mr::device_memory_resource *mr) {
+  check_input(input, percentages);
 
   auto const default_mr = rmm::mr::get_current_device_resource();
 
-  auto const ordered_indices =
-      cudf::detail::sorted_order(cudf::table_view{{input}}, {}, {}, stream, default_mr);
-  auto const d_data = cudf::column_device_view::create(
-      cudf::structs_column_view{input}.get_sliced_child(0), stream);
-  auto const d_counts = cudf::column_device_view::create(
-      cudf::structs_column_view{input}.get_sliced_child(1), stream);
-  auto const d_percentages = [&] {
-    if (percentages.type().id() == cudf::type_id::LIST) {
-      return cudf::column_device_view::create(
-          cudf::lists_column_view{percentages}.get_sliced_child(stream), stream);
-    } else {
-      return cudf::column_device_view::create(percentages, stream);
-    }
-  }();
-  //  auto const d_percentages =
-  //      cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
+  auto const lists_cv = cudf::lists_column_view{input};
+  auto const histograms = lists_cv.get_sliced_child(stream);
+  auto const data_col = cudf::structs_column_view{histograms}.get_sliced_child(0);
+  auto const counts_col = cudf::structs_column_view{histograms}.get_sliced_child(1);
+  CUDF_EXPECTS(data_col.null_count() <= 1,
+               "Each histogram must contain no more than one null element.", std::invalid_argument);
 
-  auto const counts = cudf::structs_column_view{input}.get_sliced_child(1);
+  // Attach histogram labels to the input histogram elements.
+  auto histogram_labels = rmm::device_uvector<cudf::size_type>(histograms.size(), stream);
+  cudf::detail::label_segments(lists_cv.offsets_begin(), lists_cv.offsets_end(),
+                               histogram_labels.begin(), histogram_labels.end(), stream);
+  auto const labels_cv = cudf::column_view{cudf::data_type{cudf::type_to_id<cudf::size_type>()},
+                                           static_cast<cudf::size_type>(histogram_labels.size()),
+                                           histogram_labels.data(), nullptr, 0};
+  auto const labeled_histograms = cudf::table_view{{labels_cv, histograms}};
+  // The order of sorted elements within each histogram.
+  auto const ordered_indices = cudf::detail::sorted_order(
+      labeled_histograms, std::vector<cudf::order>{},
+      std::vector<cudf::null_order>{cudf::null_order::AFTER}, stream, default_mr);
+
+  auto const d_data = cudf::column_device_view::create(data_col, stream);
+  auto const d_percentages =
+      cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
+
+  auto const has_null = data_col.null_count() > 0;
   auto const sorted_counts = thrust::make_permutation_iterator(
-      counts.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
+      counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
   auto const d_accumulated_counts = [&] {
-    auto output = rmm::device_uvector<int64_t>(counts.size(), stream, default_mr);
-    thrust::inclusive_scan(rmm::exec_policy(stream), sorted_counts, sorted_counts + counts.size(),
+    auto const num_valids = has_null ? counts_col.size() - 1 : counts_col.size();
+    auto output = rmm::device_uvector<int64_t>(num_valids, stream, default_mr);
+    thrust::inclusive_scan(rmm::exec_policy(stream), sorted_counts, sorted_counts + num_valids,
                            output.begin());
     return output;
   }();
 
   auto out_percentiles =
-      type_dispatcher(input.child(0).type(), percentile_dispatcher{},
-                      ordered_indices->view().begin<cudf::size_type>(), *d_data, *d_counts,
-                      d_accumulated_counts, *d_percentages, stream, mr);
+      type_dispatcher(data_col.type(), percentile_dispatcher{}, lists_cv.offsets_begin(),
+                      ordered_indices->view().begin<cudf::size_type>(), *d_data,
+                      d_accumulated_counts, d_percentages, has_null, input.size(), stream, mr);
 
   if (output_as_list) {
     return wrap_in_list(std::move(out_percentiles), stream, mr);
   }
   return out_percentiles;
-}
-
-std::unique_ptr<cudf::column> groupby_percentile(cudf::column_view const &input,
-                                                 cudf::column_view const &percentages,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource *mr) {
-
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "The input column must be of type LIST.",
-               std::invalid_argument);
-
-  auto const child = cudf::lists_column_view{input}.get_sliced_child(stream);
-  check_input(child);
-}
-
-} // namespace
-
-std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const &input,
-                                                        cudf::column_view const &percentages,
-                                                        bool output_as_list,
-                                                        rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource *mr) {
-
-  return input.type().id() == cudf::type_id::STRUCT ?
-             reduction_percentile(input, percentages, output_as_list, stream, mr) :
-             groupby_percentile(input, percentages, stream, mr);
-
-  //    CUDF_EXPECTS(input.)
 }
 
 } // namespace spark_rapids_jni
