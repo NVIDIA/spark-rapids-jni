@@ -33,6 +33,7 @@
 //
 #include <thrust/binary_search.h>
 #include <thrust/for_each.h>
+#include <thrust/functional.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
@@ -49,63 +50,42 @@ template <typename ElementIterator, typename ValidityIterator> //
 struct percentile_fn {
   __device__ void operator()(cudf::size_type const idx) const {
     auto const histogram_idx = idx / percentages.size();
-    printf("idx: %d, histogram idx : %d\n", idx, (int)histogram_idx);
-
-    auto const start = offsets[histogram_idx];
 
     // If the last element is null: ignore it.
+    auto const start = offsets[histogram_idx];
     auto const try_end = offsets[histogram_idx + 1];
-    auto const end = sorted_validity[try_end - 1] ? try_end : try_end - 1;
+    auto const all_valid = sorted_validity[try_end - 1];
+    auto const end = all_valid ? try_end : try_end - 1;
+    auto const has_all_nulls = start >= end;
 
-    printf("start %d, end: %d\n", start, end);
-
-    for (int i = start; i < end; ++i) {
-      printf("  %d - count: %d\n", i, (int)accumulated_counts[i]);
+    auto const percentage_idx = idx - histogram_idx * percentages.size();
+    if (percentage_idx == 0 && out_validity) {
+      // If the histogram only contains null elements, the output will be null.
+      out_validity[histogram_idx] = has_all_nulls ? 0 : 1;
     }
-
-    // This should never happen here, but let's check it for sure.
-    if (start == end) {
-
-      printf("start == end\n");
-
+    if (has_all_nulls) {
       return;
     }
 
     auto const max_positions = accumulated_counts[end - 1] - 1L;
-    auto const percentage = percentages[idx - histogram_idx * percentages.size()];
+    auto const percentage = percentages[percentage_idx];
     auto const position = static_cast<double>(max_positions) * percentage;
     auto const lower = static_cast<int64_t>(floor(position));
     auto const higher = static_cast<int64_t>(ceil(position));
 
-    printf("max pos: %d, position: %f\n", (int)max_positions, (float)position);
-
     auto const lower_index = search_counts(lower + 1, start, end);
     auto const lower_element = sorted_input[start + lower_index];
-
-    printf("lower idx: %d\n", lower_index);
-
     if (higher == lower) {
-      printf("out el: %f\n", (float)lower_element);
-
       output[idx] = lower_element;
       return;
     }
 
     auto const higher_index = search_counts(higher + 1, start, end);
-
-    printf("higher_idx: %d\n", higher_index);
-
     auto const higher_element = sorted_input[start + higher_index];
     if (higher_element == lower_element) {
-
-      printf("out el 2: %f\n", (float)lower_element);
-
       output[idx] = lower_element;
       return;
     }
-
-    printf("position: %f, lower idx: %d, higher idx: %d,  lower el: %f, higher el: %f \n",
-           (float)position, lower_index, higher_index, (float)lower_element, (float)higher_element);
 
     output[idx] = (higher - position) * lower_element + (position - lower) * higher_element;
   }
@@ -113,9 +93,11 @@ struct percentile_fn {
   percentile_fn(cudf::size_type const *const offsets_, ElementIterator const sorted_input_,
                 ValidityIterator const sorted_validity_,
                 cudf::device_span<int64_t const> const accumulated_counts_,
-                cudf::device_span<double const> const percentages_, double *const output_)
+                cudf::device_span<double const> const percentages_, double *const output_,
+                int8_t *const out_validity_)
       : offsets{offsets_}, sorted_input{sorted_input_}, sorted_validity{sorted_validity_},
-        accumulated_counts{accumulated_counts_}, percentages{percentages_}, output{output_} {}
+        accumulated_counts{accumulated_counts_}, percentages{percentages_}, output{output_},
+        out_validity{out_validity_} {}
 
 private:
   __device__ cudf::size_type search_counts(int64_t position, cudf::size_type start,
@@ -131,6 +113,7 @@ private:
   cudf::device_span<int64_t const> const accumulated_counts;
   cudf::device_span<double const> const percentages;
   double *const output;
+  int8_t *const out_validity;
 };
 
 struct percentile_dispatcher {
@@ -154,38 +137,43 @@ struct percentile_dispatcher {
                                   cudf::mask_state::UNALLOCATED, stream, mr);
 
     if (out_percentiles->size() == 0) {
-
-      printf("out empty\n");
       return out_percentiles;
     }
 
     // Returns nulls for empty input.
-    if (data.size() == 0 || (data.size() == 1 && has_null)) {
+    if (data.size() == 0) {
       out_percentiles->set_null_mask(cudf::detail::create_null_mask(out_percentiles->size(),
                                                                     cudf::mask_state::ALL_NULL,
                                                                     stream, mr),
                                      out_percentiles->size());
-    } else {
+      return out_percentiles;
+    }
+
+    auto const fill_percentile = [&](auto const sorted_validity_it, auto const out_validity) {
       auto const sorted_input_it =
           thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
+      thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                       thrust::make_counting_iterator(
+                           num_histograms * static_cast<cudf::size_type>(percentages.size())),
+                       percentile_fn{offsets, sorted_input_it, sorted_validity_it,
+                                     accumulated_counts, percentages,
+                                     out_percentiles->mutable_view().begin<double>(),
+                                     out_validity});
+    };
 
-      if (has_null) {
-        auto const sorted_validity_it = thrust::make_permutation_iterator(
-            cudf::detail::make_validity_iterator(data), ordered_indices);
-        thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                         thrust::make_counting_iterator(
-                             num_histograms * static_cast<cudf::size_type>(percentages.size())),
-                         percentile_fn{offsets, sorted_input_it, sorted_validity_it,
-                                       accumulated_counts, percentages,
-                                       out_percentiles->mutable_view().begin<double>()});
-      } else {
-        auto const sorted_validity_it = thrust::make_constant_iterator(true);
-        thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                         thrust::make_counting_iterator(
-                             num_histograms * static_cast<cudf::size_type>(percentages.size())),
-                         percentile_fn{offsets, sorted_input_it, sorted_validity_it,
-                                       accumulated_counts, percentages,
-                                       out_percentiles->mutable_view().begin<double>()});
+    if (!has_null) {
+      fill_percentile(thrust::make_constant_iterator(true), nullptr);
+    } else {
+      auto const sorted_validity_it = thrust::make_permutation_iterator(
+          cudf::detail::make_validity_iterator(data), ordered_indices);
+      auto out_validities = rmm::device_uvector<int8_t>(num_histograms, stream,
+                                                        rmm::mr::get_current_device_resource());
+      fill_percentile(sorted_validity_it, out_validities.begin());
+
+      auto [null_mask, null_count] = cudf::detail::valid_if(
+          out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
+      if (null_count > 0) {
+        out_percentiles->set_null_mask(std::move(null_mask), null_count);
       }
     }
 
