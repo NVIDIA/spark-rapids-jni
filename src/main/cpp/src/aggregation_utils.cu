@@ -45,15 +45,29 @@ namespace spark_rapids_jni {
 
 namespace {
 
-template <typename ElementIterator> //
+template <typename ElementIterator, typename ValidityIterator> //
 struct percentile_fn {
   __device__ void operator()(cudf::size_type const idx) const {
     auto const histogram_idx = idx / percentages.size();
+    printf("idx: %d, histogram idx : %d\n", idx, (int)histogram_idx);
+
     auto const start = offsets[histogram_idx];
-    auto const end = offsets[histogram_idx + 1];
+
+    // If the last element is null: ignore it.
+    auto const try_end = offsets[histogram_idx + 1];
+    auto const end = sorted_validity[try_end - 1] ? try_end : try_end - 1;
+
+    printf("start %d, end: %d\n", start, end);
+
+    for (int i = start; i < end; ++i) {
+      printf("  %d - count: %d\n", i, (int)accumulated_counts[i]);
+    }
 
     // This should never happen here, but let's check it for sure.
     if (start == end) {
+
+      printf("start == end\n");
+
       return;
     }
 
@@ -63,16 +77,29 @@ struct percentile_fn {
     auto const lower = static_cast<int64_t>(floor(position));
     auto const higher = static_cast<int64_t>(ceil(position));
 
+    printf("max pos: %d, position: %f\n", (int)max_positions, (float)position);
+
     auto const lower_index = search_counts(lower + 1, start, end);
     auto const lower_element = sorted_input[start + lower_index];
+
+    printf("lower idx: %d\n", lower_index);
+
     if (higher == lower) {
+      printf("out el: %f\n", (float)lower_element);
+
       output[idx] = lower_element;
       return;
     }
 
     auto const higher_index = search_counts(higher + 1, start, end);
+
+    printf("higher_idx: %d\n", higher_index);
+
     auto const higher_element = sorted_input[start + higher_index];
     if (higher_element == lower_element) {
+
+      printf("out el 2: %f\n", (float)lower_element);
+
       output[idx] = lower_element;
       return;
     }
@@ -84,10 +111,11 @@ struct percentile_fn {
   }
 
   percentile_fn(cudf::size_type const *const offsets_, ElementIterator const sorted_input_,
+                ValidityIterator const sorted_validity_,
                 cudf::device_span<int64_t const> const accumulated_counts_,
                 cudf::device_span<double const> const percentages_, double *const output_)
-      : offsets{offsets_}, sorted_input{sorted_input_}, accumulated_counts{accumulated_counts_},
-        percentages{percentages_}, output{output_} {}
+      : offsets{offsets_}, sorted_input{sorted_input_}, sorted_validity{sorted_validity_},
+        accumulated_counts{accumulated_counts_}, percentages{percentages_}, output{output_} {}
 
 private:
   __device__ cudf::size_type search_counts(int64_t position, cudf::size_type start,
@@ -99,6 +127,7 @@ private:
 
   cudf::size_type const *const offsets;
   ElementIterator const sorted_input;
+  ValidityIterator const sorted_validity;
   cudf::device_span<int64_t const> const accumulated_counts;
   cudf::device_span<double const> const percentages;
   double *const output;
@@ -118,12 +147,15 @@ struct percentile_dispatcher {
       cudf::column_device_view const &data, cudf::device_span<int64_t const> accumulated_counts,
       cudf::device_span<double const> percentages, bool has_null, cudf::size_type num_histograms,
       rmm::cuda_stream_view stream, rmm::mr::device_memory_resource *mr) const {
+
     auto out_percentiles =
         cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
                                   num_histograms * static_cast<cudf::size_type>(percentages.size()),
                                   cudf::mask_state::UNALLOCATED, stream, mr);
 
     if (out_percentiles->size() == 0) {
+
+      printf("out empty\n");
       return out_percentiles;
     }
 
@@ -136,11 +168,25 @@ struct percentile_dispatcher {
     } else {
       auto const sorted_input_it =
           thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
-      thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                       thrust::make_counting_iterator(
-                           num_histograms * static_cast<cudf::size_type>(percentages.size())),
-                       percentile_fn{offsets, sorted_input_it, accumulated_counts, percentages,
-                                     out_percentiles->mutable_view().begin<double>()});
+
+      if (has_null) {
+        auto const sorted_validity_it = thrust::make_permutation_iterator(
+            cudf::detail::make_validity_iterator(data), ordered_indices);
+        thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                         thrust::make_counting_iterator(
+                             num_histograms * static_cast<cudf::size_type>(percentages.size())),
+                         percentile_fn{offsets, sorted_input_it, sorted_validity_it,
+                                       accumulated_counts, percentages,
+                                       out_percentiles->mutable_view().begin<double>()});
+      } else {
+        auto const sorted_validity_it = thrust::make_constant_iterator(true);
+        thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+                         thrust::make_counting_iterator(
+                             num_histograms * static_cast<cudf::size_type>(percentages.size())),
+                         percentile_fn{offsets, sorted_input_it, sorted_validity_it,
+                                       accumulated_counts, percentages,
+                                       out_percentiles->mutable_view().begin<double>()});
+      }
     }
 
     return out_percentiles;
@@ -199,6 +245,8 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   CUDF_EXPECTS(data_col.null_count() <= 1,
                "Each histogram must contain no more than one null element.", std::invalid_argument);
 
+  printf("data size: %d, null: %d\n", data_col.size(), data_col.null_count());
+
   // Attach histogram labels to the input histogram elements.
   auto histogram_labels = rmm::device_uvector<cudf::size_type>(histograms.size(), stream);
   cudf::detail::label_segments(lists_cv.offsets_begin(), lists_cv.offsets_end(),
@@ -210,7 +258,8 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   // The order of sorted elements within each histogram.
   auto const ordered_indices = cudf::detail::sorted_order(
       labeled_histograms, std::vector<cudf::order>{},
-      std::vector<cudf::null_order>{cudf::null_order::AFTER}, stream, default_mr);
+      std::vector<cudf::null_order>{cudf::null_order::AFTER, cudf::null_order::AFTER}, stream,
+      default_mr);
 
   auto const d_data = cudf::column_device_view::create(data_col, stream);
   auto const d_percentages =
@@ -220,10 +269,9 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   auto const sorted_counts = thrust::make_permutation_iterator(
       counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
   auto const d_accumulated_counts = [&] {
-    auto const num_valids = has_null ? counts_col.size() - 1 : counts_col.size();
-    auto output = rmm::device_uvector<int64_t>(num_valids, stream, default_mr);
-    thrust::inclusive_scan(rmm::exec_policy(stream), sorted_counts, sorted_counts + num_valids,
-                           output.begin());
+    auto output = rmm::device_uvector<int64_t>(counts_col.size(), stream, default_mr);
+    thrust::inclusive_scan(rmm::exec_policy(stream), sorted_counts,
+                           sorted_counts + counts_col.size(), output.begin());
     return output;
   }();
 
