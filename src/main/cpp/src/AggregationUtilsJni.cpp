@@ -22,7 +22,7 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percentileFromHistogram(
     JNIEnv *env, jclass, jlong input_handle, jdoubleArray jpercentages, jboolean output_as_list) {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
-  JNI_NULL_CHECK(env, jpercentages, "percentage_handle is null", 0);
+  JNI_NULL_CHECK(env, jpercentages, "jpercentages is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
