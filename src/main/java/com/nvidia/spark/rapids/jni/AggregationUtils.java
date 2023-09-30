@@ -18,7 +18,6 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
-import ai.rapids.cudf.DType;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class AggregationUtils {
@@ -31,11 +30,11 @@ public class AggregationUtils {
    * <p>
    * The input histograms must be given in the form of List<Struct<ElementType, LongType>>.
    *
-   * @param input        The lists of input histograms
-   * @param percentages  The input percentage values
-   * @param outputAsList Specify whether the output percentiles will be wrapped into a list
-   * @return A lists column, each list stores the percentile value(s) of the corresponding row in
-   * the input column
+   * @param input        The lists of input histograms.
+   * @param percentages  The input percentage values.
+   * @param outputAsList Specify whether the output percentiles will be wrapped into a list.
+   * @return A lists column, each list stores the output percentile(s) computed for the
+   * corresponding row in the input column.
    */
   public static ColumnVector percentileFromHistogram(ColumnView input, double[] percentages,
                                                      boolean outputAsList) {
@@ -44,6 +43,6 @@ public class AggregationUtils {
   }
 
 
-  private static native long percentileFromHistogram(long inputHandle, double[] percentage,
+  private static native long percentileFromHistogram(long inputHandle, double[] percentages,
                                                      boolean outputAsList);
 }
