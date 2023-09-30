@@ -20,6 +20,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/null_mask.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/sorting.hpp>
@@ -240,10 +241,19 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   auto const d_percentages =
       cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
 
+  // Attach histogram labels to the input histogram elements.
+  auto histogram_labels = rmm::device_uvector<cudf::size_type>(histograms.size(), stream);
+  cudf::detail::label_segments(lists_cv.offsets_begin(), lists_cv.offsets_end(),
+                               histogram_labels.begin(), histogram_labels.end(), stream);
+  auto const labels_cv = cudf::column_view{cudf::data_type{cudf::type_to_id<cudf::size_type>()},
+                                           static_cast<cudf::size_type>(histogram_labels.size()),
+                                           histogram_labels.data(), nullptr, 0};
+  auto const labeled_histograms = cudf::table_view{{labels_cv, histograms}};
   // Find the order of segmented sort elements within each histogram list.
-  auto const ordered_indices = cudf::detail::segmented_sorted_order(
-      cudf::table_view{{histograms}}, lists_cv.offsets(), std::vector<cudf::order>{},
-      std::vector<cudf::null_order>{cudf::null_order::AFTER}, stream, default_mr);
+  auto const ordered_indices = cudf::detail::sorted_order(
+      labeled_histograms, std::vector<cudf::order>{cudf::order::ASCENDING, cudf::order::ASCENDING},
+      std::vector<cudf::null_order>{cudf::null_order::AFTER, cudf::null_order::AFTER}, stream,
+      default_mr);
 
   auto const sorted_counts = thrust::make_permutation_iterator(
       counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
