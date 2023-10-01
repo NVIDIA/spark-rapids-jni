@@ -65,7 +65,6 @@ struct fill_percentile_fn {
     auto const has_all_nulls = start >= end;
 
     auto const percentage_idx = idx % percentages.size();
-    printf("his idx %d, has all null %d\n", histogram_idx, (int)has_all_nulls);
     if (out_validity && percentage_idx == 0) {
       // If the histogram only contains null elements, the output percentile will be null.
       out_validity[histogram_idx] = has_all_nulls ? 0 : 1;
@@ -150,22 +149,17 @@ struct percentile_dispatcher {
                                   num_histograms * static_cast<cudf::size_type>(percentages.size()),
                                   cudf::mask_state::UNALLOCATED, stream, mr);
 
-    printf("line %d\n", __LINE__);
     if (percentiles->size() == 0) {
-      printf("line %d\n", __LINE__);
       return {std::move(percentiles), rmm::device_buffer{}, 0};
     }
 
     // Returns all nulls for totally empty input.
     if (data.size() == 0) {
-      printf("line %d\n", __LINE__);
       return {
           std::move(percentiles),
           cudf::detail::create_null_mask(num_histograms, cudf::mask_state::ALL_NULL, stream, mr),
           num_histograms};
     }
-
-    printf("line %d\n", __LINE__);
 
     auto const fill_percentile = [&](auto const sorted_validity_it, auto const out_validity) {
       auto const sorted_input_it =
@@ -179,11 +173,8 @@ struct percentile_dispatcher {
     };
 
     if (!has_null) {
-      printf("line %d\n", __LINE__);
       fill_percentile(thrust::make_constant_iterator(true), nullptr);
     } else {
-      printf("line %d\n", __LINE__);
-
       auto const sorted_validity_it = thrust::make_permutation_iterator(
           cudf::detail::make_validity_iterator(data), ordered_indices);
       auto out_validities = rmm::device_uvector<int8_t>(num_histograms, stream,
@@ -192,14 +183,10 @@ struct percentile_dispatcher {
 
       auto [null_mask, null_count] = cudf::detail::valid_if(
           out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
-
-      printf("null count: %d\n", null_count);
       if (null_count > 0) {
         return {std::move(percentiles), std::move(null_mask), null_count};
       }
     }
-
-    printf("line %d\n", __LINE__);
 
     return {std::move(percentiles), rmm::device_buffer{}, 0};
   }
@@ -232,13 +219,12 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource *mr) {
   if (input->size() == 0) {
-      printf("line %d\n", __LINE__);
     return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
   }
 
   auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
-  auto offsets =
-      std::get<0>(cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + 1, stream, mr));
+  auto offsets = std::get<0>(
+      cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + num_histograms, stream, mr));
   auto output = cudf::make_lists_column(num_histograms, std::move(offsets), std::move(input),
                                         null_count, std::move(null_mask), stream, mr);
   if (null_count > 0) {
@@ -261,13 +247,6 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   auto const histograms = lcv_histograms.get_sliced_child(stream);
   auto const data_col = cudf::structs_column_view{histograms}.get_sliced_child(0);
   auto const counts_col = cudf::structs_column_view{histograms}.get_sliced_child(1);
-
-  printf("histogram size: %d, data size: %d, count size %d, child size %d\n",
-         input.size(),
-         data_col.size(),
-         counts_col.size(),
-         histograms.size()
-         );
 
   auto const default_mr = rmm::mr::get_current_device_resource();
   auto const d_data = cudf::column_device_view::create(data_col, stream);
@@ -302,20 +281,11 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
       ordered_indices->view().begin<cudf::size_type>(), *d_data, d_accumulated_counts,
       d_percentages, data_col.has_nulls(), input.size(), stream, mr);
 
-  printf("line %d\n", __LINE__);
   if (output_as_list) {
-    printf("line %d\n", __LINE__);
-    printf("percentile ssize: %d, mask %d, null cou size %d\n",
-    percentiles->size(),       (int)null_mask.size(), null_count
-           );
-
-
-
     return wrap_in_list(std::move(percentiles), std::move(null_mask), null_count,
                         lcv_histograms.size(), static_cast<cudf::size_type>(percentages.size()),
                         stream, mr);
   }
-  printf("line %d\n", __LINE__);
   percentiles->set_null_mask(std::move(null_mask), null_count);
   return std::move(percentiles);
 }
