@@ -142,24 +142,19 @@ struct percentile_dispatcher {
                          cudf::device_span<double const> percentages, bool has_null,
                          cudf::size_type num_histograms, rmm::cuda_stream_view stream,
                          rmm::mr::device_memory_resource *mr) const {
+    // Returns all nulls for totally empty input.
+    if (data.size() == 0 || percentages.size() == 0) {
+      return {
+          cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64}, num_histograms,
+                                    cudf::mask_state::UNALLOCATED, stream, mr),
+          cudf::detail::create_null_mask(num_histograms, cudf::mask_state::ALL_NULL, stream, mr),
+          num_histograms};
+    }
 
-    // Currently, the output type is always double.
     auto percentiles =
         cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
                                   num_histograms * static_cast<cudf::size_type>(percentages.size()),
                                   cudf::mask_state::UNALLOCATED, stream, mr);
-
-    if (percentiles->size() == 0) {
-      return {std::move(percentiles), rmm::device_buffer{}, 0};
-    }
-
-    // Returns all nulls for totally empty input.
-    if (data.size() == 0) {
-      return {
-          std::move(percentiles),
-          cudf::detail::create_null_mask(num_histograms, cudf::mask_state::ALL_NULL, stream, mr),
-          num_histograms};
-    }
 
     auto const fill_percentile = [&](auto const sorted_validity_it, auto const out_validity) {
       auto const sorted_input_it =
