@@ -81,14 +81,14 @@ struct fill_percentile_fn {
     auto const higher = static_cast<int64_t>(ceil(position));
 
     auto const lower_index = search_counts(lower + 1, start, end);
-    auto const lower_element = sorted_input[start + lower_index];
+    auto const lower_element = sorted_input[lower_index];
     if (higher == lower) {
       output[idx] = lower_element;
       return;
     }
 
     auto const higher_index = search_counts(higher + 1, start, end);
-    auto const higher_element = sorted_input[start + higher_index];
+    auto const higher_element = sorted_input[higher_index];
     if (higher_element == lower_element) {
       output[idx] = lower_element;
       return;
