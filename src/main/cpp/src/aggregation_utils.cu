@@ -20,6 +20,7 @@
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
+#include <cudf/detail/copy.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/null_mask.cuh>
 #include <cudf/detail/sizes_to_offsets_iterator.cuh>
@@ -125,35 +126,39 @@ private:
 struct percentile_dispatcher {
   template <typename T> static constexpr bool is_supported() { return std::is_arithmetic_v<T>; }
 
+  using output_type =
+      std::tuple<std::unique_ptr<cudf::column>, rmm::device_buffer, cudf::size_type>;
+
   template <typename T, typename... Args>
-  std::enable_if_t<!is_supported<T>(), std::unique_ptr<cudf::column>> operator()(Args &&...) const {
+  std::enable_if_t<!is_supported<T>(), output_type> operator()(Args &&...) const {
     CUDF_FAIL("Unsupported type in histogram-to-percentile evaluation.");
   }
 
   template <typename T, CUDF_ENABLE_IF(is_supported<T>())>
-  std::unique_ptr<cudf::column> operator()(
-      cudf::size_type const *const offsets, cudf::size_type const *const ordered_indices,
-      cudf::column_device_view const &data, cudf::device_span<int64_t const> accumulated_counts,
-      cudf::device_span<double const> percentages, bool has_null, cudf::size_type num_histograms,
-      rmm::cuda_stream_view stream, rmm::mr::device_memory_resource *mr) const {
+  output_type operator()(cudf::size_type const *const offsets,
+                         cudf::size_type const *const ordered_indices,
+                         cudf::column_device_view const &data,
+                         cudf::device_span<int64_t const> accumulated_counts,
+                         cudf::device_span<double const> percentages, bool has_null,
+                         cudf::size_type num_histograms, rmm::cuda_stream_view stream,
+                         rmm::mr::device_memory_resource *mr) const {
 
     // Currently, the output type is always double.
-    auto out_percentiles =
+    auto percentiles =
         cudf::make_numeric_column(cudf::data_type{cudf::type_id::FLOAT64},
                                   num_histograms * static_cast<cudf::size_type>(percentages.size()),
                                   cudf::mask_state::UNALLOCATED, stream, mr);
 
-    if (out_percentiles->size() == 0) {
-      return out_percentiles;
+    if (percentiles->size() == 0) {
+      return {std::move(percentiles), rmm::device_buffer{}, 0};
     }
 
     // Returns all nulls for totally empty input.
     if (data.size() == 0) {
-      out_percentiles->set_null_mask(cudf::detail::create_null_mask(out_percentiles->size(),
-                                                                    cudf::mask_state::ALL_NULL,
-                                                                    stream, mr),
-                                     out_percentiles->size());
-      return out_percentiles;
+      percentiles->set_null_mask(cudf::detail::create_null_mask(
+                                     percentiles->size(), cudf::mask_state::ALL_NULL, stream, mr),
+                                 percentiles->size());
+      return {std::move(percentiles), rmm::device_buffer{}, 0};
     }
 
     auto const fill_percentile = [&](auto const sorted_validity_it, auto const out_validity) {
@@ -162,10 +167,9 @@ struct percentile_dispatcher {
       thrust::for_each(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
                        thrust::make_counting_iterator(
                            num_histograms * static_cast<cudf::size_type>(percentages.size())),
-                       fill_percentile_fn{offsets, sorted_input_it, sorted_validity_it,
-                                          accumulated_counts, percentages,
-                                          out_percentiles->mutable_view().begin<double>(),
-                                          out_validity});
+                       fill_percentile_fn{
+                           offsets, sorted_input_it, sorted_validity_it, accumulated_counts,
+                           percentages, percentiles->mutable_view().begin<double>(), out_validity});
     };
 
     if (!has_null) {
@@ -180,11 +184,11 @@ struct percentile_dispatcher {
       auto [null_mask, null_count] = cudf::detail::valid_if(
           out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
       if (null_count > 0) {
-        out_percentiles->set_null_mask(std::move(null_mask), null_count);
+        return {std::move(percentiles), std::move(null_mask), null_count};
       }
     }
 
-    return out_percentiles;
+    return {std::move(percentiles), rmm::device_buffer{}, 0};
   }
 };
 
@@ -209,17 +213,26 @@ void check_input(cudf::column_view const &input, std::vector<double> const &perc
 
 // Wrap the input column in a lists column, to satisfy the requirement type in Spark.
 std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input,
+                                           rmm::device_buffer null_mask, cudf::size_type null_count,
+                                           cudf::size_type num_histograms,
+                                           cudf::size_type num_percentages,
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource *mr) {
   if (input->size() == 0) {
     return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
   }
 
-  auto const sizes_itr = thrust::make_constant_iterator(input->size());
+  auto const sizes_itr = thrust::make_constant_iterator(num_percentages);
   auto offsets =
       std::get<0>(cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + 1, stream, mr));
-  return cudf::make_lists_column(1, std::move(offsets), std::move(input), 0, rmm::device_buffer{},
-                                 stream, mr);
+  auto output = cudf::make_lists_column(num_histograms, std::move(offsets), std::move(input),
+                                        null_count, std::move(null_mask), stream, mr);
+  if (null_count > 0) {
+    output->set_null_mask(std::move(null_mask), null_count);
+    return cudf::detail::purge_nonempty_nulls(output->view(), stream, mr);
+  }
+
+  return output;
 }
 
 } // namespace
@@ -231,8 +244,8 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
                                                         rmm::mr::device_memory_resource *mr) {
   check_input(input, percentages);
 
-  auto const lists_cv = cudf::lists_column_view{input};
-  auto const histograms = lists_cv.get_sliced_child(stream);
+  auto const lcv_histograms = cudf::lists_column_view{input};
+  auto const histograms = lcv_histograms.get_sliced_child(stream);
   auto const data_col = cudf::structs_column_view{histograms}.get_sliced_child(0);
   auto const counts_col = cudf::structs_column_view{histograms}.get_sliced_child(1);
 
@@ -243,7 +256,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
 
   // Attach histogram labels to the input histogram elements.
   auto histogram_labels = rmm::device_uvector<cudf::size_type>(histograms.size(), stream);
-  cudf::detail::label_segments(lists_cv.offsets_begin(), lists_cv.offsets_end(),
+  cudf::detail::label_segments(lcv_histograms.offsets_begin(), lcv_histograms.offsets_end(),
                                histogram_labels.begin(), histogram_labels.end(), stream);
   auto const labels_cv = cudf::column_view{cudf::data_type{cudf::type_to_id<cudf::size_type>()},
                                            static_cast<cudf::size_type>(histogram_labels.size()),
@@ -264,15 +277,18 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
     return output;
   }();
 
-  auto out_percentiles = type_dispatcher(
-      data_col.type(), percentile_dispatcher{}, lists_cv.offsets_begin(),
+  auto [percentiles, null_mask, null_count] = type_dispatcher(
+      data_col.type(), percentile_dispatcher{}, lcv_histograms.offsets_begin(),
       ordered_indices->view().begin<cudf::size_type>(), *d_data, d_accumulated_counts,
       d_percentages, data_col.has_nulls(), input.size(), stream, mr);
 
   if (output_as_list) {
-    return wrap_in_list(std::move(out_percentiles), stream, mr);
+    return wrap_in_list(std::move(percentiles), std::move(null_mask), null_count,
+                        lcv_histograms.size(), static_cast<cudf::size_type>(percentages.size()),
+                        stream, mr);
   }
-  return out_percentiles;
+  percentiles->set_null_mask(std::move(null_mask), null_count);
+  return std::move(percentiles);
 }
 
 } // namespace spark_rapids_jni
