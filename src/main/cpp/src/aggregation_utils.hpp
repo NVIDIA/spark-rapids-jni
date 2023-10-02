@@ -24,6 +24,14 @@
 namespace spark_rapids_jni {
 
 /**
+ * @brief
+ */
+std::unique_ptr<cudf::column> create_histograms_if_valid(
+    cudf::column_view const &values, cudf::column_view const &frequencies,
+    cudf::size_type output_size, rmm::cuda_stream_view stream = cudf::get_default_stream(),
+    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
+
+/**
  * @brief Compute percentiles from the given histograms and percentage values.
  *
  * The input histograms must be given in the form of `List<Struct<ElementType, LongType>>`.
