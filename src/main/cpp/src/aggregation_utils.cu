@@ -262,13 +262,16 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
       std::vector<cudf::null_order>{cudf::null_order::AFTER, cudf::null_order::AFTER}, stream,
       default_mr);
 
-  auto const sorted_counts = thrust::make_permutation_iterator(
-      counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
   auto const d_accumulated_counts = [&] {
-    auto output = rmm::device_uvector<int64_t>(counts_col.size(), stream, default_mr);
-    thrust::inclusive_scan(rmm::exec_policy(stream), sorted_counts,
-                           sorted_counts + counts_col.size(), output.begin());
-    return output;
+    auto const sorted_counts = thrust::make_permutation_iterator(
+        counts_col.begin<int64_t>(), ordered_indices->view().begin<cudf::size_type>());
+    auto accumulated_counts = rmm::device_uvector<int64_t>(counts_col.size(), stream, default_mr);
+    // We don't need a permutation iterator for the labels, since the same labels always
+    // stay together after sorting.
+    thrust::inclusive_scan_by_key(rmm::exec_policy(stream), histogram_labels.begin(),
+                                  histogram_labels.end(), sorted_counts,
+                                  accumulated_counts.begin());
+    return accumulated_counts;
   }();
 
   auto [percentiles, null_mask, null_count] = type_dispatcher(
