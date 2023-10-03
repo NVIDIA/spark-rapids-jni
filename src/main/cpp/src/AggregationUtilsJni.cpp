@@ -19,6 +19,22 @@
 
 extern "C" {
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_createHistogramsIfValid(
+    JNIEnv *env, jclass, jlong values_handle, jlong frequencies_handle, jint output_size) {
+  JNI_NULL_CHECK(env, values_handle, "values_handle is null", 0);
+  JNI_NULL_CHECK(env, frequencies_handle, "frequencies_handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const values = reinterpret_cast<cudf::column_view const *>(values_handle);
+    auto const frequencies = reinterpret_cast<cudf::column_view const *>(frequencies_handle);
+    return cudf::jni::ptr_as_jlong(
+        spark_rapids_jni::create_histograms_if_valid(*values, *frequencies, output_size).release());
+  }
+  CATCH_STD(env, 0);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percentileFromHistogram(
     JNIEnv *env, jclass, jlong input_handle, jdoubleArray jpercentages, jboolean output_as_list) {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
@@ -27,13 +43,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percen
   try {
     cudf::jni::auto_set_device(env);
 
-    auto const value = reinterpret_cast<cudf::column_view const *>(input_handle);
+    auto const input = reinterpret_cast<cudf::column_view const *>(input_handle);
     auto const percentages = [&] {
       auto const native_percentages = cudf::jni::native_jdoubleArray(env, jpercentages);
       return std::vector<double>(native_percentages.begin(), native_percentages.end());
     }();
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::percentile_from_histogram(*value, percentages, output_as_list).release());
+        spark_rapids_jni::percentile_from_histogram(*input, percentages, output_as_list).release());
   }
   CATCH_STD(env, 0);
 }

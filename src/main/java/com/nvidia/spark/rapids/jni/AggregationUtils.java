@@ -25,6 +25,12 @@ public class AggregationUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
+  public static ColumnVector createHistogramsIfValid(ColumnView values, ColumnView frequencies,
+                                                     int outputSize) {
+    return new ColumnVector(createHistogramsIfValid(values.getNativeView(),
+        frequencies.getNativeView(), outputSize));
+  }
+
   /**
    * Compute percentiles from the given histograms and percentage values.
    * <p>
@@ -42,6 +48,9 @@ public class AggregationUtils {
         outputAsList));
   }
 
+
+  private static native long createHistogramsIfValid(long valuesHandle, long frequenciesHandle,
+                                                     int outputSize);
 
   private static native long percentileFromHistogram(long inputHandle, double[] percentages,
                                                      boolean outputAsList);

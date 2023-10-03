@@ -252,22 +252,28 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
     return cudf::lists::detail::make_empty_lists_column(values.type(), stream, mr);
   }
 
+  auto const default_mr = rmm::mr::get_current_device_resource();
+
   // We only check if there is any rows are negative (invalid) or zero.
-  auto check_invalid_and_zero = cudf::detail::make_zeroed_device_uvector_async<int8_t>(
-      2, stream, rmm::mr::get_current_device_resource());
-  auto check_zero = cudf::detail::make_zeroed_device_uvector_async<int8_t>(
-      1, stream, rmm::mr::get_current_device_resource());
+  auto check_invalid_and_zero =
+      cudf::detail::make_zeroed_device_uvector_async<int8_t>(2, stream, default_mr);
+
+  // We need to check and remember which rows are valid (positive) so we can do filtering later on.
+  auto check_valid = rmm::device_uvector<int8_t>(frequencies.size(), stream, default_mr);
 
   thrust::for_each_n(
       rmm::exec_policy(stream), thrust::make_counting_iterator(0), frequencies.size(),
       [frequencies = frequencies.begin<int64_t>(), check_invalid = check_invalid_and_zero.begin(),
-       check_zero = check_invalid_and_zero.begin() + 1] __device__(auto const idx) {
+       check_zero = check_invalid_and_zero.begin() + 1,
+       check_valid = check_valid.begin()] __device__(auto const idx) {
         if (frequencies[idx] < 0) {
           *check_invalid = 1;
         }
         if (frequencies[idx] == 0) {
           *check_zero = 1;
         }
+
+        check_valid[idx] = static_cast<int8_t>(frequencies[idx] > 0);
       });
 
   auto const h_checks = cudf::detail::make_std_vector_sync(check_invalid_and_zero, stream);
@@ -275,38 +281,38 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
     return nullptr;
   }
 
-  auto const make_structs_histogram = [] {
-    std::vector<std::unique_ptr<column>> values_and_frequencies;
-    values_and_frequencies.emplace(std::make_unique<cudf::column>(values, stream, mr));
-    values_and_frequencies.emplace(std::make_unique<cudf::column>(frequencies, stream, mr));
+  auto const make_structs_histogram = [&] {
+    // Copy values and frequencies into a new structs column.
+    std::vector<std::unique_ptr<cudf::column>> values_and_frequencies;
+    values_and_frequencies.emplace_back(std::make_unique<cudf::column>(values, stream, mr));
+    values_and_frequencies.emplace_back(std::make_unique<cudf::column>(frequencies, stream, mr));
     return cudf::make_structs_column(values.size(), std::move(values_and_frequencies), 0,
                                      rmm::device_buffer{}, stream, mr);
   };
 
-  auto const make_lists_histograms =
-      [&](cudf::size_type size, cudf::size_type num_elements,
-          std::vector<std::unique_ptr<cudf::column>> &&values_and_frequencies) {
-        auto const sizes_itr = thrust::make_constant_iterator(num_elements);
-        auto offsets = std::get<0>(
-            cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + size, stream, mr));
-        auto child = cudf::make_structs_column(num_elements, std::move(values_and_frequencies), 0,
-                                               rmm::device_buffer{}, stream, mr);
-        return cudf::make_lists_column(1, std::move(offsets), std::move(child), 0,
-                                       rmm::device_buffer{}, stream, mr);
-      };
+  auto const make_lists_histograms = [&](cudf::size_type size, cudf::size_type num_elements,
+                                         std::unique_ptr<cudf::column> &&structs_histogram) {
+    // If we output one list: its size will be num_elements.
+    // Otherwise, each output list will have size 1.
+    auto const sizes_itr = thrust::make_constant_iterator(size == 1 ? num_elements : 1);
+    auto offsets = std::get<0>(
+        cudf::detail::make_offsets_child_column(sizes_itr, sizes_itr + size, stream, mr));
+    return cudf::make_lists_column(size, std::move(offsets), std::move(structs_histogram), 0,
+                                   rmm::device_buffer{}, stream, mr);
+  };
 
   if (output_size == 1) {
     if (h_checks.back()) { // there are zero frequencies, we need to filter them out
       auto filtered_table = cudf::detail::copy_if(
           cudf::table_view{{values, frequencies}},
-          [frequencies = frequencies.begin<int64_t>()] __device__(auto const idx) {
-            return frequencies[idx] > 0;
+          [check_valid = check_valid.begin()] __device__(auto const idx) {
+            return check_valid[idx];
           },
           stream, mr);
       auto const num_elements = filtered_table->num_rows();
-      auto child = cudf::make_structs_column(
-          num_elements, filtered_table->release(), 0, rmm::device_buffer{}, stream,
-          mr) return make_lists_histograms(output_size, num_elements, std::move(child));
+      auto child = cudf::make_structs_column(num_elements, filtered_table->release(), 0,
+                                             rmm::device_buffer{}, stream, mr);
+      return make_lists_histograms(output_size, num_elements, std::move(child));
     } else {
       auto child = make_structs_histogram();
       return make_lists_histograms(output_size, values.size(), std::move(child));
@@ -320,13 +326,13 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
       return lists_histograms;
     }
 
-    auto [null_mask, null_count] = cudf::detail::valid_if(
-        thrust::make_counting_iterator(0), thrust::make_counting_iterator(output_size),
-        [frequencies = frequencies.begin<int64_t>()] __device__(auto const idx) {
-          return frequencies[idx] > 0;
-        });
+    // We apply a nullmask to the output lists column, empty out the null lists (which correspond
+    // to the zero frequencies) and then remove the null mask.
+    // By doing so, the input rows having zero frequencies will be output as empty lists.
+    auto [null_mask, null_count] = cudf::detail::valid_if(check_valid.begin(), check_valid.end(),
+                                                          thrust::identity{}, stream, default_mr);
     lists_histograms->set_null_mask(std::move(null_mask), null_count);
-    lists_histograms = cudf::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
+    lists_histograms = cudf::detail::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
     lists_histograms->set_null_mask(rmm::device_buffer{}, 0);
     return lists_histograms;
   }
@@ -350,7 +356,8 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
       cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
 
   // Attach histogram labels to the input histogram elements.
-  auto histogram_labels = rmm::device_uvector<cudf::size_type>(histograms.size(), stream);
+  auto histogram_labels =
+      rmm::device_uvector<cudf::size_type>(histograms.size(), stream, default_mr);
   cudf::detail::label_segments(lcv_histograms.offsets_begin(), lcv_histograms.offsets_end(),
                                histogram_labels.begin(), histogram_labels.end(), stream);
   auto const labels_cv = cudf::column_view{cudf::data_type{cudf::type_to_id<cudf::size_type>()},
