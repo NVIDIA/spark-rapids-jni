@@ -236,7 +236,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input
 
 std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const &values,
                                                          cudf::column_view const &frequencies,
-                                                         cudf::size_type output_size,
+                                                         bool output_as_lists,
                                                          rmm::cuda_stream_view stream,
                                                          rmm::mr::device_memory_resource *mr) {
   CUDF_EXPECTS(!frequencies.has_nulls(), "The input frequencies must not have nulls.",
@@ -245,8 +245,6 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
                "The input frequencies must be of type INT64.", std::invalid_argument);
   CUDF_EXPECTS(values.size() == frequencies.size(),
                "The input values and frequencies must have the same size.", std::invalid_argument);
-  CUDF_EXPECTS(output_size == 1 || output_size == values.size(),
-               "The number of output histograms is invalid.", std::invalid_argument);
 
   if (values.size() == 0) {
     return cudf::lists::detail::make_empty_lists_column(values.type(), stream, mr);
@@ -301,7 +299,7 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
                                    rmm::device_buffer{}, stream, mr);
   };
 
-  if (output_size == 1) {
+  if (!output_as_lists) {
     if (h_checks.back()) { // there are zero frequencies, we need to filter them out
       auto filtered_table = cudf::detail::copy_if(
           cudf::table_view{{values, frequencies}},
@@ -310,16 +308,14 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
           },
           stream, mr);
       auto const num_elements = filtered_table->num_rows();
-      auto child = cudf::make_structs_column(num_elements, filtered_table->release(), 0,
+      return cudf::make_structs_column(num_elements, filtered_table->release(), 0,
                                              rmm::device_buffer{}, stream, mr);
-      return make_lists_histograms(output_size, num_elements, std::move(child));
     } else {
-      auto child = make_structs_histogram();
-      return make_lists_histograms(output_size, values.size(), std::move(child));
+      return make_structs_histogram();
     }
-  } else { // output_size == values.size()
+  } else { // output_as_lists
     auto child = make_structs_histogram();
-    auto lists_histograms = make_lists_histograms(output_size, values.size(), std::move(child));
+    auto lists_histograms = make_lists_histograms(values.size(), values.size(), std::move(child));
 
     // There are all valid frequencies.
     if (!h_checks.back()) {

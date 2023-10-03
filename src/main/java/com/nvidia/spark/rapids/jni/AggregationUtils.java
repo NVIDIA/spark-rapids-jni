@@ -26,9 +26,9 @@ public class AggregationUtils {
   }
 
   public static ColumnVector createHistogramsIfValid(ColumnView values, ColumnView frequencies,
-                                                     int outputSize) {
+                                                     boolean outputAsLists) {
     return new ColumnVector(createHistogramsIfValid(values.getNativeView(),
-        frequencies.getNativeView(), outputSize));
+        frequencies.getNativeView(), outputAsLists));
   }
 
   /**
@@ -36,22 +36,22 @@ public class AggregationUtils {
    * <p>
    * The input histograms must be given in the form of List<Struct<ElementType, LongType>>.
    *
-   * @param input        The lists of input histograms.
-   * @param percentages  The input percentage values.
-   * @param outputAsList Specify whether the output percentiles will be wrapped into a list.
+   * @param input         The lists of input histograms.
+   * @param percentages   The input percentage values.
+   * @param outputAsLists Specify whether the output percentiles will be wrapped into a list.
    * @return A lists column, each list stores the output percentile(s) computed for the
    * corresponding row in the input column.
    */
   public static ColumnVector percentileFromHistogram(ColumnView input, double[] percentages,
-                                                     boolean outputAsList) {
+                                                     boolean outputAsLists) {
     return new ColumnVector(percentileFromHistogram(input.getNativeView(), percentages,
-        outputAsList));
+        outputAsLists));
   }
 
 
   private static native long createHistogramsIfValid(long valuesHandle, long frequenciesHandle,
-                                                     int outputSize);
+                                                     boolean outputAsLists);
 
   private static native long percentileFromHistogram(long inputHandle, double[] percentages,
-                                                     boolean outputAsList);
+                                                     boolean outputAsLists);
 }

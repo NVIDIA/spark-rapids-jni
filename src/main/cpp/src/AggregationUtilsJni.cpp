@@ -20,7 +20,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_createHistogramsIfValid(
-    JNIEnv *env, jclass, jlong values_handle, jlong frequencies_handle, jint output_size) {
+    JNIEnv *env, jclass, jlong values_handle, jlong frequencies_handle, jboolean output_as_lists) {
   JNI_NULL_CHECK(env, values_handle, "values_handle is null", 0);
   JNI_NULL_CHECK(env, frequencies_handle, "frequencies_handle is null", 0);
 
@@ -30,13 +30,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_create
     auto const values = reinterpret_cast<cudf::column_view const *>(values_handle);
     auto const frequencies = reinterpret_cast<cudf::column_view const *>(frequencies_handle);
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::create_histograms_if_valid(*values, *frequencies, output_size).release());
+        spark_rapids_jni::create_histograms_if_valid(*values, *frequencies, output_as_lists)
+            .release());
   }
   CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percentileFromHistogram(
-    JNIEnv *env, jclass, jlong input_handle, jdoubleArray jpercentages, jboolean output_as_list) {
+    JNIEnv *env, jclass, jlong input_handle, jdoubleArray jpercentages, jboolean output_as_lists) {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
   JNI_NULL_CHECK(env, jpercentages, "jpercentages is null", 0);
 
@@ -49,7 +50,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percen
       return std::vector<double>(native_percentages.begin(), native_percentages.end());
     }();
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::percentile_from_histogram(*input, percentages, output_as_list).release());
+        spark_rapids_jni::percentile_from_histogram(*input, percentages, output_as_lists)
+            .release());
   }
   CATCH_STD(env, 0);
 }
