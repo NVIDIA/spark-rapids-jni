@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -290,7 +290,6 @@ class column_pruner {
     //    with _tuple appended then the repeated type is the element type and elements are required.
     // 4. Otherwise, the repeated field's type is the element type with the repeated field's
     // repetition.
-
     if (!is_group) {
       if (!list_schema_item.__isset.repetition_type ||
           list_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
@@ -303,11 +302,21 @@ class column_pruner {
                                  schema_map,
                                  schema_num_children);
     }
-    if (!list_schema_item.__isset.converted_type ||
-        list_schema_item.converted_type != parquet::format::ConvertedType::LIST) {
-      throw std::runtime_error("expected a list type, but it was not found.");
+    auto num_list_children = get_num_children(list_schema_item);
+    if (num_list_children > 1) {
+      if (!list_schema_item.__isset.repetition_type ||
+          list_schema_item.repetition_type != parquet::format::FieldRepetitionType::REPEATED) {
+        throw std::runtime_error("expected list item to be repeating");
+      }
+      return found.filter_schema(schema,
+                                 ignore_case,
+                                 current_input_schema_index,
+                                 next_input_chunk_index,
+                                 chunk_map,
+                                 schema_map,
+                                 schema_num_children);
     }
-    if (get_num_children(list_schema_item) != 1) {
+    if (num_list_children != 1) {
       throw std::runtime_error("the structure of the outer list group is not standard");
     }
 
@@ -436,7 +445,7 @@ class column_pruner {
    * Each column_pruner is responsible to parse out from schema what it holds and skip anything
    * that does not match. chunk_map, schema_map, and schema_num_children are the final outputs.
    * current_input_schema_index and next_input_chunk_index are also outputs but are state that is
-   * passed to each child and returned when it comsumes comething.
+   * passed to each child and returned when it consumes something.
    */
   void filter_schema(std::vector<parquet::format::SchemaElement> const& schema,
                      bool const ignore_case,
