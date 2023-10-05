@@ -1352,7 +1352,10 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         void* ret = resource->allocate(num_bytes, stream);
         post_alloc_success(tid, likely_spill);
         return ret;
-      } catch (const std::bad_alloc& e) {
+      } catch (const rmm::out_of_memory& e) {
+        // rmm::out_of_memory is what is thrown when an allocation failed
+        // but there are other rmm::bad_alloc exceptions that could be
+        // thrown as well, which are handled by the std::exception case.
         if (!post_alloc_failed(tid, true, likely_spill)) { throw; }
       } catch (const std::exception& e) {
         post_alloc_failed(tid, false, likely_spill);
@@ -1360,7 +1363,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
     }
     // we should never reach this point, but just in case
-    throw std::bad_alloc();
+    throw rmm::bad_alloc("Internal Error");
   }
 
   void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) override
