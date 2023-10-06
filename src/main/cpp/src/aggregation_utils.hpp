@@ -24,7 +24,26 @@
 namespace spark_rapids_jni {
 
 /**
- * @brief
+ * @brief Check the input if they are valid and create a histogram from them.
+ *
+ * A histogram is valid if the given value-frequency pairs satisfy the following conditions:
+ *  - Values and frequencies columns must have the same size.
+ *  - The input frequencies column must be of type INT64, must not have nulls, and must not
+ *    contains negative numbers.
+ *
+ * If the input are valid, a histogram will be created from them. The histogram data is stored in
+ * a structs column in the form of `STRUCT<value, frequency>`. If `output_as_lists == true`, each
+ * struct element is wrapped into a list, producing a lists-of-structs column.
+ *
+ * Note that only value-frequency pairs with positive frequencies will be copied into the output.
+ *
+ * @param values The input values
+ * @param frequencies The frequencies corresponding to the input values
+ * @param output_as_list Specify whether to wrap each pair of <value, frequency> in the output
+ * histogram into a separate list
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ * @return A histogram column with data copied from the input
  */
 std::unique_ptr<cudf::column> create_histograms_if_valid(
     cudf::column_view const &values, cudf::column_view const &frequencies, bool output_as_lists,

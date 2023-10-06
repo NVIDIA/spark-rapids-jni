@@ -29,6 +29,7 @@
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/lists/detail/lists_column_factories.hpp>
 #include <cudf/lists/list_device_view.cuh>
+#include <cudf/reduction/detail/histogram.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 
@@ -247,12 +248,16 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
                "The input values and frequencies must have the same size.", std::invalid_argument);
 
   if (values.size() == 0) {
-    return cudf::lists::detail::make_empty_lists_column(values.type(), stream, mr);
+    if (output_as_lists) {
+      return cudf::lists::detail::make_empty_lists_column(values.type(), stream, mr);
+    } else {
+      return cudf::reduction::detail::make_empty_histogram_like(values);
+    }
   }
 
   auto const default_mr = rmm::mr::get_current_device_resource();
 
-  // We only check if there is any rows are negative (invalid) or zero.
+  // We only check if there is any rows that are negative (invalid) or zero.
   auto check_invalid_and_zero =
       cudf::detail::make_zeroed_device_uvector_async<int8_t>(2, stream, default_mr);
 
@@ -275,9 +280,8 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
       });
 
   auto const h_checks = cudf::detail::make_std_vector_sync(check_invalid_and_zero, stream);
-  if (h_checks.front()) { // there are invalid (negative) frequencies
-    return nullptr;
-  }
+  CUDF_EXPECTS(!h_checks.front(), // check invalid (negative) frequencies
+               "The input frequencies must not have negative values.", std::invalid_argument);
 
   auto const make_structs_histogram = [&] {
     // Copy values and frequencies into a new structs column.
@@ -309,7 +313,7 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
           stream, mr);
       auto const num_elements = filtered_table->num_rows();
       return cudf::make_structs_column(num_elements, filtered_table->release(), 0,
-                                             rmm::device_buffer{}, stream, mr);
+                                       rmm::device_buffer{}, stream, mr);
     } else {
       return make_structs_histogram();
     }
