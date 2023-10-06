@@ -20,11 +20,32 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.NativeDepsLoader;
 
-public class AggregationUtils {
+public class Histogram {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
+  /**
+   * Create histograms from the given values and frequencies if the frequencies are valid.
+   * <p>
+   * The input is valid if they satisfy the following conditions:
+   * - Values and frequencies columns must have the same size.
+   * - Frequencies column must be of type INT64, must not have nulls, and must not contain
+   * negative numbers.
+   * <p>
+   * If the input columns are valid, a histogram will be created from them. The histogram data is
+   * stored in a structs column in the form of `STRUCT<value, frequency>`.
+   * If `output_as_lists == true`, each struct element is wrapped into a list, producing a
+   * lists-of-structs column.
+   * <p>
+   * Note that only value-frequency pairs with positive frequencies will be copied into the output.
+   *
+   * @param values        The input values
+   * @param frequencies   The frequencies corresponding to the input values
+   * @param outputAsLists Specify whether to wrap each pair of <value, frequency> in the output
+   *                      histogram into a separate list
+   * @return A histogram column with data copied from the input
+   */
   public static ColumnVector createHistogramsIfValid(ColumnView values, ColumnView frequencies,
                                                      boolean outputAsLists) {
     return new ColumnVector(createHistogramsIfValid(values.getNativeView(),

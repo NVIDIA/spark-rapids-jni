@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include "aggregation_utils.hpp"
 #include "cudf_jni_apis.hpp"
+#include "histogram.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_createHistogramsIfValid(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_createHistogramsIfValid(
     JNIEnv *env, jclass, jlong values_handle, jlong frequencies_handle, jboolean output_as_lists) {
   JNI_NULL_CHECK(env, values_handle, "values_handle is null", 0);
   JNI_NULL_CHECK(env, frequencies_handle, "frequencies_handle is null", 0);
@@ -36,7 +36,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_create
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_percentileFromHistogram(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_percentileFromHistogram(
     JNIEnv *env, jclass, jlong input_handle, jdoubleArray jpercentages, jboolean output_as_lists) {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
   JNI_NULL_CHECK(env, jpercentages, "jpercentages is null", 0);

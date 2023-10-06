@@ -26,14 +26,15 @@ namespace spark_rapids_jni {
 /**
  * @brief Check the input if they are valid and create a histogram from them.
  *
- * A histogram is valid if the given value-frequency pairs satisfy the following conditions:
+ * The input is valid if they satisfy the following conditions:
  *  - Values and frequencies columns must have the same size.
- *  - The input frequencies column must be of type INT64, must not have nulls, and must not
- *    contains negative numbers.
+ *  - Frequencies column must be of type INT64, must not have nulls, and must not contain
+ *    negative numbers.
  *
- * If the input are valid, a histogram will be created from them. The histogram data is stored in
- * a structs column in the form of `STRUCT<value, frequency>`. If `output_as_lists == true`, each
- * struct element is wrapped into a list, producing a lists-of-structs column.
+ * If the input  columns are valid, a histogram will be created from them. The histogram data is
+ * stored in a structs column in the form of `STRUCT<value, frequency>`.
+ * If `output_as_lists == true`, each struct element is wrapped into a list, producing a
+ * lists-of-structs column.
  *
  * Note that only value-frequency pairs with positive frequencies will be copied into the output.
  *

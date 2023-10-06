@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "aggregation_utils.hpp"
+#include "histogram.hpp"
 
 //
 #include <cudf/column/column.hpp>
