@@ -34,7 +34,7 @@ profiles="source-javadoc"
 if [ "${ARM64}" == "true" ]; then
   profiles="${profiles},arm64"
   USE_GDS="OFF"
-  USE_SANITIZER="OFF"
+  USE_SANITIZER="ON"
   BUILD_FAULTINJ="OFF"
 fi
 
