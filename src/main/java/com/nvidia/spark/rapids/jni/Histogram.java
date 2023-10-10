@@ -55,7 +55,7 @@ public class Histogram {
   /**
    * Compute percentiles from the given histograms and percentage values.
    * <p>
-   * The input histograms must be given in the form of List<Struct<ElementType, LongType>>.
+   * The input histograms must be given in the format `LIST<STRUCT<ElementType, long>>`.
    *
    * @param input         The lists of input histograms.
    * @param percentages   The input percentage values.
