@@ -251,8 +251,9 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const 
 
   if (values.size() == 0) {
     if (output_as_lists) {
-      return cudf::make_lists_column(0, cudf::make_empty_column(type_to_id<size_type>()),
-                               cudf::reduction::detail::make_empty_histogram_like(values), 0, {});
+      return cudf::make_lists_column(
+          0, cudf::make_empty_column(cudf::type_to_id<cudf::size_type>()),
+          cudf::reduction::detail::make_empty_histogram_like(values), 0, {});
     } else {
       return cudf::reduction::detail::make_empty_histogram_like(values);
     }
@@ -260,7 +261,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const 
 
   auto const default_mr = rmm::mr::get_current_device_resource();
 
-  // We only check if there is any rows that are negative (invalid) or zero.
+  // We only check if there is any row in frequencies that are negative (invalid) or zero.
   auto check_invalid_and_zero =
       cudf::detail::make_zeroed_device_uvector_async<int8_t>(2, stream, default_mr);
 
@@ -284,7 +285,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const 
 
   auto const h_checks = cudf::detail::make_std_vector_sync(check_invalid_and_zero, stream);
   CUDF_EXPECTS(!h_checks.front(), // check invalid (negative) frequencies
-               "The input frequencies must not have negative values.", std::invalid_argument);
+               "The input frequencies must not contain negative values.", std::invalid_argument);
 
   auto const make_structs_histogram = [&] {
     // Copy values and frequencies into a new structs column.
@@ -307,7 +308,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const 
   };
 
   if (!output_as_lists) {
-    if (h_checks.back()) { // there are zero frequencies, we need to filter them out
+    if (h_checks.back()) { // frequencies contain zero, we need to filter them out
       auto filtered_table = cudf::detail::copy_if(
           cudf::table_view{{values, frequencies}},
           [check_valid = check_valid.begin()] __device__(auto const idx) {
@@ -320,18 +321,19 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const 
     } else {
       return make_structs_histogram();
     }
-  } else { // output_as_lists
+  } else { // output_as_lists==true
     auto child = make_structs_histogram();
     auto lists_histograms = make_lists_histograms(values.size(), values.size(), std::move(child));
 
-    // There are all valid frequencies.
-    if (!h_checks.back()) {
+    if (!h_checks.back()) { // all frequencies are positive
       return lists_histograms;
     }
 
-    // We apply a nullmask to the output lists column, empty out the null lists (which correspond
-    // to the zero frequencies) and then remove the null mask.
-    // By doing so, the input rows having zero frequencies will be output as empty lists.
+    // Frequencies contain zero.
+    // We generate a null mask in which nulls correspond to the zero row in frequencies.
+    // Then, apply it to the output lists column, empty out the null lists, and finally remove
+    // the null mask.
+    // By doing so, the input rows corresponding to zero frequencies will be output as empty lists.
     auto [null_mask, null_count] = cudf::detail::valid_if(check_valid.begin(), check_valid.end(),
                                                           thrust::identity{}, stream, default_mr);
     lists_histograms->set_null_mask(std::move(null_mask), null_count);
@@ -358,7 +360,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
   auto const d_percentages =
       cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
 
-  // Attach histogram labels to the input histogram elements.
+  // Attach histogram labels to the input.
   auto histogram_labels =
       rmm::device_uvector<cudf::size_type>(histograms.size(), stream, default_mr);
   cudf::detail::label_segments(lcv_histograms.offsets_begin(), lcv_histograms.offsets_end(),
@@ -368,6 +370,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const 
                                            histogram_labels.data(), nullptr, 0};
   auto const labeled_histograms = cudf::table_view{{labels_cv, histograms}};
   // Find the order of segmented sort elements within each histogram list.
+  // The null order must be `AFTER`.
   auto const ordered_indices = cudf::detail::sorted_order(
       labeled_histograms, std::vector<cudf::order>{cudf::order::ASCENDING, cudf::order::ASCENDING},
       std::vector<cudf::null_order>{cudf::null_order::AFTER, cudf::null_order::AFTER}, stream,

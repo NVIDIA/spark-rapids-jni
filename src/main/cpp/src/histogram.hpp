@@ -35,7 +35,8 @@ namespace spark_rapids_jni {
  * will be thrown.
  *
  * There is special cases when the input frequencies are zero. They are still considered as valid,
- * but value-frequency pairs with zero frequencies will be ignored from copying into the output.
+ * but value-frequency pairs in which frequencies are zero will be ignored from copying into the
+ * output.
  *
  * The output histogram is stored in a structs column in the form of `STRUCT<value, frequency>`.
  * If `output_as_lists == true`, each struct element is wrapped in a list, producing a
