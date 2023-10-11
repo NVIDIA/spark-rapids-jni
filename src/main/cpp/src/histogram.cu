@@ -58,7 +58,6 @@ struct fill_percentile_fn {
     // only stores unique elements) and that null is sorted to stay at the end.
     // We need to ignore null thus we will shift the end point if we see a null.
 
-    // TODO: check start if freq is zero
     auto const start = offsets[histogram_idx];
     auto const try_end = offsets[histogram_idx + 1];
     auto const all_valid = sorted_validity[try_end - 1];
@@ -130,6 +129,10 @@ private:
 struct percentile_dispatcher {
   template <typename T> static constexpr bool is_supported() { return std::is_arithmetic_v<T>; }
 
+  // The output here is only intermediate result, consisting of:
+  //  1. The output percentile values,
+  //  2. Null mask to apply for the final output column containing percentile values, and
+  //  3. Null count corresponding to that null mask.
   using output_type =
       std::tuple<std::unique_ptr<cudf::column>, rmm::device_buffer, cudf::size_type>;
 
@@ -175,7 +178,7 @@ struct percentile_dispatcher {
       fill_percentile(thrust::make_constant_iterator(true), nullptr);
     } else {
       auto const sorted_validity_it = thrust::make_permutation_iterator(
-          cudf::detail::make_validity_iterator(data), ordered_indices);
+          cudf::detail::make_validity_iterator<false>(data), ordered_indices);
       auto out_validities = rmm::device_uvector<int8_t>(num_histograms, stream,
                                                         rmm::mr::get_current_device_resource());
       fill_percentile(sorted_validity_it, out_validities.begin());
@@ -211,12 +214,11 @@ void check_input(cudf::column_view const &input, std::vector<double> const &perc
 }
 
 // Wrap the input column in a lists column, to satisfy the requirement type in Spark.
-std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input,
-                                           rmm::device_buffer null_mask, cudf::size_type null_count,
-                                           cudf::size_type num_histograms,
-                                           cudf::size_type num_percentages,
-                                           rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource *mr) {
+std::unique_ptr<cudf::column>
+wrap_in_list(std::unique_ptr<cudf::column> &&input, rmm::device_buffer &&null_mask,
+             cudf::size_type null_count, cudf::size_type num_histograms,
+             cudf::size_type num_percentages, rmm::cuda_stream_view stream,
+             rmm::mr::device_memory_resource *mr) {
   if (input->size() == 0) {
     return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
   }
@@ -235,11 +237,11 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column> &&input
 
 } // namespace
 
-std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const &values,
-                                                         cudf::column_view const &frequencies,
-                                                         bool output_as_lists,
-                                                         rmm::cuda_stream_view stream,
-                                                         rmm::mr::device_memory_resource *mr) {
+std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const &values,
+                                                        cudf::column_view const &frequencies,
+                                                        bool output_as_lists,
+                                                        rmm::cuda_stream_view stream,
+                                                        rmm::mr::device_memory_resource *mr) {
   CUDF_EXPECTS(!frequencies.has_nulls(), "The input frequencies must not have nulls.",
                std::invalid_argument);
   CUDF_EXPECTS(frequencies.type().id() == cudf::type_id::INT64,
@@ -249,7 +251,8 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(cudf::column_view const
 
   if (values.size() == 0) {
     if (output_as_lists) {
-      return cudf::lists::detail::make_empty_lists_column(values.type(), stream, mr);
+      return cudf::make_lists_column(0, cudf::make_empty_column(type_to_id<size_type>()),
+                               cudf::reduction::detail::make_empty_histogram_like(values), 0, {});
     } else {
       return cudf::reduction::detail::make_empty_histogram_like(values);
     }

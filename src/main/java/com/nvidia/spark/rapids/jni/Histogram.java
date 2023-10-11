@@ -46,9 +46,9 @@ public class Histogram {
    *                      histogram into a separate list
    * @return A histogram column with data copied from the input
    */
-  public static ColumnVector createHistogramsIfValid(ColumnView values, ColumnView frequencies,
-                                                     boolean outputAsLists) {
-    return new ColumnVector(createHistogramsIfValid(values.getNativeView(),
+  public static ColumnVector createHistogramIfValid(ColumnView values, ColumnView frequencies,
+                                                    boolean outputAsLists) {
+    return new ColumnVector(createHistogramIfValid(values.getNativeView(),
         frequencies.getNativeView(), outputAsLists));
   }
 
@@ -70,8 +70,8 @@ public class Histogram {
   }
 
 
-  private static native long createHistogramsIfValid(long valuesHandle, long frequenciesHandle,
-                                                     boolean outputAsLists);
+  private static native long createHistogramIfValid(long valuesHandle, long frequenciesHandle,
+                                                    boolean outputAsLists);
 
   private static native long percentileFromHistogram(long inputHandle, double[] percentages,
                                                      boolean outputAsLists);

@@ -26,27 +26,30 @@ namespace spark_rapids_jni {
 /**
  * @brief Check the input if they are valid and create a histogram from them.
  *
- * The input is valid if they satisfy the following conditions:
+ * Validity of the input columns are defined as following:
  *  - Values and frequencies columns must have the same size.
  *  - Frequencies column must be of type INT64, must not have nulls, and must not contain
  *    negative numbers.
  *
- * If the input  columns are valid, a histogram will be created from them. The histogram data is
- * stored in a structs column in the form of `STRUCT<value, frequency>`.
- * If `output_as_lists == true`, each struct element is wrapped into a list, producing a
- * lists-of-structs column.
+ * If the input columns are valid, a histogram will be created from them. Otherwise, an exception
+ * will be thrown.
  *
- * Note that only value-frequency pairs with positive frequencies will be copied into the output.
+ * There is special cases when the input frequencies are zero. They are still considered as valid,
+ * but value-frequency pairs with zero frequencies will be ignored from copying into the output.
+ *
+ * The output histogram is stored in a structs column in the form of `STRUCT<value, frequency>`.
+ * If `output_as_lists == true`, each struct element is wrapped in a list, producing a
+ * lists-of-structs column.
  *
  * @param values The input values
  * @param frequencies The frequencies corresponding to the input values
  * @param output_as_list Specify whether to wrap each pair of <value, frequency> in the output
- * histogram into a separate list
+ * histogram in a separate list
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate the returned column's device memory
  * @return A histogram column with data copied from the input
  */
-std::unique_ptr<cudf::column> create_histograms_if_valid(
+std::unique_ptr<cudf::column> create_histogram_if_valid(
     cudf::column_view const &values, cudf::column_view const &frequencies, bool output_as_lists,
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
@@ -54,11 +57,11 @@ std::unique_ptr<cudf::column> create_histograms_if_valid(
 /**
  * @brief Compute percentiles from the given histograms and percentage values.
  *
- * The input histograms must be given in the form of `List<Struct<ElementType, LongType>>`.
+ * The input histograms must be given in the form of `LIST<STRUCT<ElementType, long>>`.
  *
  * @param input The lists of input histograms
  * @param percentages The input percentage values
- * @param output_as_lists Specify whether the output percentiles will be wrapped into a list
+ * @param output_as_lists Specify whether the output percentiles will be wrapped in a list
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate the returned column's device memory
  * @return A lists column, each list stores the percentile value(s) of the corresponding row in the
