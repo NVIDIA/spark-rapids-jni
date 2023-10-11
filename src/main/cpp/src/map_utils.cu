@@ -500,7 +500,7 @@ struct substring_fn {
   cudf::device_span<char const> const d_string;
   cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
 
-  cudf::offset_type* d_offsets{};
+  cudf::size_type* d_offsets{};
   char* d_chars{};
 
   __device__ void operator()(cudf::size_type const idx)
@@ -557,7 +557,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 }
 
 // Compute the offsets for the final lists of Struct<String,String>.
-rmm::device_uvector<cudf::offset_type> compute_list_offsets(
+rmm::device_uvector<cudf::size_type> compute_list_offsets(
   cudf::size_type n_lists,
   rmm::device_uvector<NodeIndexT> const& parent_node_ids,
   rmm::device_uvector<int8_t> const& key_or_value,
@@ -599,7 +599,7 @@ rmm::device_uvector<cudf::offset_type> compute_list_offsets(
   print_debug(node_child_counts, "Nodes' child keys counts", ", ", stream);
 #endif
 
-  auto list_offsets   = rmm::device_uvector<cudf::offset_type>(n_lists + 1, stream, mr);
+  auto list_offsets   = rmm::device_uvector<cudf::size_type>(n_lists + 1, stream, mr);
   auto const copy_end = cudf::detail::copy_if_safe(
     node_child_counts.begin(),
     node_child_counts.end(),

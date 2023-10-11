@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ class string_to_float {
                              int32_t* ansi_except,
                              size_type* valid_count,
                              const char* const chars,
-                             offset_type const* offsets,
+                             size_type const* offsets,
                              uint64_t const* const ipow,
                              bitmask_type const* incoming_null_mask,
                              size_type const num_rows)
@@ -595,7 +595,7 @@ __global__ void string_to_float_kernel(T* out,
                                        int32_t* ansi_except,
                                        size_type* valid_count,
                                        const char* const chars,
-                                       offset_type const* offsets,
+                                       size_type const* offsets,
                                        bitmask_type const* incoming_null_mask,
                                        size_type const num_rows)
 {
@@ -676,7 +676,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
         ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
         static_cast<ScalarType*>(valid_count.get())->data(),
         string_col.chars().begin<char>(),
-        string_col.offsets().begin<offset_type>(),
+        string_col.offsets().begin<size_type>(),
         string_col.null_mask(),
         num_rows);
   } else {
@@ -687,7 +687,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
         ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
         static_cast<ScalarType*>(valid_count.get())->data(),
         string_col.chars().begin<char>(),
-        string_col.offsets().begin<offset_type>(),
+        string_col.offsets().begin<size_type>(),
         string_col.null_mask(),
         num_rows);
   }
@@ -698,10 +698,10 @@ std::unique_ptr<column> string_to_float(data_type dtype,
     auto const val = static_cast<ScalarType*>(ansi_count.get())->value(stream);
     if (val >= 0) {
       auto const error_row = num_rows - val;
-      offset_type string_bounds[2];
+      size_type string_bounds[2];
       cudaMemcpyAsync(&string_bounds,
-                      &string_col.offsets().data<offset_type>()[error_row],
-                      sizeof(offset_type) * 2,
+                      &string_col.offsets().data<size_type>()[error_row],
+                      sizeof(size_type) * 2,
                       cudaMemcpyDeviceToHost,
                       stream.value());
       stream.synchronize();

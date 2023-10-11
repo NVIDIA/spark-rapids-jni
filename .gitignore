@@ -47,3 +47,8 @@ target/
 
 ## VSCode IDE
 .vscode
+
+#Generated files
+cufile.log
+rmm_log.txt
+sanitizer_for_pid_*.log

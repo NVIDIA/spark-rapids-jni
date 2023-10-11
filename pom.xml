@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>23.08.0</version>
+  <version>23.10.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -83,9 +83,11 @@
     <USE_GDS>OFF</USE_GDS>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
+    <BUILD_FAULTINJ>ON</BUILD_FAULTINJ>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
+    <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <hadoop.version>3.2.4</hadoop.version>
     <junit.version>5.8.1</junit.version>
@@ -138,6 +140,12 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
       <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>
@@ -199,14 +207,51 @@
                   </excludes>
                 </configuration>
               </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>test-with-sanitizer</id>
+      <activation>
+        <property>
+          <name>USE_SANITIZER</name>
+          <value>ON</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>default-test</id>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <groups>!noSanitizer</groups>
+                  <jvm>${project.basedir}/build/sanitizer-java/bin/java</jvm>
+                </configuration>
+              </execution>
+              <execution>
+                <!-- Some tests (e.g. error cases) are not suitable to run with sanitizer, so run them separately here -->
+                <id>sanitizer-excluded-cases-test</id>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <groups>noSanitizer</groups>
+                </configuration>
+              </execution>
               <execution>
                 <id>non-empty-null-test</id>
                 <goals>
                   <goal>test</goal>
                 </goals>
                 <configuration>
-                  <argLine>-da:ai.rapids.cudf.AssertEmptyNulls</argLine>
-                  <test>ColumnViewNonEmptyNullsTest</test>
+                  <jvm>${project.basedir}/build/sanitizer-java/bin/java</jvm>
                 </configuration>
               </execution>
             </executions>
@@ -250,7 +295,7 @@
         </plugins>
       </build>
     </profile>
-      <profile>
+    <profile>
       <id>test-cpp</id>
       <activation>
         <property>
@@ -288,6 +333,12 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+    <profile>
+      <id>arm64</id>
+      <properties>
+        <jni.classifier>${cuda.version}-arm64</jni.classifier>
+      </properties>
     </profile>
   </profiles>
 
@@ -398,6 +449,7 @@
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
                   <arg value="-DBUILD_TESTS=${BUILD_TESTS}"/>
                   <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
+                  <arg value="-DBUILD_FAULTINJ=${BUILD_FAULTINJ}"/>
                 </exec>
                 <exec dir="${native.build.path}"
                       failonerror="true"
@@ -450,7 +502,7 @@
         <artifactId>maven-jar-plugin</artifactId>
         <version>3.0.2</version>
         <configuration>
-          <classifier>${cuda.version}</classifier>
+          <classifier>${jni.classifier}</classifier>
         </configuration>
         <executions>
           <execution>
