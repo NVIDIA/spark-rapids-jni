@@ -82,7 +82,7 @@ public class CastStrings {
 
   /**
    * Convert a decimal column to a string column.
-   * 
+   *
    * @param cv the column data to process
    * @return the converted column
    */
@@ -102,10 +102,42 @@ public class CastStrings {
     return new ColumnVector(toFloat(cv.getNativeView(), ansiMode, type.getTypeId().getNativeId()));
   }
 
+
+  public static ColumnVector toIntegersWithBase(ColumnView cv, int base,
+    boolean ansiEnabled, DType type) {
+    return new ColumnVector(toIntegersWithBase(cv.getNativeView(), base, ansiEnabled,
+      type.getTypeId().getNativeId()));
+  }
+
+  /**
+   * Converts an integer column to a string column by converting the underlying integers to the
+   * specified base.
+   *
+   * Note: Right now we only support base 10 and 16. The hexadecimal values will be
+   * returned without leading zeros or padding at the end
+   * 
+   * Example:
+   * input = [123, -1, 0, 27, 342718233]
+   * s = fromIntegersWithBase(input, 16)
+   * s is [ '7B', 'FFFFFFFF', '0', '1B', '146D7719']
+   * s = fromIntegersWithBase(input, 10)
+   * s is ['123', '-1', '0', '27', '342718233']
+   *
+   * @param cv The input integer column to be converted.
+   * @param base base that we want to convert to (currently only 10/16)
+   * @return a new String ColumnVector
+   */
+  public static ColumnVector fromIntegersWithBase(ColumnView cv, int base) {
+    return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
+  private static native long toIntegersWithBase(long nativeColumnView, int base,
+    boolean ansiEnabled, int dtype);
+  private static native long fromIntegersWithBase(long nativeColumnView, int base);
 }
