@@ -23,7 +23,7 @@ target_compile_options(
 )
 
 target_link_libraries(
-  spark_rapids_jni_datagen PUBLIC cudf::cudf 
+  spark_rapids_jni_datagen PUBLIC cudf::cudf cudf::cudftestutil
 )
 
 target_include_directories(
@@ -77,3 +77,6 @@ ConfigureBench(STRING_TO_FLOAT_BENCH
 
 ConfigureBench(BLOOM_FILTER_BENCH
   bloom_filter.cu)
+
+ConfigureBench(PARSE_URI_BENCH
+  parse_uri.cpp)
