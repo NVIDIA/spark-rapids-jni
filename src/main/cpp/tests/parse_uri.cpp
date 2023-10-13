@@ -30,10 +30,12 @@ TEST_F(ParseURIProtocolTests, Simple)
     "http://www.yahoo.com",
     "file://path/to/a/cool/file",
     "smb://network/path/to/file",
+    "http:/www.yahoo.com",
+    "file:path/to/a/cool/file",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "http", "file", "smb"});
+  cudf::test::strings_column_wrapper expected({"https", "http", "file", "smb", "http", "file"});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -42,15 +44,13 @@ TEST_F(ParseURIProtocolTests, Negatives)
 {
   cudf::test::strings_column_wrapper col({
     "https//www.google.com/s/uri?param1=2",
-    "http:/www.yahoo.com",
-    "file:path/to/a/cool/file",
     "/network/path/to/file",
     "yahoo.com",
     "www.google.com/s/uri",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"", "http", "file", "", "", ""}, {0, 1, 1, 0, 0, 0});
+  cudf::test::strings_column_wrapper expected({"", "", "", ""}, {0, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
