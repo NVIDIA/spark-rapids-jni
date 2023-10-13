@@ -38,7 +38,6 @@ public class Histogram {
    * If `output_as_lists == true`, each struct element is wrapped into a list, producing a
    * lists-of-structs column.
    * <p>
-   * Note that only value-frequency pairs with positive frequencies will be copied into the output.
    *
    * @param values        The input values
    * @param frequencies   The frequencies corresponding to the input values
