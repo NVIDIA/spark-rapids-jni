@@ -202,11 +202,14 @@ void check_input(cudf::column_view const &input, std::vector<double> const &perc
   CUDF_EXPECTS(!child.has_nulls(), "Child of the input column must not have nulls.",
                std::invalid_argument);
   CUDF_EXPECTS(child.type().id() == cudf::type_id::STRUCT && child.num_children() == 2,
-               "The input column has invalid histogram format.", std::invalid_argument);
-  CUDF_EXPECTS(!child.child(1).has_nulls(), "The input column has invalid histogram format.",
+               "Child of the input column must be of STRUCT type having two children.",
+               std::invalid_argument);
+  CUDF_EXPECTS(!child.child(1).has_nulls(),
+               "Child of the input column must have its second child containing non-null elements.",
                std::invalid_argument);
   CUDF_EXPECTS(child.child(1).type().id() == cudf::type_id::INT64,
-               "The input column has invalid histogram format.", std::invalid_argument);
+               "Child of the input column must have its second child of type INT64.",
+               std::invalid_argument);
 
   CUDF_EXPECTS(static_cast<std::size_t>(input.size()) * percentages.size() <=
                    static_cast<std::size_t>(std::numeric_limits<cudf::size_type>::max()),
