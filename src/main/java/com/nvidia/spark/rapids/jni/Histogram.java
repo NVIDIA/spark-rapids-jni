@@ -37,7 +37,6 @@ public class Histogram {
    * stored in a structs column in the form of `STRUCT<value, frequency>`.
    * If `output_as_lists == true`, each struct element is wrapped into a list, producing a
    * lists-of-structs column.
-   * <p>
    *
    * @param values        The input values
    * @param frequencies   The frequencies corresponding to the input values
