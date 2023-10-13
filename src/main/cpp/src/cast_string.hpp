@@ -115,6 +115,11 @@ std::unique_ptr<cudf::column> string_to_float(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<cudf::column> float_to_string(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 std::unique_ptr<cudf::column> decimal_to_non_ansi_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,

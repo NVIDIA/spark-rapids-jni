@@ -51,6 +51,9 @@ ConfigureTest(CAST_STRING
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
 
+ConfigureTest(CAST_FLOAT_TO_STRING
+    cast_float_to_string.cpp)
+
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
