@@ -154,6 +154,7 @@ add_library(
   src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
   src/HashJni.cpp
+  src/HistogramJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/RowConversionJni.cpp
@@ -165,6 +166,7 @@ add_library(
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
   src/row_conversion.cu
