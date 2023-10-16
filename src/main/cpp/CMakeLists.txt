@@ -156,6 +156,7 @@ add_library(
   src/HashJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
+  src/ParseURIJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
