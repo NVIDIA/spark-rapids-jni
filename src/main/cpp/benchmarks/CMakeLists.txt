@@ -23,7 +23,7 @@ target_compile_options(
 )
 
 target_link_libraries(
-  spark_rapids_jni_datagen PUBLIC cudf::cudf cudf::cudftestutil
+  spark_rapids_jni_datagen PUBLIC cudf::cudf
 )
 
 target_include_directories(
@@ -56,7 +56,7 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD_REQUIRED ON
         )
     target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main spark_rapids_jni_datagen ${CUDF_BENCHMARK_COMMON}
-                                              cudf::cudf spark_rapids_jni Threads::Threads)
+                                              cudf::cudf spark_rapids_jni Threads::Threads cudf::cudftestutil)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
         COMPONENT testing
