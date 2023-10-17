@@ -175,7 +175,7 @@ __global__ void parse_uri_protocol_char_counter(column_device_view const in_stri
       if (!found_token[local_warp_id]) {
         clear_bit(out_validity, row_idx);
         out_counts[row_idx] = 0;
-      } else {
+      } else if (valid) {
         out_counts[row_idx] = output_string_size;
       }
     }
