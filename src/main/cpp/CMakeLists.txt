@@ -173,8 +173,6 @@ add_library(
   src/utilities.cu
   src/xxhash64.cu
   src/zorder.cu
-  ../../../thirdparty/cudf/cpp/tests/utilities/debug_utilities.cu
-  ../../../thirdparty/cudf/cpp/tests/utilities/column_utilities.cu
 )
 
 set_target_properties(
