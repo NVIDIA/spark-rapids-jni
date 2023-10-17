@@ -62,8 +62,7 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0);
-    ) {
+      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
       AssertUtils.assertColumnsAreEqual(expected, result);
     }
   }
