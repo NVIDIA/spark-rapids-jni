@@ -66,3 +66,5 @@ ConfigureTest(BLOOM_FILTER
 ConfigureTest(UTILITIES
     utilities.cpp)
 
+ConfigureTest(PARSE_URI
+    parse_uri.cpp)

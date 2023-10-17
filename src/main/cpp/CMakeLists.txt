@@ -157,6 +157,7 @@ add_library(
   src/HistogramJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
+  src/ParseURIJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
@@ -169,6 +170,7 @@ add_library(
   src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
+  src/parse_uri.cu
   src/row_conversion.cu
   src/utilities.cu
   src/xxhash64.cu
