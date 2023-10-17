@@ -47,7 +47,9 @@ public class ParseURITest {
       "https://www.nvidia.com:8080/q",
       "https://www.nvidia.com#8080",
       "file://path/to/cool/file",
-      "http//www.nvidia.com/q"};
+      "http//www.nvidia.com/q",
+      "",
+      null};
     
     String[] expectedStrings = new String[testData.length];
     for (int i=0; i<testData.length; i++) {
@@ -57,6 +59,8 @@ public class ParseURITest {
         scheme = uri.getScheme();
       } catch (URISyntaxException ex) {
         // leave the scheme null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the scheme null if URI is null
       }
       expectedStrings[i] = scheme;
     }
