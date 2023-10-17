@@ -26,11 +26,11 @@ struct ParseURIProtocolTests : public cudf::test::BaseFixture {};
 TEST_F(ParseURIProtocolTests, Simple)
 {
   cudf::test::strings_column_wrapper col({
-    "https://www.google.com/s/uri?param1=2",
-    "http://www.yahoo.com",
+    "https://www.nvidia.com/s/uri?param1=2",
+    "http://www.nvidia.com",
     "file://path/to/a/cool/file",
     "smb://network/path/to/file",
-    "http:/www.yahoo.com",
+    "http:/www.nvidia.com",
     "file:path/to/a/cool/file",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
@@ -43,10 +43,10 @@ TEST_F(ParseURIProtocolTests, Simple)
 TEST_F(ParseURIProtocolTests, Negatives)
 {
   cudf::test::strings_column_wrapper col({
-    "https//www.google.com/s/uri?param1=2",
+    "https//www.nvidia.com/s/uri?param1=2",
     "/network/path/to/file",
-    "yahoo.com",
-    "www.google.com/s/uri",
+    "nvidia.com",
+    "www.nvidia.com/s/uri",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
@@ -58,27 +58,27 @@ TEST_F(ParseURIProtocolTests, Negatives)
 TEST_F(ParseURIProtocolTests, SparkEdges)
 {
   cudf::test::strings_column_wrapper col(
-    {"https://google.com/https&#://google.com",
-     "https://http://www.google.com",
+    {"https://nvidia.com/https&#://nvidia.com",
+     "https://http://www.nvidia.com",
      "filesystemmagicthing://bob.yaml",
-     "google.com:8080",
+     "nvidia.com:8080",
      "http://thisisinvalid.data/due/to-the_character%s/inside*the#url`~",
      "file:/absolute/path",
-     "//www.google.com",
+     "//www.nvidia.com",
      "#bob",
-     "#this%doesnt#make//sendse://to/me",
+     "#this%doesnt#make//sense://to/me",
      "HTTP:&bob",
      "/absolute/path",
-     "http://%77%77%77.%67o%6Fgle.com",
+     "http://%77%77%77.%4EV%49%44%49%41.com",
      "https:://broken.url",
-     "https://www.google.com/q/This%20is%20a%20query"});
+     "https://www.nvidia.com/q/This%20is%20a%20query"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected({"https",
                                                "https",
                                                "filesystemmagicthing",
-                                               "google.com",
+                                               "nvidia.com",
                                                "",
                                                "file",
                                                "",
