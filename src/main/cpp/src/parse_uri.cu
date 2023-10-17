@@ -286,11 +286,11 @@ __global__ void parse_uri_to_protocol(column_device_view const in_strings,
 
 }  // namespace
 
-std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& strings,
+std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
-  size_type strings_count = strings.size();
+  size_type strings_count = input.size();
   if (strings_count == 0) return make_empty_column(type_id::STRING);
 
   constexpr size_type num_warps_per_threadblock = 4;
@@ -300,7 +300,7 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& strings
     std::min(65536, cudf::util::div_rounding_up_unsafe(strings_count, num_warps_per_threadblock));
 
   auto offset_count    = strings_count + 1;
-  auto const d_strings = column_device_view::create(strings.parent(), stream);
+  auto const d_strings = column_device_view::create(input.parent(), stream);
 
   // build offsets column
   auto offsets_column = make_numeric_column(
@@ -308,9 +308,9 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& strings
 
   // copy null mask
   rmm::device_buffer null_mask =
-    strings.parent().nullable()
-      ? cudf::detail::copy_bitmask(strings.parent(), stream, mr)
-      : cudf::detail::create_null_mask(strings.size(), mask_state::ALL_VALID, stream, mr);
+    input.parent().nullable()
+      ? cudf::detail::copy_bitmask(input.parent(), stream, mr)
+      : cudf::detail::create_null_mask(input.size(), mask_state::ALL_VALID, stream, mr);
 
   // count number of bytes in each string after parsing and store it in offsets_column
   auto offsets_view         = offsets_column->view();
@@ -357,12 +357,12 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& strings
 
 // external API
 
-std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& strings,
+std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::parse_uri_to_protocol(strings, stream, mr);
+  return detail::parse_uri_to_protocol(input, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

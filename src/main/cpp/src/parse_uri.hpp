@@ -26,19 +26,15 @@
 namespace spark_rapids_jni {
 
 /**
- * @brief Convert a string column into an integer column.
+ * @brief Parse protocol and copy from the input string column to the output char buffer.
  *
- * @param dtype Type of column to return.
- * @param string_col Incoming string column to convert to integers.
- * @param ansi_mode If true, strict conversion and throws on erorr.
- *                  If false, null invalid entries.
- * @param strip if true leading and trailing white space is ignored.
+ * @param input Input string column of URIs to parse
  * @param stream Stream on which to operate.
  * @param mr Memory resource for returned column
- * @return std::unique_ptr<column> Integer column that was created from string_col.
+ * @return std::unique_ptr<column> String column of protocols parsed.
  */
 std::unique_ptr<cudf::column> parse_uri_to_protocol(
-  cudf::strings_column_view const& string_col,
+  cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
