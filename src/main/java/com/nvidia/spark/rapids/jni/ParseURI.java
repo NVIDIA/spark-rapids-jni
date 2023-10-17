@@ -33,9 +33,9 @@ public class ParseURI {
    * @param URIColumn The input strings column in which each row contains a URI.
    * @return A string column with protocol data extracted.
    */
-  public static ColumnVector parseURIProtocol(ColumnView URIColumn) {
-    assert URIColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parseProtocol(URIColumn.getNativeView()));
+  public static ColumnVector parseURIProtocol(ColumnView uriColumn) {
+    assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
+    return new ColumnVector(parseProtocol(uriColumn.getNativeView()));
   }
 
 
