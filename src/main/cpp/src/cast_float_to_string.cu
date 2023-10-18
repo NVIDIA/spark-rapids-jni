@@ -55,13 +55,13 @@ struct ftos_converter {
   static constexpr unsigned int significant_digits = 17;
   // maximum power-of-10 that will fit in 32-bits
   // static constexpr unsigned long long nine_digits = 1000000000;  // 1x10^9
-  static constexpr unsigned long long fifteen_digits = 1000000000000000;
+  // static constexpr unsigned long long fifteen_digits = 1000000000000000;
   static constexpr unsigned long long sixteen_digits = 10000000000000000;
   // Range of numbers here is for normalizing the value.
   // If the value is above or below the following limits, the output is converted to
   // scientific notation in order to show (at most) the number of significant digits.
-  static constexpr double upper_limit = 1000000000;  // max is 1x10^9
-  static constexpr double lower_limit = 0.0001;      // printf uses scientific notation below this
+  static constexpr double upper_limit = 10000000;  // max is 1x10^7
+  static constexpr double lower_limit = 0.001;      // printf uses scientific notation below this
   // Tables for doing normalization: converting to exponent form
   // IEEE double float has maximum exponent of 305 so these should cover everything
   double const upper10[9]  = {10, 100, 10000, 1e8, 1e16, 1e32, 1e64, 1e128, 1e256};
@@ -119,8 +119,16 @@ struct ftos_converter {
       }
     }
     //
-    int decimal_places = significant_digits - (exp10? 2 : 1);
-    unsigned long long max_digits = (exp10? fifteen_digits : sixteen_digits);
+    // int decimal_places = significant_digits - (exp10? 2 : 1);
+    // unsigned long long max_digits = (exp10? fifteen_digits : sixteen_digits);
+    int decimal_places = significant_digits - 1;
+    unsigned long long max_digits = sixteen_digits;
+    double temp_value = value;
+    while (temp_value < 1.0 && temp_value > 0.0) {
+      max_digits *= 10;
+      temp_value *= 10.0;
+      decimal_places++;
+    }
     integer                 = (unsigned int)value;
     for (unsigned int i = integer; i >= 10; i /= 10) {
       --decimal_places;
@@ -194,7 +202,7 @@ struct ftos_converter {
     // decimal
     *ptr++ = '.';
     if (decimal_places) {
-      char buffer[17];
+      char buffer[18];
       char* pb = buffer;
       while (decimal_places--) {
         *pb++ = (char)('0' + (decimal % 10));
@@ -232,7 +240,7 @@ struct ftos_converter {
       value = -value;
       bneg  = true;
     }
-    if (std::isinf(value)) return 3 + (int)bneg;  // Inf
+    if (std::isinf(value)) return 8 + (int)bneg;  // Inf
 
     // dissect float into parts
     unsigned int integer = 0;
@@ -261,7 +269,6 @@ struct ftos_converter {
         count ++;
         exp10 = -exp10;
       }
-      count += (int)(exp10 < 10);  // padding
       while (exp10 > 0) {
         exp10 /= 10;
         ++count;
