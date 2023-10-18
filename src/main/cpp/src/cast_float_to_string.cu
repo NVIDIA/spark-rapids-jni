@@ -49,12 +49,14 @@ namespace spark_rapids_jni {
 namespace detail {
 namespace {
 
-struct float_to_string_fn {
+struct ftos_converter {
   // significant digits is independent of scientific notation range
   // digits more than this may require using long values instead of ints
-  static constexpr unsigned int significant_digits = 10;
+  static constexpr unsigned int significant_digits = 17;
   // maximum power-of-10 that will fit in 32-bits
-  static constexpr unsigned int nine_digits = 1000000000;  // 1x10^9
+  // static constexpr unsigned long long nine_digits = 1000000000;  // 1x10^9
+  static constexpr unsigned long long fifteen_digits = 1000000000000000;
+  static constexpr unsigned long long sixteen_digits = 10000000000000000;
   // Range of numbers here is for normalizing the value.
   // If the value is above or below the following limits, the output is converted to
   // scientific notation in order to show (at most) the number of significant digits.
@@ -91,10 +93,9 @@ struct float_to_string_fn {
    */
   __device__ int dissect_value(double value,
                                unsigned int& integer,
-                               unsigned int& decimal,
+                               unsigned long long& decimal,
                                int& exp10)
   {
-    int decimal_places = significant_digits - 1;
     // normalize step puts value between lower-limit and upper-limit
     // by adjusting the exponent up or down
     exp10 = 0;
@@ -118,16 +119,18 @@ struct float_to_string_fn {
       }
     }
     //
-    unsigned int max_digits = nine_digits;
+    int decimal_places = significant_digits - (exp10? 2 : 1);
+    unsigned long long max_digits = (exp10? fifteen_digits : sixteen_digits);
     integer                 = (unsigned int)value;
     for (unsigned int i = integer; i >= 10; i /= 10) {
       --decimal_places;
       max_digits /= 10;
     }
-    double remainder = (value - (double)integer) * (double)max_digits;
-    decimal          = (unsigned int)remainder;
+    double diff = value - (double)integer;
+    double remainder = diff * (double)max_digits;
+    decimal          = (unsigned long long)remainder;
     remainder -= (double)decimal;
-    decimal += (unsigned int)(2.0 * remainder);
+    decimal += (unsigned long long)(2.0 * remainder); // round up
     if (decimal >= max_digits) {
       decimal = 0;
       ++integer;
@@ -168,14 +171,15 @@ struct float_to_string_fn {
     }
     if (std::isinf(value)) {
       if (bneg)
-        memcpy(output, "-Inf", 4);
+        memcpy(output, "-Infinity", 9);
       else
-        memcpy(output, "Inf", 3);
-      return bneg ? 4 : 3;
+        memcpy(output, "Infinity", 8);
+      return bneg ? 9 : 8;
     }
 
     // dissect value into components
-    unsigned int integer = 0, decimal = 0;
+    unsigned int integer = 0;
+    unsigned long long decimal = 0;
     int exp10          = 0;
     int decimal_places = dissect_value(value, integer, decimal, exp10);
     //
@@ -190,7 +194,7 @@ struct float_to_string_fn {
     // decimal
     *ptr++ = '.';
     if (decimal_places) {
-      char buffer[10];
+      char buffer[17];
       char* pb = buffer;
       while (decimal_places--) {
         *pb++ = (char)('0' + (decimal % 10));
@@ -206,9 +210,8 @@ struct float_to_string_fn {
       if (exp10 < 0) {
         *ptr++ = '-';
         exp10  = -exp10;
-      } else
-        *ptr++ = '+';
-      if (exp10 < 10) *ptr++ = '0';  // extra zero-pad
+      }
+      // if (exp10 < 10) *ptr++ = '0';  // extra zero-pad
       ptr = int2str(exp10, ptr);
     }
     // done
@@ -232,7 +235,8 @@ struct float_to_string_fn {
     if (std::isinf(value)) return 3 + (int)bneg;  // Inf
 
     // dissect float into parts
-    unsigned int integer = 0, decimal = 0;
+    unsigned int integer = 0;
+    unsigned long long decimal = 0;
     int exp10          = 0;
     int decimal_places = dissect_value(value, integer, decimal, exp10);
     // now count up the components
@@ -252,8 +256,11 @@ struct float_to_string_fn {
       ++count;  // always include .0
     // exponent
     if (exp10) {
-      count += 2;  // 'e±'
-      if (exp10 < 0) exp10 = -exp10;
+      count ++;  // 'e±'
+      if (exp10 < 0) {
+        count ++;
+        exp10 = -exp10;
+      }
       count += (int)(exp10 < 10);  // padding
       while (exp10 > 0) {
         exp10 /= 10;
@@ -265,21 +272,21 @@ struct float_to_string_fn {
 };
 
 template <typename FloatType>
-struct from_floats_fn {
+struct float_to_string_fn {
   column_device_view d_floats;
   size_type* d_offsets;
   char* d_chars;
 
   __device__ size_type compute_output_size(FloatType value)
   {
-    float_to_string_fn fts;
+    ftos_converter fts;
     return static_cast<size_type>(fts.compute_ftos_size(static_cast<double>(value)));
   }
 
   __device__ void float_to_string(size_type idx)
   {
     FloatType value = d_floats.element<FloatType>(idx);
-    float_to_string_fn fts;
+    ftos_converter fts;
     fts.float_to_string(static_cast<double>(value), d_chars + d_offsets[idx]);
   }
 
@@ -302,7 +309,7 @@ struct from_floats_fn {
  *
  * The template function declaration ensures only float types are allowed.
  */
-struct dispatch_from_floats_fn {
+struct dispatch_float_to_string_fn {
   template <typename FloatType, std::enable_if_t<std::is_floating_point_v<FloatType>>* = nullptr>
   std::unique_ptr<column> operator()(column_view const& floats,
                                      rmm::cuda_stream_view stream,
@@ -316,7 +323,7 @@ struct dispatch_from_floats_fn {
     rmm::device_buffer null_mask = cudf::detail::copy_bitmask(floats, stream, mr);
 
     auto [offsets, chars] =
-      cudf::strings::detail::make_strings_children(from_floats_fn<FloatType>{d_column}, strings_count, stream, mr);
+      cudf::strings::detail::make_strings_children(float_to_string_fn<FloatType>{d_column}, strings_count, stream, mr);
 
     return make_strings_column(strings_count,
                                std::move(offsets),
@@ -331,30 +338,32 @@ struct dispatch_from_floats_fn {
                                      rmm::cuda_stream_view,
                                      rmm::mr::device_memory_resource*) const
   {
-    CUDF_FAIL("Values for from_floats function must be a float type.");
+    CUDF_FAIL("Values for float_to_string function must be a float type.");
   }
 };
 
 }  // namespace
 
 // This will convert all float column types into a strings column.
-std::unique_ptr<column> from_floats(column_view const& floats,
+std::unique_ptr<column> float_to_string(column_view const& floats,
                                     rmm::cuda_stream_view stream,
                                     rmm::mr::device_memory_resource* mr)
 {
   size_type strings_count = floats.size();
   if (strings_count == 0) return make_empty_column(type_id::STRING);
 
-  return type_dispatcher(floats.type(), dispatch_from_floats_fn{}, floats, stream, mr);
+  return type_dispatcher(floats.type(), dispatch_float_to_string_fn{}, floats, stream, mr);
 }
 
 }  // namespace detail
 
 // external API
-std::unique_ptr<column> from_floats(column_view const& floats, rmm::mr::device_memory_resource* mr)
+std::unique_ptr<column> float_to_string(column_view const& floats, 
+                                      rmm::cuda_stream_view stream, 
+                                      rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::from_floats(floats, cudf::get_default_stream(), mr);
+  return detail::float_to_string(floats, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
