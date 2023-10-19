@@ -178,10 +178,11 @@ struct ftos_converter {
       bneg  = true;
     }
     if (std::isinf(value)) {
-      if (bneg)
+      if (bneg) {
         memcpy(output, "-Infinity", 9);
-      else
+      } else {
         memcpy(output, "Infinity", 8);
+      }
       return bneg ? 9 : 8;
     }
 
