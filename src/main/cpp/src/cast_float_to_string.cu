@@ -172,11 +172,14 @@ struct ftos_converter {
       memcpy(output, "NaN", 3);
       return 3;
     }
-    bool bneg = false;
-    if (signbit(value)) {  // handles -0.0 too
-      value = -value;
-      bneg  = true;
-    }
+    bool const bneg = [&value]() {
+      if (signbit(value)) {  // handles -0.0 too
+        value = -value;
+        return true;
+      } else {
+        return false;
+      }
+    }();
     if (std::isinf(value)) {
       if (bneg) {
         memcpy(output, "-Infinity", 9);
