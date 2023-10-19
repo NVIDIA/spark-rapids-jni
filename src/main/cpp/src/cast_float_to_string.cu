@@ -52,15 +52,14 @@ namespace {
 struct ftos_converter {
   // significant digits is independent of scientific notation range
   // digits more than this may require using long values instead of ints
-  static constexpr unsigned int significant_digits = 17;
-  // maximum power-of-10 that will fit in 32-bits
-  // static constexpr unsigned long long nine_digits = 1000000000;  // 1x10^9
-  // static constexpr unsigned long long fifteen_digits = 1000000000000000;
-  static constexpr unsigned long long sixteen_digits = 10000000000000000;
+  static constexpr unsigned int significant_digits_float = 9;
+  static constexpr unsigned int significant_digits_double = 17;
+  static constexpr unsigned int eight_digits = 100000000;  // 1x10^8
+  static constexpr unsigned long long sixteen_digits = 10000000000000000; // 1x10^16
   // Range of numbers here is for normalizing the value.
   // If the value is above or below the following limits, the output is converted to
   // scientific notation in order to show (at most) the number of significant digits.
-  static constexpr double upper_limit = 10000000;  // max is 1x10^7
+  static constexpr double upper_limit = 10000000;  // Spark's max is 1x10^7
   static constexpr double lower_limit = 0.001;      // printf uses scientific notation below this
   // Tables for doing normalization: converting to exponent form
   // IEEE double float has maximum exponent of 305 so these should cover everything
@@ -75,7 +74,7 @@ struct ftos_converter {
       *output++ = '0';
       return output;
     }
-    char buffer[significant_digits];  // should be big-enough for significant digits
+    char buffer[significant_digits_double];  // should be big-enough for significant digits
     char* ptr = buffer;
     while (value > 0) {
       *ptr++ = (char)('0' + (value % 10));
@@ -94,7 +93,8 @@ struct ftos_converter {
   __device__ int dissect_value(double value,
                                unsigned int& integer,
                                unsigned long long& decimal,
-                               int& exp10)
+                               int& exp10,
+                               bool is_float = false)
   {
     // normalize step puts value between lower-limit and upper-limit
     // by adjusting the exponent up or down
@@ -121,8 +121,8 @@ struct ftos_converter {
     //
     // int decimal_places = significant_digits - (exp10? 2 : 1);
     // unsigned long long max_digits = (exp10? fifteen_digits : sixteen_digits);
-    int decimal_places = significant_digits - 1;
-    unsigned long long max_digits = sixteen_digits;
+    int decimal_places = (is_float? significant_digits_float: significant_digits_double) - 1;
+    unsigned long long max_digits = (is_float? eight_digits: sixteen_digits);
     double temp_value = value;
     while (temp_value < 1.0 && temp_value > 0.0) {
       max_digits *= 10;
@@ -165,7 +165,7 @@ struct ftos_converter {
    * @param output Memory to write output characters.
    * @return Number of bytes written.
    */
-  __device__ int float_to_string(double value, char* output)
+  __device__ int float_to_string(double value, char* output, bool is_float)
   {
     // check for valid value
     if (std::isnan(value)) {
@@ -193,7 +193,7 @@ struct ftos_converter {
     unsigned int integer = 0;
     unsigned long long decimal = 0;
     int exp10          = 0;
-    int decimal_places = dissect_value(value, integer, decimal, exp10);
+    int decimal_places = dissect_value(value, integer, decimal, exp10, is_float);
     //
     // now build the string from the
     // components: sign, integer, decimal, exp10, decimal_places
@@ -206,7 +206,7 @@ struct ftos_converter {
     // decimal
     *ptr++ = '.';
     if (decimal_places) {
-      char buffer[18];
+      char buffer[significant_digits_double];
       char* pb = buffer;
       while (decimal_places--) {
         *pb++ = (char)('0' + (decimal % 10));
@@ -236,7 +236,7 @@ struct ftos_converter {
    * @param value Float value to convert.
    * @return Number of bytes required.
    */
-  __device__ int compute_ftos_size(double value)
+  __device__ int compute_ftos_size(double value, bool is_float)
   {
     if (std::isnan(value)) return 3;  // NaN
     bool bneg = false;
@@ -250,7 +250,7 @@ struct ftos_converter {
     unsigned int integer = 0;
     unsigned long long decimal = 0;
     int exp10          = 0;
-    int decimal_places = dissect_value(value, integer, decimal, exp10);
+    int decimal_places = dissect_value(value, integer, decimal, exp10, is_float);
     // now count up the components
     // sign
     int count = (int)bneg;
@@ -291,14 +291,16 @@ struct float_to_string_fn {
   __device__ size_type compute_output_size(FloatType value)
   {
     ftos_converter fts;
-    return static_cast<size_type>(fts.compute_ftos_size(static_cast<double>(value)));
+    bool is_float = std::is_same_v<FloatType, float>;
+    return static_cast<size_type>(fts.compute_ftos_size(static_cast<double>(value), is_float));
   }
 
   __device__ void float_to_string(size_type idx)
   {
     FloatType value = d_floats.element<FloatType>(idx);
     ftos_converter fts;
-    fts.float_to_string(static_cast<double>(value), d_chars + d_offsets[idx]);
+    bool is_float = std::is_same_v<FloatType, float>;
+    fts.float_to_string(static_cast<double>(value), d_chars + d_offsets[idx], is_float);
   }
 
   __device__ void operator()(size_type idx)

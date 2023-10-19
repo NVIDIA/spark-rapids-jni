@@ -42,7 +42,7 @@ TEST_F(FloatToStringTests, FromFloats32)
                               5,
                               -4,
                               std::numeric_limits<float>::quiet_NaN(),
-                              839542223232.79,
+                              123456789012.34,
                               -0.0};
   std::vector<char const*> h_expected{
     "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "8.3954222323279E11", "-0.0"};
