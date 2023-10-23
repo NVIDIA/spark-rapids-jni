@@ -25,6 +25,27 @@ import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 
 public class ParseURITest {
+  void buildExpectedAndRun(String[] testData) {
+    String[] expectedStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String scheme = null;
+      try {
+        URI uri = new URI(testData[i]);
+        scheme = uri.getScheme();
+      } catch (URISyntaxException ex) {
+        // leave the scheme null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the scheme null if URI is null
+      }
+      expectedStrings[i] = scheme;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
+      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
   @Test
   void parseURIToProtocolSparkTest() {
     String[] testData = {"https://nvidia.com/https&#://nvidia.com",
@@ -51,24 +72,7 @@ public class ParseURITest {
       "",
       null};
 
-    String[] expectedStrings = new String[testData.length];
-    for (int i=0; i<testData.length; i++) {
-      String scheme = null;
-      try {
-        URI uri = new URI(testData[i]);
-        scheme = uri.getScheme();
-      } catch (URISyntaxException ex) {
-        // leave the scheme null if URI is invalid
-      } catch (NullPointerException ex) {
-        // leave the scheme null if URI is null
-      }
-      expectedStrings[i] = scheme;
-    }
-    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
-      AssertUtils.assertColumnsAreEqual(expected, result);
-    }
+    buildExpectedAndRun(testData);
   }
 
   @Test
@@ -76,24 +80,7 @@ public class ParseURITest {
     String[] testData = {"https://nvidia.com/%4EV%49%44%49%41",
       "http://%77%77%77.%4EV%49%44%49%41.com"};
 
-    String[] expectedStrings = new String[testData.length];
-    for (int i=0; i<testData.length; i++) {
-      String scheme = null;
-      try {
-        URI uri = new URI(testData[i]);
-        scheme = uri.getScheme();
-      } catch (URISyntaxException ex) {
-        // leave the scheme null if URI is invalid
-      } catch (NullPointerException ex) {
-        // leave the scheme null if URI is null
-      }
-      expectedStrings[i] = scheme;
-    }
-    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
-      AssertUtils.assertColumnsAreEqual(expected, result);
-    }
+    buildExpectedAndRun(testData);
   }
 
   @Test
@@ -104,24 +91,7 @@ public class ParseURITest {
       "https://192.168.1/",
       "https://280.100.1.1/"};
 
-    String[] expectedStrings = new String[testData.length];
-    for (int i=0; i<testData.length; i++) {
-      String scheme = null;
-      try {
-        URI uri = new URI(testData[i]);
-        scheme = uri.getScheme();
-      } catch (URISyntaxException ex) {
-        // leave the scheme null if URI is invalid
-      } catch (NullPointerException ex) {
-        // leave the scheme null if URI is null
-      }
-      expectedStrings[i] = scheme;
-    }
-    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
-      AssertUtils.assertColumnsAreEqual(expected, result);
-    }
+    buildExpectedAndRun(testData);
   }
 
   @Test
@@ -134,23 +104,6 @@ public class ParseURITest {
       "https://[::1]",
       "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443"};
     
-    String[] expectedStrings = new String[testData.length];
-    for (int i=0; i<testData.length; i++) {
-      String scheme = null;
-      try {
-        URI uri = new URI(testData[i]);
-        scheme = uri.getScheme();
-      } catch (URISyntaxException ex) {
-        // leave the scheme null if URI is invalid
-      } catch (NullPointerException ex) {
-        // leave the scheme null if URI is null
-      }
-      expectedStrings[i] = scheme;
-    }
-    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
-      AssertUtils.assertColumnsAreEqual(expected, result);
-    }
+    buildExpectedAndRun(testData);
   }
 }
