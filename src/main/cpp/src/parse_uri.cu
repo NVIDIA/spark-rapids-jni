@@ -39,15 +39,12 @@ namespace {
 // utility to validate a character is valid in a URI
 constexpr bool is_valid_character(char ch, bool alphanum_only)
 {
-  if (alphanum_only) {
-    if (ch >= '-' && ch <= '9' && ch != '/') return true;  // 0-9 and .-
-    if (ch >= 'A' && ch <= 'Z') return true;               // A-Z
-    if (ch >= 'a' && ch <= 'z') return true;               // a-z
-  } else {
-    if (ch >= '!' && ch <= ':' && ch != '"') return true;  // 0-9 and !#%&'()*+,-./:
-    if (ch >= '=' && ch <= ']' && ch != '>') return true;  // A-Z and =?@[]
-    if (ch >= '_' && ch <= 'z' && ch != '`') return true;  // a-z and _
-  }
+  return alphanum_only ? (ch >= '-' && ch <= '9' && ch != '/') ||    // 0-9 and .-
+                           (ch >= 'A' && ch <= 'Z') ||               // A-Z
+                           (ch >= 'a' && ch <= 'z')                  // a-z
+                       : (ch >= '!' && ch <= ':' && ch != '"') ||    // 0-9 and !#%&'()*+,-./:
+                           (ch >= '=' && ch <= ']' && ch != '>') ||  // A-Z and =?@[]
+                           (ch >= '_' && ch <= 'z' && ch != '`');    // a-z and _
   return false;
 }
 
