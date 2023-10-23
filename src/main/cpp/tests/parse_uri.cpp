@@ -93,3 +93,50 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
+
+TEST_F(ParseURIProtocolTests, IP6)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://[fe80::]",
+    "https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+    "https://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
+    "https://[2001:db8::1:0]",
+    "http://[2001:db8::2:1]",
+    "https://[::1]",
+    "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "http", "https", "https"});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIProtocolTests, IP4)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://192.168.1.100/",
+    "https://192.168.1.100:8443/",
+    "https://192.168.1.100.5/",
+    "https://192.168.1/",
+    "https://280.100.1.1/",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "https"});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIProtocolTests, UTF8)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://nvidia.com/%4EV%49%44%49%41",
+    "http://%77%77%77.%4EV%49%44%49%41.com",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"https", "http"});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}

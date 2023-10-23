@@ -44,8 +44,8 @@ constexpr bool is_valid_character(char ch, bool alphanum_only)
     if (ch >= 'A' && ch <= 'Z') return true;               // A-Z
     if (ch >= 'a' && ch <= 'z') return true;               // a-z
   } else {
-    if (ch >= '!' && ch <= ';' && ch != '"') return true;  // 0-9 and !#%&'()*+,-./
-    if (ch >= '=' && ch <= 'Z' && ch != '>') return true;  // A-Z and =?@
+    if (ch >= '!' && ch <= ':' && ch != '"') return true;  // 0-9 and !#%&'()*+,-./:
+    if (ch >= '=' && ch <= ']' && ch != '>') return true;  // A-Z and =?@[]
     if (ch >= '_' && ch <= 'z' && ch != '`') return true;  // a-z and _
   }
   return false;

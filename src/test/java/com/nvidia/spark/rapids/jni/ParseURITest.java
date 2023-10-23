@@ -26,7 +26,7 @@ import ai.rapids.cudf.ColumnVector;
 
 public class ParseURITest {
   @Test
-  void parseURIToProtocolTest() {
+  void parseURIToProtocolSparkTest() {
     String[] testData = {"https://nvidia.com/https&#://nvidia.com",
       "https://http://www.nvidia.com",
       "filesystemmagicthing://bob.yaml",
@@ -50,6 +50,89 @@ public class ParseURITest {
       "http//www.nvidia.com/q",
       "",
       null};
+
+    String[] expectedStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String scheme = null;
+      try {
+        URI uri = new URI(testData[i]);
+        scheme = uri.getScheme();
+      } catch (URISyntaxException ex) {
+        // leave the scheme null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the scheme null if URI is null
+      }
+      expectedStrings[i] = scheme;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
+      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void parseURIToProtocolUTF8Test() {
+    String[] testData = {"https://nvidia.com/%4EV%49%44%49%41",
+      "http://%77%77%77.%4EV%49%44%49%41.com"};
+
+    String[] expectedStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String scheme = null;
+      try {
+        URI uri = new URI(testData[i]);
+        scheme = uri.getScheme();
+      } catch (URISyntaxException ex) {
+        // leave the scheme null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the scheme null if URI is null
+      }
+      expectedStrings[i] = scheme;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
+      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void parseURIToProtocolIP4Test() {
+    String[] testData = {"https://192.168.1.100/",
+      "https://192.168.1.100:8443/",
+      "https://192.168.1.100.5/",
+      "https://192.168.1/",
+      "https://280.100.1.1/"};
+
+    String[] expectedStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String scheme = null;
+      try {
+        URI uri = new URI(testData[i]);
+        scheme = uri.getScheme();
+      } catch (URISyntaxException ex) {
+        // leave the scheme null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the scheme null if URI is null
+      }
+      expectedStrings[i] = scheme;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
+      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
+      AssertUtils.assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void parseURIToProtocolIP6Test() {
+    String[] testData = {"https://[fe80::]",
+      "https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+      "https://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
+      "https://[2001:db8::1:0]",
+      "http://[2001:db8::2:1]",
+      "https://[::1]",
+      "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443"};
     
     String[] expectedStrings = new String[testData.length];
     for (int i=0; i<testData.length; i++) {
