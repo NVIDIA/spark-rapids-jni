@@ -81,13 +81,13 @@ public class CastStrings {
   }
 
   /**
-   * Convert a float column to a string column.
+   * Convert a float column to a formatted string column.
    *
    * @param cv the column data to process
    * @return the converted column
    */
-  public static ColumnVector fromFloat(ColumnView cv) {
-    return new ColumnVector(fromFloat(cv.getNativeView()));
+  public static ColumnVector formatFloat(ColumnView cv, int d) {
+    return new ColumnVector(formatFloat(cv.getNativeView(), d));
   }
 
   /**
@@ -147,7 +147,7 @@ public class CastStrings {
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
-  private static native long fromFloat(long nativeColumnView);
+  private static native long formatFloat(long nativeColumnView, int d);
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);

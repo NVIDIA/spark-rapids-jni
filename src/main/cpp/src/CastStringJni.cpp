@@ -109,8 +109,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toFloat(
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloat(
-  JNIEnv* env, jclass, jlong input_column, jint j_dtype)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_formatFloat(
+  JNIEnv* env, jclass, jlong input_column, jint d, jint j_dtype)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
@@ -119,7 +119,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloat(
 
     cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(
-      spark_rapids_jni::float_to_string(cv, cudf::get_default_stream()));
+      spark_rapids_jni::format_float(cv, d, cudf::get_default_stream()));
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }

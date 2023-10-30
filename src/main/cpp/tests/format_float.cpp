@@ -31,9 +31,9 @@ using namespace cudf;
 
 constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::ALL_ERRORS};
 
-struct FloatToStringTests : public cudf::test::BaseFixture {};
+struct FormatFloatTests : public cudf::test::BaseFixture {};
 
-TEST_F(FloatToStringTests, FromFloats32)
+TEST_F(FormatFloatTests, FormatFloats32)
 {
   std::vector<float> h_floats{100,
                               654321.25,
@@ -45,14 +45,14 @@ TEST_F(FloatToStringTests, FromFloats32)
                               123456789012.34,
                               -0.0};
   std::vector<char const*> h_expected{
-    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "8.3954222323279E11", "-0.0"};
+    "100.0", "654,321.25", "-12,761.125", "0.0", "5.0", "-4.0", "NaN", "8.3954222323279E11", "-0.0"};
 
   cudf::test::fixed_width_column_wrapper<float> floats(
     h_floats.begin(),
     h_floats.end(),
     thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
 
-  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
+  auto results = spark_rapids_jni::format_float(floats, 5, cudf::get_default_stream());
 
   cudf::test::strings_column_wrapper expected(
     h_expected.begin(),
@@ -62,7 +62,7 @@ TEST_F(FloatToStringTests, FromFloats32)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }
 
-TEST_F(FloatToStringTests, FromFloats64)
+TEST_F(FormatFloatTests, FormatFloats64)
 {
   std::vector<double> h_floats{100,
                                654321.25,
@@ -76,7 +76,7 @@ TEST_F(FloatToStringTests, FromFloats64)
                                839542223232.794248339,
                                -0.0};
   std::vector<char const*> h_expected{
-    "100.0", "654321.25", "-12761.125", "1.1234567891234568", "1.234567891234568E-19", 
+    "100.0", "654,321.25", "-12,761.125", "1.1234567891234568", "1.234567891234568E-19", 
     "0.0", "5.0", "-4.0", "NaN", "8.395422232327942E11", "-0.0"};
 
   cudf::test::fixed_width_column_wrapper<double> floats(
@@ -84,7 +84,7 @@ TEST_F(FloatToStringTests, FromFloats64)
     h_floats.end(),
     thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
 
-  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
+  auto results = spark_rapids_jni::format_float(floats, 5, cudf::get_default_stream());
 
   cudf::test::strings_column_wrapper expected(
     h_expected.begin(),
