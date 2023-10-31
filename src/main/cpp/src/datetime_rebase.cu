@@ -33,13 +33,13 @@
 namespace {
 
 // Convert a date in Julian calendar to the number of days since epoch.
+// Follow the implementation of `days_from_julian` from
+// https://howardhinnant.github.io/date_algorithms.html
 __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day const &ymd) {
   auto const month = static_cast<uint32_t>(ymd.month());
   auto const day = static_cast<uint32_t>(ymd.day());
   auto const year = static_cast<int32_t>(ymd.year()) - (month <= 2);
 
-  // Follow the implementation of `days_from_julian` from
-  // https://howardhinnant.github.io/date_algorithms.html
   int32_t const era = (year >= 0 ? year : year - 3) / 4;
   uint32_t const year_of_era = static_cast<uint32_t>(year - era * 4);                    // [0, 3]
   uint32_t const day_of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1; // [0, 365]
@@ -95,6 +95,8 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
 }
 
 // Convert a number of Julian days since epoch to local date in Julian calendar.
+// Follow the implementation of `julian_from_days` from
+// https://howardhinnant.github.io/date_algorithms.html
 __device__ cuda::std::chrono::year_month_day julian_from_days(int32_t days) {
   auto const z = days + 719470;
   int32_t const era = (z >= 0 ? z : z - 1460) / 1461;
