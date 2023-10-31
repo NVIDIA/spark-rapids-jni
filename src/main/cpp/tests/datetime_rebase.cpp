@@ -33,7 +33,7 @@ using micros_col =
 
 struct TimestampRebaseTest : public cudf::test::BaseFixture {};
 
-TEST_F(TimestampRebaseTest, DayTimestamp) {
+TEST_F(TimestampRebaseTest, RebaseDaysToJulian) {
   auto const ts_col = days_col{-719162, -354285, -141714, -141438, -141437, -141432,
                                -141427, -31463,  -31453,  -1,      0,       18335};
 
@@ -60,6 +60,15 @@ TEST_F(TimestampRebaseTest, DayTimestamp) {
                                    -141427, -31463,  -31453,  -1,      0,       18335};
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
   }
+}
+
+TEST_F(TimestampRebaseTest, RebaseDaysToGregorian) {
+  auto const ts_col = days_col{-719164, -354280, -141704, -141428, -141427, -141427,
+                               -141427, -31463,  -31453,  -1,      0,       18335};
+  auto const rebased = spark_rapids_jni::rebase_julian_to_gregorian(ts_col);
+  auto const expected = days_col{-719162, -354285, -141714, -141438, -141427, -141427,
+                                 -141427, -31463,  -31453,  -1,      0,       18335};
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
 }
 
 TEST_F(TimestampRebaseTest, DayTimestampOfNegativeYear) {

@@ -132,10 +132,13 @@ std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const &
                     output->mutable_view().begin<cudf::timestamp_D>(),
                     [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
                       auto const days_ts = d_input[idx].time_since_epoch().count();
-                      auto const ymd = julian_from_days(days_ts);
+                      if (days_ts >= -141427) { // Gregorian start day
+                        return d_input[idx];
+                      }
 
                       // Reinterpret year/month/day as in Gregorian calendar then compute the days
                       // since epoch.
+                      auto const ymd = julian_from_days(days_ts);
                       auto const result =
                           cuda::std::chrono::local_days{ymd}.time_since_epoch().count();
                       return cudf::timestamp_D{cudf::duration_D{result}};
