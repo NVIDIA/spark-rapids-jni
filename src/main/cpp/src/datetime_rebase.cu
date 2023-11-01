@@ -205,7 +205,7 @@ __device__ __inline__ time_components get_time_components(int64_t micros) {
 // Convert the given number of microseconds since the epoch day 1970-01-01T00:00:00Z to a local
 // date-time in Proleptic Gregorian calendar, reinterpreting the result as in Julian calendar, then
 // compute the number of microseconds since the epoch from that Julian local date-time.
-// This is to match with Apache Spark's `rebaseGregorianToJulianMicros` function with timezone
+// This is to match with Apache Spark's `localRebaseGregorianToJulianMicros` function with timezone
 // fixed to UTC.
 std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const &input,
                                                          rmm::cuda_stream_view stream,
@@ -261,7 +261,11 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
   return output;
 }
 
-// TODO
+// Convert the given number of microseconds since the epoch day 1970-01-01T00:00:00Z to a local
+// date-time in Julian calendar, reinterpreting the result as in Proleptic Gregorian calendar, then
+// compute the number of microseconds since the epoch from that Gregorian local date-time.
+// This is to match with Apache Spark's `localRebaseJulianToGregorianMicros` function with timezone
+// fixed to UTC.
 std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const &input,
                                                          rmm::cuda_stream_view stream,
                                                          rmm::mr::device_memory_resource *mr) {

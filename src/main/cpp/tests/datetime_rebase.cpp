@@ -18,10 +18,8 @@
 //
 
 #include <cudf/strings/convert/convert_datetime.hpp>
-#include <cudf/strings/convert/convert_durations.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/unary.hpp>
-#include <cudf/wrappers/durations.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
@@ -71,7 +69,7 @@ TEST_F(TimestampRebaseTest, RebaseDaysToGregorian) {
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
 }
 
-TEST_F(TimestampRebaseTest, DayTimestampOfNegativeYear) {
+TEST_F(TimestampRebaseTest, RebaseDaysOfNegativeYearsToJulian) {
   // Negative years cannot be parsed by cudf from strings.
   auto const ts_col = days_col{
       -1121294, // -1100-1-1
