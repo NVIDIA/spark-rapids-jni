@@ -123,7 +123,7 @@ void throw_if_error(rmm::device_uvector<char> const &input_json,
         sizeof(SymbolOffsetT), cudaMemcpyDeviceToHost, stream.value()));
     stream.synchronize();
 
-    constexpr SymbolOffsetT extension = 100u;
+    constexpr SymbolOffsetT extension = 10u;
 
     // Warning: SymbolOffsetT is unsigned type thus we need to be carefull with subtractions.
     auto const begin_print_idx =
