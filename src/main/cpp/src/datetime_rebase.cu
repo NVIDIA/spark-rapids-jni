@@ -97,7 +97,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const &
 // Convert a number of Julian days since epoch to local date in Julian calendar.
 // Follow the implementation of `julian_from_days` from
 // https://howardhinnant.github.io/date_algorithms.html
-__device__ cuda::std::chrono::year_month_day julian_from_days(int32_t days) {
+__device__ __inline__ cuda::std::chrono::year_month_day julian_from_days(int32_t days) {
   auto const z = days + 719470;
   int32_t const era = (z >= 0 ? z : z - 1460) / 1461;
   uint32_t const day_of_era = static_cast<uint32_t>(z - era * 1461);   // [0, 1460]
@@ -261,6 +261,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
   return output;
 }
 
+// TODO
 std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const &input,
                                                          rmm::cuda_stream_view stream,
                                                          rmm::mr::device_memory_resource *mr) {
@@ -286,25 +287,16 @@ std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const
           return d_input[idx];
         }
 
-        // Convert the input into local date-time in Proleptic Gregorian calendar.
+        // Convert the input into local date-time in Julian calendar.
         auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
             cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
-        auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
+        auto const ymd = julian_from_days(days_since_epoch.time_since_epoch().count());
         auto const timeparts = get_time_components(micros_ts);
 
-        auto constexpr julian_end = cuda::std::chrono::year_month_day{
-            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
-        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
-            cuda::std::chrono::year{1582}, cuda::std::chrono::month{10},
-            cuda::std::chrono::day{15}};
-
-        // Reinterpret the local date-time as in Julian calendar and compute microseconds since
-        // the epoch from that Julian local date-time.
-        // If the input date is outside of both calendars, consider it as it is a local date
-        // given at `gregorian_start` (-141427 Julian days since epoch).
-        auto const julian_days =
-            (ymd > julian_end && ymd < gregorian_start) ? -141427 : days_from_julian(ymd);
-        int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
+        // Reinterpret the local date-time as in Gregorian calendar and compute microseconds since
+        // the epoch from that Gregorian local date-time.
+        auto const gregorian_days = cuda::std::chrono::local_days(ymd).time_since_epoch().count();
+        int64_t result = (gregorian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
                          (timeparts.minute * 60L) + timeparts.second;
         result *= MICROS_PER_SECOND; // to microseconds
         result += timeparts.subsecond;
