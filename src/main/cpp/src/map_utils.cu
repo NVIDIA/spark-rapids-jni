@@ -125,7 +125,7 @@ void throw_if_error(rmm::device_uvector<char> const &input_json,
 
     constexpr SymbolOffsetT extension = 10u;
 
-    // Warning: SymbolOffsetT is unsigned type thus we need to be carefull with subtractions.
+    // Warning: SymbolOffsetT is unsigned type thus we need to be careful with subtractions.
     auto const begin_print_idx =
         error_index > extension ? error_index - extension : SymbolOffsetT{0};
     auto const end_print_idx =
