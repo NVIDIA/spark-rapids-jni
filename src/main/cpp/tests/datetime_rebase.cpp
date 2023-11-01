@@ -56,7 +56,7 @@ TEST_F(TimestampRebaseTest, RebaseDaysToJulian) {
     auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
     auto const expected = days_col{-719164, -354280, -141704, -141428, -141427, -141427,
                                    -141427, -31463,  -31453,  -1,      0,       18335};
-    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
   }
 }
 
@@ -66,22 +66,30 @@ TEST_F(TimestampRebaseTest, RebaseDaysToGregorian) {
   auto const rebased = spark_rapids_jni::rebase_julian_to_gregorian(ts_col);
   auto const expected = days_col{-719162, -354285, -141714, -141438, -141427, -141427,
                                  -141427, -31463,  -31453,  -1,      0,       18335};
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased, cudf::test::debug_output_level::ALL_ERRORS);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
 }
 
-TEST_F(TimestampRebaseTest, RebaseDaysOfNegativeYearsToJulian) {
+TEST_F(TimestampRebaseTest, RebaseDaysOfNegativeYears) {
   // Negative years cannot be parsed by cudf from strings.
-  auto const ts_col = days_col{
+  auto const gregorian_days = days_col{
       -1121294, // -1100-1-1
       -1100777, // -1044-3-5
       -735535   // -44-3-5
   };
-  auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
-  auto const expected = days_col{-1121305, -1100787, -735537};
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
+  auto const julian_days = days_col{-1121305, -1100787, -735537};
+
+  {
+    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(gregorian_days);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(julian_days, *rebased);
+  }
+
+  {
+    auto const rebased = spark_rapids_jni::rebase_julian_to_gregorian(julian_days);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(gregorian_days, *rebased);
+  }
 }
 
-TEST_F(TimestampRebaseTest, MicroTimestamp) {
+TEST_F(TimestampRebaseTest, RebaseMicroToJulian) {
   auto const ts_col =
       micros_col{-62135593076345679L, -30610213078876544L, -12244061221876544L, -12220243200000000L,
                  -12219639001448163L, -12219292799000001L, -45446999900L,       1L,
@@ -115,18 +123,34 @@ TEST_F(TimestampRebaseTest, MicroTimestamp) {
   }
 }
 
-TEST_F(TimestampRebaseTest, MicroTimestampOfNegativeYear) {
-  auto const ts_col = micros_col{
+TEST_F(TimestampRebaseTest, RebaseMicroToGregorian) {
+  auto const ts_col =
+      micros_col{-62135765876345679L, -30609781078876544L, -12243197221876544L, -12219379200000000L,
+                 -12219207001448163L, -12219292799000001L, -45446999900L,       1L,
+                 1584178381500000L};
+  auto const rebased = spark_rapids_jni::rebase_julian_to_gregorian(ts_col);
+  auto const expected =
+      micros_col{-62135593076345679L, -30610213078876544L, -12244061221876544L, -12220243200000000L,
+                 -12219207001448163L, -12219292799000001L, -45446999900L,       1L,
+                 1584178381500000L};
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
+}
+
+TEST_F(TimestampRebaseTest, RebaseMicroOfNegativeYears) {
+  auto const gregorian_ts = micros_col{
       -93755660276345679L,  //-1001-01-01T01:02:03.654321
       -219958671476876544L, //-5001-10-15T01:02:03.123456
       -62188210676345679L   //-0001-05-03T01:02:03.654321
   };
+  auto const julian_ts = micros_col{-93756524276345679L, -219962127476876544L, -62188383476345679L};
 
-  // Check the rebased values.
   {
-    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(ts_col);
-    auto const expected =
-        micros_col{-93756524276345679L, -219962127476876544L, -62188383476345679L};
-    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *rebased);
+    auto const rebased = spark_rapids_jni::rebase_gregorian_to_julian(gregorian_ts);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(julian_ts, *rebased);
+  }
+
+  {
+    auto const rebased = spark_rapids_jni::rebase_julian_to_gregorian(julian_ts);
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(gregorian_ts, *rebased);
   }
 }
