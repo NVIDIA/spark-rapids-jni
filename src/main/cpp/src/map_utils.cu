@@ -133,8 +133,8 @@ void throw_if_error(rmm::device_uvector<char> const &input_json,
     auto const print_size = end_print_idx - begin_print_idx;
     auto const h_input_json = cudf::detail::make_host_vector_sync(
         cudf::device_span<char const>{input_json.data() + begin_print_idx, print_size}, stream);
-    std::cerr << "Substring of the input json with " + std::to_string(extension)
-              << " characters before+after the error location:\n";
+    std::cerr << "Substring in the range [" + std::to_string(begin_print_idx) + ", " +
+                     std::to_string(end_print_idx) + "]" + " of the input (invalid) json:\n";
     std::cerr << std::string(h_input_json.data(), h_input_json.size()) << std::endl;
 
     CUDF_FAIL("JSON Parser encountered an invalid format at location " +
