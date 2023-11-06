@@ -45,7 +45,7 @@ TEST_F(FloatToStringTests, FromFloats32)
                               123456789012.34,
                               -0.0};
   std::vector<char const*> h_expected{
-    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "8.3954222323279E11", "-0.0"};
+    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "1.2345679E11", "-0.0"};
 
   cudf::test::fixed_width_column_wrapper<float> floats(
     h_floats.begin(),
