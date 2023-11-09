@@ -16,6 +16,8 @@
 
 #include "timezones.hpp"
 
+#include <climits>
+
 #include <cudf/wrappers/timestamps.hpp>
 
 #include <cudf_test/base_fixture.hpp>
@@ -30,13 +32,13 @@ using seconds_col =
 struct TimeZoneTest : public cudf::test::BaseFixture {};
 
 TEST_F(TimeZoneTest, ConvertToUTC) {
-    auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({-650019600L});
-    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({-649990800L});
-    auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>({28800});
+    auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, -650019600L, 515527200L, 684867600L});
+    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, -649990800L, 515559600L, 684896400L});
+    auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>({29143, 28800, 32400, 28800});
     auto struct_column = 
-        cudf::test::structs_column_wrapper{{instants_from_utc_col, instants_to_utc_col, utc_offsets_col}, {1}};
+        cudf::test::structs_column_wrapper{{instants_from_utc_col, instants_to_utc_col, utc_offsets_col}, {1, 1, 1, 1}};
     auto offsets =
-        cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 1};
+        cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 4};
     auto list_nullmask = std::vector<bool>(1, 1);
     auto [null_mask, null_count] =
         cudf::test::detail::make_null_mask(list_nullmask.begin(), list_nullmask.end());
@@ -64,13 +66,13 @@ TEST_F(TimeZoneTest, ConvertToUTC) {
 }
 
 TEST_F(TimeZoneTest, ConvertFromUTC) {
-    auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({-650019600L});
-    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({-649990800L});
-    auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>({28800});
+    auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, -650019600L, 515527200L, 684867600L});
+    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, -649990800L, 515559600L, 684896400L});
+    auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>({29143, 28800, 32400, 28800});
     auto struct_column = 
-        cudf::test::structs_column_wrapper{{instants_from_utc_col, instants_to_utc_col, utc_offsets_col}, {1}};
+        cudf::test::structs_column_wrapper{{instants_from_utc_col, instants_to_utc_col, utc_offsets_col}, {1, 1, 1, 1}};
     auto offsets =
-        cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 1};
+        cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 4};
     auto list_nullmask = std::vector<bool>(1, 1);
     auto [null_mask, null_count] =
         cudf::test::detail::make_null_mask(list_nullmask.begin(), list_nullmask.end());
