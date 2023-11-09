@@ -61,11 +61,17 @@ private:
 TEST_F(TimeZoneTest, ConvertToUTC)
 {
     auto const ts_col = seconds_col{
-        0L
+        -1262260800L,
+        0L,
+        1699566167L,
+        568036800L,
     };
     // check the converted to utc version
     auto const expected = seconds_col{
-        -28800L
+        -1262289943L,
+        -28800L,
+        1699537367L,
+        568004400L
     };
     auto const actual = spark_rapids_jni::convert_timestamp_to_utc(
         ts_col,
@@ -80,11 +86,15 @@ TEST_F(TimeZoneTest, ConvertToUTC)
 TEST_F(TimeZoneTest, ConvertFromUTC)
 {
     auto const ts_col = seconds_col{
-        0L
+        -1262260800L,
+        0L,
+        1699566167L
     };
     // check the converted to utc version
     auto const expected = seconds_col{
-        28800L
+        -1262231657L,
+        28800L,
+        1699594967L
     };
     auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
         ts_col,
