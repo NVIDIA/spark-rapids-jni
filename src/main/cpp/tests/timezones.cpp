@@ -25,9 +25,18 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
+ 
+using days_col = 
+    cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, cudf::timestamp_s::rep>;
 
 using seconds_col = 
     cudf::test::fixed_width_column_wrapper<cudf::timestamp_s, cudf::timestamp_s::rep>;
+
+using millis_col = 
+    cudf::test::fixed_width_column_wrapper<cudf::timestamp_ms, cudf::timestamp_s::rep>;
+
+using micros_col = 
+    cudf::test::fixed_width_column_wrapper<cudf::timestamp_us, cudf::timestamp_s::rep>;
 
 class TimeZoneTest : public cudf::test::BaseFixture {
 protected:
@@ -58,7 +67,7 @@ private:
     }
 };
 
-TEST_F(TimeZoneTest, ConvertToUTC)
+TEST_F(TimeZoneTest, ConvertToUTCSeconds)
 {
     auto const ts_col = seconds_col{
         -1262260800L,
@@ -83,7 +92,57 @@ TEST_F(TimeZoneTest, ConvertToUTC)
     CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
 
-TEST_F(TimeZoneTest, ConvertFromUTC)
+TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
+{
+    auto const ts_col = millis_col{
+        -1262260800000L,
+        0L,
+        1699571634312L,
+        568036800000L,
+    };
+    // check the converted to utc version
+    auto const expected = millis_col{
+        -1262289943000L,
+        -28800000L,
+        1699542834312L,
+        568004400000L
+    };
+    auto const actual = spark_rapids_jni::convert_timestamp_to_utc(
+        ts_col,
+        *transitions,
+        1,
+        cudf::get_default_stream(),
+        rmm::mr::get_current_device_resource());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
+}
+
+TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
+{
+    auto const ts_col = micros_col{
+        -1262260800000000L,
+        0L,
+        1699571634312000L,
+        568036800000000L,
+    };
+    // check the converted to utc version
+    auto const expected = micros_col{
+        -1262289943000000L,
+        -28800000000L,
+        1699542834312000L,
+        568004400000000L
+    };
+    auto const actual = spark_rapids_jni::convert_timestamp_to_utc(
+        ts_col,
+        *transitions,
+        1,
+        cudf::get_default_stream(),
+        rmm::mr::get_current_device_resource());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
+}
+
+TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
 {
     auto const ts_col = seconds_col{
         -1262260800L,
@@ -95,6 +154,52 @@ TEST_F(TimeZoneTest, ConvertFromUTC)
         -1262231657L,
         28800L,
         1699594967L
+    };
+    auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
+        ts_col,
+        *transitions,
+        1,
+        cudf::get_default_stream(),
+        rmm::mr::get_current_device_resource());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
+}
+
+TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
+{
+    auto const ts_col = millis_col{
+        -1262260800000L,
+        0L,
+        1699571634312L
+    };
+    // check the converted to utc version
+    auto const expected = millis_col{
+        -1262231657000L,
+        28800000L,
+        1699600434312L
+    };
+    auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
+        ts_col,
+        *transitions,
+        1,
+        cudf::get_default_stream(),
+        rmm::mr::get_current_device_resource());
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
+}
+
+TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
+{
+    auto const ts_col = micros_col{
+        -1262260800000000L,
+        0L,
+        1699571634312000L
+    };
+    // check the converted to utc version
+    auto const expected = micros_col{
+        -1262231657000000L,
+        28800000000L,
+        1699600434312000L
     };
     auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
         ts_col,

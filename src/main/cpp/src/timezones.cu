@@ -100,12 +100,17 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const& input,
                                             input.null_count(), stream, mr);
 
   switch (type) {
-    // case cudf::type_id::TIMESTAMP_DAYS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_D>(true, results->mutable_view(), input, fixed_transitions));
-    //   break;
+    case cudf::type_id::TIMESTAMP_DAYS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_D>(),
+        [input_data = input.begin<cudf::timestamp_D>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_D>(timestamp, fixed_transitions, tz_index, true);
+          }
+      );
+      break;
     case cudf::type_id::TIMESTAMP_SECONDS: 
       thrust::transform(rmm::exec_policy(stream),
         thrust::make_counting_iterator(0),
@@ -116,29 +121,29 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const& input,
             return convert_timestamp_timezone<cudf::timestamp_s>(timestamp, fixed_transitions, tz_index, true);
           }
       );
-      // thrust::for_each(rmm::exec_policy(stream),
-      //                 thrust::make_counting_iterator(0),
-      //                 thrust::make_counting_iterator(num_rows),
-      //                 timestamp_switch_timezone<cudf::timestamp_s>(true, results->mutable_view(), input, fixed_transitions, tz_index));
       break;
-    // case cudf::type_id::TIMESTAMP_MILLISECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_ms>(true, results->mutable_view(), input, fixed_transitions));
-    //   break;
-    // case cudf::type_id::TIMESTAMP_MICROSECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_us>(true, results->mutable_view(), input, fixed_transitions));
-    //   break;
-    // case cudf::type_id::TIMESTAMP_NANOSECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_ns>(true, results->mutable_view(), input, fixed_transitions));
-    //   break;
+    case cudf::type_id::TIMESTAMP_MILLISECONDS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_ms>(),
+        [input_data = input.begin<cudf::timestamp_ms>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_ms>(timestamp, fixed_transitions, tz_index, true);
+          }
+      );
+      break;
+    case cudf::type_id::TIMESTAMP_MICROSECONDS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_us>(),
+        [input_data = input.begin<cudf::timestamp_us>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_us>(timestamp, fixed_transitions, tz_index, true);
+          }
+      );
+      break;
     default: 
       CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
   }
@@ -165,17 +170,18 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
                                             input.null_count(), stream, mr);
 
   switch (type) {
-    // case cudf::type_id::TIMESTAMP_DAYS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_D>(false, results->mutable_view(), input, fixed_transitions));
-    //   break;
+    case cudf::type_id::TIMESTAMP_DAYS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_D>(),
+        [input_data = input.begin<cudf::timestamp_D>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_D>(timestamp, fixed_transitions, tz_index, false);
+          }
+      );
+      break;
     case cudf::type_id::TIMESTAMP_SECONDS: 
-      // thrust::for_each(rmm::exec_policy(stream),
-      //                 thrust::make_counting_iterator(0),
-      //                 thrust::make_counting_iterator(num_rows),
-      //                 timestamp_switch_timezone<cudf::timestamp_s>(false, results->mutable_view(), input, fixed_transitions, tz_index));
       thrust::transform(rmm::exec_policy(stream),
         thrust::make_counting_iterator(0),
         thrust::make_counting_iterator(num_rows),
@@ -186,24 +192,28 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
           }
       );
       break;
-    // case cudf::type_id::TIMESTAMP_MILLISECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_ms>(false, results->mutable_view(), input, fixed_transitions));
-    //   break;
-    // case cudf::type_id::TIMESTAMP_MICROSECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_us>(false, results->mutable_view(), input, fixed_transitions));
-    //   break;
-    // case cudf::type_id::TIMESTAMP_NANOSECONDS: 
-    //   thrust::for_each(rmm::exec_policy(stream),
-    //                   thrust::make_counting_iterator(0),
-    //                   thrust::make_counting_iterator(num_rows),
-    //                   timestamp_switch_timezone<cudf::timestamp_ns>(false, results->mutable_view(), input, fixed_transitions));
-    //   break;
+    case cudf::type_id::TIMESTAMP_MILLISECONDS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_ms>(),
+        [input_data = input.begin<cudf::timestamp_ms>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_ms>(timestamp, fixed_transitions, tz_index, false);
+          }
+      );
+      break;
+    case cudf::type_id::TIMESTAMP_MICROSECONDS: 
+      thrust::transform(rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(num_rows),
+        results->mutable_view().begin<cudf::timestamp_us>(),
+        [input_data = input.begin<cudf::timestamp_us>(), fixed_transitions, tz_index] __device__ (auto const i) {
+            auto const timestamp = input_data[i];
+            return convert_timestamp_timezone<cudf::timestamp_us>(timestamp, fixed_transitions, tz_index, false);
+          }
+      );
+      break;
     default: 
       CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
   }
