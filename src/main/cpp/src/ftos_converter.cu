@@ -19,8 +19,6 @@
 #include <cuda/std/cassert>
 #include <cuda/std/cstdint>
 
-using namespace cudf;
-
 namespace spark_rapids_jni {
 
 namespace detail {
