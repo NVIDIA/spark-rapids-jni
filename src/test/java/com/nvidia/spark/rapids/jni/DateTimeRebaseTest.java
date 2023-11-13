@@ -24,7 +24,7 @@ import ai.rapids.cudf.ColumnVector;
 
 public class DateTimeRebaseTest {
   @Test
-  void dayTimestampTest() {
+  void rebaseDaysToJulianTest() {
     try (ColumnVector input = ColumnVector.timestampDaysFromBoxedInts(-719162, -354285, null,
         -141714, -141438, -141437,
         null, null,
@@ -39,12 +39,28 @@ public class DateTimeRebaseTest {
   }
 
   @Test
-  void microsecondTimestampTest() {
+  void rebaseDaysToGregorianTest() {
+    try (ColumnVector input = ColumnVector.timestampDaysFromBoxedInts(-719164, -354280, null,
+        -141704, -141428, -141427,
+        null, null,
+        -141427, -141427, -31463, -31453, -1, 0, 18335);
+         ColumnVector expected = ColumnVector.timestampDaysFromBoxedInts(-719162, -354285, null,
+             -141714, -141438, -141427,
+             null, null,
+             -141427, -141427, -31463, -31453, -1, 0, 18335);
+         ColumnVector result = DateTimeRebase.rebaseJulianToGregorian(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void rebaseMicroToJulian() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(-62135593076345679L,
         -30610213078876544L,
         null,
         -12244061221876544L,
         -12220243200000000L,
+        -12219639001448163L,
         -12219292799000001L,
         -45446999900L,
         1L,
@@ -56,12 +72,43 @@ public class DateTimeRebaseTest {
                  null,
                  -12243197221876544L,
                  -12219379200000000L,
+                 -12219207001448163L,
                  -12219292799000001L,
                  -45446999900L,
                  1L,
                  null,
                  1584178381500000L);
          ColumnVector result = DateTimeRebase.rebaseGregorianToJulian(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void rebaseMicroToGregorian() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(-62135765876345679L,
+        -30609781078876544L,
+        null,
+        -12243197221876544L,
+        -12219379200000000L,
+        -12219207001448163L,
+        -12219292799000001L,
+        -45446999900L,
+        1L,
+        null,
+        1584178381500000L);
+         ColumnVector expected =
+             ColumnVector.timestampMicroSecondsFromBoxedLongs(-62135593076345679L,
+                 -30610213078876544L,
+                 null,
+                 -12244061221876544L,
+                 -12220243200000000L,
+                 -12219207001448163L,
+                 -12219292799000001L,
+                 -45446999900L,
+                 1L,
+                 null,
+                 1584178381500000L);
+         ColumnVector result = DateTimeRebase.rebaseJulianToGregorian(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }

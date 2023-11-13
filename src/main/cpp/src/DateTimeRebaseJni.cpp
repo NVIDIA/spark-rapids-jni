@@ -32,4 +32,17 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGr
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseJulianToGregorian(
+    JNIEnv *env, jclass, jlong input) {
+  JNI_NULL_CHECK(env, input, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const *>(input);
+    auto output = spark_rapids_jni::rebase_julian_to_gregorian(*input_cv);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  CATCH_STD(env, 0);
+}
+
 } // extern "C"

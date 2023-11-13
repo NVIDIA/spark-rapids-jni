@@ -20,4 +20,6 @@ namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const &input);
 
+std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const &input);
+
 } // namespace spark_rapids_jni
