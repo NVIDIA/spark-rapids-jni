@@ -16,24 +16,16 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import java.beans.Transient;
-import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.HostColumnVector;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -79,8 +71,8 @@ public class TimeZoneTest {
   
   @Test
   void convertToUtcTest() {
-    try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(0L);
-        ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(-28800L);
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(0L);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(-28800000000L);
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
@@ -89,7 +81,12 @@ public class TimeZoneTest {
   
   @Test
   void convertFromUtcSecondsTest() {
-    
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(0L);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(28800000000L);
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
   }
   
 }
