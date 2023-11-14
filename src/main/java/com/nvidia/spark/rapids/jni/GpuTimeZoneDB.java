@@ -56,7 +56,7 @@ public class GpuTimeZoneDB {
    * parts of the database. I prefer the former solution at least until we see a performance hit
    * where we are waiting on the database to finish loading.
    */
-  public static void load(Executor executor) {
+  public static void cacheDatabase(Executor executor) {
     if (instance == null) {
       instance = new GpuTimeZoneDB();
     }
@@ -64,7 +64,7 @@ public class GpuTimeZoneDB {
     instance.loadData(executor);
   }
 
-  public static ColumnVector convertToUTC(ColumnVector input, ZoneId currentTimeZone) {
+  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
     if (!isSupportedTimeZone(currentTimeZone)) {
@@ -80,8 +80,20 @@ public class GpuTimeZoneDB {
     return result;
   }
   
-  public static ColumnVector convertFromUTC(ColumnVector input, ZoneId desiredTimeZone) {
-    return null;
+  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
+    // TODO: Remove this check when all timezones are supported
+    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
+    if (!isSupportedTimeZone(desiredTimeZone)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
+          desiredTimeZone.toString()));
+    }
+    Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
+    ColumnVector fixedTransitions = instance.getFixedTransitions();
+    Table transitions = new Table(fixedTransitions);
+    ColumnVector result = new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
+        transitions.getNativeView(), tzIndex));
+    transitions.close();
+    return result;
   }
   
   // TODO: Deprecate this API when we support all timezones 
@@ -124,20 +136,21 @@ public class GpuTimeZoneDB {
             List<HostColumnVector.StructData> data = new ArrayList<>();
             if (zoneRules.isFixedOffset()) {
               data.add(
-                  new HostColumnVector.StructData(Long.MIN_VALUE,
+                  new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                       zoneRules.getOffset(Instant.now()).getTotalSeconds())
               );
             } else {
               // Capture the first official offset (before any transition) using Long min
               ZoneOffsetTransition first = transitions.get(0);
               data.add(
-                  new HostColumnVector.StructData(Long.MIN_VALUE,
+                  new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                       first.getOffsetBefore().getTotalSeconds())
               );
               transitions.forEach(t -> {
                 data.add(
-                    new HostColumnVector.StructData(t.getInstant().getEpochSecond() +
-                        t.getOffsetBefore().getTotalSeconds(),
+                    new HostColumnVector.StructData(
+                        t.getInstant().getEpochSecond(),
+                        t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
                         t.getOffsetAfter().getTotalSeconds())
                 );
               });
@@ -147,6 +160,7 @@ public class GpuTimeZoneDB {
           }
         }
         HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
+            new HostColumnVector.BasicType(false, DType.INT64),
             new HostColumnVector.BasicType(false, DType.INT64),
             new HostColumnVector.BasicType(false, DType.INT32));
         HostColumnVector.DataType resultType =
@@ -166,20 +180,16 @@ public class GpuTimeZoneDB {
   HostColumnVector getHostFixedTransitions() {
     try {
       return fixedTransitionsFuture.get();
-    } catch (InterruptedException e) {
-      return null;
-    } catch (ExecutionException e) {
-      return null;
+    } catch (InterruptedException | ExecutionException e) {
+      throw new RuntimeException(e);
     }
   }
 
   Map<String, Integer> getZoneIDMap() {
     try {
       return zoneIdToTableFuture.get();
-    } catch (InterruptedException e) {
-      return null;
-    } catch (ExecutionException e) {
-      return null;
+    } catch (InterruptedException | ExecutionException e) {
+      throw new RuntimeException(e);
     }
   }
 
