@@ -163,10 +163,12 @@ add_library(
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/cast_decimal_to_string.cu
+  src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/ftos_converter.cu
   src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
