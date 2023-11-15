@@ -70,9 +70,21 @@ public class TimeZoneTest {
   }
   
   @Test
-  void convertToUtcTest() {
-    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(0L);
-        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(-28800000000L);
+  void convertToUtcMicroSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        -1262260800000000L,
+          -908840700000000L,
+          0L,
+          1699571634312000L,
+          568036800000000L
+        );
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            -1262289600000000L,
+          -908869500000000L,
+          -28800000000L,
+          1699542834312000L,
+          568008000000000L
+        );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
@@ -80,9 +92,19 @@ public class TimeZoneTest {
   }
   
   @Test
-  void convertFromUtcSecondsTest() {
-    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(0L);
-        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(28800000000L);
+  void convertFromUtcMicroSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          -1262289600000000L,
+          -908869500000000L,
+          0L,
+          1699542834312000L,
+          568008000000000L);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          -1262260800000000L,
+          -908837100000000L,
+          28800000000L,
+          1699571634312000L,
+          568036800000000L);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);

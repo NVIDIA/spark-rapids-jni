@@ -64,6 +64,10 @@ public class GpuTimeZoneDB {
     instance.loadData(executor);
   }
 
+  public static void unload() {
+    instance.getHostFixedTransitions().close();
+  }
+
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
@@ -72,8 +76,7 @@ public class GpuTimeZoneDB {
           currentTimeZone.toString()));
     }
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    ColumnVector fixedTransitions = instance.getFixedTransitions();
-    Table transitions = new Table(fixedTransitions);
+    Table transitions = instance.getTransitions();
     ColumnVector result = new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
         transitions.getNativeView(), tzIndex));
     transitions.close();
@@ -88,8 +91,7 @@ public class GpuTimeZoneDB {
           desiredTimeZone.toString()));
     }
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
-    ColumnVector fixedTransitions = instance.getFixedTransitions();
-    Table transitions = new Table(fixedTransitions);
+    Table transitions = instance.getTransitions();
     ColumnVector result = new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
         transitions.getNativeView(), tzIndex));
     transitions.close();
@@ -150,7 +152,7 @@ public class GpuTimeZoneDB {
                 data.add(
                     new HostColumnVector.StructData(
                         t.getInstant().getEpochSecond(),
-                        t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
+                        t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
                         t.getOffsetAfter().getTotalSeconds())
                 );
               });
@@ -191,6 +193,11 @@ public class GpuTimeZoneDB {
     } catch (InterruptedException | ExecutionException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  Table getTransitions() {
+    ColumnVector fixedTransitions = getFixedTransitions();
+    return new Table(fixedTransitions);
   }
 
   ColumnVector getFixedTransitions() {
