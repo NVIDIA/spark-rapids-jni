@@ -33,8 +33,7 @@ import org.junit.jupiter.api.Test;
 public class TimeZoneTest {
   @BeforeAll
   static void cacheTimezoneDatabase() {
-    Executor executor = Executors.newFixedThreadPool(1);
-    GpuTimeZoneDB.cacheDatabase(executor);
+    GpuTimeZoneDB.cacheDatabase();
   }
   
   @Test

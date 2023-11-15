@@ -56,15 +56,26 @@ public class GpuTimeZoneDB {
    * parts of the database. I prefer the former solution at least until we see a performance hit
    * where we are waiting on the database to finish loading.
    */
-  public static void cacheDatabase(Executor executor) {
+  public static void cacheDatabase() {
     if (instance == null) {
       instance = new GpuTimeZoneDB();
     }
-    
+    Executor executor = Executors.newSingleThreadExecutor(
+      new ThreadFactory() {
+        private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
+
+        @Override
+        public Thread newThread(Runnable r) {
+          Thread thread = defaultFactory.newThread(r);
+          thread.setName("gpu-timezone-database-0");
+          thread.setDaemon(true);
+          return thread;
+        }
+      });
     instance.loadData(executor);
   }
 
-  public static void unload() {
+  public static void shutdown() {
     instance.getHostFixedTransitions().close();
   }
 
