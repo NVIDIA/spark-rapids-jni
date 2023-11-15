@@ -25,20 +25,15 @@ import java.util.HashSet;
  */
 class ThreadStateRegistry {
 
-  // TODO will need a background thread to act as a watchdog for this because we cannot solve all
-  //  races with just polling :(
-
   private static HashMap<Long, Thread> knownThreads = new HashMap<>();
 
   public static synchronized void addThread(long nativeId, Thread t) {
-//    System.err.println("ADD THREAD " + nativeId + " " + t);
     knownThreads.put(nativeId, t);
   }
 
   // Typically called from JNI
   public static synchronized void removeThread(long threadId) {
-    Thread t = knownThreads.remove(threadId);
-//    System.err.println("REMOVING THREAD " + threadId + " " + t);
+    knownThreads.remove(threadId);
   }
 
   // This is likely called from JNI
@@ -50,7 +45,6 @@ class ThreadStateRegistry {
       throw new IllegalStateException("Thread " + nativeId + " is not longer alive.");
     }
     Thread.State state = t.getState();
-//    System.err.println("CHECK THREAD STATE " + nativeId + " " + t + " " + state);
     switch (state) {
       case BLOCKED:
         // fall through
