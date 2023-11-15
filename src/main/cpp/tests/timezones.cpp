@@ -71,6 +71,7 @@ TEST_F(TimeZoneTest, ConvertToUTCSeconds)
 {
     auto const ts_col = seconds_col{
       -1262260800L,
+      -908838000L,
       -908840700L,
       0L,
       1699566167L,
@@ -79,6 +80,7 @@ TEST_F(TimeZoneTest, ConvertToUTCSeconds)
     // check the converted to utc version
     auto const expected = seconds_col{
       -1262289600L,
+      -908870400L,
       -908869500L,
       -28800L,
       1699537367L,
@@ -98,6 +100,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
 {
     auto const ts_col = millis_col{
       -1262260800000L,
+      -908838000000L,
       -908840700000L,
       0L,
       1699571634312L,
@@ -106,6 +109,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
     // check the converted to utc version
     auto const expected = millis_col{
       -1262289600000L,
+      -908870400000L,
       -908869500000L,
       -28800000L,
       1699542834312L,
@@ -125,6 +129,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
 {
     auto const ts_col = micros_col{
       -1262260800000000L,
+      -908838000000000L,
       -908840700000000L,
       0L,
       1699571634312000L,
@@ -133,6 +138,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
     // check the converted to utc version
     auto const expected = micros_col{
       -1262289600000000L,
+      -908870400000000L,
       -908869500000000L,
       -28800000000L,
       1699542834312000L,
@@ -152,6 +158,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
 {
     auto const ts_col = seconds_col{
       -1262289600L,
+      -908870400L,
       -908869500L,
       0L,
       1699537367L,
@@ -160,6 +167,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
     // check the converted to utc version
     auto const expected = seconds_col{
       -1262260800L,
+      -908838000L,
       -908837100L,
       28800L,
       1699566167L,
@@ -179,6 +187,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
 {
     auto const ts_col = millis_col{
       -1262289600000L,
+      -908870400000L,
       -908869500000L,
       0L,
       1699542834312L,
@@ -187,6 +196,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
     // check the converted to timezone version
     auto const expected = millis_col{
       -1262260800000L,
+      -908838000000L,
       -908837100000L,
       28800000L,
       1699571634312L,
@@ -206,6 +216,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
 {
     auto const ts_col = micros_col{
       -1262289600000000L,
+      -908870400000000L,
       -908869500000000L,
       0L,
       1699542834312000L,
@@ -214,6 +225,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
     // check the converted to timezone version
     auto const expected = micros_col{
       -1262260800000000L,
+      -908838000000000L,
       -908837100000000L,
       28800000000L,
       1699571634312000L,

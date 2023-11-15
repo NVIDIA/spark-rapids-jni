@@ -53,14 +53,16 @@ public class TimeZoneTest {
   @Test
   void convertToUtcSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
-        -1262260800L,
+          -1262260800L,
+          -908838000L,
           -908840700L,
           0L,
           1699571634L,
           568036800L
         );
         ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
-            -1262289600L,
+          -1262289600L,
+          -908870400L,
           -908869500L,
           -28800L,
           1699542834L,
@@ -75,14 +77,16 @@ public class TimeZoneTest {
   @Test
   void convertToUtcMilliSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
-        -1262260800000L,
+          -1262260800000L,
+          -908838000000L,
           -908840700000L,
           0L,
           1699571634312L,
           568036800000L
         );
         ColumnVector expected = ColumnVector.timestampMilliSecondsFromBoxedLongs(
-            -1262289600000L,
+          -1262289600000L,
+          -908870400000L,
           -908869500000L,
           -28800000L,
           1699542834312L,
@@ -97,14 +101,16 @@ public class TimeZoneTest {
   @Test
   void convertToUtcMicroSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-        -1262260800000000L,
+          -1262260800000000L,
+          -908838000000000L,
           -908840700000000L,
           0L,
           1699571634312000L,
           568036800000000L
         );
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-            -1262289600000000L,
+          -1262289600000000L,
+          -908870400000000L,
           -908869500000000L,
           -28800000000L,
           1699542834312000L,
@@ -120,12 +126,14 @@ public class TimeZoneTest {
   void convertFromUtcSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
           -1262289600L,
+          -908870400L,
           -908869500L,
           0L,
           1699542834L,
           568008000L);
         ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
           -1262260800L,
+          -908838000L,
           -908837100L,
           28800L,
           1699571634L,
@@ -140,12 +148,14 @@ public class TimeZoneTest {
   void convertFromUtcMilliSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
           -1262289600000L,
+          -908870400000L,
           -908869500000L,
           0L,
           1699542834312L,
           568008000000L);
         ColumnVector expected = ColumnVector.timestampMilliSecondsFromBoxedLongs(
           -1262260800000L,
+          -908838000000L,
           -908837100000L,
           28800000L,
           1699571634312L,
@@ -160,12 +170,14 @@ public class TimeZoneTest {
   void convertFromUtcMicroSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
           -1262289600000000L,
+          -908870400000000L,
           -908869500000000L,
           0L,
           1699542834312000L,
           568008000000000L);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
           -1262260800000000L,
+          -908838000000000L,
           -908837100000000L,
           28800000000L,
           1699571634312000L,

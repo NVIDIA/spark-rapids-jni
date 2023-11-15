@@ -65,7 +65,7 @@ __device__ timestamp_type convert_timestamp_timezone(timestamp_type const& times
     static_cast<size_t>(size));
     
 
-  auto idx = thrust::lower_bound(thrust::seq, 
+  auto idx = thrust::upper_bound(thrust::seq, 
     transition_times.begin(),
     transition_times.end(),
     epoch_seconds) - transition_times.begin();
