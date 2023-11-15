@@ -38,4 +38,17 @@ std::unique_ptr<cudf::column> parse_uri_to_protocol(
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+/**
+ * @brief Parse host and copy from the input string column to the output char buffer.
+ *
+ * @param input Input string column of URIs to parse
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> String column of hosts parsed.
+ */
+std::unique_ptr<cudf::column> parse_uri_to_host(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

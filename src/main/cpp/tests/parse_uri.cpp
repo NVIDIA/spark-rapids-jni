@@ -22,6 +22,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 struct ParseURIProtocolTests : public cudf::test::BaseFixture {};
+struct ParseURIHostTests : public cudf::test::BaseFixture {};
 
 TEST_F(ParseURIProtocolTests, Simple)
 {
@@ -72,7 +73,7 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "http://%77%77%77.%4EV%49%44%49%41.com",
      "https:://broken.url",
      "https://www.nvidia.com/q/This%20is%20a%20query",
-     "https://www.nvidia.com/\x93-path/to/file"});
+     "https://www.nvidia.com/\x93path/path/to/file"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
@@ -108,12 +109,14 @@ TEST_F(ParseURIProtocolTests, IP6)
     "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
     "https://[2001:db8:3333:4444:5555:6666:1.2.3.4]/path/to/file",
     "https://[2001:db8:3333:4444:5555:6666:7777:8888:1.2.3.4]/path/to/file",
-    "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",
+    "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",  // this is valid, but spark
+                                                                  // doesn't think so
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected(
-    {"https", "https", "https", "https", "http", "https", "https", "https", "", "https"}, {1, 1, 1, 1, 1, 1, 1, 1, 0, 1});
+    {"https", "https", "https", "https", "http", "https", "https", "https", "", ""},
+    {1, 1, 1, 1, 1, 1, 1, 1, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -130,7 +133,8 @@ TEST_F(ParseURIProtocolTests, IP4)
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "https", "https"});
+  cudf::test::strings_column_wrapper expected(
+    {"https", "https", "https", "https", "https", "https"});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -150,4 +154,142 @@ TEST_F(ParseURIProtocolTests, UTF8)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
 
-// utf8 control character
+TEST_F(ParseURIHostTests, Simple)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://www.nvidia.com/s/uri?param1=2",
+    "http://www.nvidia.com",
+    "file://path/to/a/cool/file",
+    "smb://network/path/to/file",
+    "http:/www.nvidia.com",
+    "file:path/to/a/cool/file",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected(
+    {"www.nvidia.com", "www.nvidia.com", "path", "network", "", ""}, {1, 1, 1, 1, 0, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIHostTests, Negatives)
+{
+  cudf::test::strings_column_wrapper col({
+    "https//www.nvidia.com/s/uri?param1=2",
+    "/network/path/to/file",
+    "nvidia.com",
+    "www.nvidia.com/s/uri",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"", "", "", ""}, {0, 0, 0, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIHostTests, SparkEdges)
+{
+  cudf::test::strings_column_wrapper col(
+    {"https://nvidia.com/https&#://nvidia.com",
+     "https://http://www.nvidia.com",
+     "filesystemmagicthing://bob.yaml",
+     "nvidia.com:8080",
+     "http://thisisinvalid.data/due/to-the_character%s/inside*the#url`~",
+     "file:/absolute/path",
+     "//www.nvidia.com",
+     "#bob",
+     "#this%doesnt#make//sense://to/me",
+     "HTTP:&bob",
+     "/absolute/path",
+     "http://%77%77%77.%4EV%49%44%49%41.com",
+     "https:://broken.url",
+     "https://www.nvidia.com/q/This%20is%20a%20query",
+     "https://www.nvidia.com/\x93/path/to/file"});
+
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"nvidia.com",
+                                               "http",
+                                               "bob.yaml",
+                                               "",
+                                               "",
+                                               "",
+                                               "www.nvidia.com",
+                                               "",
+                                               "",
+                                               "",
+                                               "",
+                                               "",
+                                               "",
+                                               "www.nvidia.com",
+                                               ""},
+                                              {1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIHostTests, IP6)
+{
+  cudf::test::strings_column_wrapper col(
+    {"https://[fe80::]",
+     "https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+     "https://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
+     "https://[2001:db8::1:0]",
+     "http://[2001:db8::2:1]",
+     "https://[::1]",
+     "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
+     "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]/path/to/file",
+     "https://[2001:db8:3333:4444:5555:6666:7777:8888:1.2.3.4]/path/to/file",
+     "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",  // this is valid, but spark
+                                                                   // doesn't think so
+     "https://[2001:db8:3333:4444:5555:6666:1.2.3.4]/path/to/file"});
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"[fe80::]",
+                                               "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+                                               "[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
+                                               "[2001:db8::1:0]",
+                                               "[2001:db8::2:1]",
+                                               "[::1]",
+                                               "[2001:db8:85a3:8d3:1319:8a2e:370:7348]",
+                                               "[2001:db8:85a3:8d3:1319:8a2e:370:7348]",
+                                               "",
+                                               "",
+                                               "[2001:db8:3333:4444:5555:6666:1.2.3.4]"},
+                                              {1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIHostTests, IP4)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://192.168.1.100/",
+    "https://192.168.1.100:8443/",
+    "https://192.168.1.100.5/",
+    "https://192.168.1/",
+    "https://280.100.1.1/",
+    "https://182.168..100/path/to/file",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"192.168.1.100", "192.168.1.100", "", "", "", ""},
+                                              {1, 1, 0, 0, 0, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}
+
+TEST_F(ParseURIHostTests, UTF8)
+{
+  cudf::test::strings_column_wrapper col({
+    "https://nvidia.com/%4EV%49%44%49%41",
+    "http://%77%77%77.%4EV%49%44%49%41.com",
+    "http://✪↩d⁚f„⁈.ws/123",
+    "https:// /path/to/file",
+  });
+  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper expected({"nvidia.com", "", "", ""}, {1, 0, 0, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+}

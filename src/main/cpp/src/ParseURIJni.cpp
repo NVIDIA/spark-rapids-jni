@@ -33,4 +33,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseProtocol(
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseHost(JNIEnv* env,
+                                                                            jclass,
+                                                                            jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_host(*input).release());
+  }
+  CATCH_STD(env, 0);
+}
 }
