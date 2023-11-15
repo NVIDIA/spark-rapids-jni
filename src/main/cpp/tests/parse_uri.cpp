@@ -108,12 +108,14 @@ TEST_F(ParseURIProtocolTests, IP6)
     "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
     "https://[2001:db8:3333:4444:5555:6666:1.2.3.4]/path/to/file",
     "https://[2001:db8:3333:4444:5555:6666:7777:8888:1.2.3.4]/path/to/file",
-    "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",
+    "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",  // this is valid, but spark
+                                                                  // doesn't think so
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected(
-    {"https", "https", "https", "https", "http", "https", "https", "https", "", "https"}, {1, 1, 1, 1, 1, 1, 1, 1, 0, 1});
+    {"https", "https", "https", "https", "http", "https", "https", "https", "", ""},
+    {1, 1, 1, 1, 1, 1, 1, 1, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -130,7 +132,8 @@ TEST_F(ParseURIProtocolTests, IP4)
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "https", "https"});
+  cudf::test::strings_column_wrapper expected(
+    {"https", "https", "https", "https", "https", "https"});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
