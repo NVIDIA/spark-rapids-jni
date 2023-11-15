@@ -37,11 +37,6 @@ TEST_F(ParseURIProtocolTests, Simple)
 
   cudf::test::strings_column_wrapper expected({"https", "http", "file", "smb", "http", "file"});
 
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("\nresult:\n");
-  cudf::test::print(result->view());
-
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
 
@@ -56,11 +51,6 @@ TEST_F(ParseURIProtocolTests, Negatives)
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected({"", "", "", ""}, {0, 0, 0, 0});
-
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("\nresult:\n");
-  cudf::test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -103,11 +93,6 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
                                                ""},
                                               {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0});
 
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("\nresult:\n");
-  cudf::test::print(result->view());
-
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
 
@@ -128,12 +113,7 @@ TEST_F(ParseURIProtocolTests, IP6)
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected(
-    {"https", "https", "https", "https", "http", "https", "https", "", "", ""}, {1, 1, 1, 1, 1, 1, 1, 0, 0, 0});
-
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("\nresult:\n");
-  cudf::test::print(result->view());
+    {"https", "https", "https", "https", "http", "https", "https", "https", "", "https"}, {1, 1, 1, 1, 1, 1, 1, 1, 0, 1});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -166,11 +146,6 @@ TEST_F(ParseURIProtocolTests, UTF8)
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected({"https", "http", "http", ""}, {1, 1, 1, 0});
-
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("\nresult:\n");
-  cudf::test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }

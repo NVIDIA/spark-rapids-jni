@@ -22,7 +22,6 @@
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/string_view.cuh>
 
@@ -40,13 +39,13 @@ namespace detail {
 
 struct uri_parts {
   string_view scheme;
+  string_view host;
   string_view authority;
   string_view path;
   string_view fragment;
   string_view query;
-  string_view port;
   string_view userinfo;
-  string_view host;
+  string_view port;
   string_view opaque;
   bool valid;
 };
@@ -57,8 +56,6 @@ enum URI_chunks {
   AUTHORITY,
   PATH,
   QUERY,
-  REF,
-  FILE,
   USERINFO
 };
 
@@ -69,13 +66,6 @@ enum chunk_validity {
 };
 
 namespace {
-
-void __device__ print_string_view(string_view s) {
-  for (auto iter = s.begin(); iter < s.end(); ++iter) {
-    printf("%c", *iter);
-  }
-  printf("\n");
-}
 
 // some parsing errors are fatal and some parsing errors simply mean this
 // thing doesn't exist or is invalid. For example, just because 280.0.1.16 is
@@ -113,13 +103,12 @@ __device__ bool skip_and_validate_special(string_view::const_iterator &iter, str
         }
       }
     } else if (cudf::strings::detail::bytes_in_char_utf8(*iter) > 1) {
-      // utf8 validation - out of control character land
+      // utf8 validation means it isn't whitespace and not a control character
+      // the normal validation will handle anything 1-byte, this checks for multibyte
       auto const c = *iter;
-      if (c > 0xA0) {
-        // validate it isn't a whitespace unicode character
-        if (c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) || c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
-          return false;
-        }
+      // validate it isn't a whitespace unicode character
+      if (c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) || c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
+        return false;
       }
     } else {
       break;
@@ -207,13 +196,11 @@ bool __device__ validate_ipv6(string_view s) {
       case ':':
         colon_count++;
         if (colon_count > max_colons) {
-          printf("too many colons in ipv6\n");
           return false;
         }
         // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address like
         // [1:2:3:4:5:6:d.d.d.d]
         if (period_count > 0) {
-          printf("periods before colon in ipv6\n");
           return false;
         }
         if (previous_char == ':') {
@@ -238,17 +225,16 @@ bool __device__ validate_ipv6(string_view s) {
           return false;
         }
         if (colon_count != 6 && !found_double_colon) {
-          printf("invalid number of colons before period\n");
           return false;
         }
         // special case of ::1:2:3:4:5:d.d.d.d has 7 colons
         if (colon_count == 7 && !leading_double_colon) {
-          printf("not double colon and too many colons!\n");
           return false;
         }
         address = 0;
         address_has_hex = false;
         address_char_count = 0;
+        break;
       default:
         if (address_char_count > 3) {
           return false;
@@ -439,7 +425,6 @@ bool __device__  validate_authority(string_view authority) {
   return validate_chunk(authority, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' && !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~') {
-      printf("%d %d - invalid character %c at position %d!\n", threadIdx.x, blockIdx.x, c, iter.position());
       return false;
     }
     return true;
@@ -545,7 +530,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
     // we have a scheme up to the :
     ret.scheme = {str, col};
     if (!validate_scheme(ret.scheme)) {
-      printf("%d %d - invalid scheme!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
@@ -561,7 +545,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
 
   // no more string to parse is an error
   if (len <= 0) {
-      printf("%d %d - invalid length!\n", threadIdx.x, blockIdx.x);
     ret.valid = false;
     return ret;
   }
@@ -573,7 +556,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
     if (question >=0) {
       ret.query = {str + question + 1, len - question - 1};
       if (!validate_query(ret.query)) {
-      printf("%d %d - invalid query!\n", threadIdx.x, blockIdx.x);
         ret.valid = false;
         return ret;
       }
@@ -596,14 +578,12 @@ uri_parts __device__ validate_uri(const char *str, int len) {
 
       if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 && ret.fragment.size_bytes() == 0) {
         // invalid!
-      printf("%d %d - invalid data!\n", threadIdx.x, blockIdx.x);
         ret.valid = false;
         return ret;
       }
 
       if (ret.authority.size_bytes() > 0) {
         if (!validate_authority(ret.authority)) {
-      printf("%d %d - invalid authority!\n", threadIdx.x, blockIdx.x);
           ret.valid = false;
           return ret;
         }
@@ -631,7 +611,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
         if (amp > 0) {
           ret.userinfo = {auth, amp};
           if (!validate_userinfo(ret.userinfo)) {
-      printf("%d %d - invalid user info!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           }
@@ -642,7 +621,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
           // found a port, attempt to parse it
           ret.port = {auth + last_colon, len - last_colon};
           if (!validate_port(ret.port)) {
-      printf("%d %d - invalid port!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           }
@@ -653,7 +631,6 @@ uri_parts __device__ validate_uri(const char *str, int len) {
         auto host_ret = validate_host(ret.host);
         switch(host_ret) {
           case FATAL:
-      printf("%d %d - invalid host!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           case INVALID:
@@ -666,14 +643,12 @@ uri_parts __device__ validate_uri(const char *str, int len) {
       ret.path = {str, len};
     }
     if (!validate_path(ret.path)) {
-      printf("%d %d - invalid path!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
   } else {
     ret.opaque = {str, len};
     if (!validate_opaque(ret.opaque)) {
-      printf("%d %d - invalid opaque!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
@@ -685,13 +660,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
 
 // a URI is broken into parts(chunks). There are optional chunks and required chunks. A simple URI such as `https://www.nvidia.com` is 
 // easy to reason about, but it could also be written as `www.nvidia.com`, which is still valid. On top of that, there are characters which
-// are allowed in certain chunks that are not allowed in others. We are approaching this from a GPU lens and that means that we are going
-// to parse these with a warp working on a row. This means 32 threads will inspect the variable-length string. We do this one character at a
-// time and copy the data into shared memory since threads at times need to reach into other character offsets. Validation ranges from
-// laughable where `www.nvidia.com:80` parses as `www.nvidia.com` being the protocol to very complex validation of ipv6 addresses. This
-// complexity makes it very hard for us to reason about this 32 characters at a time. When we look at the first 32 characters of the string
-// we don't know if we need to parse this as a protocol or as a hostname until we see the ://, which could be beyond the 32 characters.
-// Also, the protocol separator can be `:`, `:/`, or `://`. There have been a multitude of methods attempted to get this correct, but at the end
+// are allowed in certain chunks that are not allowed in others. There have been a multitude of methods attempted to get this correct, but at the end
 // of the day, we have to validate the URI completely. This means even the simplest task of pulling off every character before the : still
 // requires understanding how to validate an ipv6 address. This kernel was originally conceived as a two-pass kernel that ran the same
 // code and either filled in offsets or filled in actual data. The problem is that to know what characters you need to copy, you need
@@ -704,8 +673,10 @@ uri_parts __device__ validate_uri(const char *str, int len) {
  * @brief Count the number of characters of each string after parsing the protocol.
  *
  * @param in_strings Input string column
+ * @param chunk Chunk of URI to return
  * @param out_lengths Number of characters in each decode URL
- * @param out_validity Bitmask of validity data, updated in funcion
+ * @param out_offsets Offsets to the start of the chunks
+ * @param out_validity Bitmask of validity data, updated in function
  */
 __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        URI_chunks chunk,
@@ -729,27 +700,12 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const string_length = in_string.size_bytes();
 
     auto const uri = validate_uri(in_chars, string_length);
-/*    if (threadIdx.x == 3) {
-      printf("results:\nscheme: ");
-      print_string_view(uri.scheme);
-      printf("host: ");
-      print_string_view(uri.host);
-      printf("authority: ");
-      print_string_view(uri.authority);
-      printf("path: ");
-      print_string_view(uri.path);
-      printf("query: ");
-      print_string_view(uri.query);
-      printf("userinfo: ");
-      print_string_view(uri.userinfo);
-      printf("valid: %s\n",uri.valid ? "valid" : "invalid");
-    }*/
     if (!uri.valid) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
     } else {
 
-      // stash
+      // stash output offsets and lengths for next kernel to do the copy
       switch (chunk) {
         case PROTOCOL:
           out_lengths[row_idx] = uri.scheme.size_bytes();
@@ -771,14 +727,6 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
           out_lengths[row_idx] = uri.query.size_bytes();
           out_offsets[row_idx] = uri.query.data() - base_ptr;
           break;
-  //      case REF:
-  //        out_lengths[row_idx] = uri.ref.size_bytes();
-  //        out_offsets[row_idx] = uri.ref.data() - base_ptr;
-  //        break;
-  //      case FILE:
-  //        out_lengths[row_idx] = uri.file.size_bytes();
-  //        out_offsets[row_idx] = uri.file.data() - base_ptr;
-  //        break;
         case USERINFO:
           out_lengths[row_idx] = uri.userinfo.size_bytes();
           out_offsets[row_idx] = uri.userinfo.data() - base_ptr;
@@ -797,14 +745,14 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
  * @brief Parse protocol and copy from the input string column to the output char buffer.
  *
  * @param in_strings Input string column
- * @param in_validity Validity vector of output column
+ * @param src_offsets Offset value of source strings in in_strings
+ * @param offsets Offset value of each string associated with `out_chars`
  * @param out_chars Character buffer for the output string column
- * @param out_offsets Offset value of each string associated with `out_chars`
  */
 __global__ void parse_uri(column_device_view const in_strings,
-                          char* const out_chars,
+                          size_type const* const src_offsets,
                           size_type const* const offsets,
-                          size_type const* const src_offsets)
+                          char* const out_chars)
 {
   auto const tid = threadIdx.x + blockIdx.x * blockDim.x;
   auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
@@ -817,31 +765,8 @@ __global__ void parse_uri(column_device_view const in_strings,
       for (int i=0; i<len; i++) {
         out_chars[offsets[row_idx] + i] = base_ptr[src_offsets[row_idx] + i];
       }
-
-//      cudaMemcpyAsync(&out_chars[offsets[row_idx]], &in_chars[src_offsets[row_idx]], len, cudaMemcpyDefault);
     }
   }
-
-/*  auto const starting_row = (threadIdx.x + blockIdx.x * blockDim.x) / 8;
-
-  for (thread_index_type tidx = starting_row; tidx < in_strings.size(); tidx += blockDim.x * gridDim.x / 8) {
-    auto const row_idx = static_cast<size_type>(tidx);
-    
-    if (offsets[row_idx] > 0) {
-      auto const in_string     = in_strings.element<string_view>(row_idx);
-      auto const in_chars      = in_string.data();
-      auto const string_length = in_string.size_bytes();
-      auto const len           = offsets[row_idx+1] - offsets[row_idx];
-
-      // each row is handled by 4 threads
-      for (int i=threadIdx.x % 4; i<len; i+=4) {
-        out_chars[offsets[row_idx] + i] = in_chars[src_offsets[row_idx] + i];
-      }
-
-//      cudaMemcpyAsync(&out_chars[offsets[row_idx]], &in_chars[src_offsets[row_idx]], len, cudaMemcpyDefault);
-    }
-  }
-  */
 }
 
 }  // namespace
@@ -904,9 +829,9 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   parse_uri
     <<<num_threadblocks, threadblock_size, 0, stream.value()>>>(
       *d_strings,
-      d_out_chars,
+      reinterpret_cast<size_type*>(src_offsets.data()),
       offsets_column->view().begin<size_type>(),
-      reinterpret_cast<size_type*>(src_offsets.data()));
+      d_out_chars);
 
   auto null_count =
     cudf::null_count(reinterpret_cast<bitmask_type*>(null_mask.data()), 0, strings_count);
