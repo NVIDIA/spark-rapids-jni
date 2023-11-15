@@ -24,8 +24,6 @@ import org.junit.jupiter.api.Test;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 
-import ai.rapids.cudf.TableDebug;
-
 public class ParseURITest {
   void buildExpectedAndRun(String[] testData) {
     String[] expectedProtocolStrings = new String[testData.length];
