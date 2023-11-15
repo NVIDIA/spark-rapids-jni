@@ -149,12 +149,27 @@ public class GpuTimeZoneDB {
                       first.getOffsetBefore().getTotalSeconds())
               );
               transitions.forEach(t -> {
-                data.add(
-                    new HostColumnVector.StructData(
-                        t.getInstant().getEpochSecond(),
-                        t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                        t.getOffsetAfter().getTotalSeconds())
-                );
+                // Whether transition is an overlap vs gap.
+                // In Spark:
+                // if it's a gap, then we use the offset after *on* the instant
+                // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
+                // So, for the transition to UTC, you need to compare to instant + {offset before} 
+                // The time math still uses {offset after}
+                if (t.isGap()) {
+                  data.add(
+                      new HostColumnVector.StructData(
+                          t.getInstant().getEpochSecond(),
+                          t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
+                          t.getOffsetAfter().getTotalSeconds())
+                  );
+                } else {
+                  data.add(
+                      new HostColumnVector.StructData(
+                          t.getInstant().getEpochSecond(),
+                          t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds() - 1,
+                          t.getOffsetAfter().getTotalSeconds())
+                  );
+                }
               });
             }
             masterTransitions.add(data);
@@ -197,7 +212,9 @@ public class GpuTimeZoneDB {
 
   Table getTransitions() {
     ColumnVector fixedTransitions = getFixedTransitions();
-    return new Table(fixedTransitions);
+    Table transitions = new Table(fixedTransitions);
+    fixedTransitions.close();
+    return transitions;
   }
 
   ColumnVector getFixedTransitions() {
