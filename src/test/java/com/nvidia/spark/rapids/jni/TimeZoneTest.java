@@ -37,25 +37,6 @@ public class TimeZoneTest {
     GpuTimeZoneDB.cacheDatabase(executor);
   }
   
-  // ColumnVector createMicrosColumnVector(Long[] epochSeconds) {
-  //   int rows = epochSeconds.length;
-  //   HostColumnVector.Builder builder = HostColumnVector.builder(DType.TIMESTAMP_MICROSECONDS, rows);
-  //   for (int i = 0; i < rows; i++) {
-  //     builder.append(epochSeconds[i] * 1000000L);
-  //   }
-  //   return builder.buildAndPutOnDevice();
-  // }
-  
-  // Long[] getEpochSeconds(int startYear, int endYear) {
-  //   long s = Instant.parse("%04d-01-01T00:00:00z".format(startYear)).getEpochSecond();
-  //   long e = Instant.parse("%04d-01-01T00:00:00z".format(endYear)).getEpochSecond();
-  //   ArrayList<Long> epochSeconds = new ArrayList<>();
-  //   for (long epoch = s; epoch < e; e += TimeUnit.MINUTES.toSeconds(15)) {
-  //     epochSeconds.add(epoch);
-  //   }
-  //   return epochSeconds.toArray(new Long[0]);
-  // }
-  
   @Test
   void databaseLoadTest() {
     // Check for a few timezones
@@ -67,6 +48,50 @@ public class TimeZoneTest {
     assertNotNull(transitions);
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
+  }
+  
+  @Test
+  void convertToUtcSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
+        -1262260800L,
+          -908840700L,
+          0L,
+          1699571634L,
+          568036800L
+        );
+        ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
+            -1262289600L,
+          -908869500L,
+          -28800L,
+          1699542834L,
+          568008000L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertToUtcMilliSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+        -1262260800000L,
+          -908840700000L,
+          0L,
+          1699571634312L,
+          568036800000L
+        );
+        ColumnVector expected = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+            -1262289600000L,
+          -908869500000L,
+          -28800000L,
+          1699542834312L,
+          568008000000L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
   }
   
   @Test
@@ -86,6 +111,46 @@ public class TimeZoneTest {
           568008000000000L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertFromUtcSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
+          -1262289600L,
+          -908869500L,
+          0L,
+          1699542834L,
+          568008000L);
+        ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
+          -1262260800L,
+          -908837100L,
+          28800L,
+          1699571634L,
+          568036800L);
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertFromUtcMilliSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+          -1262289600000L,
+          -908869500000L,
+          0L,
+          1699542834312L,
+          568008000000L);
+        ColumnVector expected = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+          -1262260800000L,
+          -908837100000L,
+          28800000L,
+          1699571634312L,
+          568036800000L);
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
           ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
