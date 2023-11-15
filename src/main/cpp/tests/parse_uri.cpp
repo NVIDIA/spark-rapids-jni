@@ -81,7 +81,8 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "/absolute/path",
      "http://%77%77%77.%4EV%49%44%49%41.com",
      "https:://broken.url",
-     "https://www.nvidia.com/q/This%20is%20a%20query"});
+     "https://www.nvidia.com/q/This%20is%20a%20query",
+     "https://www.nvidia.com/\x93-path/to/file"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
@@ -98,8 +99,9 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
                                                "",
                                                "http",
                                                "https",
-                                               "https"},
-                                              {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1});
+                                               "https",
+                                               ""},
+                                              {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0});
 
   printf("expected:\n");
   cudf::test::print(expected);
@@ -119,11 +121,19 @@ TEST_F(ParseURIProtocolTests, IP6)
     "http://[2001:db8::2:1]",
     "https://[::1]",
     "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
+    "https://[2001:db8:3333:4444:5555:6666:1.2.3.4]/path/to/file",
+    "https://[2001:db8:3333:4444:5555:6666:7777:8888:1.2.3.4]/path/to/file",
+    "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected(
-    {"https", "https", "https", "https", "http", "https", "https"});
+    {"https", "https", "https", "https", "http", "https", "https", "", "", ""}, {1, 1, 1, 1, 1, 1, 1, 0, 0, 0});
+
+  printf("expected:\n");
+  cudf::test::print(expected);
+  printf("\nresult:\n");
+  cudf::test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -136,10 +146,11 @@ TEST_F(ParseURIProtocolTests, IP4)
     "https://192.168.1.100.5/",
     "https://192.168.1/",
     "https://280.100.1.1/",
+    "https://182.168..100/path/to/file",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "https"});
+  cudf::test::strings_column_wrapper expected({"https", "https", "https", "https", "https", "https"});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -150,13 +161,18 @@ TEST_F(ParseURIProtocolTests, UTF8)
     "https://nvidia.com/%4EV%49%44%49%41",
     "http://%77%77%77.%4EV%49%44%49%41.com",
     "http://✪↩d⁚f„⁈.ws/123",
+    "https:// /path/to/file",
   });
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "http", "http"});
+  cudf::test::strings_column_wrapper expected({"https", "http", "http", ""}, {1, 1, 1, 0});
+
+  printf("expected:\n");
+  cudf::test::print(expected);
+  printf("\nresult:\n");
+  cudf::test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
 
-// ip6 with ip4
-// no digits in ipv4: 10..15.1
+// utf8 control character

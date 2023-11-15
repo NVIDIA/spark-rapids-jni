@@ -22,6 +22,7 @@
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/string_view.cuh>
 
@@ -69,6 +70,13 @@ enum chunk_validity {
 
 namespace {
 
+void __device__ print_string_view(string_view s) {
+  for (auto iter = s.begin(); iter < s.end(); ++iter) {
+    printf("%c", *iter);
+  }
+  printf("\n");
+}
+
 // some parsing errors are fatal and some parsing errors simply mean this
 // thing doesn't exist or is invalid. For example, just because 280.0.1.16 is
 // not a valid IPv4 address simply means if asking for the host the host is null
@@ -80,8 +88,66 @@ constexpr bool is_alpha(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
+constexpr bool is_numeric(char c) {
+  return c >= '0' && c <= '9';
+}
+
 constexpr bool is_alphanum(char c) {
-  return is_alpha(c) || (c >= '0' && c <= '9');
+  return is_alpha(c) || is_numeric(c);
+}
+
+constexpr bool is_hex(char c) {
+  return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+__device__ bool skip_and_validate_special(string_view::const_iterator &iter, string_view::const_iterator end) {
+  while (iter != end) {
+    if (*iter == '%') {
+      // verify following two characters are hexadecimal
+      for (int i=0; i<2; ++i) {
+        ++iter;
+        if (iter == end) return false;
+
+        if (!is_hex(*iter)) {
+          return false;
+        }
+      }
+    } else if (cudf::strings::detail::bytes_in_char_utf8(*iter) > 1) {
+      // utf8 validation - out of control character land
+      auto const c = *iter;
+      if (c > 0xA0) {
+        // validate it isn't a whitespace unicode character
+        if (c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) || c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
+          return false;
+        }
+      }
+    } else {
+      break;
+    }
+    ++iter;
+  }
+
+  return true;
+}
+
+template <typename Predicate>
+__device__ bool validate_chunk(string_view s, Predicate fn)
+{
+  auto iter = s.begin();
+  if (!skip_and_validate_special(iter, s.end())) {
+    return false;
+  }
+  while (iter != s.end()) {
+    if (!fn(iter)) {
+      return false;
+    }
+
+    iter++;
+    if (!skip_and_validate_special(iter, s.end())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool __device__ validate_scheme(string_view scheme) {
@@ -141,11 +207,13 @@ bool __device__ validate_ipv6(string_view s) {
       case ':':
         colon_count++;
         if (colon_count > max_colons) {
+          printf("too many colons in ipv6\n");
           return false;
         }
         // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address like
         // [1:2:3:4:5:6:d.d.d.d]
         if (period_count > 0) {
+          printf("periods before colon in ipv6\n");
           return false;
         }
         if (previous_char == ':') {
@@ -170,10 +238,12 @@ bool __device__ validate_ipv6(string_view s) {
           return false;
         }
         if (colon_count != 6 && !found_double_colon) {
+          printf("invalid number of colons before period\n");
           return false;
         }
         // special case of ::1:2:3:4:5:d.d.d.d has 7 colons
         if (colon_count == 7 && !leading_double_colon) {
+          printf("not double colon and too many colons!\n");
           return false;
         }
         address = 0;
@@ -353,139 +423,78 @@ chunk_validity __device__ validate_host(string_view host) {
   return INVALID;
 }
 
-/*
-bool __device__ validate_chars(string_view s, string_view legal) {
-  for (auto iter = query.begin(); iter < query.end(); ++iter) {
-    auto const c = *iter;
-    if (is_alphanum(c)) {
-      continue;
-    }
-
-    bool legal = false;
-    for (auto legal_iter = legal.begin(); legal_iter < legal_iter.end(); ++legal_iter) {
-      if (c == *legal_iter) {
-        break;
-      }
-    }
-    if (legal) {
-      continue;
-    }
-    return false;
-  }
-}*/
-
-auto __device__ inc_and_skip_hex(string_view::const_iterator &iter, string_view::const_iterator end) {
-  iter++;
-  if (iter != end && *iter == '%') {
-    // verify following two characters are hexadecimal
-    for (int i=0; i<2; ++i) {
-      ++iter;
-      if (iter == end) return end;
-
-      auto const c = *iter;
-      if ((c < '0' && c > '9') && (c < 'A' && c > 'F') && (c < 'a' && c > 'f')) {
-        return end;
-      }
-    }
-    ++iter;
-  }
-
-  return iter;
-}
-
 bool __device__ validate_query(string_view query) {
   // query can be alphanum and _-!.~'()*\,;:$&+=?/[]@"
-  for (auto iter = query.begin(); iter < query.end(); inc_and_skip_hex(iter, query.end())) {
+  return validate_chunk(query, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
-
-/*    if (c == '%') {
-      // verify following two characters are hexadecimal
-      for (int i=0; i<2; ++i) {
-        ++iter;
-        if (iter == query.end()) return false;
-        c = *iter;
-
-        if ((c < '0' && c > '9') && (c < 'A' && c > 'F') && (c < 'a' && c > 'f')) {
-          return false;
-        }
-      }
-      ++iter;
-      if (iter == query.end()) return false;
-      c = *iter;
-    }*/
-
     if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
       return false;
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 bool __device__  validate_authority(string_view authority) {
   // authority needs to be alphanum and @[]_-!.~\'()*,;:$&+=
-  //                                    ~
-  for (auto iter = authority.begin(); iter < authority.end(); inc_and_skip_hex(iter, authority.end())) {
+  return validate_chunk(authority, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' && !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~') {
+      printf("%d %d - invalid character %c at position %d!\n", threadIdx.x, blockIdx.x, c, iter.position());
       return false;
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 bool __device__ validate_userinfo(string_view userinfo) {
   // can't be ] or [ in here
-  for (auto iter = userinfo.begin(); iter < userinfo.end(); ++iter) {
+  return validate_chunk(userinfo, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c == '[' || c == ']') {
-      return false;
-    }
-  }
-  return true;
+    if (c == '[' || c == ']') return false;
+    return true;
+  });
 }
 
 bool __device__ validate_port(string_view port) {
   // port is positive numeric >=0 according to spark...shrug
-  for (auto iter = port.begin(); iter < port.end(); ++iter) {
+  return validate_chunk(port, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
     if (c < '0' && c > '9') return false;
-  }
-
-  return true;
+    return true;
+  });
 }
 
 bool __device__ validate_path(string_view path) {
-  // path can be alphanum and @[]_-!.~\'()*?/
-  for (auto iter = path.begin(); iter < path.end(); inc_and_skip_hex(iter, path.end())) {
-    //"%s/inside*the#url`~",
+  // path can be alphanum and @[]_-!.~\'()*?/&
+  return validate_chunk(path, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
-    if (!is_alphanum(c) && c != '!' && !(c >= '\'' && c <= '*') && !(c >= '-' && c <= '/') && c != '@' && c != '?' && !(c >= '[' && c <= ']') && c != '_' && c != '~') {
+    if (!is_alphanum(c) && c != '!' && !(c >= '\'' && c <= '*') && !(c >= '-' && c <= '/') && c != '@' && c != '&' && c != '?' && !(c >= '[' && c <= ']') && c != '_' && c != '~') {
       return false;
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 bool __device__ validate_opaque(string_view opaque) {
   // opaque can be alphanum and @[]_-!.~\'()*?/,;:$@+=
-  for (auto iter = opaque.begin(); iter < opaque.end(); inc_and_skip_hex(iter, opaque.end())) {
+  return validate_chunk(opaque, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && !(c >= '?' && c <= ']') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 bool __device__ validate_fragment(string_view fragment) {
   // fragment can be alphanum and @[]_-!.~\'()*?/,;:$&+=
-  for (auto iter = fragment.begin(); iter < fragment.end(); inc_and_skip_hex(iter, fragment.end())) {
+  return validate_chunk(fragment, [] __device__ (string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && !(c >= '?' && c <= ']') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
-  }
-  return true;
+    return true;
+  });
 }
 
 uri_parts __device__ validate_uri(const char *str, int len) {
@@ -522,8 +531,9 @@ uri_parts __device__ validate_uri(const char *str, int len) {
     ret.fragment = {str + hash, len - hash};
     if (!validate_fragment(ret.fragment)) {
       ret.fragment = {};
-      return ret;
     }
+
+    len = hash;
 
     if (col > hash) col = -1;
     if (slash > hash) slash = -1;
@@ -535,6 +545,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
     // we have a scheme up to the :
     ret.scheme = {str, col};
     if (!validate_scheme(ret.scheme)) {
+      printf("%d %d - invalid scheme!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
@@ -550,6 +561,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
 
   // no more string to parse is an error
   if (len <= 0) {
+      printf("%d %d - invalid length!\n", threadIdx.x, blockIdx.x);
     ret.valid = false;
     return ret;
   }
@@ -561,6 +573,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
     if (question >=0) {
       ret.query = {str + question + 1, len - question - 1};
       if (!validate_query(ret.query)) {
+      printf("%d %d - invalid query!\n", threadIdx.x, blockIdx.x);
         ret.valid = false;
         return ret;
       }
@@ -583,12 +596,14 @@ uri_parts __device__ validate_uri(const char *str, int len) {
 
       if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 && ret.fragment.size_bytes() == 0) {
         // invalid!
+      printf("%d %d - invalid data!\n", threadIdx.x, blockIdx.x);
         ret.valid = false;
         return ret;
       }
 
       if (ret.authority.size_bytes() > 0) {
         if (!validate_authority(ret.authority)) {
+      printf("%d %d - invalid authority!\n", threadIdx.x, blockIdx.x);
           ret.valid = false;
           return ret;
         }
@@ -616,6 +631,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
         if (amp > 0) {
           ret.userinfo = {auth, amp};
           if (!validate_userinfo(ret.userinfo)) {
+      printf("%d %d - invalid user info!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           }
@@ -626,6 +642,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
           // found a port, attempt to parse it
           ret.port = {auth + last_colon, len - last_colon};
           if (!validate_port(ret.port)) {
+      printf("%d %d - invalid port!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           }
@@ -636,6 +653,7 @@ uri_parts __device__ validate_uri(const char *str, int len) {
         auto host_ret = validate_host(ret.host);
         switch(host_ret) {
           case FATAL:
+      printf("%d %d - invalid host!\n", threadIdx.x, blockIdx.x);
             ret.valid = false;
             return ret;
           case INVALID:
@@ -648,12 +666,14 @@ uri_parts __device__ validate_uri(const char *str, int len) {
       ret.path = {str, len};
     }
     if (!validate_path(ret.path)) {
+      printf("%d %d - invalid path!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
   } else {
     ret.opaque = {str, len};
     if (!validate_opaque(ret.opaque)) {
+      printf("%d %d - invalid opaque!\n", threadIdx.x, blockIdx.x);
       ret.valid = false;
       return ret;
     }
@@ -709,7 +729,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const string_length = in_string.size_bytes();
 
     auto const uri = validate_uri(in_chars, string_length);
-/*    if (threadIdx.x == 0) {
+/*    if (threadIdx.x == 3) {
       printf("results:\nscheme: ");
       print_string_view(uri.scheme);
       printf("host: ");
@@ -722,8 +742,8 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
       print_string_view(uri.query);
       printf("userinfo: ");
       print_string_view(uri.userinfo);
-      printf("valid: %s\n",uri.valid ? "valid" : "invalid"); */
-    }
+      printf("valid: %s\n",uri.valid ? "valid" : "invalid");
+    }*/
     if (!uri.valid) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
