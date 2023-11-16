@@ -36,7 +36,11 @@ import ai.rapids.cudf.Table;
 public class GpuTimeZoneDB {
 
   public static final int TIMEOUT_SECS = 300;
-  
+
+
+  // For the timezone database, we store the transitions in a ColumnVector that is a list of 
+  // structs. The type of this column vector is:
+  //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
 
@@ -237,10 +241,9 @@ public class GpuTimeZoneDB {
   }
 
   private Table getTransitions() {
-    ColumnVector fixedTransitions = getFixedTransitions();
-    Table transitions = new Table(fixedTransitions);
-    fixedTransitions.close();
-    return transitions;
+    try (ColumnVector fixedTransitions = getFixedTransitions()) {
+      return new Table(fixedTransitions);
+    }
   }
 
   private ColumnVector getFixedTransitions() {
