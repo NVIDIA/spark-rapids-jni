@@ -16,6 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.HashMap;
 import java.util.HashSet;
 
@@ -24,25 +27,44 @@ import java.util.HashSet;
  * state from a java perspective.
  */
 class ThreadStateRegistry {
+  private static final Logger LOG = LoggerFactory.getLogger(ThreadStateRegistry.class);
 
-  private static HashMap<Long, Thread> knownThreads = new HashMap<>();
+  private static final HashMap<Long, Thread> knownThreads = new HashMap<>();
+  private static final HashSet<Long> deadThreads = new HashSet<>();
 
-  public static synchronized void addThread(long nativeId, Thread t) {
-    knownThreads.put(nativeId, t);
+  public static void clearDeadThreads() {
+    HashSet<Long> copy;
+    synchronized(ThreadStateRegistry.class) {
+      copy = new HashSet<>(deadThreads);
+      deadThreads.clear();
+    }
+    for (long id : copy) {
+      RmmSpark.removeThreadAssociation(id);
+    }
+  }
+
+  public static void addThread(long nativeId, Thread t) {
+    clearDeadThreads();
+    synchronized (ThreadStateRegistry.class) {
+      knownThreads.put(nativeId, t);
+    }
   }
 
   // Typically called from JNI
   public static synchronized void removeThread(long threadId) {
     knownThreads.remove(threadId);
+    deadThreads.remove(threadId);
   }
 
   // This is likely called from JNI
   public static synchronized boolean isThreadBlocked(long nativeId) {
     Thread t = knownThreads.get(nativeId);
-    if (t == null) {
-      throw new IllegalStateException("Thread " + nativeId + " could not be found.");
-    } else if (!t.isAlive()) {
-      throw new IllegalStateException("Thread " + nativeId + " is not longer alive.");
+    if (t == null || !t.isAlive()) {
+      deadThreads.add(nativeId);
+      LOG.warn("Thread " + nativeId + " was not cleaned up properly.");
+      // Dead is as good as blocked. This is mostly for tests, not so much for
+      // production
+      return true;
     }
     Thread.State state = t.getState();
     switch (state) {
@@ -52,22 +74,15 @@ class ThreadStateRegistry {
         // fall through
       case TIMED_WAITING:
         return true;
+      case TERMINATED:
+        // Technically there is a race with `!t.isAlive` check above
+        deadThreads.add(nativeId);
+        LOG.warn("Thread " + nativeId + " was not cleaned up properly.");
+        // Dead is as good as blocked. This is mostly for tests, not so much for
+        // production
+        return true;
       default:
         return false;
-    }
-  }
-
-  public static synchronized void purgeCleanedThreads() {
-    HashSet<Long> keysToRemove = new HashSet<>();
-    for (Long k : knownThreads.keySet()) {
-      Thread t = knownThreads.get(k);
-      if (t == null || !t.isAlive()) {
-        keysToRemove.add(k);
-      }
-    }
-
-    for (Long k : keysToRemove) {
-      knownThreads.remove(k);
     }
   }
 }
