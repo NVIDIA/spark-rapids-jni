@@ -781,7 +781,7 @@ struct ftos_converter {
     const uint32_t olength = decimalLength17(output);
     int32_t exp = v.exponent + (int32_t) olength - 1;
     bool scientificNotation = (exp < -3) || (exp >= 7);
-
+    
     // Values in the interval [1E-3, 1E7) are special.
     if (scientificNotation) {
       // Print in the format x.xxxxxE-yy.
@@ -863,7 +863,7 @@ struct ftos_converter {
     const uint32_t olength = decimalLength17(output);
     int32_t exp = v.exponent + (int32_t) olength - 1;
     bool scientificNotation = (exp < -3) || (exp >= 7);
-
+    
     if (scientificNotation) {
       index += olength + 1;
       if (olength == 1) {
@@ -1154,7 +1154,6 @@ struct ftos_converter {
           return d2s_buffered_n(value, output);
       }
   }
-
 };
 
 }
