@@ -50,7 +50,7 @@ private:
   std::unique_ptr<cudf::table> make_transitions_table()
   {
     auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, LONG_MIN, -1585904400L, -933667200L, -922093200L, -908870400L, -888829200L, -650019600L, 515527200L, 558464400L, 684867600L});
-    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, LONG_MIN, -1585904400L, -933634800L, -922064400L, -908838000L, -888796801L, -649990800L, 515559600L, 558493200L, 684896400L});
+    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>({LONG_MIN, LONG_MIN, -1585904400L, -933634800L, -922064400L, -908838000L, -888796800L, -649990800L, 515559600L, 558493200L, 684896400L});
     auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>({18000, 29143, 28800, 32400, 28800, 32400, 28800, 28800, 32400, 28800, 28800});
     auto struct_column = 
         cudf::test::structs_column_wrapper{{instants_from_utc_col, instants_to_utc_col, utc_offsets_col}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}};
@@ -75,6 +75,7 @@ TEST_F(TimeZoneTest, ConvertToUTCSeconds)
       -908840700L,
       -888800400L,
       -888799500L,
+      -888796800L,
       0L,
       1699566167L,
       568036800L,
@@ -86,6 +87,7 @@ TEST_F(TimeZoneTest, ConvertToUTCSeconds)
       -908869500L,
       -888832800L,
       -888831900L,
+      -888825600L,
       -28800L,
       1699537367L,
       568008000L
@@ -108,6 +110,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
       -908840700000L,
       -888800400000L,
       -888799500000L,
+      -888796800000L,
       0L,
       1699571634312L,
       568036800000L,
@@ -119,6 +122,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
       -908869500000L,
       -888832800000L,
       -888831900000L,
+      -888825600000L,
       -28800000L,
       1699542834312L,
       568008000000L
@@ -141,6 +145,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
       -908840700000000L,
       -888800400000000L,
       -888799500000000L,
+      -888796800000000L,
       0L,
       1699571634312000L,
       568036800000000L,
@@ -152,6 +157,7 @@ TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
       -908869500000000L,
       -888832800000000L,
       -888831900000000L,
+      -888825600000000L,
       -28800000000L,
       1699542834312000L,
       568008000000000L
@@ -174,6 +180,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
       -908869500L,
       -888832800L,
       -888831900L,
+      -888825600L,
       0L,
       1699537367L,
       568008000L
@@ -185,6 +192,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
       -908837100L,
       -888800400L,
       -888799500L,
+      -888796800L,
       28800L,
       1699566167L,
       568036800L,
@@ -207,6 +215,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
       -908869500000L,
       -888832800000L,
       -888831900000L,
+      -888825600000L,
       0L,
       1699542834312L,
       568008000000L
@@ -218,6 +227,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
       -908837100000L,
       -888800400000L,
       -888799500000L,
+      -888796800000L,
       28800000L,
       1699571634312L,
       568036800000L,
@@ -240,6 +250,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
       -908869500000000L,
       -888832800000000L,
       -888831900000000L,
+      -888825600000000L,
       0L,
       1699542834312000L,
       568008000000000L
@@ -251,6 +262,7 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
       -908837100000000L,
       -888800400000000L,
       -888799500000000L,
+      -888796800000000L,
       28800000000L,
       1699571634312000L,
       568036800000000L,
