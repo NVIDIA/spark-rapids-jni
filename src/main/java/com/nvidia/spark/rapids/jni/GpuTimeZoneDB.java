@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.sql.Time;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
@@ -34,6 +35,8 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
 
 public class GpuTimeZoneDB {
+
+  public static final int TIMEOUT_SECS = 300;
   
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
@@ -43,7 +46,7 @@ public class GpuTimeZoneDB {
     fixedTransitionsFuture = new CompletableFuture<>();
   }
   
-  private static GpuTimeZoneDB instance;
+  private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
   static GpuTimeZoneDB getInstance() {
     return instance;
   }
@@ -57,26 +60,26 @@ public class GpuTimeZoneDB {
    * where we are waiting on the database to finish loading.
    */
   public static void cacheDatabase() {
-    if (instance == null) {
-      instance = new GpuTimeZoneDB();
-    }
-    Executor executor = Executors.newSingleThreadExecutor(
-      new ThreadFactory() {
-        private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
+    if (!instance.isLoaded()) {
+      Executor executor = Executors.newSingleThreadExecutor(
+        new ThreadFactory() {
+          private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
 
-        @Override
-        public Thread newThread(Runnable r) {
-          Thread thread = defaultFactory.newThread(r);
-          thread.setName("gpu-timezone-database-0");
-          thread.setDaemon(true);
-          return thread;
-        }
-      });
-    instance.loadData(executor);
+          @Override
+          public Thread newThread(Runnable r) {
+            Thread thread = defaultFactory.newThread(r);
+            thread.setName("gpu-timezone-database-0");
+            thread.setDaemon(true);
+            return thread;
+          }
+        });
+      instance.loadData(executor);
+    }
   }
 
+
   public static void shutdown() {
-    instance.getHostFixedTransitions().close();
+    instance.close();
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
@@ -114,6 +117,10 @@ public class GpuTimeZoneDB {
   public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
     String id = desiredTimeZone.normalized().getId();
     return instance.getZoneIDMap().containsKey(id);
+  }
+
+  boolean isLoaded() {
+    return zoneIdToTableFuture.isDone();
   }
   
   private void loadData(Executor executor) throws IllegalStateException {
@@ -195,28 +202,34 @@ public class GpuTimeZoneDB {
             new HostColumnVector.ListType(false, childType);
         HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType,
             masterTransitions.toArray(new List[0]));
-        zoneIdToTableFuture.complete(zoneIdToTable);
         fixedTransitionsFuture.complete(fixedTransitions);
+        zoneIdToTableFuture.complete(zoneIdToTable);
       } catch (Exception e) {
-        zoneIdToTableFuture.completeExceptionally(e);
         fixedTransitionsFuture.completeExceptionally(e);
+        zoneIdToTableFuture.completeExceptionally(e);
         throw e;
       }
     }
   }
 
+  private void close() {
+    try (HostColumnVector hcv = getHostFixedTransitions()) {
+      // automatically closed
+    }
+  }
+
   HostColumnVector getHostFixedTransitions() {
     try {
-      return fixedTransitionsFuture.get();
-    } catch (InterruptedException | ExecutionException e) {
+      return fixedTransitionsFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
       throw new RuntimeException(e);
     }
   }
 
   Map<String, Integer> getZoneIDMap() {
     try {
-      return zoneIdToTableFuture.get();
-    } catch (InterruptedException | ExecutionException e) {
+      return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
       throw new RuntimeException(e);
     }
   }

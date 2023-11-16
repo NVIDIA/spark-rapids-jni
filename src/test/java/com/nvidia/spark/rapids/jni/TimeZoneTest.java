@@ -18,8 +18,6 @@ package com.nvidia.spark.rapids.jni;
 
 import java.time.ZoneId;
 import java.util.List;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,8 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.rapids.cudf.ColumnVector;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
 
 public class TimeZoneTest {
   @BeforeAll
@@ -36,8 +36,13 @@ public class TimeZoneTest {
     GpuTimeZoneDB.cacheDatabase();
   }
   
+  @AfterAll
+  static void cleanup() {
+    GpuTimeZoneDB.shutdown();
+  }
+  
   @Test
-  void databaseLoadTest() {
+  void databaseLoadedTest() {
     // Check for a few timezones
     GpuTimeZoneDB instance = GpuTimeZoneDB.getInstance();
     List transitions = instance.getHostFixedTransitions("UTC+8");
