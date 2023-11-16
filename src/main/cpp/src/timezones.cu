@@ -39,11 +39,24 @@ using struct_view = cudf::struct_view;
 namespace {
 
 /**
- * @brief adjust timestamp value by offset
+ * @brief Convert the timestamp value to either UTC or a specified timezone
  * 
+ * This device function uses a binary search to find the instant of the transition
+ * to find the right offset to do the transition.
+ *
+ * To transition to UTC: do a binary search on the tzInstant child column and subtract
+ * the offset
+ *
+ * To transition from UTC: do a binary search on the utcInstant child column and add
+ * the offset
+ *
  * @tparam typestamp_type type of the input and output timestamp
  * @param timestamp input timestamp
- * @param transitions the transitions 
+ * @param transitions the list column of transitions to figure out the correct offset
+ *                    to adjust the timestamp. The type of the values in this column is
+ *                    LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>
+ * @param tz_index the index of the specified zone id in the transitions table
+ * @param to_utc whether we are converting to UTC or converting to the timezone
  */
 template <typename timestamp_type>
 __device__ timestamp_type convert_timestamp_timezone(timestamp_type const& timestamp,
@@ -82,6 +95,18 @@ __device__ timestamp_type convert_timestamp_timezone(timestamp_type const& times
 
 namespace spark_rapids_jni {
 
+/**
+ * @brief Convert the timestamps in the input column from specified timezone (via index) to
+ * UTC
+ *
+ * This method is the converse of convert_utc_timestamp_to_timezone
+ *
+ * @param input the input column of timestamps
+ * @param transitions the table of transitions indexed by time zone
+ * @param tz_index the index of the row in the table that corresponds to the time zone
+ * @param stream stream on which to operate
+ * @param mr memory resource to use for allocations
+ */
 std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const& input,
   cudf::table_view const& transitions,
   size_type tz_index,
@@ -141,6 +166,18 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const& input,
   return results;
 }
 
+/**
+ * @brief Convert the timestamps in the input column from UTC to the specified
+ * timezone (via index)
+ *
+ * This method is the converse of convert_timestamp_to_utc
+ *
+ * @param input the input column of timestamps
+ * @param transitions the table of transitions indexed by time zone
+ * @param tz_index the index of the row in the table that corresponds to the time zone
+ * @param stream stream on which to operate
+ * @param mr memory resource to use for allocations
+ */
 std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view const& input,
   cudf::table_view const& transitions,
   size_type tz_index,

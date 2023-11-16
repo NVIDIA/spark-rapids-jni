@@ -24,9 +24,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTi
     JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
     try {
         cudf::jni::auto_set_device(env);
-        auto input = reinterpret_cast<cudf::column_view const*>(input_handle);
-        auto transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
-        auto index = static_cast<cudf::size_type>(tz_index);
+        auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
+        auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
+        auto const index = static_cast<cudf::size_type>(tz_index);
         return cudf::jni::ptr_as_jlong(
             spark_rapids_jni::convert_timestamp_to_utc(*input, *transitions, index).release());
     }
@@ -39,9 +39,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertUT
     JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
     try {
         cudf::jni::auto_set_device(env);
-        auto input = reinterpret_cast<cudf::column_view const*>(input_handle);
-        auto transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
-        auto index = static_cast<cudf::size_type>(tz_index);
+        auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
+        auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
+        auto const index = static_cast<cudf::size_type>(tz_index);
         return cudf::jni::ptr_as_jlong(
             spark_rapids_jni::convert_utc_timestamp_to_timezone(*input, *transitions, index).release());
     }
