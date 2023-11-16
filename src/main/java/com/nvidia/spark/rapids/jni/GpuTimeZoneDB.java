@@ -16,7 +16,6 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import java.sql.Time;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
@@ -143,6 +142,9 @@ public class GpuTimeZoneDB {
           try {
             zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
           } catch (ZoneRulesException e) {
+            // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
+            // this use is deprecated due to ambiguity reasons (same abbrevation can be used for 
+            // multiple time zones). These are not supported by ZoneId.of(...) directly here.
             continue;
           }
           ZoneRules zoneRules = zoneId.getRules();
@@ -218,7 +220,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  HostColumnVector getHostFixedTransitions() {
+  private HostColumnVector getHostFixedTransitions() {
     try {
       return fixedTransitionsFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
@@ -226,7 +228,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  Map<String, Integer> getZoneIDMap() {
+  private Map<String, Integer> getZoneIDMap() {
     try {
       return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
@@ -234,18 +236,28 @@ public class GpuTimeZoneDB {
     }
   }
 
-  Table getTransitions() {
+  private Table getTransitions() {
     ColumnVector fixedTransitions = getFixedTransitions();
     Table transitions = new Table(fixedTransitions);
     fixedTransitions.close();
     return transitions;
   }
 
-  ColumnVector getFixedTransitions() {
+  private ColumnVector getFixedTransitions() {
     HostColumnVector hostTransitions = getHostFixedTransitions();
     return hostTransitions.copyToDevice();
   }
 
+  /**
+   * FOR TESTING PURPOSES ONLY, DO NOT USE IN PRODUCTION
+   *
+   * This method retrieves the raw list of struct data that forms the list of 
+   * fixed transitions for a particular zoneId. 
+   *
+   * It has default visibility so the test can access it.
+   * @param zoneId
+   * @return list of fixed transitions
+   */
   List getHostFixedTransitions(String zoneId) {
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = getZoneIDMap().get(zoneId);
