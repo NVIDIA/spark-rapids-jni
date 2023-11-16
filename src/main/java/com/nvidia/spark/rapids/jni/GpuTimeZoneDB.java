@@ -190,7 +190,7 @@ public class GpuTimeZoneDB {
                   data.add(
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
-                          t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds() - 1,
+                          t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
                           t.getOffsetAfter().getTotalSeconds())
                   );
                 }
