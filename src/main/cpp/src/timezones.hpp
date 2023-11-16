@@ -14,21 +14,23 @@
  * limitations under the License.
  */
 
+#include <cstddef>
+
 #include <cudf/column/column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
-#include <cstddef>
-
 namespace spark_rapids_jni {
-    
+
 /**
  * @brief Convert input column timestamps in current timezone to UTC
- * 
- * The transition rules are in enclosed in a table, and the index corresponding to the 
+ *
+ * The transition rules are in enclosed in a table, and the index corresponding to the
  * current timezone is given.
  * 
+ * This method is the converse of convert_utc_timestamp_to_timezone
+ *
  * @param input the column of input timestamps in the current timezone
  * @param transitions the table of transitions for all timezones
  * @param tz_index the index of the row in `transitions` corresponding to the current timezone
@@ -36,18 +38,18 @@ namespace spark_rapids_jni {
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
  */
 std::unique_ptr<cudf::column> convert_timestamp_to_utc(
-    cudf::column_view const& input,
-    cudf::table_view const& transitions,
-    cudf::size_type tz_index,
-    rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+    cudf::column_view const &input, cudf::table_view const &transitions, cudf::size_type tz_index,
+    rmm::cuda_stream_view stream = cudf::get_default_stream(),
+    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Convert input column timestamps in UTC to specified timezone
- * 
- * The transition rules are in enclosed in a table, and the index corresponding to the 
+ *
+ * The transition rules are in enclosed in a table, and the index corresponding to the
  * specific timezone is given.
  * 
+ * This method is the converse of convert_timestamp_to_utc
+ *
  * @param input the column of input timestamps in UTC
  * @param transitions the table of transitions for all timezones
  * @param tz_index the index of the row in `transitions` corresponding to the specific timezone
@@ -55,10 +57,8 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
  */
 std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
-    cudf::column_view const& input,
-    cudf::table_view const& transitions,
-    cudf::size_type tz_index,
-    rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+    cudf::column_view const &input, cudf::table_view const &transitions, cudf::size_type tz_index,
+    rmm::cuda_stream_view stream = cudf::get_default_stream(),
+    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
 
-}
+} // namespace spark_rapids_jni
