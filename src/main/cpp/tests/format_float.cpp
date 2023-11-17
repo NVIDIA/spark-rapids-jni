@@ -65,21 +65,6 @@ TEST_F(FormatFloatTests, FormatFloats32)
 
 TEST_F(FormatFloatTests, FormatFloats64)
 {
-  // std::vector<double> h_floats{100,
-  //                              654321.25,
-  //                              -12761.125,
-  //                              1.123456789123456789,
-  //                              0.000000000000000000123456789123456789,
-  //                              0,
-  //                              5,
-  //                              -4,
-  //                              std::numeric_limits<double>::quiet_NaN(),
-  //                              839542223232.794248339,
-  //                              -0.0};
-  // std::vector<char const*> h_expected{
-  //   "100.0", "654,321.25", "-12,761.125", "1.1234567891234568", "1.234567891234568E-19", 
-  //   "0.0", "5.0", "-4.0", "NaN", "8.395422232327942E11", "-0.0"};
-
     std::vector<double> h_floats{100,
                                654321.25,
                                -12761.125,
