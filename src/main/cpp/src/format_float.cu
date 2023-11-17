@@ -51,7 +51,7 @@ struct format_float_fn {
   {
     ftos_converter fts;
     bool is_float = std::is_same_v<FloatType, float>;
-    return static_cast<size_type>(fts.compute_ftos_size(static_cast<double>(value), digits, is_float));
+    return static_cast<size_type>(fts.compute_format_float_size(static_cast<double>(value), digits, is_float));
   }
 
   __device__ void format_float(size_type idx, int digits)
