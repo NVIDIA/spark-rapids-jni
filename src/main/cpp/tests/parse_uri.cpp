@@ -72,26 +72,31 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "http://%77%77%77.%4EV%49%44%49%41.com",
      "https:://broken.url",
      "https://www.nvidia.com/q/This%20is%20a%20query",
-     "https://www.nvidia.com/\x93-path/to/file"});
+     "https://www.nvidia.com/\x93path/path/to/file",
+     "http://?",
+     "http://??",
+     "http://\?\?/",
+     "http://#",
+     "http://user:pass@host/file;param?query;p2",
+     "http://[1:2:3:4:5:6:7::]",
+     "http://[::2:3:4:5:6:7:8]",
+     "http://[fe80::7:8%eth0]",
+     "http://[fe80::7:8%1]"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https",
-                                               "https",
-                                               "filesystemmagicthing",
-                                               "nvidia.com",
-                                               "",
-                                               "file",
-                                               "",
-                                               "",
-                                               "",
-                                               "HTTP",
-                                               "",
-                                               "http",
-                                               "https",
-                                               "https",
-                                               ""},
-                                              {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0});
+  cudf::test::strings_column_wrapper expected(
+    {
+      "https",      "https", "filesystemmagicthing",
+      "nvidia.com", "",      "file",
+      "",           "",      "",
+      "HTTP",       "",      "http",
+      "https",      "https", "",
+      "http",       "http",  "http",
+      "http",       "http",  "http",
+      "http",       "http",  "http",
+    },
+    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }

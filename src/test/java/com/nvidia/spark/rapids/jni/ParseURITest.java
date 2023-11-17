@@ -70,6 +70,11 @@ public class ParseURITest {
       "https://www.nvidia.com#8080",
       "file://path/to/cool/file",
       "http//www.nvidia.com/q",
+      "http://?",
+      "http://??",
+      "http://??/",
+      "http://#",
+      "http://user:pass@host/file;param?query;p2",
       "",
       null};
 
@@ -111,6 +116,10 @@ public class ParseURITest {
       "https://[2001:]db8:85a3:8d3:1319:8a2e:370:7348/",
       "https://[][][][]nvidia.com/",
       "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348:2001:db8:85a3]/path",
+      "http://[1:2:3:4:5:6:7::]",
+      "http://[::2:3:4:5:6:7:8]",
+      "http://[fe80::7:8%eth0]",
+      "http://[fe80::7:8%1]",
     };
     
     buildExpectedAndRun(testData);

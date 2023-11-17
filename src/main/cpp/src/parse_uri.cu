@@ -75,10 +75,11 @@ constexpr bool is_hex(char c)
 }
 
 __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
-                                          string_view::const_iterator end)
+                                          string_view::const_iterator end,
+                                          bool allow_invalid_escapes = false)
 {
   while (iter != end) {
-    if (*iter == '%') {
+    if (*iter == '%' && !allow_invalid_escapes) {
       // verify following two characters are hexadecimal
       for (int i = 0; i < 2; ++i) {
         ++iter;
@@ -106,15 +107,15 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
 }
 
 template <typename Predicate>
-__device__ bool validate_chunk(string_view s, Predicate fn)
+__device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_escapes = false)
 {
   auto iter = s.begin();
-  if (!skip_and_validate_special(iter, s.end())) { return false; }
+  if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
   while (iter != s.end()) {
     if (!fn(iter)) { return false; }
 
     iter++;
-    if (!skip_and_validate_special(iter, s.end())) { return false; }
+    if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
   }
   return true;
 }
@@ -133,7 +134,7 @@ bool __device__ validate_scheme(string_view scheme)
 
 bool __device__ validate_ipv6(string_view s)
 {
-  constexpr auto max_colons{7};
+  constexpr auto max_colons{8};
 
   if (s.size_bytes() < 2) { return false; }
 
@@ -142,6 +143,7 @@ bool __device__ validate_ipv6(string_view s)
   int close_bracket_count{0};
   int period_count{0};
   int colon_count{0};
+  int percent_count{0};
   char previous_char{0};
   int address{0};
   int address_char_count{0};
@@ -164,13 +166,10 @@ bool __device__ validate_ipv6(string_view s)
       case ']':
         close_bracket_count++;
         if (close_bracket_count > 1) { return false; }
+        if ((period_count > 0) && (address_has_hex || address > 255)) { return false; }
         break;
       case ':':
         colon_count++;
-        if (colon_count > max_colons) { return false; }
-        // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
-        // like [1:2:3:4:5:6:d.d.d.d]
-        if (period_count > 0) { return false; }
         if (previous_char == ':') {
           if (found_double_colon) { return false; }
           found_double_colon = true;
@@ -178,9 +177,16 @@ bool __device__ validate_ipv6(string_view s)
         address            = 0;
         address_has_hex    = false;
         address_char_count = 0;
+        if (colon_count > max_colons || (colon_count == max_colons && !found_double_colon)) {
+          return false;
+        }
+        // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
+        // like [1:2:3:4:5:6:d.d.d.d]
+        if (period_count > 0 || percent_count > 0) { return false; }
         break;
       case '.':
         period_count++;
+        if (percent_count > 0) { return false; }
         if (period_count > 3) { return false; }
         if (address_has_hex) { return false; }
         if (address > 255) { return false; }
@@ -192,22 +198,35 @@ bool __device__ validate_ipv6(string_view s)
         address_has_hex    = false;
         address_char_count = 0;
         break;
+      case '%':
+        // IPv6 can define a device to use for the routing. This is expressed as '%eth0' at the end
+        // of the address.
+        percent_count++;
+        if (percent_count > 1) { return false; }
+        if ((period_count > 0) && (address_has_hex || address > 255)) { return false; }
+        address            = 0;
+        address_has_hex    = false;
+        address_char_count = 0;
+        break;
       default:
-        if (address_char_count > 3) { return false; }
-        address_char_count++;
-        address *= 10;
-        if (c >= 'a' && c <= 'f') {
-          address += 10;
-          address += c - 'a';
-          address_has_hex = true;
-        } else if (c >= 'A' && c <= 'Z') {
-          address += 10;
-          address += c - 'A';
-          address_has_hex = true;
-        } else if (c >= '0' && c <= '9') {
-          address += c - '0';
-        } else {
-          return false;
+        // after % all bets are off
+        if (percent_count == 0) {
+          if (address_char_count > 3) { return false; }
+          address_char_count++;
+          address *= 10;
+          if (c >= 'a' && c <= 'f') {
+            address += 10;
+            address += c - 'a';
+            address_has_hex = true;
+          } else if (c >= 'A' && c <= 'Z') {
+            address += 10;
+            address += c - 'A';
+            address_has_hex = true;
+          } else if (c >= '0' && c <= '9') {
+            address += c - '0';
+          } else {
+            return false;
+          }
         }
         break;
     }
@@ -357,17 +376,21 @@ bool __device__ validate_query(string_view query)
   });
 }
 
-bool __device__ validate_authority(string_view authority)
+bool __device__ validate_authority(string_view authority, bool allow_invalid_escapes)
 {
   // authority needs to be alphanum and @[]_-!.~\'()*,;:$&+=
-  return validate_chunk(authority, [] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
-        !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~') {
-      return false;
-    }
-    return true;
-  });
+  return validate_chunk(
+    authority,
+    [allow_invalid_escapes] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
+          !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~' &&
+          (!allow_invalid_escapes || c != '%')) {
+        return false;
+      }
+      return true;
+    },
+    allow_invalid_escapes);
 }
 
 bool __device__ validate_userinfo(string_view userinfo)
@@ -395,8 +418,8 @@ bool __device__ validate_path(string_view path)
   // path can be alphanum and @[]_-!.~\'()*?/&
   return validate_chunk(path, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (!is_alphanum(c) && c != '!' && !(c >= '\'' && c <= '*') && !(c >= '-' && c <= '/') &&
-        c != '@' && c != '&' && c != '?' && !(c >= '[' && c <= ']') && c != '_' && c != '~') {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
+        c != '_' && c != '\\' && !(c >= 'a' && c <= 'z') && c != '~') {
       return false;
     }
     return true;
@@ -518,18 +541,20 @@ uri_parts __device__ validate_uri(const char* str, int len)
           break;
         }
       }
-      ret.authority = {&str[2], next_slash == -1 ? len - 2 : next_slash - 2};
+      ret.authority = {&str[2],
+                       next_slash == -1 ? question < 0 ? len - 2 : question - 2 : next_slash - 2};
       if (next_slash > 0) { ret.path = {str + next_slash, path_len - next_slash}; }
 
       if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 &&
           ret.fragment.size_bytes() == 0) {
-        // invalid!
-        ret.valid = false;
+        // invalid! - but spark like to return things as long as you don't have illegal characters
+        // ret.valid = false;
         return ret;
       }
 
       if (ret.authority.size_bytes() > 0) {
-        if (!validate_authority(ret.authority)) {
+        auto ipv6_address = ret.authority.size_bytes() > 2 && *ret.authority.begin() == '[';
+        if (!validate_authority(ret.authority, ipv6_address)) {
           ret.valid = false;
           return ret;
         }
