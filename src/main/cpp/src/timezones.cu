@@ -62,27 +62,25 @@ __device__ timestamp_type convert_timestamp_timezone(timestamp_type const &times
                                                      size_type tz_index, bool to_utc) {
 
   using duration_type = typename timestamp_type::duration;
-  using cuda::std::chrono::duration_cast;
 
-  auto epoch_seconds =
-      static_cast<int64_t>(duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
-
+  auto const epoch_seconds =
+      static_cast<int64_t>(cuda::std::chrono::duration_cast<cudf::duration_s>(
+        timestamp.time_since_epoch()).count());
   auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
-
-  auto size = tz_transitions.size();
+  auto const list_size = tz_transitions.size();
 
   cudf::device_span<int64_t const> transition_times(
       &(transitions.child()
             .child(to_utc ? 1 : 0)
             .data<int64_t>()[tz_transitions.element_offset(0)]),
-      static_cast<size_t>(size));
+      static_cast<size_t>(list_size));
 
-  auto idx = thrust::upper_bound(thrust::seq, transition_times.begin(), transition_times.end(),
-                                 epoch_seconds) -
-             transition_times.begin();
+  auto const it = thrust::upper_bound(thrust::seq, transition_times.begin(), transition_times.end(),
+                                 epoch_seconds);
+  auto const idx = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
 
   auto const list_offset = tz_transitions.element_offset(size_type(idx - 1));
-  auto const utc_offset = duration_cast<duration_type>(cudf::duration_s{
+  auto const utc_offset = cuda::std::chrono::duration_cast<duration_type>(cudf::duration_s{
       static_cast<int64_t>(transitions.child().child(2).element<int32_t>(list_offset))});
   return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
 }
@@ -96,8 +94,8 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const &input,
                                                  size_type tz_index, rmm::cuda_stream_view stream,
                                                  rmm::mr::device_memory_resource *mr) {
 
-  auto type = input.type().id();
-  auto num_rows = input.size();
+  auto const type = input.type().id();
+  auto const num_rows = input.size();
 
   // get the fixed transitions
   auto const ft_cdv_ptr = column_device_view::create(transitions.column(0), stream);
@@ -109,34 +107,31 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const &input,
 
   switch (type) {
     case cudf::type_id::TIMESTAMP_SECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_s>(),
+                        input.end<cudf::timestamp_s>(),
                         results->mutable_view().begin<cudf::timestamp_s>(),
-                        [input_data = input.begin<cudf::timestamp_s>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_s>(
                               timestamp, fixed_transitions, tz_index, true);
                         });
       break;
     case cudf::type_id::TIMESTAMP_MILLISECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_ms>(),
+                        input.end<cudf::timestamp_ms>(),
                         results->mutable_view().begin<cudf::timestamp_ms>(),
-                        [input_data = input.begin<cudf::timestamp_ms>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_ms>(
                               timestamp, fixed_transitions, tz_index, true);
                         });
       break;
     case cudf::type_id::TIMESTAMP_MICROSECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_us>(),
+                        input.end<cudf::timestamp_us>(),
                         results->mutable_view().begin<cudf::timestamp_us>(),
-                        [input_data = input.begin<cudf::timestamp_us>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_us>(
                               timestamp, fixed_transitions, tz_index, true);
                         });
@@ -154,7 +149,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
                                                           rmm::mr::device_memory_resource *mr) {
 
   auto const type = input.type().id();
-  auto num_rows = input.size();
+  auto const num_rows = input.size();
 
   // get the fixed transitions
   auto const ft_cdv_ptr = column_device_view::create(transitions.column(0), stream);
@@ -166,34 +161,31 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
 
   switch (type) {
     case cudf::type_id::TIMESTAMP_SECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_s>(),
+                        input.end<cudf::timestamp_s>(),
                         results->mutable_view().begin<cudf::timestamp_s>(),
-                        [input_data = input.begin<cudf::timestamp_s>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_s>(
                               timestamp, fixed_transitions, tz_index, false);
                         });
       break;
     case cudf::type_id::TIMESTAMP_MILLISECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_ms>(),
+                        input.end<cudf::timestamp_ms>(),
                         results->mutable_view().begin<cudf::timestamp_ms>(),
-                        [input_data = input.begin<cudf::timestamp_ms>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_ms>(
                               timestamp, fixed_transitions, tz_index, false);
                         });
       break;
     case cudf::type_id::TIMESTAMP_MICROSECONDS:
-      thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(num_rows),
+      thrust::transform(rmm::exec_policy(stream), 
+                        input.begin<cudf::timestamp_us>(),
+                        input.end<cudf::timestamp_us>(),
                         results->mutable_view().begin<cudf::timestamp_us>(),
-                        [input_data = input.begin<cudf::timestamp_us>(), fixed_transitions,
-                         tz_index] __device__(auto const i) {
-                          auto const timestamp = input_data[i];
+                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
                           return convert_timestamp_timezone<cudf::timestamp_us>(
                               timestamp, fixed_transitions, tz_index, false);
                         });
