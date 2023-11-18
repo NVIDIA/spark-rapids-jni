@@ -38,6 +38,7 @@
       <arg value="${cudf.path}/cpp"/>
       <arg value="-DBUILD_SHARED_LIBS=OFF"/>
       <arg value="-DBUILD_TESTS=OFF"/>
+      <arg value="-DCMAKE_BUILD_TYPE=${LIBCUDF_BUILD_TYPE}"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
       <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
       <arg value="-DCUDA_STATIC_RUNTIME=ON"/>

@@ -81,6 +81,9 @@
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
+    <LIBCUDF_BUILD_TYPE>Release</LIBCUDF_BUILD_TYPE>
+    <BUILD_TYPE>${LIBCUDF_BUILD_TYPE}</BUILD_TYPE>
+    <CUDA_FLAGS_DEBUG>-g</CUDA_FLAGS_DEBUG>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
     <BUILD_FAULTINJ>ON</BUILD_FAULTINJ>
@@ -393,6 +396,7 @@
                 <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                 <property name="USE_GDS" value="${USE_GDS}"/>
                 <property name="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
+                <property name="LIBCUDF_BUILD_TYPE" value="${LIBCUDF_BUILD_TYPE}"/>
                 <ant antfile="build-libcudf.xml" target="build-libcudf"/>
               </target>
             </configuration>
@@ -415,6 +419,7 @@
                   <arg value="-DBUILD_SHARED_LIBS=OFF"/>
                   <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
                   <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
+                  <arg value="-DCMAKE_BUILD_TYPE=${LIBCUDF_BUILD_TYPE}"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
@@ -443,6 +448,8 @@
                       failonerror="true"
                       executable="cmake">
                   <arg value="${basedir}/src/main/cpp"/>
+                  <arg value="-DCMAKE_BUILD_TYPE=${BUILD_TYPE}"/>
+                  <arg value="-DCMAKE_CUDA_FLAGS_DEBUG=${CUDA_FLAGS_DEBUG}"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
