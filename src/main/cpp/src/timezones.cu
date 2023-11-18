@@ -39,7 +39,7 @@ namespace {
 /**
  * @brief Convert the timestamp value to either UTC or a specified timezone
  *
- * This device function uses a binary search to find the instant of the transition
+ * This device functor uses a binary search to find the instant of the transition
  * to find the right offset to do the transition.
  *
  * To transition to UTC: do a binary search on the tzInstant child column and subtract
@@ -49,41 +49,45 @@ namespace {
  * the offset
  *
  * @tparam typestamp_type type of the input and output timestamp
- * @param timestamp input timestamp
  * @param transitions the list column of transitions to figure out the correct offset
  *                    to adjust the timestamp. The type of the values in this column is
  *                    LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>
  * @param tz_index the index of the specified zone id in the transitions table
  * @param to_utc whether we are converting to UTC or converting to the timezone
+ * 
+ * @param timestamp input timestamp
  */
 template <typename timestamp_type>
-__device__ timestamp_type convert_timestamp_timezone(timestamp_type const &timestamp,
-                                                     lists_column_device_view const &transitions,
-                                                     size_type tz_index, bool to_utc) {
-
+struct convert_timestamp_tz_functor {
   using duration_type = typename timestamp_type::duration;
 
-  auto const epoch_seconds =
-      static_cast<int64_t>(cuda::std::chrono::duration_cast<cudf::duration_s>(
-        timestamp.time_since_epoch()).count());
-  auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
-  auto const list_size = tz_transitions.size();
+  lists_column_device_view transitions;
+  size_type tz_index;
+  bool to_utc;
 
-  cudf::device_span<int64_t const> transition_times(
-      &(transitions.child()
-            .child(to_utc ? 1 : 0)
-            .data<int64_t>()[tz_transitions.element_offset(0)]),
-      static_cast<size_t>(list_size));
+  __device__ timestamp_type operator()(timestamp_type const &timestamp) const {
+    auto const epoch_seconds =
+        static_cast<int64_t>(cuda::std::chrono::duration_cast<cudf::duration_s>(
+          timestamp.time_since_epoch()).count());
+    auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
+    auto const list_size = tz_transitions.size();
 
-  auto const it = thrust::upper_bound(thrust::seq, transition_times.begin(), transition_times.end(),
-                                 epoch_seconds);
-  auto const idx = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
+    cudf::device_span<int64_t const> transition_times(
+        &(transitions.child()
+              .child(to_utc ? 1 : 0)
+              .data<int64_t>()[tz_transitions.element_offset(0)]),
+        static_cast<size_t>(list_size));
 
-  auto const list_offset = tz_transitions.element_offset(size_type(idx - 1));
-  auto const utc_offset = cuda::std::chrono::duration_cast<duration_type>(cudf::duration_s{
-      static_cast<int64_t>(transitions.child().child(2).element<int32_t>(list_offset))});
-  return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
-}
+    auto const it = thrust::upper_bound(thrust::seq, transition_times.begin(), transition_times.end(),
+                                  epoch_seconds);
+    auto const idx = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
+
+    auto const list_offset = tz_transitions.element_offset(size_type(idx - 1));
+    auto const utc_offset = cuda::std::chrono::duration_cast<duration_type>(cudf::duration_s{
+        static_cast<int64_t>(transitions.child().child(2).element<int32_t>(list_offset))});
+    return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
+  }
+};
 
 } // namespace
 
@@ -111,30 +115,21 @@ std::unique_ptr<column> convert_timestamp_to_utc(cudf::column_view const &input,
                         input.begin<cudf::timestamp_s>(),
                         input.end<cudf::timestamp_s>(),
                         results->mutable_view().begin<cudf::timestamp_s>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_s>(
-                              timestamp, fixed_transitions, tz_index, true);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_s>{fixed_transitions, tz_index, true});
       break;
     case cudf::type_id::TIMESTAMP_MILLISECONDS:
       thrust::transform(rmm::exec_policy(stream), 
                         input.begin<cudf::timestamp_ms>(),
                         input.end<cudf::timestamp_ms>(),
                         results->mutable_view().begin<cudf::timestamp_ms>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_ms>(
-                              timestamp, fixed_transitions, tz_index, true);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_ms>{fixed_transitions, tz_index, true});
       break;
     case cudf::type_id::TIMESTAMP_MICROSECONDS:
       thrust::transform(rmm::exec_policy(stream), 
                         input.begin<cudf::timestamp_us>(),
                         input.end<cudf::timestamp_us>(),
                         results->mutable_view().begin<cudf::timestamp_us>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_us>(
-                              timestamp, fixed_transitions, tz_index, true);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_us>{fixed_transitions, tz_index, true});
       break;
     default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
   }
@@ -165,30 +160,21 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
                         input.begin<cudf::timestamp_s>(),
                         input.end<cudf::timestamp_s>(),
                         results->mutable_view().begin<cudf::timestamp_s>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_s>(
-                              timestamp, fixed_transitions, tz_index, false);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_s>{fixed_transitions, tz_index, false});
       break;
     case cudf::type_id::TIMESTAMP_MILLISECONDS:
       thrust::transform(rmm::exec_policy(stream), 
                         input.begin<cudf::timestamp_ms>(),
                         input.end<cudf::timestamp_ms>(),
                         results->mutable_view().begin<cudf::timestamp_ms>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_ms>(
-                              timestamp, fixed_transitions, tz_index, false);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_ms>{fixed_transitions, tz_index, false});
       break;
     case cudf::type_id::TIMESTAMP_MICROSECONDS:
       thrust::transform(rmm::exec_policy(stream), 
                         input.begin<cudf::timestamp_us>(),
                         input.end<cudf::timestamp_us>(),
                         results->mutable_view().begin<cudf::timestamp_us>(),
-                        [fixed_transitions, tz_index] __device__(auto const timestamp) {
-                          return convert_timestamp_timezone<cudf::timestamp_us>(
-                              timestamp, fixed_transitions, tz_index, false);
-                        });
+                        convert_timestamp_tz_functor<cudf::timestamp_us>{fixed_transitions, tz_index, false});
       break;
     default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
   }
