@@ -71,10 +71,13 @@ public class ParseURITest {
       "file://path/to/cool/file",
       "http//www.nvidia.com/q",
       "http://?",
+      "http://#",
       "http://??",
       "http://??/",
-      "http://#",
       "http://user:pass@host/file;param?query;p2",
+      "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
+      "b.oscars.org:8100/servlet/impc.DisplayCredits?primekey_in=2000041100:05:14115240636,b.oscars.org,1,left",
+      "https://j.mp/2Ru15Ss ,,1,left",
       "",
       null};
 

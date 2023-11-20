@@ -93,7 +93,7 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
       // whitespace
       auto const c = *iter;
       // validate it isn't a whitespace or control unicode character
-      if ((c >= 0xc280 && c <= 0xc29f) || c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) ||
+      if ((c >= 0xc280 && c <= 0xc2a0) || c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) ||
           c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
         return false;
       }
@@ -415,11 +415,11 @@ bool __device__ validate_port(string_view port)
 
 bool __device__ validate_path(string_view path)
 {
-  // path can be alphanum and @[]_-!.~\'()*?/&
+  // path can be alphanum and @[]_-!.~'()*?/&,;:$+=
   return validate_chunk(path, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
-        c != '_' && c != '\\' && !(c >= 'a' && c <= 'z') && c != '~') {
+        c != '_' && !(c >= 'a' && c <= 'z') && c != '~') {
       return false;
     }
     return true;
@@ -431,8 +431,9 @@ bool __device__ validate_opaque(string_view opaque)
   // opaque can be alphanum and @[]_-!.~\'()*?/,;:$@+=
   return validate_chunk(opaque, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && !(c >= '?' && c <= ']') && c != '_' &&
-        c != '~' && !(c >= 'a' && c <= 'z')) {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
+        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+      printf("%d %d - invalid char 0x%x\n", threadIdx.x, blockIdx.x, c);
       return false;
     }
     return true;
@@ -444,8 +445,8 @@ bool __device__ validate_fragment(string_view fragment)
   // fragment can be alphanum and @[]_-!.~\'()*?/,;:$&+=
   return validate_chunk(fragment, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && !(c >= '?' && c <= ']') && c != '_' &&
-        c != '~' && !(c >= 'a' && c <= 'z')) {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
+        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;

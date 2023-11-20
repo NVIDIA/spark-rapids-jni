@@ -81,22 +81,43 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "http://[1:2:3:4:5:6:7::]",
      "http://[::2:3:4:5:6:7:8]",
      "http://[fe80::7:8%eth0]",
-     "http://[fe80::7:8%1]"});
+     "http://[fe80::7:8%1]",
+     "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
+     "b.oscars.org:8100/servlet/"
+     "impc.DisplayCredits?primekey_in=2000041100:05:14115240636,b.oscars.org,1,left",
+     "https://j.mp/2Ru15Ss ,,1,left"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper expected(
-    {
-      "https",      "https", "filesystemmagicthing",
-      "nvidia.com", "",      "file",
-      "",           "",      "",
-      "HTTP",       "",      "http",
-      "https",      "https", "",
-      "http",       "http",  "http",
-      "http",       "http",  "http",
-      "http",       "http",  "http",
-    },
-    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1});
+    {"https",
+     "https",
+     "filesystemmagicthing",
+     "nvidia.com",
+     "",
+     "file",
+     "",
+     "",
+     "",
+     "HTTP",
+     "",
+     "http",
+     "https",
+     "https",
+     "",
+     "http",
+     "http",
+     "http",
+     "http",
+     "http",
+     "http",
+     "http",
+     "http",
+     "http",
+     "",
+     "b.oscars.org",
+     ""},
+    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
