@@ -248,7 +248,7 @@ Compute Sanitizer either.
 If you think your tests are not suitable for Compute Sanitizer, please add the JUnit5 tag (`@Tag("noSanitizer")`)
 to the tests or the test class.
 ```
-@Tag("noSanitizer")
+@Tag("noSanitizer
 class ExceptionCaseTest { ... }
 
 # or for a single test
@@ -258,6 +258,36 @@ class NormalCaseTest {
   public void testOneErrorCase(){ ... }
 }
 ```
+
+### Debugging
+You can add debug symbols selectively to C++ files in spark-rapids-jni by modifying the appropriate
+`CMakeLists.txt` files. You will need to add a specific flag depending on what kind of code you are
+debugging. For CUDA code, you need to add the `-G` flag to add device debug symbols:
+
+```cmake
+set_source_files_properties(src/row_conversion.cu PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For C++ code, you will need to add the `-g` flag to add host debug symbols.
+
+```cmake
+set_source_files_properties(row_conversion.cpp PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For debugging C++ tests, you need to add both device debug symbols to the CUDA kernel files involved
+in testing (in `src/main/cpp/CMakeLists.txt`) **and** host debug symbols to the CPP files used for
+testing (in `src/main/cpp/tests/CMakeLists.txt`).
+
+You can then use `cuda-gdb` to debug the gtest (NOTE: run an interactive shell first and then run
+`cuda-gdb` inside the Docker container):
+
+```bash
+./build/run-in-docker
+bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
+```
+
+To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
+in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
 
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
