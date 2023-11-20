@@ -238,7 +238,7 @@ struct ftos_converter {
 
   }
 
-  __device__ inline int copy_special_str(char * const result, const bool sign, const bool exponent, const bool mantissa, const int d=1) {
+  __device__ inline int copy_special_str(char * const result, const bool sign, const bool exponent, const bool mantissa, const int d = 1) {
     if (mantissa) {
       memcpy(result, "NaN", 3);
       return 3;
@@ -250,7 +250,12 @@ struct ftos_converter {
       memcpy(result + sign, "Infinity", 8);
       return sign + 8;
     }
-    memcpy(result + sign, "0.", 2);
+    result[sign] = '0';
+    if (d == 0) {
+      return sign + 1;
+    } else {
+      result[sign + 1] = '.';
+    }
     for (int i = 0; i < d; i++) {
       result[sign + 2 + i] = '0';
     }
@@ -263,6 +268,9 @@ struct ftos_converter {
     }
     if (exponent) {
       return sign + 8;
+    }
+    if (d == 0) {
+      return sign + 1;
     }
     return sign + 2 + d;
   }
@@ -1233,6 +1241,9 @@ struct ftos_converter {
       // Decimal dot is before any of the digits.
       int index_for_carrier = index;
       result[index++] = '0';
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       int actural_round = d;
       for (int i = -1; i > exp; i--) {
@@ -1285,6 +1296,9 @@ struct ftos_converter {
         output /= 10;
       }
       index = integer_len;
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       for (int i = 0; i < d; i++) {
         result[index++] = '0';
@@ -1314,6 +1328,9 @@ struct ftos_converter {
         integer /= 10;
       }
       index = formated_integer_len;
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       int current = index;
       for (int i = 0; i < tailing_zero; i++) {
@@ -1352,6 +1369,9 @@ struct ftos_converter {
       uint32_t integer_len = decimalLength17(integer);
       index += integer_len + (integer_len - 1) / 3 + 1 + d;
     }
+    if (d == 0) {
+      index--;
+    }
     return index;
   }
 
@@ -1367,6 +1387,9 @@ struct ftos_converter {
       // Decimal dot is before any of the digits.
       int index_for_carrier = index;
       result[index++] = '0';
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       int actural_round = d;
       for (int i = -1; i > exp; i--) {
@@ -1419,6 +1442,9 @@ struct ftos_converter {
         output /= 10;
       }
       index = integer_len;
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       for (int i = 0; i < d; i++) {
         result[index++] = '0';
@@ -1448,6 +1474,9 @@ struct ftos_converter {
         integer /= 10;
       }
       index = formated_integer_len;
+      if (d == 0) {
+        return index;
+      }
       result[index++] = '.';
       int current = index;
       for (int i = 0; i < tailing_zero; i++) {
@@ -1485,6 +1514,9 @@ struct ftos_converter {
       uint64_t integer = rounded_output / pow10;
       uint32_t integer_len = decimalLength9(integer);
       index += integer_len + (integer_len - 1) / 3 + 1 + d;
+    }
+    if (d == 0) {
+      index--;
     }
     return index;
   }  
