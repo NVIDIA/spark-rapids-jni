@@ -1557,6 +1557,9 @@ batch_data build_batches(size_type num_rows,
   batch_row_boundaries.push_back(0);
   size_type last_row_end = 0;
   device_uvector<uint64_t> cumulative_row_sizes(num_rows, stream);
+
+  // Evaluate the row size values before calling `inclusive_scan` to workaround
+  // memory issue in https://github.com/NVIDIA/spark-rapids-jni/issues/1567.
   thrust::copy(rmm::exec_policy(stream), row_sizes, row_sizes + num_rows,
                cumulative_row_sizes.begin());
   thrust::inclusive_scan(rmm::exec_policy(stream), cumulative_row_sizes.begin(),
