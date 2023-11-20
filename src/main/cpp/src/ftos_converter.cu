@@ -1204,6 +1204,7 @@ struct ftos_converter {
 
   template<typename T>
   __device__ inline T round_half_even(const T input, const int olength, const int d) {
+    // "round" a integer to d digits, with the half-even rounding mode.    
     if (d > olength) {
       T num = input;
       for (int i = 0; i < d - olength; i++) {
@@ -1220,8 +1221,7 @@ struct ftos_converter {
     return num;
   }
 
-  __device__ inline int to_formated_chars(const floating_decimal_64 v, const bool sign, char* const result, int d=10) {
-    // Step 5: Print the decimal representation.
+  __device__ inline int to_formated_chars(const floating_decimal_64 v, const bool sign, char* const result, int d) {
     int index = 0;
     if (sign) {
       result[index++] = '-';
@@ -1299,6 +1299,7 @@ struct ftos_converter {
       uint64_t pow10 = POW10_TABLE[temp_d];
       uint64_t integer = rounded_output / pow10;
       uint64_t decimal = rounded_output % pow10;
+      // calculate integer length after format to cover carry case
       uint32_t integer_len = decimalLength17(integer);
       uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
       uint32_t sep_cnt = 0;
@@ -1328,8 +1329,7 @@ struct ftos_converter {
     return index;
   }
 
-  __device__ inline int format_float_size(const floating_decimal_64 v, const bool sign, int d=10) {
-    // Step 5: Print the decimal representation.
+  __device__ inline int format_float_size(const floating_decimal_64 v, const bool sign, int d) {
     int index = 0;
     if (sign) {
       index++;
@@ -1338,44 +1338,24 @@ struct ftos_converter {
     const uint32_t olength = decimalLength17(output);
     int32_t exp = v.exponent + (int32_t) olength - 1;
     if (exp < 0) {
-      // Decimal dot is before any of the digits.
-      int index_for_carrier = index;
-      index+=2;
-      int actural_round = d;
-      index += exp + 1;
-      actural_round -= exp + 1;
-      int actural_olength = fmin(int(olength), actural_round);
-      index += actural_olength;
-      actural_round -= actural_olength;
-      if (actural_round > 0) {
-        index += actural_round;
-      }
+      index += 2 + d;
     } else if (exp + 1 >= olength) {
-      // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + exp / 3;
-      index = integer_len;
-      index++;
-      index += d;
+      index += exp + 1 + exp / 3 + 1 + d;
     } else {
-      uint32_t temp_d = d, tailing_zero = 0;
+      uint32_t temp_d = d;
       if (exp + d > olength) {
         temp_d = olength - exp;
-        tailing_zero = d - temp_d;
       }
       uint64_t rounded_output = round_half_even(output, olength, exp+temp_d+1);
       uint64_t pow10 = POW10_TABLE[temp_d];
       uint64_t integer = rounded_output / pow10;
       uint32_t integer_len = decimalLength17(integer);
-      uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
-      index = formated_integer_len;
-      index++;
-      index += d;
+      index += integer_len + (integer_len - 1) / 3 + 1 + d;
     }
     return index;
   }
 
-  __device__ inline int to_formated_chars(const floating_decimal_32 v, const bool sign, char* const result, int d=10) {
-    // Step 5: Print the decimal representation.
+  __device__ inline int to_formated_chars(const floating_decimal_32 v, const bool sign, char* const result, int d) {
     int index = 0;
     if (sign) {
       result[index++] = '-';
@@ -1453,6 +1433,7 @@ struct ftos_converter {
       uint32_t pow10 = POW10_TABLE[temp_d];
       uint32_t integer = rounded_output / pow10;
       uint32_t decimal = rounded_output % pow10;
+      // calculate integer length after format to cover carry case
       uint32_t integer_len = decimalLength9(integer);
       uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
       uint32_t sep_cnt = 0;
@@ -1482,8 +1463,7 @@ struct ftos_converter {
     return index;
   }
 
-  __device__ inline int format_float_size(const floating_decimal_32 v, const bool sign, int d=10) {
-    // Step 5: Print the decimal representation.
+  __device__ inline int format_float_size(const floating_decimal_32 v, const bool sign, int d) {
     int index = 0;
     if (sign) {
       index++;
@@ -1492,38 +1472,19 @@ struct ftos_converter {
     const uint32_t olength = decimalLength9(output);
     int32_t exp = v.exponent + (int32_t) olength - 1;
     if (exp < 0) {
-      // Decimal dot is before any of the digits.
-      int index_for_carrier = index;
-      index+=2;
-      int actural_round = d;
-      index += exp + 1;
-      actural_round -= exp + 1;
-      int actural_olength = fmin(int(olength), actural_round);
-      index += actural_olength;
-      actural_round -= actural_olength;
-      if (actural_round > 0) {
-        index += actural_round;
-      }
+      index += 2 + d;
     } else if (exp + 1 >= olength) {
-      // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + exp / 3;
-      index = integer_len;
-      index++;
-      index += d;
+      index += exp + 1 + exp / 3 + 1 + d;
     } else {
-      uint32_t temp_d = d, tailing_zero = 0;
+      uint32_t temp_d = d;
       if (exp + d > olength) {
         temp_d = olength - exp;
-        tailing_zero = d - temp_d;
       }
-      uint32_t rounded_output = round_half_even(output, olength, exp+temp_d+1);
-      uint32_t pow10 = POW10_TABLE[temp_d];
-      uint32_t integer = rounded_output / pow10;
+      uint64_t rounded_output = round_half_even(output, olength, exp+temp_d+1);
+      uint64_t pow10 = POW10_TABLE[temp_d];
+      uint64_t integer = rounded_output / pow10;
       uint32_t integer_len = decimalLength9(integer);
-      uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
-      index = formated_integer_len;
-      index++;
-      index += d;
+      index += integer_len + (integer_len - 1) / 3 + 1 + d;
     }
     return index;
   }  
