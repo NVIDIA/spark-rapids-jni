@@ -1264,7 +1264,7 @@ struct ftos_converter {
       }
     } else if (exp + 1 >= olength) {
       // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + (exp - index) / 3;
+      int integer_len = index + exp + 1 + exp / 3;
       int sep_cnt = 0;
       int rev_index = 0;
       for (int i = olength; i < exp + 1; i++) {
@@ -1343,6 +1343,7 @@ struct ftos_converter {
       index+=2;
       int actural_round = d;
       index += exp + 1;
+      actural_round -= exp + 1;
       int actural_olength = fmin(int(olength), actural_round);
       index += actural_olength;
       actural_round -= actural_olength;
@@ -1351,7 +1352,7 @@ struct ftos_converter {
       }
     } else if (exp + 1 >= olength) {
       // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + (exp - index) / 3;
+      int integer_len = index + exp + 1 + exp / 3;
       index = integer_len;
       index++;
       index += d;
@@ -1417,7 +1418,7 @@ struct ftos_converter {
       }
     } else if (exp + 1 >= olength) {
       // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + (exp - index) / 3;
+      int integer_len = index + exp + 1 + exp / 3;
       int sep_cnt = 0;
       int rev_index = 0;
       for (int i = olength; i < exp + 1; i++) {
@@ -1496,6 +1497,7 @@ struct ftos_converter {
       index+=2;
       int actural_round = d;
       index += exp + 1;
+      actural_round -= exp + 1;
       int actural_olength = fmin(int(olength), actural_round);
       index += actural_olength;
       actural_round -= actural_olength;
@@ -1504,7 +1506,7 @@ struct ftos_converter {
       }
     } else if (exp + 1 >= olength) {
       // Decimal dot is after any of the digits.
-      int integer_len = index + exp + 1 + (exp - index) / 3;
+      int integer_len = index + exp + 1 + exp / 3;
       index = integer_len;
       index++;
       index += d;
