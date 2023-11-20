@@ -81,6 +81,7 @@ constexpr auto NUM_WARPS_IN_BLOCK = 32;
 #pragma nv_diag_suppress static_var_with_dynamic_init
 
 using namespace cudf;
+using detail::make_device_uvector_sync;
 using detail::make_device_uvector_async;
 using rmm::device_uvector;
 
@@ -231,7 +232,7 @@ build_string_row_offsets(table_view const& tbl,
                  offsets_iter + tbl.num_columns(),
                  std::back_inserter(offsets_iterators),
                  [](auto const& offset_ptr) { return offset_ptr != nullptr; });
-    return make_device_uvector_async(
+    return make_device_uvector_sync(
       offsets_iterators, stream, rmm::mr::get_current_device_resource());
   }();
 
