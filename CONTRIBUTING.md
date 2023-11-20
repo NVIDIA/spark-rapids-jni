@@ -248,7 +248,7 @@ Compute Sanitizer either.
 If you think your tests are not suitable for Compute Sanitizer, please add the JUnit5 tag (`@Tag("noSanitizer")`)
 to the tests or the test class.
 ```
-@Tag("noSanitizer
+@Tag("noSanitizer")
 class ExceptionCaseTest { ... }
 
 # or for a single test
@@ -278,13 +278,16 @@ For debugging C++ tests, you need to add both device debug symbols to the CUDA k
 in testing (in `src/main/cpp/CMakeLists.txt`) **and** host debug symbols to the CPP files used for
 testing (in `src/main/cpp/tests/CMakeLists.txt`).
 
-You can then use `cuda-gdb` to debug the gtest (NOTE: run an interactive shell first and then run
-`cuda-gdb` inside the Docker container):
+You can then use `cuda-gdb` to debug the gtest (NOTE: For Docker, run an interactive shell first and
+then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
 
 ```bash
 ./build/run-in-docker
 bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
 ```
+
+You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
+as well to debug within Visual Studio Code.
 
 To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
 in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
