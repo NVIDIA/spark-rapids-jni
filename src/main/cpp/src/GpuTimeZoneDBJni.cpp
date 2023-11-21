@@ -19,32 +19,34 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTimestampColumnToUTC(
-    JNIEnv *env, jclass, jlong input_handle, jlong transitions_handle, jint tz_index) {
+  JNIEnv* env, jclass, jlong input_handle, jlong transitions_handle, jint tz_index)
+{
   JNI_NULL_CHECK(env, input_handle, "column is null", 0);
   JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const *>(input_handle);
-    auto const transitions = reinterpret_cast<cudf::table_view const *>(transitions_handle);
-    auto const index = static_cast<cudf::size_type>(tz_index);
+    auto const input       = reinterpret_cast<cudf::column_view const*>(input_handle);
+    auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
+    auto const index       = static_cast<cudf::size_type>(tz_index);
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::convert_timestamp_to_utc(*input, *transitions, index).release());
+      spark_rapids_jni::convert_timestamp_to_utc(*input, *transitions, index).release());
   }
   CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertUTCTimestampColumnToTimeZone(
-    JNIEnv *env, jclass, jlong input_handle, jlong transitions_handle, jint tz_index) {
+  JNIEnv* env, jclass, jlong input_handle, jlong transitions_handle, jint tz_index)
+{
   JNI_NULL_CHECK(env, input_handle, "column is null", 0);
   JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const *>(input_handle);
-    auto const transitions = reinterpret_cast<cudf::table_view const *>(transitions_handle);
-    auto const index = static_cast<cudf::size_type>(tz_index);
+    auto const input       = reinterpret_cast<cudf::column_view const*>(input_handle);
+    auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
+    auto const index       = static_cast<cudf::size_type>(tz_index);
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::convert_utc_timestamp_to_timezone(*input, *transitions, index).release());
+      spark_rapids_jni::convert_utc_timestamp_to_timezone(*input, *transitions, index).release());
   }
   CATCH_STD(env, 0);
 }

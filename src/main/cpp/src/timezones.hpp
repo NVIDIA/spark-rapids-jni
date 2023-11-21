@@ -22,7 +22,6 @@
 
 #include <cstddef>
 
-
 namespace spark_rapids_jni {
 
 /**
@@ -40,9 +39,11 @@ namespace spark_rapids_jni {
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
  */
 std::unique_ptr<cudf::column> convert_timestamp_to_utc(
-    cudf::column_view const &input, cudf::table_view const &transitions, cudf::size_type tz_index,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
+  cudf::column_view const& input,
+  cudf::table_view const& transitions,
+  cudf::size_type tz_index,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Convert input column timestamps in UTC to specified timezone
@@ -59,8 +60,10 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
  */
 std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
-    cudf::column_view const &input, cudf::table_view const &transitions, cudf::size_type tz_index,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
+  cudf::column_view const& input,
+  cudf::table_view const& transitions,
+  cudf::size_type tz_index,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
