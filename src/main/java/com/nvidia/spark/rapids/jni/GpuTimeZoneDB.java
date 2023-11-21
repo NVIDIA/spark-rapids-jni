@@ -52,6 +52,8 @@ public class GpuTimeZoneDB {
   }
   
   private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
+  // This method is default visibility for testing purposes only. The instance will be never be exposed publicly
+  // for this class.
   static GpuTimeZoneDB getInstance() {
     return instance;
   }
@@ -65,20 +67,22 @@ public class GpuTimeZoneDB {
    * where we are waiting on the database to finish loading.
    */
   public static void cacheDatabase() {
-    if (!instance.isLoaded()) {
-      Executor executor = Executors.newSingleThreadExecutor(
-        new ThreadFactory() {
-          private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
+    synchronized (instance) {
+      if (!instance.isLoaded()) {
+        Executor executor = Executors.newSingleThreadExecutor(
+          new ThreadFactory() {
+            private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
 
-          @Override
-          public Thread newThread(Runnable r) {
-            Thread thread = defaultFactory.newThread(r);
-            thread.setName("gpu-timezone-database-0");
-            thread.setDaemon(true);
-            return thread;
-          }
-        });
-      instance.loadData(executor);
+            @Override
+            public Thread newThread(Runnable r) {
+              Thread thread = defaultFactory.newThread(r);
+              thread.setName("gpu-timezone-database-0");
+              thread.setDaemon(true);
+              return thread;
+            }
+          });
+        instance.loadData(executor);
+      }
     }
   }
 
@@ -151,7 +155,7 @@ public class GpuTimeZoneDB {
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
-  boolean isLoaded() {
+  private boolean isLoaded() {
     return zoneIdToTableFuture.isDone();
   }
   
