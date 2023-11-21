@@ -332,7 +332,7 @@ public class RmmSpark {
   }
 
   /**
-   * A dedicated task thread is about to wait on work done work on a pool that could transitively
+   * A dedicated task thread is about to wait on work done on a pool that could transitively
    * block it.
    * @param threadId the ID of the thread that is about to wait.
    */
@@ -402,7 +402,8 @@ public class RmmSpark {
   }
 
   /**
-   * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuRetryOOM or CpuRetryOOM on their next
+   * allocation attempt, depending on the type of allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceRetryOOM(long threadId) {
@@ -410,9 +411,10 @@ public class RmmSpark {
   }
 
   /**
-   * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuRetryOOM or CpuRetryOOM on their next
+   * allocation attempt, depending on the type of allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the GpuRetryOOM should be thrown
+   * @param numOOMs the number of times the *RetryOOM should be thrown
    */
   public static void forceRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
@@ -425,7 +427,8 @@ public class RmmSpark {
   }
 
   /**
-   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM of CpuSplitAndRetryOOM
+   * on their next allocation attempt, depending on the allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceSplitAndRetryOOM(long threadId) {
@@ -433,9 +436,10 @@ public class RmmSpark {
   }
 
   /**
-   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM or CpuSplitAndRetryOOm
+   * on their next allocation attempt, depending on the allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
+   * @param numOOMs the number of times the *SplitAndRetryOOM should be thrown
    */
   public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
@@ -588,7 +592,7 @@ public class RmmSpark {
 
   /**
    * The allocation failed, and spilling didn't save it.
-   * @param wasOom wat the failure caused by an OOM or something else.
+   * @param wasOom was the failure caused by an OOM or something else.
    * @param blocking is this for a blocking allocate or a non-blocking one.
    * @param wasRecursive the boolean that was returned from `preCpuAlloc`.
    * @return true if the allocation should be retried else false if the state machine

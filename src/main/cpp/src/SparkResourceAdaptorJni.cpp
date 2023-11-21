@@ -209,7 +209,7 @@ class task_metrics {
   int num_times_retry_throw       = 0;
   int num_times_split_retry_throw = 0;
   long time_blocked_nanos         = 0;
-  // The amount of time that this thread has lost due to retries (not inclduing blocked time)
+  // The amount of time that this thread has lost due to retries (not including blocked time)
   long time_lost_nanos = 0;
 
   void take_from(task_metrics& other) {
@@ -223,7 +223,7 @@ class task_metrics {
     other.time_lost_nanos = 0;
   }
 
-  void add(task_metrics& other) {
+  void add(task_metrics const& other) {
     this->num_times_retry_throw += other.num_times_retry_throw;
     this->num_times_split_retry_throw += other.num_times_split_retry_throw;
     this->time_blocked_nanos += other.time_blocked_nanos;
@@ -268,7 +268,7 @@ class full_thread_state {
   std::chrono::time_point<std::chrono::steady_clock> retry_start_or_block_end;
   // Is this thread currently in a marked retry block. This is only used for metrics.
   bool is_in_retry = false;
-  // The amount of time that this thread has spent in the current retry block (not inclucing block
+  // The amount of time that this thread has spent in the current retry block (not including block
   // time)
   long time_retry_running_nanos = 0;
   std::chrono::time_point<std::chrono::steady_clock> block_start;
@@ -370,8 +370,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
  public:
   spark_resource_adaptor(JNIEnv* env,
                          rmm::mr::device_memory_resource* mr,
-                         std::shared_ptr<spdlog::logger>& logger)
-    : resource{mr}, logger{logger}
+                         std::shared_ptr<spdlog::logger>& logger,
+                         const bool is_log_enabled)
+    : resource{mr}, logger{logger}, is_log_enabled{is_log_enabled}
   {
     if (env->GetJavaVM(&jvm) < 0) { throw std::runtime_error("GetJavaVM failed"); }
     logger->flush_on(spdlog::level::info);
@@ -387,7 +388,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   bool supports_streams() const noexcept override { return resource->supports_streams(); }
 
   /**
-   * Update the internal state so that a specific thread is dediocated to a task.
+   * Update the internal state so that a specific thread is dedicated to a task.
    * This may be called multiple times for a given thread and if the thread is already
    * dedicated to the task, then most of the time this is a noop. The only exception
    * is if the thread is marked that it is shutting down, but has not completed yet.
@@ -403,11 +404,13 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto found = threads.find(thread_id);
     if (found != threads.end()) {
       if (found->second.task_id >= 0 && found->second.task_id != task_id) {
-        std::stringstream ss;
-        ss << "desired task_id " << task_id;
+        if (is_log_enabled) {
+          std::stringstream ss;
+          ss << "desired task_id " << task_id;
 
-        log_status("FIXUP", thread_id, found->second.task_id,
-                found->second.state, ss.str().c_str());
+          log_status("FIXUP", thread_id, found->second.task_id,
+                  found->second.state, ss.str().c_str());
+        }
 
         remove_thread_association(thread_id, found->second.task_id, lock);
       }
@@ -519,7 +522,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       if (is_for_shuffle) {
         throw std::invalid_argument("the thread is marked as a non-shuffle thread, and we cannot change it while there are active tasks");
       } else {
-        throw std::invalid_argument("the thread is marked as a shuffle thread,a nd we cannot change it while there are active tasks");
+        throw std::invalid_argument("the thread is marked as a shuffle thread, and we cannot change it while there are active tasks");
       }
     }
 
@@ -535,12 +538,14 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     thread->second.metrics.clear();
 
     thread->second.pool_task_ids.insert(task_ids.begin(), task_ids.end());
-    std::stringstream ss;
-    ss << "CURRENT IDs ";
-    for (const auto& task_id: thread->second.pool_task_ids) {
-      ss << task_id << " ";
+    if (is_log_enabled) {
+      std::stringstream ss;
+      ss << "CURRENT IDs ";
+      for (const auto& task_id: thread->second.pool_task_ids) {
+        ss << task_id << " ";
+      }
+      log_status("ADD_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
     }
-    log_status("ADD_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
   }
 
   void pool_thread_finished_for_tasks(long thread_id, std::unordered_set<long> const & task_ids)
@@ -561,12 +566,14 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       for (const auto& id: task_ids) {
         thread->second.pool_task_ids.erase(id);
       }
-      std::stringstream ss;
-      ss << "CURRENT IDs ";
-      for (const auto& task_id: thread->second.pool_task_ids) {
-        ss << task_id << " ";
+      if (is_log_enabled) {
+        std::stringstream ss;
+        ss << "CURRENT IDs ";
+        for (const auto& id: thread->second.pool_task_ids) {
+          ss << id << " ";
+        }
+        log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
       }
-      log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
       if (thread->second.pool_task_ids.empty()) {
         if (remove_thread_association(thread_id, -1, lock)) {
           wake_up_threads_after_task_finishes(lock);
@@ -614,12 +621,14 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       auto thread = threads.find(thread_id);
       if (thread != threads.end()) {
         if (thread->second.pool_task_ids.erase(task_id) != 0) {
-          std::stringstream ss;
-          ss << "CURRENT IDs ";
-          for (const auto& task_id: thread->second.pool_task_ids) {
-            ss << task_id << " ";
+          if (is_log_enabled) {
+            std::stringstream ss;
+            ss << "CURRENT IDs ";
+            for (const auto& id: thread->second.pool_task_ids) {
+              ss << id << " ";
+            }
+            log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
           }
-          log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
           if (thread->second.pool_task_ids.empty()) {
             run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
           }
@@ -632,59 +641,30 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     task_to_metrics.erase(task_id);
   }
 
-
+  /**
+   * A dedicated task thread is submitting to a pool.
+   */
   void submitting_to_pool(long thread_id)
   {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    auto thread = threads.find(thread_id);
-    long task_id = -1;
-    if (thread != threads.end()) {
-      task_id = thread->second.task_id;
-    }
-
-    if (task_id < 0) {
-      std::stringstream ss;
-      ss << "thread " << thread_id << " is not a dedicated task thread";
-      throw std::invalid_argument(ss.str());
-    }
-
-    thread->second.pool_blocked = true;
+    waiting_on_pool_status_changed(thread_id, true);
   }
 
+  /**
+   * A dedicated task thread is waiting on a result from a pool.
+   */
   void waiting_on_pool(long thread_id)
   {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    auto thread = threads.find(thread_id);
-    long task_id = -1;
-    if (thread != threads.end()) {
-      task_id = thread->second.task_id;
-    }
-
-    if (task_id < 0) {
-      std::stringstream ss;
-      ss << "thread " << thread_id << " is not a dedicated task thread";
-      throw std::invalid_argument(ss.str());
-    }
-
-    thread->second.pool_blocked = true;
+    waiting_on_pool_status_changed(thread_id, true);
   }
 
+  /**
+   * A dedicated task thread is no longer blocked on a pool.
+   * It got the answer, an exception, or it submitted the
+   * work successfully.
+   */
   void done_waiting_on_pool(long thread_id)
   {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    auto thread = threads.find(thread_id);
-    long task_id = -1;
-    if (thread != threads.end()) {
-      task_id = thread->second.task_id;
-    }
-
-    if (task_id < 0) {
-      std::stringstream ss;
-      ss << "thread " << thread_id << " is not a dedicated task thread";
-      throw std::invalid_argument(ss.str());
-    }
-
-    thread->second.pool_blocked = false;
+    waiting_on_pool_status_changed(thread_id, false);
   }
 
   /**
@@ -865,7 +845,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   void cpu_postalloc_success(void* addr, size_t amount, bool blocking, bool was_recursive) {
     // addr is not used yet, but is here in case we want it in the future.
-    // amount is not used yet, but is here in case we want it for debugginig/metrics.
+    // amount is not used yet, but is here in case we want it for debugging/metrics.
     // blocking is not used yet. It could be used for some debugging so we are keeping it.
     std::unique_lock<std::mutex> lock(state_mutex);
     auto thread_id = static_cast<long>(pthread_self());
@@ -880,7 +860,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   void cpu_dealloc(void* addr, size_t amount) {
     // addr is not used yet, but is here in case we want it in the future.
-    // amount is not used yet, but is here in case we want it for debugginig/metrics.
+    // amount is not used yet, but is here in case we want it for debugging/metrics.
     std::unique_lock<std::mutex> lock(state_mutex);
     dealloc_core(true, lock);
   }
@@ -916,6 +896,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
  private:
   rmm::mr::device_memory_resource* const resource;
   std::shared_ptr<spdlog::logger> logger;  ///< spdlog logger object
+  const bool is_log_enabled;
 
   // The state mutex must be held when modifying the state of threads or tasks
   // it must never be held when calling into the child resource or after returning
@@ -924,6 +905,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   std::condition_variable task_has_woken_condition;
   std::map<long, full_thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
+  // Metrics are a little complicated. Spark reports metrics at a task level
+  // but we track and collect them at a thread level. The life time of a thread
+  // and a task are not tied to each other, and a thread can work on things for
+  // multiple tasks at the same time. So whenever a thread changes status
+  // the metrics for the tasks it is working on are aggregated here. When a task
+  // finishes the metrics for that task are then deleted.
   std::map<long, task_metrics> task_to_metrics;
   bool shutting_down = false;
   JavaVM* jvm;
@@ -980,6 +967,26 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     JNIEnv* env = cudf::jni::get_jni_env(jvm);
     cudf::jni::throw_java_exception(env, ex_class_name, msg);
   }
+
+  void waiting_on_pool_status_changed(long thread_id, const bool pool_blocked)
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto thread = threads.find(thread_id);
+    long task_id = -1;
+    if (thread != threads.end()) {
+      task_id = thread->second.task_id;
+    }
+
+    if (task_id < 0) {
+      std::stringstream ss;
+      ss << "thread " << thread_id << " is not a dedicated task thread";
+      throw std::invalid_argument(ss.str());
+    }
+
+    thread->second.pool_blocked = pool_blocked;
+  }
+
+
 
   /**
    * This is a watchdog to prevent us from live locking. It should be called before we throw an
@@ -1238,6 +1245,16 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return pre_alloc_core(thread_id, false, true, lock);
   }
 
+  /**
+   * Called prior to processing an alloc attempt (CPU or GPU). This will throw any injected
+   * exception and wait until the thread is ready to actually do/retry the allocation (if
+   * the allocation is blocking). That blocking API may throw other exceptions if rolling
+   * back or splitting the input is considered needed.
+   *
+   * @return true if the call finds our thread in an ALLOC state, meaning that we recursively
+   *         entered the state machine. This happens when we need to spill in a few cases for
+   *         the CPU.
+   */
   bool pre_alloc_core(long thread_id, bool is_for_cpu, bool blocking, std::unique_lock<std::mutex> & lock) {
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
@@ -1258,7 +1275,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
               throw std::invalid_argument(ss.str());
             }
-
+            // We are in a recursive allocation.
             return true;
         default: break;
       }
@@ -1314,6 +1331,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         }
       }
     }
+    // Not a recursive allocation
     return false;
   }
 
@@ -1518,7 +1536,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // we can avoid it as it is expensive. The reason this matters is because of
     // python UDFs. When a python process runs to execute UDFs at least two dedicated
     // task threads are used for a single task. One will write data to the python
-    // process and another will read results from it. Becasue both involve
+    // process and another will read results from it. Because both involve
     // I/O we need a solution. For now we assume that a task is blocked if any
     // one of the dedicated task threads are blocked and if all of the pool
     // threads working on that task are also blocked. This is because the pool
@@ -1816,9 +1834,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
     auto wrapped = reinterpret_cast<rmm::mr::device_memory_resource*>(child);
     cudf::jni::native_jstring nlogloc(env, log_loc);
     std::shared_ptr<spdlog::logger> logger;
+    bool is_log_enabled;
     if (nlogloc.is_null()) {
       logger = make_logger();
+      is_log_enabled = false;
     } else {
+      is_log_enabled = true;
       std::string slog_loc(nlogloc.get());
       if (slog_loc == "stderr") {
         logger = make_logger(std::cerr);
@@ -1829,7 +1850,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
       }
     }
 
-    auto ret = new spark_resource_adaptor(env, wrapped, logger);
+    auto ret = new spark_resource_adaptor(env, wrapped, logger, is_log_enabled);
     return cudf::jni::ptr_as_jlong(ret);
   }
   CATCH_STD(env, 0)

@@ -26,6 +26,13 @@ public class SparkResourceAdaptor
     NativeDepsLoader.loadNativeDeps();
   }
 
+  /**
+   * How long does the SparkResourceAdaptor pool thread states as a watchdog to break up potential
+   * deadlocks.
+   */
+  private static final long pollingPeriod = Long.getLong(
+      "ai.rapids.cudf.spark.rmmWatchdogPollingPeriod", 100);
+
   private long handle = 0;
   private Thread watchDog;
 
@@ -51,10 +58,10 @@ public class SparkResourceAdaptor
       try {
         while (handle > 0) {
           checkAndBreakDeadlocks();
-          Thread.sleep(100);
+          Thread.sleep(pollingPeriod);
         }
       } catch (InterruptedException e) {
-        // Ignored we are going to exit.
+        // We are going to exit, so ignore the exception
       }
     }, "SparkResourceAdaptor WatchDog");
     // Do a little normalization before setting up logging...
