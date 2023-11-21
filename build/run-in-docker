@@ -42,7 +42,7 @@ $DOCKER_CMD build $DOCKER_BUILD_EXTRA_ARGS -f $REPODIR/ci/Dockerfile \
   $REPODIR/build
 
 if [[ "$DOCKER_CMD" == "docker" ]]; then
-  DOCKER_GPU_OPTS="--gpus all"
+  DOCKER_GPU_OPTS=${DOCKER_GPU_OPTS:-"--gpus all"}
 fi
 
 if (( $# == 0 )); then
