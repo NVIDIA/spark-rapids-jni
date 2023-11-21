@@ -149,7 +149,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-23.12/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-24.02/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
@@ -258,6 +258,39 @@ class NormalCaseTest {
   public void testOneErrorCase(){ ... }
 }
 ```
+
+### Debugging
+You can add debug symbols selectively to C++ files in spark-rapids-jni by modifying the appropriate
+`CMakeLists.txt` files. You will need to add a specific flag depending on what kind of code you are
+debugging. For CUDA code, you need to add the `-G` flag to add device debug symbols:
+
+```cmake
+set_source_files_properties(src/row_conversion.cu PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For C++ code, you will need to add the `-g` flag to add host debug symbols.
+
+```cmake
+set_source_files_properties(row_conversion.cpp PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For debugging C++ tests, you need to add both device debug symbols to the CUDA kernel files involved
+in testing (in `src/main/cpp/CMakeLists.txt`) **and** host debug symbols to the CPP files used for
+testing (in `src/main/cpp/tests/CMakeLists.txt`).
+
+You can then use `cuda-gdb` to debug the gtest (NOTE: For Docker, run an interactive shell first and
+then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
+
+```bash
+./build/run-in-docker
+bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
+```
+
+You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
+as well to debug within Visual Studio Code.
+
+To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
+in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
 
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
