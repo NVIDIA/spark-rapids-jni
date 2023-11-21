@@ -1252,6 +1252,9 @@ struct ftos_converter {
         result[index++] = '0';
         actural_round--;
         if (actural_round == 0) {
+          if (i != exp + 1) {
+            return index;
+          } // else, possible carry
           break;
         }
       }
@@ -1398,6 +1401,9 @@ struct ftos_converter {
         result[index++] = '0';
         actural_round--;
         if (actural_round == 0) {
+          if (i != exp + 1) {
+            return index;
+          } // else, possible carry
           break;
         }
       }
