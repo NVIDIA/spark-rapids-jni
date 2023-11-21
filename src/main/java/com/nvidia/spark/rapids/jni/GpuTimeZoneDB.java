@@ -118,12 +118,15 @@ public class GpuTimeZoneDB {
   // TODO: Deprecate this API when we support all timezones 
   // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
   public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
-    String id = desiredTimeZone.normalized().getId();
-    return instance.getZoneIDMap().containsKey(id);
+    return desiredTimeZone != null && (desiredTimeZone.isFixedOffset() || desiredTimeZone.getTransitionRules().isEmpty());
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
-    return isSupportedTimeZone(getZoneId(zoneId));
+    try {
+      return isSupportedTimeZone(getZoneId(zoneId));
+    } catch (ZoneRulesException e) {
+      return false;
+    }
   }
 
   // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
@@ -133,7 +136,6 @@ public class GpuTimeZoneDB {
       .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
       // To support the (+|-)hh:m format because it was supported before Spark 3.0.
       .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
-
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
