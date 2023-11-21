@@ -44,6 +44,8 @@ public class GpuTimeZoneDB {
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
 
+  private boolean closed = false;
+
   GpuTimeZoneDB() {
     zoneIdToTableFuture = new CompletableFuture<>();
     fixedTransitionsFuture = new CompletableFuture<>();
@@ -246,8 +248,14 @@ public class GpuTimeZoneDB {
   }
 
   private void close() {
-    try (HostColumnVector hcv = getHostFixedTransitions()) {
-      // automatically closed
+    synchronized (this) {
+      if (closed) {
+        return;
+      }
+      try (HostColumnVector hcv = getHostFixedTransitions()) {
+        // automatically closed
+        closed = true;
+      }
     }
   }
 
