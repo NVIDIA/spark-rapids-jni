@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "timezones.hpp"
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -22,11 +23,9 @@
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <thrust/binary_search.h>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
-#include <thrust/binary_search.h>
-
-#include "timezones.hpp"
 
 using column = cudf::column;
 using column_device_view = cudf::column_device_view;

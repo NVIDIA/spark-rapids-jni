@@ -15,16 +15,18 @@
  */
 
 #include "timezones.hpp"
-
-#include <climits>
-
-#include <cudf/wrappers/timestamps.hpp>
-
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/type_lists.hpp>
+#include <cudf/wrappers/timestamps.hpp>
+#include <limits>
+
+auto constexpr int64_min = std::numeric_limits<int64_t>::min();
+
+using int32_col = cudf::test::fixed_width_column_wrapper<int32_t>;
+using int64_col = cudf::test::fixed_width_column_wrapper<int64_t>;
 
 using seconds_col =
     cudf::test::fixed_width_column_wrapper<cudf::timestamp_s, cudf::timestamp_s::rep>;
@@ -46,13 +48,13 @@ protected:
 private:
   std::unique_ptr<cudf::table> make_transitions_table()
   {
-    auto instants_from_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>(
-        {LONG_MIN, LONG_MIN, -1585904400L, -933667200L, -922093200L, -908870400L, -888829200L,
+    auto instants_from_utc_col = int64_col(
+        {int64_min, int64_min, -1585904400L, -933667200L, -922093200L, -908870400L, -888829200L,
          -650019600L, 515527200L, 558464400L, 684867600L});
-    auto instants_to_utc_col = cudf::test::fixed_width_column_wrapper<int64_t>(
-        {LONG_MIN, LONG_MIN, -1585904400L, -933634800L, -922064400L, -908838000L, -888796800L,
+    auto instants_to_utc_col = int64_col(
+        {int64_min, int64_min, -1585904400L, -933634800L, -922064400L, -908838000L, -888796800L,
          -649990800L, 515559600L, 558493200L, 684896400L});
-    auto utc_offsets_col = cudf::test::fixed_width_column_wrapper<int32_t>(
+    auto utc_offsets_col = int32_col(
         {18000, 29143, 28800, 32400, 28800, 32400, 28800, 28800, 32400, 28800, 28800});
     auto struct_column = cudf::test::structs_column_wrapper{
         {instants_from_utc_col, instants_to_utc_col, utc_offsets_col},
