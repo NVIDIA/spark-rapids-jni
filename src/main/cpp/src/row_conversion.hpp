@@ -16,15 +16,12 @@
 
 #pragma once
 
-//
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
-//
 #include <rmm/cuda_stream_view.hpp>
 
-//
 #include <memory>
 
 namespace spark_rapids_jni {
