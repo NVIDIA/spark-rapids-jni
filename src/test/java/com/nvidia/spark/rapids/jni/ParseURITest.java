@@ -85,11 +85,22 @@ public class ParseURITest {
       "https://www.nvidia.com#8080",
       "file://path/to/cool/file",
       "http//www.nvidia.com/q",
-      "",
-      null,
-      "https://www.nvidia.com/\u0093/path/to/file",
-      "https://www.nvidia.com/\223/path/to/file"
-    };
+      "http://?",
+      "http://#",
+      "http://??",
+      "http://??/",
+      "http://user:pass@host/file;param?query;p2",
+      "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
+      "nvidia.com:8100/servlet/impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
+      "https://nvidia.com/2Ru15Ss ",
+      "http://www.nvidia.com/xmlrpc//##",
+      "www.nvidia.com:8080/expert/sciPublication.jsp?ExpertId=1746&lenList=all",
+      "www.nvidia.com:8080/hrcxtf/view?docId=ead/00073.xml&query=T.%20E.%20Lawrence&query-join=and",
+      "www.nvidia.com:81/Free.fr/L7D9qw9X4S-aC0&amp;D4X0/Panels&amp;solutionId=0X54a/cCdyncharset=UTF-8&amp;t=01wx58Tab&amp;ps=solution/ccmd=_help&amp;locale0X1&amp;countrycode=MA/",
+      "http://www.nvidia.com/tags.php?%2F88\323\351\300ึณวน\331\315\370%2F",
+      "http://www.nvidia.com//wp-admin/includes/index.html#9389#123",
+       "",
+      null};
 
     buildExpectedAndRun(testData);
   }
@@ -134,6 +145,10 @@ public class ParseURITest {
       "https://[2001:]db8:85a3:8d3:1319:8a2e:370:7348/",
       "https://[][][][]nvidia.com/",
       "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348:2001:db8:85a3]/path",
+      "http://[1:2:3:4:5:6:7::]",
+      "http://[::2:3:4:5:6:7:8]",
+      "http://[fe80::7:8%eth0]",
+      "http://[fe80::7:8%1]",
     };
     
     buildExpectedAndRun(testData);
