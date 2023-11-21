@@ -79,6 +79,8 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
                                           bool allow_invalid_escapes = false)
 {
   while (iter != end) {
+    auto const c         = *iter;
+    auto const num_bytes = cudf::strings::detail::bytes_in_char_utf8(*iter);
     if (*iter == '%' && !allow_invalid_escapes) {
       // verify following two characters are hexadecimal
       for (int i = 0; i < 2; ++i) {
@@ -87,11 +89,16 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
 
         if (!is_hex(*iter)) { return false; }
       }
-    } else if (cudf::strings::detail::bytes_in_char_utf8(*iter) > 1) {
+    } else if (num_bytes > 1) {
       // utf8 validation means it isn't whitespace and not a control character
       // the normal validation will handle anything single byte, this checks for multiple byte
       // whitespace
       auto const c = *iter;
+      // there are multi-byte looking things that are not valid UTF8. Check that here.
+      if ((c & 0xC0) != 0x80) { return false; }
+      if (num_bytes > 2 && ((c & 0xC000) != 0x8000)) { return false; }
+      if (num_bytes > 3 && ((c & 0xC00000) != 0x800000)) { return false; }
+
       // validate it isn't a whitespace or control unicode character
       if ((c >= 0xc280 && c <= 0xc2a0) || c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) ||
           c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
@@ -365,11 +372,11 @@ chunk_validity __device__ validate_host(string_view host)
 
 bool __device__ validate_query(string_view query)
 {
-  // query can be alphanum and _-!.~'()*\,;:$&+=?/[]@"
+  // query can be alphanum and _-!.~'()*,;:$&+=?/[]@"
   return validate_chunk(query, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
-        !(c >= '?' && c <= ']') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
+        !(c >= '?' && c <= ']' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
       return false;
     }
     return true;
@@ -378,13 +385,13 @@ bool __device__ validate_query(string_view query)
 
 bool __device__ validate_authority(string_view authority, bool allow_invalid_escapes)
 {
-  // authority needs to be alphanum and @[]_-!.~\'()*,;:$&+=
+  // authority needs to be alphanum and @[]_-!.'()*,;:$&+=
   return validate_chunk(
     authority,
     [allow_invalid_escapes] __device__(string_view::const_iterator iter) {
       auto const c = *iter;
       if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
-          !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~' &&
+          !(c >= '@' && c <= '_' && c != '^' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '~' &&
           (!allow_invalid_escapes || c != '%')) {
         return false;
       }
@@ -428,12 +435,11 @@ bool __device__ validate_path(string_view path)
 
 bool __device__ validate_opaque(string_view opaque)
 {
-  // opaque can be alphanum and @[]_-!.~\'()*?/,;:$@+=
+  // opaque can be alphanum and @[]_-!.~'()*?/,;:$@+=
   return validate_chunk(opaque, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
-        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
-      printf("%d %d - invalid char 0x%x\n", threadIdx.x, blockIdx.x, c);
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;
@@ -442,11 +448,11 @@ bool __device__ validate_opaque(string_view opaque)
 
 bool __device__ validate_fragment(string_view fragment)
 {
-  // fragment can be alphanum and @[]_-!.~\'()*?/,;:$&+=
+  // fragment can be alphanum and @[]_-!.~'()*?/,;:$&+=
   return validate_chunk(fragment, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
-        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;

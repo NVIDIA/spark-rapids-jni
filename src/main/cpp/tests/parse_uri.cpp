@@ -91,48 +91,49 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "cCdyncharset=UTF-8&amp;t=01wx58Tab&amp;ps=solution/"
      "ccmd=_help&amp;locale0X1&amp;countrycode=MA/",
      "http://www.nvidia.com/tags.php?%2F88\323\351\300ึณวน\331\315\370%2F",
-     "http://www.nvidia.com//wp-admin/includes/index.html#9389#123"});
+     "http://www.nvidia.com//wp-admin/includes/index.html#9389#123",
+     "http://www.nvidia.com/"
+     "object.php?object=ะก-\320%9Fะฑ-ะฟ-ะก\321%82\321%80ะตะป\321%8Cะฝะฐ-\321%83ะป-\320%"
+     "97ะฐะฒะพะด\321%81ะบะฐ\321%8F.html&sid=5",
+     "http://www.nvidia.com/picshow.asp?id=106&mnid=5080&classname=\271\253ืฐฦช"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
-    {"https",
-     "https",
-     "filesystemmagicthing",
-     "nvidia.com",
-     "",
-     "file",
-     "",
-     "",
-     "",
-     "HTTP",
-     "",
-     "http",
-     "https",
-     "https",
-     "",
-     "http",
-     "http",
-     "http",
-     "http",
-     "http",
-     "http",
-     "http",
-     "http",
-     "http",
-     "",
-     "www.nvidia.com",
-     "",
-     "",
-     "www.nvidia.com",
-     "",
-     ""},
-    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0});
-
-  printf("expected:\n");
-  cudf::test::print(expected);
-  printf("result:\n");
-  cudf::test::print(result->view());
+  cudf::test::strings_column_wrapper expected({"https",
+                                               "https",
+                                               "filesystemmagicthing",
+                                               "nvidia.com",
+                                               "",
+                                               "file",
+                                               "",
+                                               "",
+                                               "",
+                                               "HTTP",
+                                               "",
+                                               "http",
+                                               "https",
+                                               "https",
+                                               "",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "http",
+                                               "",
+                                               "www.nvidia.com",
+                                               "",
+                                               "",
+                                               "www.nvidia.com",
+                                               "",
+                                               "",
+                                               "",
+                                               ""},
+                                              {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1,
+                                               1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -193,5 +194,3 @@ TEST_F(ParseURIProtocolTests, UTF8)
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
-
-// utf8 control character
