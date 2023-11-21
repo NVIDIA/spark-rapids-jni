@@ -86,7 +86,12 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "www.nvidia.com:8100/servlet/"
      "impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
      "https://nvidia.com/2Ru15Ss ",
-     "http://www.nvidia.com/plugins//##"});
+     "http://www.nvidia.com/plugins//##",
+     "www.nvidia.com:81/Free.fr/L7D9qw9X4S-aC0&amp;D4X0/Panels&amp;solutionId=0X54a/"
+     "cCdyncharset=UTF-8&amp;t=01wx58Tab&amp;ps=solution/"
+     "ccmd=_help&amp;locale0X1&amp;countrycode=MA/",
+     "http://www.nvidia.com/tags.php?%2F88\323\351\300ึณวน\331\315\370%2F",
+     "http://www.nvidia.com//wp-admin/includes/index.html#9389#123"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
@@ -118,8 +123,11 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "",
      "www.nvidia.com",
      "",
+     "",
+     "www.nvidia.com",
+     "",
      ""},
-    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0});
+    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0});
 
   printf("expected:\n");
   cudf::test::print(expected);

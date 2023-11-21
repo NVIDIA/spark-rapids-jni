@@ -49,7 +49,7 @@ public class ParseURITest {
   @Test
   void parseURIToProtocolSparkTest() {
     String[] testData = {
-      /*"https://nvidia.com/https&#://nvidia.com",
+      "https://nvidia.com/https&#://nvidia.com",
       "https://http://www.nvidia.com",
       "filesystemmagicthing://bob.yaml",
       "nvidia.com:8080",
@@ -69,9 +69,9 @@ public class ParseURITest {
       "https://www.nvidia.com:8080/q",
       "https://www.nvidia.com#8080",
       "file://path/to/cool/file",
-      "http//www.nvidia.com/q",*/
+      "http//www.nvidia.com/q",
       "http://?",
-      "http://#",/*
+      "http://#",
       "http://??",
       "http://??/",
       "http://user:pass@host/file;param?query;p2",
@@ -80,8 +80,11 @@ public class ParseURITest {
       "https://nvidia.com/2Ru15Ss ",
       "http://www.nvidia.com/xmlrpc//##",
       "www.nvidia.com:8080/expert/sciPublication.jsp?ExpertId=1746&lenList=all",
-      "www.nvidia.com:8080/hrcxtf/view?docId=ead/00073.xml&query=T.%20E.%20Lawrence&query-join=and",*/
-      "",
+      "www.nvidia.com:8080/hrcxtf/view?docId=ead/00073.xml&query=T.%20E.%20Lawrence&query-join=and",
+      "www.nvidia.com:81/Free.fr/L7D9qw9X4S-aC0&amp;D4X0/Panels&amp;solutionId=0X54a/cCdyncharset=UTF-8&amp;t=01wx58Tab&amp;ps=solution/ccmd=_help&amp;locale0X1&amp;countrycode=MA/",
+      "http://www.nvidia.com/tags.php?%2F88\323\351\300ึณวน\331\315\370%2F",
+      "http://www.nvidia.com//wp-admin/includes/index.html#9389#123",
+       "",
       null};
 
     buildExpectedAndRun(testData);
