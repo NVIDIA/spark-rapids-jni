@@ -62,6 +62,7 @@ public class SparkResourceAdaptor
         }
       } catch (InterruptedException e) {
         // We are going to exit, so ignore the exception
+        Thread.currentThread().interrupt();
       }
     }, "SparkResourceAdaptor WatchDog");
     // Do a little normalization before setting up logging...
