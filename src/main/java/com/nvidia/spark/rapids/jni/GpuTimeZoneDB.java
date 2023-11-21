@@ -122,6 +122,21 @@ public class GpuTimeZoneDB {
     return instance.getZoneIDMap().containsKey(id);
   }
 
+  public static boolean isSupportedTimeZone(String zoneId) {
+    return isSupportedTimeZone(getZoneId(zoneId));
+  }
+
+  // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
+  public static ZoneId getZoneId(String timeZoneId) {
+    String formattedZoneId = timeZoneId
+      // To support the (+|-)h:mm format because it was supported before Spark 3.0.
+      .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
+      // To support the (+|-)hh:m format because it was supported before Spark 3.0.
+      .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
+
+    return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
+  }
+
   boolean isLoaded() {
     return zoneIdToTableFuture.isDone();
   }
