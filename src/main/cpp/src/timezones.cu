@@ -36,35 +36,30 @@ using struct_view = cudf::struct_view;
 
 namespace {
 
-/**
- * @brief Convert the timestamp value to either UTC or a specified timezone
- *
- * This device functor uses a binary search to find the instant of the transition
- * to find the right offset to do the transition.
- *
- * To transition to UTC: do a binary search on the tzInstant child column and subtract
- * the offset
- *
- * To transition from UTC: do a binary search on the utcInstant child column and add
- * the offset
- *
- * @tparam typestamp_type type of the input and output timestamp
- * @param transitions the list column of transitions to figure out the correct offset
- *                    to adjust the timestamp. The type of the values in this column is
- *                    LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>
- * @param tz_index the index of the specified zone id in the transitions table
- * @param to_utc whether we are converting to UTC or converting to the timezone
- * 
- * @param timestamp input timestamp
- */
+// This device functor uses a binary search to find the instant of the transition
+// to find the right offset to do the transition.
+// To transition to UTC: do a binary search on the tzInstant child column and subtract
+// the offset
+// To transition from UTC: do a binary search on the utcInstant child column and add
+// the offset
 template <typename timestamp_type>
 struct convert_timestamp_tz_functor {
   using duration_type = typename timestamp_type::duration;
 
-  lists_column_device_view transitions;
-  size_type tz_index;
-  bool to_utc;
+  // The list column of transitions to figure out the correct offset
+  // to adjust the timestamp. The type of the values in this column is
+  // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>
+  lists_column_device_view const transitions;
+  // the index of the specified zone id in the transitions table
+  size_type const tz_index;
+  // whether we are converting to UTC or converting to the timezone
+  bool const to_utc;
 
+  /**
+   * @brief Convert the timestamp value to either UTC or a specified timezone
+   * @param timestamp input timestamp
+   * 
+   */
   __device__ timestamp_type operator()(timestamp_type const &timestamp) const {
     auto const epoch_seconds =
         static_cast<int64_t>(cuda::std::chrono::duration_cast<cudf::duration_s>(
@@ -72,17 +67,15 @@ struct convert_timestamp_tz_functor {
     auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
     auto const list_size = tz_transitions.size();
 
-    cudf::device_span<int64_t const> transition_times(
-        &(transitions.child()
-              .child(to_utc ? 1 : 0)
-              .data<int64_t>()[tz_transitions.element_offset(0)]),
+    auto const transition_times = cudf::device_span<int64_t const>(
+        transitions.child().child(to_utc ? 1 : 0).data<int64_t>() + 
+        tz_transitions.element_offset(0),
         static_cast<size_t>(list_size));
 
     auto const it = thrust::upper_bound(thrust::seq, transition_times.begin(), transition_times.end(),
                                   epoch_seconds);
     auto const idx = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
-
-    auto const list_offset = tz_transitions.element_offset(size_type(idx - 1));
+    auto const list_offset = tz_transitions.element_offset(idx - 1);
     auto const utc_offset = cuda::std::chrono::duration_cast<duration_type>(cudf::duration_s{
         static_cast<int64_t>(transitions.child().child(2).element<int32_t>(list_offset))});
     return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
@@ -148,7 +141,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(cudf::column_view cons
 
   // get the fixed transitions
   auto const ft_cdv_ptr = column_device_view::create(transitions.column(0), stream);
-  lists_column_device_view fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
+  auto const fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
 
   auto results = cudf::make_timestamp_column(input.type(), input.size(),
                                              cudf::detail::copy_bitmask(input, stream, mr),
