@@ -28,8 +28,8 @@ namespace spark_rapids_jni {
  *
  * The transition rules are in enclosed in a table, and the index corresponding to the
  * current timezone is given.
- * 
- * This method is the converse of convert_utc_timestamp_to_timezone
+ *
+ * This method is the inverse of convert_utc_timestamp_to_timezone.
  *
  * @param input the column of input timestamps in the current timezone
  * @param transitions the table of transitions for all timezones
@@ -47,8 +47,8 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  *
  * The transition rules are in enclosed in a table, and the index corresponding to the
  * specific timezone is given.
- * 
- * This method is the converse of convert_timestamp_to_utc
+ *
+ * This method is the inverse of convert_timestamp_to_utc.
  *
  * @param input the column of input timestamps in UTC
  * @param transitions the table of transitions for all timezones
