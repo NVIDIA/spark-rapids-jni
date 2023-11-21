@@ -61,7 +61,7 @@ public class GpuTimeZoneDB {
   /**
    * Start to cache the database. This should be called on startup of an executor. It should start
    * to cache the data on the CPU in a background thread. It should return immediately and allow the
-   * other APIs to be called. Depending on what we want to * do we can have the other APIs block
+   * other APIs to be called. Depending on what we want to do we can have the other APIs block
    * until this is done caching, or we can have private APIs that would let us load and use specific
    * parts of the database. I prefer the former solution at least until we see a performance hit
    * where we are waiting on the database to finish loading.
