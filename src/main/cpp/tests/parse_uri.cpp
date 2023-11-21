@@ -83,9 +83,10 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "http://[fe80::7:8%eth0]",
      "http://[fe80::7:8%1]",
      "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
-     "b.oscars.org:8100/servlet/"
+     "www.nvidia.com:8100/servlet/"
      "impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
-     "https://j.mp/2Ru15Ss "});
+     "https://nvidia.com/2Ru15Ss ",
+     "http://www.nvidia.com/plugins//##"});
 
   auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
@@ -115,9 +116,15 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
      "http",
      "http",
      "",
-     "b.oscars.org",
+     "www.nvidia.com",
+     "",
      ""},
-    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0});
+    {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0});
+
+  printf("expected:\n");
+  cudf::test::print(expected);
+  printf("result:\n");
+  cudf::test::print(result->view());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }

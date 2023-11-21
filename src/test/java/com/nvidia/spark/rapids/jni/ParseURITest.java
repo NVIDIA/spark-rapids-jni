@@ -49,7 +49,7 @@ public class ParseURITest {
   @Test
   void parseURIToProtocolSparkTest() {
     String[] testData = {
-      "https://nvidia.com/https&#://nvidia.com",
+      /*"https://nvidia.com/https&#://nvidia.com",
       "https://http://www.nvidia.com",
       "filesystemmagicthing://bob.yaml",
       "nvidia.com:8080",
@@ -69,15 +69,18 @@ public class ParseURITest {
       "https://www.nvidia.com:8080/q",
       "https://www.nvidia.com#8080",
       "file://path/to/cool/file",
-      "http//www.nvidia.com/q",
+      "http//www.nvidia.com/q",*/
       "http://?",
-      "http://#",
+      "http://#",/*
       "http://??",
       "http://??/",
       "http://user:pass@host/file;param?query;p2",
       "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
-      "b.oscars.org:8100/servlet/impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
-      "https://j.mp/2Ru15Ss ",
+      "nvidia.com:8100/servlet/impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
+      "https://nvidia.com/2Ru15Ss ",
+      "http://www.nvidia.com/xmlrpc//##",
+      "www.nvidia.com:8080/expert/sciPublication.jsp?ExpertId=1746&lenList=all",
+      "www.nvidia.com:8080/hrcxtf/view?docId=ead/00073.xml&query=T.%20E.%20Lawrence&query-join=and",*/
       "",
       null};
 

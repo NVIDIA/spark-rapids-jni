@@ -486,8 +486,11 @@ uri_parts __device__ validate_uri(const char* str, int len)
 
   // anything after the hash is part of the fragment and ignored for this part
   if (hash >= 0) {
-    ret.fragment = {str + hash, len - hash};
-    if (!validate_fragment(ret.fragment)) { ret.fragment = {}; }
+    ret.fragment = {str + hash + 1, len - hash - 1};
+    if (!validate_fragment(ret.fragment)) {
+      ret.valid = false;
+      return ret;
+    }
 
     len = hash;
 
