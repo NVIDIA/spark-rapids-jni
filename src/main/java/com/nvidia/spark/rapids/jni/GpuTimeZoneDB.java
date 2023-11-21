@@ -82,7 +82,9 @@ public class GpuTimeZoneDB {
 
 
   public static void shutdown() {
-    instance.close();
+    if (instance.isLoaded()) {
+      instance.close();
+    }
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
@@ -91,6 +93,9 @@ public class GpuTimeZoneDB {
     if (!isSupportedTimeZone(currentTimeZone)) {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           currentTimeZone.toString()));
+    }
+    if (!instance.isLoaded()) {
+      cacheDatabase(); // lazy load the database
     }
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     Table transitions = instance.getTransitions();
@@ -107,6 +112,9 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           desiredTimeZone.toString()));
     }
+    if (!instance.isLoaded()) {
+      cacheDatabase(); // lazy load the database
+    }
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
     Table transitions = instance.getTransitions();
     ColumnVector result = new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
@@ -118,7 +126,9 @@ public class GpuTimeZoneDB {
   // TODO: Deprecate this API when we support all timezones 
   // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
   public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
-    return desiredTimeZone != null && (desiredTimeZone.isFixedOffset() || desiredTimeZone.getTransitionRules().isEmpty());
+    return desiredTimeZone != null &&
+      (desiredTimeZone.getRules().isFixedOffset() ||
+      desiredTimeZone.getRules().getTransitionRules().isEmpty());
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
