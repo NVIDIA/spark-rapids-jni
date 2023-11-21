@@ -332,9 +332,11 @@ This Java code in this project (`src/main/java`) follows the
 
 #### C++
 
-The C++ code in this project (`src/main/cpp`) follows the [coding style from `rapidsai/cudf` repository](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting).
+The C++ code in this project (`src/main/cpp`) follows the
+[coding style from `rapidsai/cudf` repository](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting).
 
-We also provide a precommit-hook to format code using cudf's C++ `clang-format` style. To use precommit-hook, install it on your system such as using `conda` or `pip`:
+We also provide a precommit-hook to format code using cudf's C++ `clang-format` style.
+To use precommit-hook, install it on your system such as using `conda` or `pip`:
 ```
 conda install -c conda-forge pre-commit
 ```
