@@ -47,7 +47,7 @@ struct uri_parts {
   string_view userinfo;
   string_view port;
   string_view opaque;
-  bool valid;
+  bool valid{false};
 };
 
 enum URI_chunks { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
@@ -559,6 +559,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           ret.fragment.size_bytes() == 0) {
         // invalid! - but spark like to return things as long as you don't have illegal characters
         // ret.valid = false;
+        ret.valid = true;
         return ret;
       }
 
