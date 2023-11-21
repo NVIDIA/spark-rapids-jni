@@ -306,13 +306,6 @@ class full_thread_state {
     if (is_in_retry) { retry_start_or_block_end = end; }
   }
 
-  long get_and_reset_failed_retry_time()
-  {
-    long ret        = metrics.time_lost_nanos;
-    metrics.time_lost_nanos = 0;
-    return ret;
-  }
-
   void record_failed_retry_time()
   {
     if (is_in_retry) {
@@ -474,29 +467,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (thread != threads.end()) { thread->second.reset_retry_state(false); }
   }
 
-  long get_and_reset_lost_time(long task_id)
-  {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    long ret     = 0;
-    auto task_at = task_to_threads.find(task_id);
-    if (task_at != task_to_threads.end()) {
-      for (auto thread_id : task_at->second) {
-        auto threads_at = threads.find(thread_id);
-        if (threads_at != threads.end()) {
-          ret += threads_at->second.get_and_reset_failed_retry_time();
-        }
-      }
-    }
-
-    auto metrics_at = task_to_metrics.find(task_id);
-    if (metrics_at != task_to_metrics.end()) {
-      ret += metrics_at->second.time_lost_nanos;
-      metrics_at->second.time_lost_nanos = 0;
-    }
-
-    return ret;
-  }
-
   /**
    * Update the internal state so that a specific thread is associated with transitive 
    * thread pools and is working on a set of tasks.
@@ -526,25 +496,17 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
     }
 
-    auto thread = threads.find(thread_id);
-    if (thread == threads.end()) {
-      throw std::runtime_error("could not find thread after adding it");
-    }
     // save the metrics for all tasks before we add any new ones.
-    for (auto task_id : thread->second.pool_task_ids) {
-      auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
-      metrics_at.first->second.add(thread->second.metrics);
-    }
-    thread->second.metrics.clear();
+    checkpoint_metrics(was_inserted.first->second);
 
-    thread->second.pool_task_ids.insert(task_ids.begin(), task_ids.end());
+    was_inserted.first->second.pool_task_ids.insert(task_ids.begin(), task_ids.end());
     if (is_log_enabled) {
       std::stringstream ss;
       ss << "CURRENT IDs ";
-      for (const auto& task_id: thread->second.pool_task_ids) {
+      for (const auto& task_id: was_inserted.first->second.pool_task_ids) {
         ss << task_id << " ";
       }
-      log_status("ADD_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
+      log_status("ADD_TASKS", thread_id, -1, was_inserted.first->second.state, ss.str().c_str());
     }
   }
 
@@ -556,11 +518,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto thread = threads.find(thread_id);
     if (thread != threads.end()) {
       // save the metrics for all tasks before we remove any of them.
-      for (auto task_id : thread->second.pool_task_ids) {
-        auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
-        metrics_at.first->second.add(thread->second.metrics);
-      }
-      thread->second.metrics.clear();
+      checkpoint_metrics(thread->second);
 
       // Now drop the tasks from the pool
       for (const auto& id: task_ids) {
@@ -638,7 +596,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
     if (run_checks) { wake_up_threads_after_task_finishes(lock); }
     task_to_threads.erase(task_id);
-    task_to_metrics.erase(task_id);
   }
 
   /**
@@ -750,30 +707,42 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
   }
 
-  /**
-   * get the number of times a retry was thrown and reset the value to 0.
-   */
-  int get_and_reset_num_retry(long task_id)
+   // Some C++ magic to get and reset a single metric.
+   // Metrics are recorded on a per-thread basis, but are reported per-task
+   // But the life time of threads and tasks are not directly tied together
+   // so they are check-pointed periodically. This reads and resets
+   // the metric for both the threads and the tasks
+  template<class T>
+  T get_and_reset_metric(long task_id, T task_metrics::* MetricPtr)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
-    int ret      = 0;
+    T ret      = 0;
     auto task_at = task_to_threads.find(task_id);
     if (task_at != task_to_threads.end()) {
       for (auto thread_id : task_at->second) {
         auto threads_at = threads.find(thread_id);
         if (threads_at != threads.end()) {
-          ret += threads_at->second.metrics.num_times_retry_throw;
-          threads_at->second.metrics.num_times_retry_throw = 0;
+          ret += (threads_at->second.metrics.*MetricPtr);
+          (threads_at->second.metrics.*MetricPtr) = 0;
         }
       }
     }
 
     auto metrics_at = task_to_metrics.find(task_id);
     if (metrics_at != task_to_metrics.end()) {
-      ret += metrics_at->second.num_times_retry_throw;
-      metrics_at->second.num_times_retry_throw = 0;
+      ret += (metrics_at->second.*MetricPtr);
+      (metrics_at->second.*MetricPtr) = 0;
     }
     return ret;
+
+  }
+
+  /**
+   * get the number of times a retry was thrown and reset the value to 0.
+   */
+  int get_and_reset_num_retry(long task_id)
+  {
+    return get_and_reset_metric(task_id, &task_metrics::num_times_retry_throw);
   }
 
   /**
@@ -781,26 +750,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    */
   int get_and_reset_num_split_retry(long task_id)
   {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    int ret      = 0;
-    auto task_at = task_to_threads.find(task_id);
-    if (task_at != task_to_threads.end()) {
-      for (auto thread_id : task_at->second) {
-        auto threads_at = threads.find(thread_id);
-        if (threads_at != threads.end()) {
-          ret += threads_at->second.metrics.num_times_split_retry_throw;
-          threads_at->second.metrics.num_times_split_retry_throw = 0;
-        }
-      }
-    }
-
-    auto metrics_at = task_to_metrics.find(task_id);
-    if (metrics_at != task_to_metrics.end()) {
-      ret += metrics_at->second.num_times_split_retry_throw;
-      metrics_at->second.num_times_split_retry_throw = 0;
-    }
-
-    return ret;
+    return get_and_reset_metric(task_id, &task_metrics::num_times_split_retry_throw);
   }
 
   /**
@@ -808,26 +758,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    */
   long get_and_reset_block_time(long task_id)
   {
-    std::unique_lock<std::mutex> lock(state_mutex);
-    long ret     = 0;
-    auto task_at = task_to_threads.find(task_id);
-    if (task_at != task_to_threads.end()) {
-      for (auto thread_id : task_at->second) {
-        auto threads_at = threads.find(thread_id);
-        if (threads_at != threads.end()) {
-          ret += threads_at->second.metrics.time_blocked_nanos;
-          threads_at->second.metrics.time_blocked_nanos = 0;
-        }
-      }
-    }
+    return get_and_reset_metric(task_id, &task_metrics::time_blocked_nanos);
+  }
 
-    auto metrics_at = task_to_metrics.find(task_id);
-    if (metrics_at != task_to_metrics.end()) {
-      ret += metrics_at->second.time_blocked_nanos;
-      metrics_at->second.time_blocked_nanos = 0;
-    }
-
-    return ret;
+  /**
+   * get the time in ns that was lost because a retry was thrown.
+   */
+  long get_and_reset_lost_time(long task_id)
+  {
+    return get_and_reset_metric(task_id, &task_metrics::time_lost_nanos);
   }
 
   void check_and_break_deadlocks()
@@ -986,7 +925,22 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     thread->second.pool_blocked = pool_blocked;
   }
 
-
+  /**
+   * Checkpoint all of the metrics for a thread.
+   */
+  void checkpoint_metrics(full_thread_state & state) {
+    if (state.task_id < 0) {
+      // save the metrics for all tasks before we add any new ones.
+      for (auto task_id : state.pool_task_ids) {
+        auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
+        metrics_at.first->second.add(state.metrics);
+      }
+      state.metrics.clear();
+    } else {
+      auto metrics_at = task_to_metrics.try_emplace(state.task_id, task_metrics());
+      metrics_at.first->second.take_from(state.metrics);
+    }
+  }
 
   /**
    * This is a watchdog to prevent us from live locking. It should be called before we throw an
@@ -1172,16 +1126,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
       // save the metrics no matter what
-      if (threads_at->second.task_id < 0) {
-        for (auto task_id : threads_at->second.pool_task_ids) {
-          auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
-          metrics_at.first->second.add(threads_at->second.metrics);
-        }
-        threads_at->second.metrics.clear();
-      } else {
-        auto metrics_at = task_to_metrics.try_emplace(threads_at->second.task_id, task_metrics());
-        metrics_at.first->second.take_from(threads_at->second.metrics);
-      }
+      checkpoint_metrics(threads_at->second);
 
       if (remove_task_id < 0) {
         thread_should_be_removed = true;
@@ -1263,7 +1208,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         // likely due to spill setup required in cuDF. We will treat this allocation differently
         // and skip transitions.
         case THREAD_ALLOC:
-        // fallthrough
+        // fall through
         case THREAD_ALLOC_FREE:
             if (is_for_cpu && blocking) {
               // On the CPU we want the spill code to be explicit so we don't have to detect it
@@ -1427,7 +1372,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // instead of trying to split its input. But we only do this if it
       // is a different thread that is freeing memory from the one we want to wake up.
       // This is because if the threads are the same no new memory is being added
-      // to what that task has access to and the task may never thow a retry and split.
+      // to what that task has access to and the task may never throw a retry and split.
       // Instead it would just keep retrying and freeing the same memory each time.
       std::map<long, long> pool_bufn_task_thread_count;
       std::map<long, long> pool_task_thread_count;

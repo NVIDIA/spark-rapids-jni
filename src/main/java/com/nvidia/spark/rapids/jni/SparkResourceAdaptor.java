@@ -259,7 +259,7 @@ public class SparkResourceAdaptor
 
   /**
    * The allocation failed, and spilling didn't save it.
-   * @param wasOom wat the failure caused by an OOM or something else.
+   * @param wasOom was the failure caused by an OOM or something else.
    * @param blocking is this for a blocking allocate or a non-blocking one.
    * @param wasRecursive the result of calling preCpuAlloc
    * @return true if the allocation should be retried else false if the state machine
