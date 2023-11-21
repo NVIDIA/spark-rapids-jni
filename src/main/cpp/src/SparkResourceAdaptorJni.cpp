@@ -400,15 +400,42 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     if (shutting_down) { throw std::runtime_error("spark_resource_adaptor is shutting down"); }
+    auto found = threads.find(thread_id);
+    if (found != threads.end()) {
+      if (found->second.task_id >= 0 && found->second.task_id != task_id) {
+        std::stringstream ss;
+        ss << "desired task_id " << task_id;
+
+        log_status("FIXUP", thread_id, found->second.task_id,
+                found->second.state, ss.str().c_str());
+
+        remove_thread_association(thread_id, found->second.task_id, lock);
+      }
+    }
     auto was_threads_inserted =
       threads.emplace(thread_id, full_thread_state(thread_state::THREAD_RUNNING, thread_id, task_id));
-    if (was_threads_inserted.second == false) {
-      if (was_threads_inserted.first->second.task_id != task_id) {
-        throw std::invalid_argument("a thread can only be dedicated to a single task.");
+   if (was_threads_inserted.second == false) {
+      if (was_threads_inserted.first->second.state == thread_state::THREAD_REMOVE_THROW) {
+        std::stringstream ss;
+        ss << "A thread " << thread_id <<
+            " is shutting down " <<
+            was_threads_inserted.first->second.task_id <<
+            " vs " << task_id;
+
+        log_status("ERROR", thread_id, was_threads_inserted.first->second.task_id,
+                was_threads_inserted.first->second.state, ss.str().c_str());
+        throw std::invalid_argument(ss.str());
       }
 
-      if (was_threads_inserted.first->second.state == thread_state::THREAD_REMOVE_THROW) {
-        throw std::invalid_argument("the thread is in the process of shutting down.");
+      if (was_threads_inserted.first->second.task_id != task_id) {
+        std::stringstream ss;
+        ss << "A thread " << thread_id <<
+            " can only be dedicated to a single task." <<
+            was_threads_inserted.first->second.task_id <<
+            " != " << task_id;
+        log_status("ERROR", thread_id, was_threads_inserted.first->second.task_id,
+                was_threads_inserted.first->second.state, ss.str().c_str());
+        throw std::invalid_argument(ss.str());
       }
     }
 
@@ -541,7 +568,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
       log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
       if (thread->second.pool_task_ids.empty()) {
-        if (remove_thread_association(thread_id, lock)) { 
+        if (remove_thread_association(thread_id, -1, lock)) {
           wake_up_threads_after_task_finishes(lock);
         }
       }
@@ -555,10 +582,10 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * up and throw an exception. At that point the thread's state will be completely
    * removed.
    */
-  void remove_thread_association(long thread_id)
+  void remove_thread_association(long thread_id, long task_id)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
-    if (remove_thread_association(thread_id, lock)) { wake_up_threads_after_task_finishes(lock); }
+    if (remove_thread_association(thread_id, task_id, lock)) { wake_up_threads_after_task_finishes(lock); }
   }
 
   /**
@@ -576,7 +603,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // we want to make a copy so there is no conflict here...
       std::set<long> threads_to_remove = task_at->second;
       for (auto thread_id : threads_to_remove) {
-        run_checks = remove_thread_association(thread_id, lock) || run_checks;
+        run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
       }
     }
     std::unordered_set<long> thread_ids;
@@ -594,7 +621,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           }
           log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str().c_str());
           if (thread->second.pool_task_ids.empty()) {
-            run_checks = remove_thread_association(thread_id, lock) || run_checks;
+            run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
           }
         }
       }
@@ -677,7 +704,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
 
       for (auto thread_id : threads_to_remove) {
-        remove_thread_association(thread_id, lock);
+        remove_thread_association(thread_id, -1, lock);
       }
       shutting_down = true;
     }
@@ -1131,46 +1158,66 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * returns true if the thread that ended was a normally running task thread.
    * This should be used to decide if wake_up_threads_after_task_finishes is called or not.
    */
-  bool remove_thread_association(long thread_id, const std::unique_lock<std::mutex>& lock)
+  bool remove_thread_association(long thread_id, long remove_task_id, const std::unique_lock<std::mutex>& lock)
   {
-    // First do it in java if we can. No failure if it does not work though.
-    JNIEnv *env = nullptr;
-    if (jvm->GetEnv(reinterpret_cast<void **>(&env), cudf::jni::MINIMUM_JNI_VERSION) == JNI_OK) {
-      cache_thread_reg_jni(env);
-      env->CallStaticVoidMethod(ThreadStateRegistry_jclass, removeThread_method, thread_id);
-    }
+    bool thread_should_be_removed = false;
     bool ret        = false;
     auto threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      auto task_id = threads_at->second.task_id;
-      if (task_id >= 0) {
-        auto task_at = task_to_threads.find(task_id);
-        if (task_at != task_to_threads.end()) { task_at->second.erase(thread_id); }
-
-        auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
-        metrics_at.first->second.take_from(threads_at->second.metrics);
-      } else {
+      // save the metrics no matter what
+      if (threads_at->second.task_id < 0) {
         for (auto task_id : threads_at->second.pool_task_ids) {
           auto metrics_at = task_to_metrics.try_emplace(task_id, task_metrics());
           metrics_at.first->second.add(threads_at->second.metrics);
         }
         threads_at->second.metrics.clear();
+      } else {
+        auto metrics_at = task_to_metrics.try_emplace(threads_at->second.task_id, task_metrics());
+        metrics_at.first->second.take_from(threads_at->second.metrics);
       }
 
-      switch (threads_at->second.state) {
-        case THREAD_BLOCKED:
-        // fall through
-        case THREAD_BUFN:
-          transition(threads_at->second, thread_state::THREAD_REMOVE_THROW);
-          threads_at->second.wake_condition->notify_all();
-          break;
-        case THREAD_RUNNING:
-          ret = true;
-          // fall through;
-        default:
-          log_transition(
-            thread_id, threads_at->second.task_id, threads_at->second.state, thread_state::UNKNOWN);
-          threads.erase(threads_at);
+      if (remove_task_id < 0) {
+        thread_should_be_removed = true;
+      } else {
+        auto task_id = threads_at->second.task_id;
+        if (task_id >= 0) {
+          if (task_id == remove_task_id) {
+            thread_should_be_removed = true;
+          }
+        } else {
+          threads_at->second.pool_task_ids.erase(remove_task_id);
+          if (threads_at->second.pool_task_ids.empty()) {
+            thread_should_be_removed = true;
+          }
+        }
+      }
+
+      if (thread_should_be_removed) {
+        JNIEnv *env = nullptr;
+        if (jvm->GetEnv(reinterpret_cast<void **>(&env), cudf::jni::MINIMUM_JNI_VERSION) == JNI_OK) {
+          cache_thread_reg_jni(env);
+          env->CallStaticVoidMethod(ThreadStateRegistry_jclass, removeThread_method, thread_id);
+        }
+        if (remove_task_id >= 0) {
+          auto task_at = task_to_threads.find(remove_task_id);
+          if (task_at != task_to_threads.end()) { task_at->second.erase(thread_id); }
+        }
+
+        switch (threads_at->second.state) {
+          case THREAD_BLOCKED:
+          // fall through
+          case THREAD_BUFN:
+            transition(threads_at->second, thread_state::THREAD_REMOVE_THROW);
+            threads_at->second.wake_condition->notify_all();
+            break;
+          case THREAD_RUNNING:
+            ret = true;
+            // fall through;
+          default:
+            log_transition(
+              thread_id, threads_at->second.task_id, threads_at->second.state, thread_state::UNKNOWN);
+            threads.erase(threads_at);
+        }
       }
     }
     return ret;
@@ -1856,13 +1903,14 @@ JNIEXPORT void JNICALL
 Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeThreadAssociation(JNIEnv* env,
                                                                               jclass,
                                                                               jlong ptr,
-                                                                              jlong thread_id)
+                                                                              jlong thread_id,
+                                                                              jlong task_id)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
-    mr->remove_thread_association(thread_id);
+    mr->remove_thread_association(thread_id, task_id);
   }
   CATCH_STD(env, )
 }

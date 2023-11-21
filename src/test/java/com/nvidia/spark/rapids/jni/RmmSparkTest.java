@@ -295,7 +295,6 @@ public class RmmSparkTest {
         System.err.println("THROWABLE CAUGHT IN " + name);
         t.printStackTrace(System.err);
       } finally {
-        RmmSpark.removeCurrentThreadAssociation();
         System.err.println("THREAD EXITING " + name);
       }
     }
@@ -447,13 +446,13 @@ public class RmmSparkTest {
     try {
       RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
       RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       // Not removing twice because we don't have to match up the counts so it fits with how
       // the GPU semaphore is used.
       RmmSpark.shuffleThreadWorkingTasks(threadId, t, taskIds);
       RmmSpark.shuffleThreadWorkingTasks(threadId, t, taskIds);
-      RmmSpark.removeThreadAssociation(threadId);
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     } finally {
       RmmSpark.taskDone(taskId);
     }
@@ -472,12 +471,14 @@ public class RmmSparkTest {
     try {
       RmmSpark.startDedicatedTaskThread(threadIdOne, taskId, t);
       assertThrows(CudfException.class, () -> RmmSpark.shuffleThreadWorkingTasks(threadIdOne, t, taskIds));
-      assertThrows(CudfException.class, () -> RmmSpark.startDedicatedTaskThread(threadIdOne, otherTaskId, t));
+      // There can be races when a thread goes from one task to another, so we just make it safe to do.
+      RmmSpark.startDedicatedTaskThread(threadIdOne, otherTaskId, t);
 
       RmmSpark.shuffleThreadWorkingTasks(threadIdTwo, t, taskIds);
       assertThrows(CudfException.class, () -> RmmSpark.startDedicatedTaskThread(threadIdTwo, otherTaskId, t));
       // Remove the association
-      RmmSpark.removeThreadAssociation(threadIdTwo);
+      RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, taskId);
+      RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, otherTaskId);
       // Add in a new association
       RmmSpark.startDedicatedTaskThread(threadIdTwo, taskId, t);
     } finally {
@@ -667,7 +668,7 @@ public class RmmSparkTest {
       RmmSpark.cpuDeallocate(address, 100);
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -687,7 +688,7 @@ public class RmmSparkTest {
       RmmSpark.postCpuAllocFailed(true, false, wasRecursive);
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -717,7 +718,6 @@ public class RmmSparkTest {
           secondOne.freeAndWait();
         }
       }
-
     } finally {
       taskOne.done();
       taskTwo.done();
@@ -1116,9 +1116,9 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     Thread t = Thread.currentThread();
-    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
@@ -1147,7 +1147,7 @@ public class RmmSparkTest {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -1156,9 +1156,9 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     Thread t = Thread.currentThread();
-    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
@@ -1175,7 +1175,7 @@ public class RmmSparkTest {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -1184,10 +1184,10 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     long numRetries = 0;
     Thread t = Thread.currentThread();
-    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     long startTime = System.nanoTime();
     try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
       while (numRetries < 10000) {
@@ -1210,7 +1210,7 @@ public class RmmSparkTest {
       // The 500 is hard coded in the code below
       assertEquals(500, numRetries);
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
@@ -1234,15 +1234,15 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     Thread t = Thread.currentThread();
-    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
         try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
-        RmmSpark.removeThreadAssociation(threadId);
+        RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
     assertEquals(11, rmmEventHandler.getAllocationCount());
@@ -1255,15 +1255,15 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     Thread t = Thread.currentThread();
-    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
         try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
-        RmmSpark.removeThreadAssociation(threadId);
+        RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
     assertEquals(0, rmmEventHandler.getAllocationCount());

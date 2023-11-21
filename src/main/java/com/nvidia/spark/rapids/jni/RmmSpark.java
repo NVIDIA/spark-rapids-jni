@@ -256,23 +256,46 @@ public class RmmSpark {
   }
 
   /**
-   * Remove the given thread ID from any association.
+   * Remove the given thread ID from being associated with a given task
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle
    *                 (not java thread id).
    */
-  public static void removeThreadAssociation(long threadId) {
+  public static void removeDedicatedThreadAssociation(long threadId, long taskId) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
-        sra.removeThreadAssociation(threadId);
+        sra.removeThreadAssociation(threadId, taskId);
       }
     }
   }
 
   /**
-   * Remove any association the current thread has.
+   * Remove the current thread from being associated with the given task.
    */
-  public static void removeCurrentThreadAssociation() {
-    removeThreadAssociation(getCurrentThreadId());
+  public static void removeCurrentDedicatedThreadAssociation(long taskId) {
+    removeDedicatedThreadAssociation(getCurrentThreadId(), taskId);
+  }
+
+  /**
+   * Remove all task associations for a given thread. This is intended to be used as a part
+   * of tests when a thread is shutting down, or for a pool thread when it is fully done.
+   * Dedicated task thread typically are cleaned when the task itself completes.
+   * @param threadId the id of the thread to clean up
+   */
+  public static void removeAllThreadAssociation(long threadId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.removeThreadAssociation(threadId, -1);
+      }
+    }
+  }
+
+  /**
+   * Remove all task associations for the current thread. This is intended to be used as a part
+   * of tests when a thread is shutting down, or for a pool thread when it is fully done.
+   * Dedicated task thread typically are cleaned when the task itself completes.
+   */
+  public static void removeAllCurrentThreadAssociation() {
+    removeAllThreadAssociation(getCurrentThreadId());
   }
 
   /**

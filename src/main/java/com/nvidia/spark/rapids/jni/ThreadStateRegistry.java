@@ -30,38 +30,20 @@ class ThreadStateRegistry {
   private static final Logger LOG = LoggerFactory.getLogger(ThreadStateRegistry.class);
 
   private static final HashMap<Long, Thread> knownThreads = new HashMap<>();
-  private static final HashSet<Long> deadThreads = new HashSet<>();
 
-  public static void clearDeadThreads() {
-    HashSet<Long> copy;
-    synchronized(ThreadStateRegistry.class) {
-      copy = new HashSet<>(deadThreads);
-      deadThreads.clear();
-    }
-    for (long id : copy) {
-      RmmSpark.removeThreadAssociation(id);
-    }
-  }
-
-  public static void addThread(long nativeId, Thread t) {
-    clearDeadThreads();
-    synchronized (ThreadStateRegistry.class) {
-      knownThreads.put(nativeId, t);
-    }
+  public static synchronized void addThread(long nativeId, Thread t) {
+    knownThreads.put(nativeId, t);
   }
 
   // Typically called from JNI
   public static synchronized void removeThread(long threadId) {
     knownThreads.remove(threadId);
-    deadThreads.remove(threadId);
   }
 
   // This is likely called from JNI
   public static synchronized boolean isThreadBlocked(long nativeId) {
     Thread t = knownThreads.get(nativeId);
     if (t == null || !t.isAlive()) {
-      deadThreads.add(nativeId);
-      LOG.warn("Thread " + nativeId + " was not cleaned up properly.");
       // Dead is as good as blocked. This is mostly for tests, not so much for
       // production
       return true;
@@ -75,11 +57,8 @@ class ThreadStateRegistry {
       case TIMED_WAITING:
         return true;
       case TERMINATED:
-        // Technically there is a race with `!t.isAlive` check above
-        deadThreads.add(nativeId);
-        LOG.warn("Thread " + nativeId + " was not cleaned up properly.");
-        // Dead is as good as blocked. This is mostly for tests, not so much for
-        // production
+        // Technically there is a race with `!t.isAlive` check above, and dead is as good as
+        // blocked.
         return true;
       default:
         return false;

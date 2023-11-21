@@ -134,9 +134,10 @@ public class SparkResourceAdaptor
   /**
    * Remove the given thread ID from any association.
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle (not java thread id).
+   * @param taskId the task that is being removed. If the task id is -1, then any/all tasks are removed.
    */
-  public void removeThreadAssociation(long threadId) {
-    removeThreadAssociation(getHandle(), threadId);
+  public void removeThreadAssociation(long threadId, long taskId) {
+    removeThreadAssociation(getHandle(), threadId, taskId);
   }
 
   /**
@@ -281,7 +282,7 @@ public class SparkResourceAdaptor
   private static native void startDedicatedTaskThread(long handle, long threadId, long taskId);
   private static native void poolThreadWorkingOnTasks(long handle, boolean isForShuffle, long threadId, long[] taskIds);
   private static native void poolThreadFinishedForTasks(long handle, long threadId, long[] taskIds);
-  private static native void removeThreadAssociation(long handle, long threadId);
+  private static native void removeThreadAssociation(long handle, long threadId, long taskId);
   private static native void taskDone(long handle, long taskId);
   private static native void submittingToPool(long handle, long threadId);
   private static native void waitingOnPool(long handle, long threadId);
