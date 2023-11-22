@@ -15,6 +15,7 @@
  */
 
 #include "cast_string.hpp"
+#include "ftos_converter.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -28,12 +29,9 @@
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
-
-#include <ftos_converter.cu>
-
-using namespace cudf;
 
 namespace spark_rapids_jni {
 
@@ -42,26 +40,25 @@ namespace {
 
 template <typename FloatType>
 struct float_to_string_fn {
-  column_device_view d_floats;
-  size_type* d_offsets;
+  cudf::column_device_view d_floats;
+  cudf::size_type* d_offsets;
   char* d_chars;
 
-  __device__ size_type compute_output_size(FloatType value)
+  __device__ cudf::size_type compute_output_size(FloatType value) const
   {
-    ftos_converter fts;
-    bool is_float = std::is_same_v<FloatType, float>;
-    return static_cast<size_type>(fts.compute_ftos_size(static_cast<double>(value), is_float));
+    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    return static_cast<cudf::size_type>(ftos_converter::compute_ftos_size(static_cast<double>(value), is_float));
   }
 
-  __device__ void float_to_string(size_type idx)
+  __device__ void float_to_string(cudf::size_type idx) const
   {
-    FloatType value = d_floats.element<FloatType>(idx);
-    ftos_converter fts;
-    bool is_float = std::is_same_v<FloatType, float>;
-    fts.float_to_string(static_cast<double>(value), d_chars + d_offsets[idx], is_float);
+    auto const value = d_floats.element<FloatType>(idx);
+    bool constexpr is_float = std::is_same_v<FloatType, float>;
+    auto const output = d_chars + d_offsets[idx];
+    ftos_converter::float_to_string(static_cast<double>(value), is_float, output);
   }
 
-  __device__ void operator()(size_type idx)
+  __device__ void operator()(cudf::size_type idx) const
   {
     if (d_floats.is_null(idx)) {
       if (d_chars == nullptr) { d_offsets[idx] = 0; }
@@ -82,32 +79,28 @@ struct float_to_string_fn {
  */
 struct dispatch_float_to_string_fn {
   template <typename FloatType, std::enable_if_t<std::is_floating_point_v<FloatType>>* = nullptr>
-  std::unique_ptr<column> operator()(column_view const& floats,
+  std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
+                                     rmm::mr::device_memory_resource* mr)
   {
-    size_type strings_count = floats.size();
-    auto column             = column_device_view::create(floats, stream);
-    auto d_column           = *column;
-
-    // copy the null mask
-    rmm::device_buffer null_mask = cudf::detail::copy_bitmask(floats, stream, mr);
+    auto const strings_count = floats.size();
+    auto const input_ptr = cudf::column_device_view::create(floats, stream);
 
     auto [offsets, chars] =
-      cudf::strings::detail::make_strings_children(float_to_string_fn<FloatType>{d_column}, strings_count, stream, mr);
+      cudf::strings::detail::make_strings_children(float_to_string_fn<FloatType>{*input_ptr}, strings_count, stream, mr);
 
     return make_strings_column(strings_count,
                                std::move(offsets),
                                std::move(chars),
                                floats.null_count(),
-                               std::move(null_mask));
+                               std::move(cudf::detail::copy_bitmask(floats, stream, mr)));
   }
 
   // non-float types throw an exception
   template <typename T, std::enable_if_t<not std::is_floating_point_v<T>>* = nullptr>
-  std::unique_ptr<column> operator()(column_view const&,
+  std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
                                      rmm::cuda_stream_view,
-                                     rmm::mr::device_memory_resource*) const
+                                     rmm::mr::device_memory_resource*)
   {
     CUDF_FAIL("Values for float_to_string function must be a float type.");
   }
@@ -116,12 +109,14 @@ struct dispatch_float_to_string_fn {
 }  // namespace
 
 // This will convert all float column types into a strings column.
-std::unique_ptr<column> float_to_string(column_view const& floats,
+std::unique_ptr<cudf::column> float_to_string(cudf::column_view const& floats,
                                     rmm::cuda_stream_view stream,
                                     rmm::mr::device_memory_resource* mr)
 {
-  size_type strings_count = floats.size();
-  if (strings_count == 0) return make_empty_column(type_id::STRING);
+  auto const strings_count = floats.size();
+  if (strings_count == 0) { 
+    return cudf::make_empty_column(cudf::type_id::STRING);
+  }
 
   return type_dispatcher(floats.type(), dispatch_float_to_string_fn{}, floats, stream, mr);
 }
@@ -129,7 +124,7 @@ std::unique_ptr<column> float_to_string(column_view const& floats,
 }  // namespace detail
 
 // external API
-std::unique_ptr<column> float_to_string(column_view const& floats, 
+std::unique_ptr<cudf::column> float_to_string(cudf::column_view const& floats, 
                                       rmm::cuda_stream_view stream, 
                                       rmm::mr::device_memory_resource* mr)
 {

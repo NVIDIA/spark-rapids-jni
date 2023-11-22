@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <cast_string.hpp>
+#include "cast_string.hpp"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
@@ -29,7 +29,7 @@
 
 using namespace cudf;
 
-constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::ALL_ERRORS};
+constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::FIRST_ERROR};
 
 struct FloatToStringTests : public cudf::test::BaseFixture {};
 
