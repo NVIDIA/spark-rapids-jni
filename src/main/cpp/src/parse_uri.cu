@@ -56,7 +56,7 @@ enum chunk_validity { VALID, INVALID, FATAL };
 
 namespace {
 
-// some parsing errors are fatal and some parsing errors simply mean this
+// Some parsing errors are fatal and some parsing errors simply mean this
 // thing doesn't exist or is invalid. For example, just because 280.0.1.16 is
 // not a valid IPv4 address simply means if asking for the host the host is null
 // but the authority is still 280.0.1.16 and the uri is not considered invalid.
@@ -74,9 +74,10 @@ constexpr bool is_hex(char c)
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-__device__ bool skip_and_validate_special(string_view::const_iterator& iter,
-                                          string_view::const_iterator end,
-                                          bool allow_invalid_escapes = false)
+__device__ std::pair<bool, string_view::const_iterator> skip_and_validate_special(
+  string_view::const_iterator iter,
+  string_view::const_iterator end,
+  bool allow_invalid_escapes = false)
 {
   while (iter != end) {
     auto const c         = *iter;
@@ -85,24 +86,25 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
       // verify following two characters are hexadecimal
       for (int i = 0; i < 2; ++i) {
         ++iter;
-        if (iter == end) return false;
+        if (iter == end) { return {false, iter}; }
 
-        if (!is_hex(*iter)) { return false; }
+        if (!is_hex(*iter)) { return {false, iter}; }
       }
     } else if (num_bytes > 1) {
-      // utf8 validation means it isn't whitespace and not a control character
+      // UTF8 validation means it isn't whitespace and not a control character
       // the normal validation will handle anything single byte, this checks for multiple byte
       // whitespace
       auto const c = *iter;
-      // there are multi-byte looking things that are not valid UTF8. Check that here.
-      if ((c & 0xC0) != 0x80) { return false; }
-      if (num_bytes > 2 && ((c & 0xC000) != 0x8000)) { return false; }
-      if (num_bytes > 3 && ((c & 0xC00000) != 0x800000)) { return false; }
+      // There are multi-byte looking things like extended ASCII characters that are not valid UTF8.
+      // Check that here.
+      if ((c & 0xC0) != 0x80) { return {false, iter}; }
+      if (num_bytes > 2 && ((c & 0xC000) != 0x8000)) { return {false, iter}; }
+      if (num_bytes > 3 && ((c & 0xC00000) != 0x800000)) { return {false, iter}; }
 
-      // validate it isn't a whitespace or control unicode character
+      // Validate it isn't a whitespace or control unicode character.
       if ((c >= 0xc280 && c <= 0xc2a0) || c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) ||
           c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
-        return false;
+        return {false, iter};
       }
     } else {
       break;
@@ -110,19 +112,25 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
     ++iter;
   }
 
-  return true;
+  return {true, iter};
 }
 
 template <typename Predicate>
 __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_escapes = false)
 {
   auto iter = s.begin();
-  if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
+  {
+    auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
+    iter                = std::move(iter_);
+    if (!valid) { return false; }
+  }
   while (iter != s.end()) {
     if (!fn(iter)) { return false; }
 
     iter++;
-    if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
+    auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
+    iter                = std::move(iter_);
+    if (!valid) { return false; }
   }
   return true;
 }
@@ -187,7 +195,7 @@ bool __device__ validate_ipv6(string_view s)
         if (colon_count > max_colons || (colon_count == max_colons && !found_double_colon)) {
           return false;
         }
-        // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
+        // Periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
         // like [1:2:3:4:5:6:d.d.d.d]
         if (period_count > 0 || percent_count > 0) { return false; }
         break;
@@ -198,7 +206,7 @@ bool __device__ validate_ipv6(string_view s)
         if (address_has_hex) { return false; }
         if (address > 255) { return false; }
         if (colon_count != 6 && !found_double_colon) { return false; }
-        // special case of ::1:2:3:4:5:d.d.d.d has 7 colons - but spark says this is invalid
+        // Special case of ::1:2:3:4:5:d.d.d.d has 7 colons - but spark says this is invalid
         // if (colon_count == max_colons && !leading_double_colon) { return false; }
         if (colon_count >= max_colons) { return false; }
         address            = 0;
@@ -216,7 +224,7 @@ bool __device__ validate_ipv6(string_view s)
         address_char_count = 0;
         break;
       default:
-        // after % all bets are off
+        // after % all bets are off as the device name can be nearly anything
         if (percent_count == 0) {
           if (address_char_count > 3) { return false; }
           address_char_count++;
@@ -320,9 +328,9 @@ bool __device__ validate_domain_name(string_view name)
 
 chunk_validity __device__ validate_host(string_view host)
 {
-  // this can be IPv4, IPv6, or a domain name
+  // This can be IPv4, IPv6, or a domain name.
   if (*host.begin() == '[') {
-    // if last character is a ], this is IPv6 or invalid
+    // If last character is a ], this is IPv6 or invalid.
     if (*(host.end() - 1) != ']') {
       // invalid
       return FATAL;
@@ -332,16 +340,16 @@ chunk_validity __device__ validate_host(string_view host)
     return VALID;
   }
 
-  // if there are more [ or ] characters this is invalid
-  // also need to find the last .
+  // If there are more [ or ] characters this is invalid.
+  // Also need to find the last .
   int last_open_bracket  = -1;
   int last_close_bracket = -1;
   int last_period        = -1;
-  // the original plan on this loop was to get fancy and use a reverse iterator and exit when
+
+  // The original plan on this loop was to get fancy and use a reverse iterator and exit when
   // everything was found, but the expectation is there are no brackets in this string, so we have
   // to traverse the entire thing anyway to verify that. The math is easier with a forward iterator,
   // so we're back here.
-
   for (auto iter = host.begin(); iter < host.end(); ++iter) {
     auto const c = *iter;
     if (c == '[') {
@@ -355,7 +363,7 @@ chunk_validity __device__ validate_host(string_view host)
 
   if (last_open_bracket >= 0 || last_close_bracket >= 0) { return FATAL; }
 
-  // if we didn't find a period or if the last character is a period or the character after the last
+  // If we didn't find a period or if the last character is a period or the character after the last
   // period is non numeric
   if (last_period < 0 || last_period == host.length() - 1 || host[last_period + 1] < '0' ||
       host[last_period + 1] > '9') {
@@ -405,7 +413,7 @@ bool __device__ validate_userinfo(string_view userinfo)
   // can't be ] or [ in here
   return validate_chunk(userinfo, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c == '[' || c == ']') return false;
+    if (c == '[' || c == ']') { return false; }
     return true;
   });
 }
@@ -415,7 +423,7 @@ bool __device__ validate_port(string_view port)
   // port is positive numeric >=0 according to spark...shrug
   return validate_chunk(port, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c < '0' && c > '9') return false;
+    if (c < '0' && c > '9') { return false; }
     return true;
   });
 }
@@ -488,8 +496,6 @@ uri_parts __device__ validate_uri(const char* str, int len)
     }
   }
 
-  // reason about characters found
-
   // anything after the hash is part of the fragment and ignored for this part
   if (hash >= 0) {
     ret.fragment = {str + hash + 1, len - hash - 1};
@@ -529,7 +535,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
     return ret;
   }
 
-  // if we have a '/' as the next character, we have a heirarchical uri, if not it is opaque
+  // If we have a '/' as the next character, we have a heirarchical uri. If not it is opaque.
   bool const heirarchical = str[0] == '/';
   if (heirarchical) {
     // a '?' will break this into query and path/authority
@@ -543,7 +549,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
     auto const path_len = question >= 0 ? question : len;
 
     if (str[0] == '/' && str[1] == '/') {
-      // if we have a '/', we have //authority/path, otherwise we have //authority with no path
+      // If we have a '/', we have //authority/path, otherwise we have //authority with no path.
       int next_slash = -1;
       for (int i = 2; i < path_len; ++i) {
         if (str[i] == '/') {
@@ -570,7 +576,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           return ret;
         }
 
-        // inspect the authority for userinfo, host, and port
+        // Inspect the authority for userinfo, host, and port
         const char* auth   = ret.authority.data();
         auto auth_size     = ret.authority.size_bytes();
         int amp            = -1;
@@ -598,7 +604,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           auth_size -= amp;
         }
         if (last_colon > 0 && last_colon > closingbracket) {
-          // found a port, attempt to parse it
+          // Found a port, attempt to parse it
           ret.port = {auth + last_colon, len - last_colon};
           if (!validate_port(ret.port)) {
             ret.valid = false;
@@ -634,7 +640,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
   return ret;
 }
 
-// a URI is broken into parts(chunks). There are optional chunks and required chunks. A simple URI
+// A URI is broken into parts or chunks. There are optional chunks and required chunks. A simple URI
 // such as `https://www.nvidia.com` is easy to reason about, but it could also be written as
 // `www.nvidia.com`, which is still valid. On top of that, there are characters which are allowed in
 // certain chunks that are not allowed in others. There have been a multitude of methods attempted
@@ -713,7 +719,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
       }
 
       if (out_lengths[row_idx] == 0) {
-        // a URI can be valid, but still have no data for a specific chunk
+        // A URI can be valid, but still have no data for a specific chunk
         clear_bit(out_validity, row_idx);
       }
     }
@@ -756,7 +762,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                                   rmm::mr::device_memory_resource* mr)
 {
   size_type strings_count = input.size();
-  if (strings_count == 0) return make_empty_column(type_id::STRING);
+  if (strings_count == 0) { return make_empty_column(type_id::STRING); }
 
   constexpr size_type num_warps_per_threadblock = 4;
   constexpr size_type threadblock_size = num_warps_per_threadblock * cudf::detail::warp_size;
