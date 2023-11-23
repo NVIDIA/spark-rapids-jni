@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 23.12.00
+  VERSION 24.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -153,6 +153,7 @@ add_library(
   src/CastStringJni.cpp
   src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
+  src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/MapUtilsJni.cpp
@@ -173,6 +174,7 @@ add_library(
   src/murmur_hash.cu
   src/parse_uri.cu
   src/row_conversion.cu
+  src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
   src/zorder.cu
