@@ -117,7 +117,7 @@ std::unique_ptr<cudf::column> string_to_float(
 
 std::unique_ptr<cudf::column> format_float(
   cudf::column_view const& input,
-  int d,
+  int digits,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
