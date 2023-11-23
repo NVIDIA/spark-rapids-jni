@@ -93,7 +93,7 @@ struct dispatch_float_to_string_fn {
                                std::move(offsets),
                                std::move(chars),
                                floats.null_count(),
-                               std::move(cudf::detail::copy_bitmask(floats, stream, mr)));
+                               cudf::detail::copy_bitmask(floats, stream, mr));
   }
 
   // non-float types throw an exception
