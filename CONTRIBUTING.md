@@ -149,7 +149,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-23.12/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-24.02/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
@@ -259,6 +259,39 @@ class NormalCaseTest {
 }
 ```
 
+### Debugging
+You can add debug symbols selectively to C++ files in spark-rapids-jni by modifying the appropriate
+`CMakeLists.txt` files. You will need to add a specific flag depending on what kind of code you are
+debugging. For CUDA code, you need to add the `-G` flag to add device debug symbols:
+
+```cmake
+set_source_files_properties(src/row_conversion.cu PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For C++ code, you will need to add the `-g` flag to add host debug symbols.
+
+```cmake
+set_source_files_properties(row_conversion.cpp PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For debugging C++ tests, you need to add both device debug symbols to the CUDA kernel files involved
+in testing (in `src/main/cpp/CMakeLists.txt`) **and** host debug symbols to the CPP files used for
+testing (in `src/main/cpp/tests/CMakeLists.txt`).
+
+You can then use `cuda-gdb` to debug the gtest (NOTE: For Docker, run an interactive shell first and
+then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
+
+```bash
+./build/run-in-docker
+bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
+```
+
+You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
+as well to debug within Visual Studio Code.
+
+To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
+in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
+
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
 To build these benchmarks requires the `-DBUILD_BENCHMARKS` build option. Once built, the benchmarks
@@ -290,15 +323,36 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues
 and ask for clarifications!
 
 ### Code Formatting
-RAPIDS Accelerator for Apache Spark follows the same coding style guidelines as the Apache Spark
-project.  For IntelliJ IDEA users, an
-[example code style settings file](docs/dev/idea-code-style-settings.xml) is available in the
-`docs/dev/` directory.
 
 #### Java
 
-This project follows the
+This Java code in this project (`src/main/java`) follows the
 [Oracle Java code conventions](http://www.oracle.com/technetwork/java/codeconvtoc-136057.html).
+
+
+#### C++
+
+The C++ code in this project (`src/main/cpp`) follows the
+[coding style from `rapidsai/cudf` repository](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting).
+
+We also provide a precommit-hook to format code using cudf's C++ `clang-format` style.
+To use precommit-hook, install it on your system such as using `conda` or `pip`:
+```
+conda install -c conda-forge pre-commit
+```
+```
+pip install pre-commit
+```
+
+Then, run pre-commit hooks before committing your code. This wil reformat the stagged files:
+```
+pre-commit run
+```
+
+And for reformatting all files:
+```
+pre-commit run --all-files
+```
 
 ### Sign your work
 
