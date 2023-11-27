@@ -87,8 +87,8 @@ public class CastStrings {
    * @return the converted column
    * @param digits the number of digits to display after the decimal point
    */
-  public static ColumnVector formatFloat(ColumnView cv, int digits) {
-    return new ColumnVector(formatFloat(cv.getNativeView(), digits));
+  public static ColumnVector fromFloatWithFormat(ColumnView cv, int digits) {
+    return new ColumnVector(fromFloatWithFormat(cv.getNativeView(), digits));
   }
 
   /**
@@ -148,7 +148,7 @@ public class CastStrings {
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
-  private static native long formatFloat(long nativeColumnView, int digits);
+  private static native long fromFloatWithFormat(long nativeColumnView, int digits);
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);

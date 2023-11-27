@@ -109,7 +109,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toFloat(
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_formatFloat(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloatWithFormat(
   JNIEnv* env, jclass, jlong input_column, jint digits, jint j_dtype)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);

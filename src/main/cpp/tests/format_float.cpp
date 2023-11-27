@@ -36,63 +36,28 @@ struct FormatFloatTests : public cudf::test::BaseFixture {};
 
 TEST_F(FormatFloatTests, FormatFloats32)
 {
-  std::vector<float> h_floats{100,
-                              654321.25,
-                              -12761.125,
-                              0,
-                              5,
-                              -4,
-                              std::numeric_limits<float>::quiet_NaN(),
-                              123456789012.34,
-                              -0.0
-                              };
-  std::vector<char const*> h_expected{
+  auto const floats = cudf::test::fixed_width_column_wrapper<float> {
+    100.0f, 654321.25f, -12761.125f, 0.0f, 5.0f, -4.0f, std::numeric_limits<float>::quiet_NaN(), 123456789012.34f, -0.0f};
+  
+  auto const expected = cudf::test::strings_column_wrapper{
     "100.00000", "654,321.25000", "-12,761.12500", "0.00000", "5.00000", "-4.00000", "NaN", "123,456,790,000.00000", "-0.00000"};
 
-  cudf::test::fixed_width_column_wrapper<float> floats(
-    h_floats.begin(),
-    h_floats.end(),
-    thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
-
   auto results = spark_rapids_jni::format_float(floats, 5, cudf::get_default_stream());
-
-  cudf::test::strings_column_wrapper expected(
-    h_expected.begin(),
-    h_expected.end(),
-    thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }
 
 TEST_F(FormatFloatTests, FormatFloats64)
 {
-    std::vector<double> h_floats{100,
-                               654321.25,
-                               -12761.125,
-                               1.123456789123456789,
-                               0.000000000000000000123456789123456789,
-                               0,
-                               5,
-                               -4,
-                               std::numeric_limits<double>::quiet_NaN(),
-                               839542223232.794248339,
-                               -0.0
-                               };
-  std::vector<char const*> h_expected{
+  auto const floats = cudf::test::fixed_width_column_wrapper<double> {
+      100.0d, 654321.25d, -12761.125d, 1.123456789123456789d, 0.000000000000000000123456789123456789d,
+      0.0d, 5.0d, -4.0d, std::numeric_limits<double>::quiet_NaN(), 839542223232.794248339d, -0.0d};
+
+  auto const expected = cudf::test::strings_column_wrapper{
     "100.00000", "654,321.25000", "-12,761.12500", "1.12346", "0.00000", "0.00000", "5.00000", 
     "-4.00000", "NaN", "839,542,223,232.79420", "-0.00000"};
 
-  cudf::test::fixed_width_column_wrapper<double> floats(
-    h_floats.begin(),
-    h_floats.end(),
-    thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
-
   auto results = spark_rapids_jni::format_float(floats, 5, cudf::get_default_stream());
-
-  cudf::test::strings_column_wrapper expected(
-    h_expected.begin(),
-    h_expected.end(),
-    thrust::make_transform_iterator(h_expected.begin(), [](auto str) { return str != nullptr; }));
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }

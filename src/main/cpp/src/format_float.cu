@@ -79,7 +79,7 @@ struct format_float_fn {
  * The template function declaration ensures only float types are allowed.
  */
 struct dispatch_format_float_fn {
-  template <typename FloatType, std::enable_if_t<std::is_floating_point_v<FloatType>>* = nullptr>
+  template <typename FloatType, CUDF_ENABLE_IF(std::is_floating_point_v<FloatType>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
                                      int digits,
                                      rmm::cuda_stream_view stream,
@@ -99,7 +99,7 @@ struct dispatch_format_float_fn {
   }
 
   // non-float types throw an exception
-  template <typename T, std::enable_if_t<not std::is_floating_point_v<T>>* = nullptr>
+  template <typename T, CUDF_ENABLE_IF(not std::is_floating_point_v<T>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
                                      int,
                                      rmm::cuda_stream_view,
