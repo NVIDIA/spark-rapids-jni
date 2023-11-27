@@ -192,12 +192,29 @@ public class RmmSpark {
   }
 
   /**
+   * A shuffle thread has finished work on some tasks.
+   * @param threadId the thread ID (not java thread id).
+   * @param taskIds the IDs of the tasks that are done.
+   */
+  private static void shuffleThreadFinishedForTasks(long threadId, long[] taskIds) {
+    poolThreadFinishedForTasks(threadId, taskIds);
+  }
+
+  /**
    * The current thread which is in a thread pool that could transitively block other tasks
    * has finished work on some tasks.
    * @param taskIds the IDs of the tasks that are done.
    */
   public static void poolThreadFinishedForTasks(long[] taskIds) {
     poolThreadFinishedForTasks(getCurrentThreadId(), taskIds);
+  }
+
+  /**
+   * The current shuffle thread has finished work on some tasks.
+   * @param taskIds the IDs of the tasks that are done.
+   */
+  public static void shuffleThreadFinishedForTasks(long[] taskIds) {
+    shuffleThreadFinishedForTasks(getCurrentThreadId(), taskIds);
   }
 
   /**

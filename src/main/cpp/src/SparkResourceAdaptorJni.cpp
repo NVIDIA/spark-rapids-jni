@@ -202,8 +202,7 @@ class thread_priority {
  * because the mapping between tasks and threads can be complicated and can span
  * different time ranges too.
  */
-class task_metrics {
-  public:
+struct task_metrics {
   // metric for being able to report how many times each type of exception was thrown,
   // and some timings
   int num_times_retry_throw       = 0;
@@ -213,14 +212,8 @@ class task_metrics {
   long time_lost_nanos = 0;
 
   void take_from(task_metrics& other) {
-    this->num_times_retry_throw += other.num_times_retry_throw;
-    other.num_times_retry_throw = 0;
-    this->num_times_split_retry_throw += other.num_times_split_retry_throw;
-    other.num_times_split_retry_throw = 0;
-    this->time_blocked_nanos += other.time_blocked_nanos;
-    other.time_blocked_nanos = 0;
-    this->time_lost_nanos += other.time_lost_nanos;
-    other.time_lost_nanos = 0;
+    add(other);
+    other.clear();
   }
 
   void add(task_metrics const& other) {
