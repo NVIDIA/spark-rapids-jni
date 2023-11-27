@@ -18,6 +18,7 @@
 
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
+#include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -35,7 +36,7 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> parse_uri_to_protocol(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
