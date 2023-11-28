@@ -320,7 +320,7 @@ class string_to_float {
     int decimal_pos = 0;      // absolute decimal pos
 
     // have we seen a valid digit yet?
-    bool seen_valid_digit         = false;
+    bool seen_valid_digit = false;
     do {
       int num_chars = _blen - _bpos;
 
