@@ -47,9 +47,11 @@ namespace spark_rapids_jni {
  * @return A histogram column with data copied from the input
  */
 std::unique_ptr<cudf::column> create_histogram_if_valid(
-    cudf::column_view const &values, cudf::column_view const &frequencies, bool output_as_lists,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
+  cudf::column_view const& values,
+  cudf::column_view const& frequencies,
+  bool output_as_lists,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Compute percentiles from the given histograms and percentage values.
@@ -65,8 +67,10 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(
  * input column
  */
 std::unique_ptr<cudf::column> percentile_from_histogram(
-    cudf::column_view const &input, std::vector<double> const &percentage, bool output_as_lists,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource());
+  cudf::column_view const& input,
+  std::vector<double> const& percentage,
+  bool output_as_lists,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
