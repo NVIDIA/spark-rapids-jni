@@ -16,7 +16,7 @@
 name: clang format check
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
@@ -31,4 +31,4 @@ jobs:
         python-version: "3.10"
     - uses: pre-commit/action@v3.0.0
       with:
-        extra_args: clang-format
+        extra_args: clang-format --all-files
