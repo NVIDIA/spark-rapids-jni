@@ -782,7 +782,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
     data_type{type_to_id<size_type>()}, offset_count, mask_state::UNALLOCATED, stream, mr);
 
   // build src offsets buffer
-  auto src_offsets = rmm::device_buffer{strings_count * sizeof(size_type), stream};
+  auto src_offsets = rmm::device_uvector<size_type>(strings_count, stream);
 
   // copy null mask
   rmm::device_buffer null_mask =
