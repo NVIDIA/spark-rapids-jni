@@ -323,15 +323,36 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues
 and ask for clarifications!
 
 ### Code Formatting
-RAPIDS Accelerator for Apache Spark follows the same coding style guidelines as the Apache Spark
-project.  For IntelliJ IDEA users, an
-[example code style settings file](docs/dev/idea-code-style-settings.xml) is available in the
-`docs/dev/` directory.
 
 #### Java
 
-This project follows the
+This Java code in this project (`src/main/java`) follows the
 [Oracle Java code conventions](http://www.oracle.com/technetwork/java/codeconvtoc-136057.html).
+
+
+#### C++
+
+The C++ code in this project (`src/main/cpp`) follows the
+[coding style from `rapidsai/cudf` repository](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting).
+
+We also provide a precommit-hook to format code using cudf's C++ `clang-format` style.
+To use precommit-hook, install it on your system such as using `conda` or `pip`:
+```
+conda install -c conda-forge pre-commit
+```
+```
+pip install pre-commit
+```
+
+Then, run pre-commit hooks before committing your code. This wil reformat the stagged files:
+```
+pre-commit run
+```
+
+And for reformatting all files:
+```
+pre-commit run --all-files
+```
 
 ### Sign your work
 
