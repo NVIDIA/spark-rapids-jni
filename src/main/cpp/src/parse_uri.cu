@@ -18,6 +18,7 @@
 
 #include <cudf/detail/get_value.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -29,7 +30,6 @@
 #include <rmm/exec_policy.hpp>
 
 #include <memory>
-#include <tuple>
 
 namespace spark_rapids_jni {
 
@@ -50,9 +50,9 @@ struct uri_parts {
   bool valid{false};
 };
 
-enum URI_chunks { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
+enum class URI_chunks : int8_t { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
 
-enum chunk_validity { VALID, INVALID, FATAL };
+enum class chunk_validity : int8_t { VALID, INVALID, FATAL };
 
 namespace {
 
@@ -74,7 +74,7 @@ constexpr bool is_hex(char c)
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-__device__ std::pair<bool, string_view::const_iterator> skip_and_validate_special(
+__device__ thrust::pair<bool, string_view::const_iterator> skip_and_validate_special(
   string_view::const_iterator iter,
   string_view::const_iterator end,
   bool allow_invalid_escapes = false)
@@ -333,11 +333,11 @@ chunk_validity __device__ validate_host(string_view host)
     // If last character is a ], this is IPv6 or invalid.
     if (*(host.end() - 1) != ']') {
       // invalid
-      return FATAL;
+      return chunk_validity::FATAL;
     }
-    if (!validate_ipv6(host)) { return FATAL; }
+    if (!validate_ipv6(host)) { return chunk_validity::FATAL; }
 
-    return VALID;
+    return chunk_validity::VALID;
   }
 
   // If there are more [ or ] characters this is invalid.
@@ -361,21 +361,21 @@ chunk_validity __device__ validate_host(string_view host)
     }
   }
 
-  if (last_open_bracket >= 0 || last_close_bracket >= 0) { return FATAL; }
+  if (last_open_bracket >= 0 || last_close_bracket >= 0) { return chunk_validity::FATAL; }
 
   // If we didn't find a period or if the last character is a period or the character after the last
   // period is non numeric
   if (last_period < 0 || last_period == host.length() - 1 || host[last_period + 1] < '0' ||
       host[last_period + 1] > '9') {
     // must be domain name or it is invalid
-    if (validate_domain_name(host)) { return VALID; }
+    if (validate_domain_name(host)) { return chunk_validity::VALID; }
 
     // the only other option is that this is a IPv4 address
   } else if (validate_ipv4(host)) {
-    return VALID;
+    return chunk_validity::VALID;
   }
 
-  return INVALID;
+  return chunk_validity::INVALID;
 }
 
 bool __device__ validate_query(string_view query)
@@ -619,8 +619,8 @@ uri_parts __device__ validate_uri(const char* str, int len)
         }
         auto host_ret = validate_host(ret.host);
         switch (host_ret) {
-          case FATAL: ret.valid = false; return ret;
-          case INVALID: ret.host = {}; break;
+          case chunk_validity::FATAL: ret.valid = false; return ret;
+          case chunk_validity::INVALID: ret.host = {}; break;
         }
       }
     } else {
@@ -674,10 +674,11 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        bitmask_type* out_validity)
 {
   // thread per row
-  auto const tid      = threadIdx.x + blockIdx.x * blockDim.x;
+  auto const tid      = cudf::detail::grid_1d::global_thread_id();
   auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
 
-  for (thread_index_type tidx = tid; tidx < in_strings.size(); tidx += blockDim.x * gridDim.x) {
+  for (thread_index_type tidx = tid; tidx < in_strings.size();
+       tidx += cudf::detail::grid_1d::grid_stride()) {
     auto const row_idx = static_cast<size_type>(tidx);
     if (in_strings.is_null(row_idx)) {
       out_lengths[row_idx] = 0;
@@ -695,27 +696,27 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     } else {
       // stash output offsets and lengths for next kernel to do the copy
       switch (chunk) {
-        case PROTOCOL:
+        case URI_chunks::PROTOCOL:
           out_lengths[row_idx] = uri.scheme.size_bytes();
           out_offsets[row_idx] = uri.scheme.data() - base_ptr;
           break;
-        case HOST:
+        case URI_chunks::HOST:
           out_lengths[row_idx] = uri.host.size_bytes();
           out_offsets[row_idx] = uri.host.data() - base_ptr;
           break;
-        case AUTHORITY:
+        case URI_chunks::AUTHORITY:
           out_lengths[row_idx] = uri.authority.size_bytes();
           out_offsets[row_idx] = uri.authority.data() - base_ptr;
           break;
-        case PATH:
+        case URI_chunks::PATH:
           out_lengths[row_idx] = uri.path.size_bytes();
           out_offsets[row_idx] = uri.path.data() - base_ptr;
           break;
-        case QUERY:
+        case URI_chunks::QUERY:
           out_lengths[row_idx] = uri.query.size_bytes();
           out_offsets[row_idx] = uri.query.data() - base_ptr;
           break;
-        case USERINFO:
+        case URI_chunks::USERINFO:
           out_lengths[row_idx] = uri.userinfo.size_bytes();
           out_offsets[row_idx] = uri.userinfo.data() - base_ptr;
           break;
@@ -742,10 +743,11 @@ __global__ void parse_uri(column_device_view const in_strings,
                           size_type const* const offsets,
                           char* const out_chars)
 {
-  auto const tid      = threadIdx.x + blockIdx.x * blockDim.x;
+  auto const tid      = cudf::detail::grid_1d::global_thread_id();
   auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
 
-  for (thread_index_type tidx = tid; tidx < in_strings.size(); tidx += blockDim.x * gridDim.x) {
+  for (thread_index_type tidx = tid; tidx < in_strings.size();
+       tidx += cudf::detail::grid_1d::grid_stride()) {
     auto const row_idx = static_cast<size_type>(tidx);
     auto const len     = offsets[row_idx + 1] - offsets[row_idx];
 
