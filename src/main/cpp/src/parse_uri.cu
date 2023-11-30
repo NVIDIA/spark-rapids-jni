@@ -18,6 +18,7 @@
 
 #include <cudf/detail/get_value.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -29,7 +30,6 @@
 #include <rmm/exec_policy.hpp>
 
 #include <memory>
-#include <tuple>
 
 namespace spark_rapids_jni {
 
@@ -47,16 +47,16 @@ struct uri_parts {
   string_view userinfo;
   string_view port;
   string_view opaque;
-  bool valid;
+  bool valid{false};
 };
 
-enum URI_chunks { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
+enum class URI_chunks : int8_t { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
 
-enum chunk_validity { VALID, INVALID, FATAL };
+enum class chunk_validity : int8_t { VALID, INVALID, FATAL };
 
 namespace {
 
-// some parsing errors are fatal and some parsing errors simply mean this
+// Some parsing errors are fatal and some parsing errors simply mean this
 // thing doesn't exist or is invalid. For example, just because 280.0.1.16 is
 // not a valid IPv4 address simply means if asking for the host the host is null
 // but the authority is still 280.0.1.16 and the uri is not considered invalid.
@@ -74,28 +74,37 @@ constexpr bool is_hex(char c)
   return is_numeric(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-__device__ bool skip_and_validate_special(string_view::const_iterator& iter,
-                                          string_view::const_iterator end,
-                                          bool allow_invalid_escapes = false)
+__device__ thrust::pair<bool, string_view::const_iterator> skip_and_validate_special(
+  string_view::const_iterator iter,
+  string_view::const_iterator end,
+  bool allow_invalid_escapes = false)
 {
   while (iter != end) {
+    auto const c         = *iter;
+    auto const num_bytes = cudf::strings::detail::bytes_in_char_utf8(*iter);
     if (*iter == '%' && !allow_invalid_escapes) {
       // verify following two characters are hexadecimal
       for (int i = 0; i < 2; ++i) {
         ++iter;
-        if (iter == end) return false;
+        if (iter == end) { return {false, iter}; }
 
-        if (!is_hex(*iter)) { return false; }
+        if (!is_hex(*iter)) { return {false, iter}; }
       }
-    } else if (cudf::strings::detail::bytes_in_char_utf8(*iter) > 1) {
-      // utf8 validation means it isn't whitespace and not a control character
+    } else if (num_bytes > 1) {
+      // UTF8 validation means it isn't whitespace and not a control character
       // the normal validation will handle anything single byte, this checks for multiple byte
       // whitespace
       auto const c = *iter;
-      // validate it isn't a whitespace or control unicode character
+      // There are multi-byte looking things like extended ASCII characters that are not valid UTF8.
+      // Check that here.
+      if ((c & 0xC0) != 0x80) { return {false, iter}; }
+      if (num_bytes > 2 && ((c & 0xC000) != 0x8000)) { return {false, iter}; }
+      if (num_bytes > 3 && ((c & 0xC00000) != 0x800000)) { return {false, iter}; }
+
+      // Validate it isn't a whitespace or control unicode character.
       if ((c >= 0xc280 && c <= 0xc2a0) || c == 0xe19a80 || (c >= 0xe28080 && c <= 0xe2808a) ||
           c == 0xe280af || c == 0xe280a8 || c == 0xe2819f || c == 0xe38080) {
-        return false;
+        return {false, iter};
       }
     } else {
       break;
@@ -103,19 +112,25 @@ __device__ bool skip_and_validate_special(string_view::const_iterator& iter,
     ++iter;
   }
 
-  return true;
+  return {true, iter};
 }
 
 template <typename Predicate>
 __device__ bool validate_chunk(string_view s, Predicate fn, bool allow_invalid_escapes = false)
 {
   auto iter = s.begin();
-  if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
+  {
+    auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
+    iter                = std::move(iter_);
+    if (!valid) { return false; }
+  }
   while (iter != s.end()) {
     if (!fn(iter)) { return false; }
 
     iter++;
-    if (!skip_and_validate_special(iter, s.end(), allow_invalid_escapes)) { return false; }
+    auto [valid, iter_] = skip_and_validate_special(iter, s.end(), allow_invalid_escapes);
+    iter                = std::move(iter_);
+    if (!valid) { return false; }
   }
   return true;
 }
@@ -180,7 +195,7 @@ bool __device__ validate_ipv6(string_view s)
         if (colon_count > max_colons || (colon_count == max_colons && !found_double_colon)) {
           return false;
         }
-        // periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
+        // Periods before a colon don't work, periods can be an IPv4 address after this IPv6 address
         // like [1:2:3:4:5:6:d.d.d.d]
         if (period_count > 0 || percent_count > 0) { return false; }
         break;
@@ -191,7 +206,7 @@ bool __device__ validate_ipv6(string_view s)
         if (address_has_hex) { return false; }
         if (address > 255) { return false; }
         if (colon_count != 6 && !found_double_colon) { return false; }
-        // special case of ::1:2:3:4:5:d.d.d.d has 7 colons - but spark says this is invalid
+        // Special case of ::1:2:3:4:5:d.d.d.d has 7 colons - but spark says this is invalid
         // if (colon_count == max_colons && !leading_double_colon) { return false; }
         if (colon_count >= max_colons) { return false; }
         address            = 0;
@@ -209,7 +224,7 @@ bool __device__ validate_ipv6(string_view s)
         address_char_count = 0;
         break;
       default:
-        // after % all bets are off
+        // after % all bets are off as the device name can be nearly anything
         if (percent_count == 0) {
           if (address_char_count > 3) { return false; }
           address_char_count++;
@@ -313,28 +328,28 @@ bool __device__ validate_domain_name(string_view name)
 
 chunk_validity __device__ validate_host(string_view host)
 {
-  // this can be IPv4, IPv6, or a domain name
+  // This can be IPv4, IPv6, or a domain name.
   if (*host.begin() == '[') {
-    // if last character is a ], this is IPv6 or invalid
+    // If last character is a ], this is IPv6 or invalid.
     if (*(host.end() - 1) != ']') {
       // invalid
-      return FATAL;
+      return chunk_validity::FATAL;
     }
-    if (!validate_ipv6(host)) { return FATAL; }
+    if (!validate_ipv6(host)) { return chunk_validity::FATAL; }
 
-    return VALID;
+    return chunk_validity::VALID;
   }
 
-  // if there are more [ or ] characters this is invalid
-  // also need to find the last .
+  // If there are more [ or ] characters this is invalid.
+  // Also need to find the last .
   int last_open_bracket  = -1;
   int last_close_bracket = -1;
   int last_period        = -1;
-  // the original plan on this loop was to get fancy and use a reverse iterator and exit when
+
+  // The original plan on this loop was to get fancy and use a reverse iterator and exit when
   // everything was found, but the expectation is there are no brackets in this string, so we have
   // to traverse the entire thing anyway to verify that. The math is easier with a forward iterator,
   // so we're back here.
-
   for (auto iter = host.begin(); iter < host.end(); ++iter) {
     auto const c = *iter;
     if (c == '[') {
@@ -346,30 +361,30 @@ chunk_validity __device__ validate_host(string_view host)
     }
   }
 
-  if (last_open_bracket >= 0 || last_close_bracket >= 0) { return FATAL; }
+  if (last_open_bracket >= 0 || last_close_bracket >= 0) { return chunk_validity::FATAL; }
 
-  // if we didn't find a period or if the last character is a period or the character after the last
+  // If we didn't find a period or if the last character is a period or the character after the last
   // period is non numeric
   if (last_period < 0 || last_period == host.length() - 1 || host[last_period + 1] < '0' ||
       host[last_period + 1] > '9') {
     // must be domain name or it is invalid
-    if (validate_domain_name(host)) { return VALID; }
+    if (validate_domain_name(host)) { return chunk_validity::VALID; }
 
     // the only other option is that this is a IPv4 address
   } else if (validate_ipv4(host)) {
-    return VALID;
+    return chunk_validity::VALID;
   }
 
-  return INVALID;
+  return chunk_validity::INVALID;
 }
 
 bool __device__ validate_query(string_view query)
 {
-  // query can be alphanum and _-!.~'()*\,;:$&+=?/[]@"
+  // query can be alphanum and _-!.~'()*,;:$&+=?/[]@"
   return validate_chunk(query, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
-        !(c >= '?' && c <= ']') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
+        !(c >= '?' && c <= ']' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
       return false;
     }
     return true;
@@ -378,13 +393,13 @@ bool __device__ validate_query(string_view query)
 
 bool __device__ validate_authority(string_view authority, bool allow_invalid_escapes)
 {
-  // authority needs to be alphanum and @[]_-!.~\'()*,;:$&+=
+  // authority needs to be alphanum and @[]_-!.'()*,;:$&+=
   return validate_chunk(
     authority,
     [allow_invalid_escapes] __device__(string_view::const_iterator iter) {
       auto const c = *iter;
       if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
-          !(c >= '@' && c <= '_' && c != '^') && !(c >= 'a' && c <= 'z') && c != '~' &&
+          !(c >= '@' && c <= '_' && c != '^' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '~' &&
           (!allow_invalid_escapes || c != '%')) {
         return false;
       }
@@ -398,7 +413,7 @@ bool __device__ validate_userinfo(string_view userinfo)
   // can't be ] or [ in here
   return validate_chunk(userinfo, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c == '[' || c == ']') return false;
+    if (c == '[' || c == ']') { return false; }
     return true;
   });
 }
@@ -408,7 +423,7 @@ bool __device__ validate_port(string_view port)
   // port is positive numeric >=0 according to spark...shrug
   return validate_chunk(port, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c < '0' && c > '9') return false;
+    if (c < '0' && c > '9') { return false; }
     return true;
   });
 }
@@ -428,11 +443,11 @@ bool __device__ validate_path(string_view path)
 
 bool __device__ validate_opaque(string_view opaque)
 {
-  // opaque can be alphanum and @[]_-!.~\'()*?/,;:$@+=
+  // opaque can be alphanum and @[]_-!.~'()*?/,;:$@+=
   return validate_chunk(opaque, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
-        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;
@@ -441,11 +456,11 @@ bool __device__ validate_opaque(string_view opaque)
 
 bool __device__ validate_fragment(string_view fragment)
 {
-  // fragment can be alphanum and @[]_-!.~\'()*?/,;:$&+=
+  // fragment can be alphanum and @[]_-!.~'()*?/,;:$&+=
   return validate_chunk(fragment, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= ']') &&
-        c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;
@@ -480,8 +495,6 @@ uri_parts __device__ validate_uri(const char* str, int len)
       default: break;
     }
   }
-
-  // reason about characters found
 
   // anything after the hash is part of the fragment and ignored for this part
   if (hash >= 0) {
@@ -522,7 +535,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
     return ret;
   }
 
-  // if we have a '/' as the next character, we have a heirarchical uri, if not it is opaque
+  // If we have a '/' as the next character, we have a heirarchical uri. If not it is opaque.
   bool const heirarchical = str[0] == '/';
   if (heirarchical) {
     // a '?' will break this into query and path/authority
@@ -536,7 +549,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
     auto const path_len = question >= 0 ? question : len;
 
     if (str[0] == '/' && str[1] == '/') {
-      // if we have a '/', we have //authority/path, otherwise we have //authority with no path
+      // If we have a '/', we have //authority/path, otherwise we have //authority with no path.
       int next_slash = -1;
       for (int i = 2; i < path_len; ++i) {
         if (str[i] == '/') {
@@ -552,6 +565,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           ret.fragment.size_bytes() == 0) {
         // invalid! - but spark like to return things as long as you don't have illegal characters
         // ret.valid = false;
+        ret.valid = true;
         return ret;
       }
 
@@ -562,7 +576,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           return ret;
         }
 
-        // inspect the authority for userinfo, host, and port
+        // Inspect the authority for userinfo, host, and port
         const char* auth   = ret.authority.data();
         auto auth_size     = ret.authority.size_bytes();
         int amp            = -1;
@@ -573,7 +587,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
             case '@':
               if (amp == -1) amp = i;
               break;
-            case ':': last_colon = amp > 0 ? i - amp : i; break;
+            case ':': last_colon = amp > 0 ? i - amp - 1 : i; break;
             case ']':
               if (closingbracket == -1) closingbracket = amp > 0 ? i - amp : i;
               break;
@@ -586,12 +600,15 @@ uri_parts __device__ validate_uri(const char* str, int len)
             ret.valid = false;
             return ret;
           }
-          auth += amp + 1;
+          // skip over the @
+          amp++;
+
+          auth += amp;
           auth_size -= amp;
         }
         if (last_colon > 0 && last_colon > closingbracket) {
-          // found a port, attempt to parse it
-          ret.port = {auth + last_colon, len - last_colon};
+          // Found a port, attempt to parse it
+          ret.port = {auth + last_colon + 1, len - last_colon - 1};
           if (!validate_port(ret.port)) {
             ret.valid = false;
             return ret;
@@ -602,8 +619,8 @@ uri_parts __device__ validate_uri(const char* str, int len)
         }
         auto host_ret = validate_host(ret.host);
         switch (host_ret) {
-          case FATAL: ret.valid = false; return ret;
-          case INVALID: ret.host = {}; break;
+          case chunk_validity::FATAL: ret.valid = false; return ret;
+          case chunk_validity::INVALID: ret.host = {}; break;
         }
       }
     } else {
@@ -626,7 +643,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
   return ret;
 }
 
-// a URI is broken into parts(chunks). There are optional chunks and required chunks. A simple URI
+// A URI is broken into parts or chunks. There are optional chunks and required chunks. A simple URI
 // such as `https://www.nvidia.com` is easy to reason about, but it could also be written as
 // `www.nvidia.com`, which is still valid. On top of that, there are characters which are allowed in
 // certain chunks that are not allowed in others. There have been a multitude of methods attempted
@@ -657,10 +674,11 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        bitmask_type* out_validity)
 {
   // thread per row
-  auto const tid      = threadIdx.x + blockIdx.x * blockDim.x;
+  auto const tid      = cudf::detail::grid_1d::global_thread_id();
   auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
 
-  for (thread_index_type tidx = tid; tidx < in_strings.size(); tidx += blockDim.x * gridDim.x) {
+  for (thread_index_type tidx = tid; tidx < in_strings.size();
+       tidx += cudf::detail::grid_1d::grid_stride()) {
     auto const row_idx = static_cast<size_type>(tidx);
     if (in_strings.is_null(row_idx)) {
       out_lengths[row_idx] = 0;
@@ -678,34 +696,34 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     } else {
       // stash output offsets and lengths for next kernel to do the copy
       switch (chunk) {
-        case PROTOCOL:
+        case URI_chunks::PROTOCOL:
           out_lengths[row_idx] = uri.scheme.size_bytes();
           out_offsets[row_idx] = uri.scheme.data() - base_ptr;
           break;
-        case HOST:
+        case URI_chunks::HOST:
           out_lengths[row_idx] = uri.host.size_bytes();
           out_offsets[row_idx] = uri.host.data() - base_ptr;
           break;
-        case AUTHORITY:
+        case URI_chunks::AUTHORITY:
           out_lengths[row_idx] = uri.authority.size_bytes();
           out_offsets[row_idx] = uri.authority.data() - base_ptr;
           break;
-        case PATH:
+        case URI_chunks::PATH:
           out_lengths[row_idx] = uri.path.size_bytes();
           out_offsets[row_idx] = uri.path.data() - base_ptr;
           break;
-        case QUERY:
+        case URI_chunks::QUERY:
           out_lengths[row_idx] = uri.query.size_bytes();
           out_offsets[row_idx] = uri.query.data() - base_ptr;
           break;
-        case USERINFO:
+        case URI_chunks::USERINFO:
           out_lengths[row_idx] = uri.userinfo.size_bytes();
           out_offsets[row_idx] = uri.userinfo.data() - base_ptr;
           break;
       }
 
       if (out_lengths[row_idx] == 0) {
-        // a URI can be valid, but still have no data for a specific chunk
+        // A URI can be valid, but still have no data for a specific chunk
         clear_bit(out_validity, row_idx);
       }
     }
@@ -725,10 +743,11 @@ __global__ void parse_uri(column_device_view const in_strings,
                           size_type const* const offsets,
                           char* const out_chars)
 {
-  auto const tid      = threadIdx.x + blockIdx.x * blockDim.x;
+  auto const tid      = cudf::detail::grid_1d::global_thread_id();
   auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
 
-  for (thread_index_type tidx = tid; tidx < in_strings.size(); tidx += blockDim.x * gridDim.x) {
+  for (thread_index_type tidx = tid; tidx < in_strings.size();
+       tidx += cudf::detail::grid_1d::grid_stride()) {
     auto const row_idx = static_cast<size_type>(tidx);
     auto const len     = offsets[row_idx + 1] - offsets[row_idx];
 
@@ -748,7 +767,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                                   rmm::mr::device_memory_resource* mr)
 {
   size_type strings_count = input.size();
-  if (strings_count == 0) return make_empty_column(type_id::STRING);
+  if (strings_count == 0) { return make_empty_column(type_id::STRING); }
 
   constexpr size_type num_warps_per_threadblock = 4;
   constexpr size_type threadblock_size = num_warps_per_threadblock * cudf::detail::warp_size;
@@ -763,7 +782,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
     data_type{type_to_id<size_type>()}, offset_count, mask_state::UNALLOCATED, stream, mr);
 
   // build src offsets buffer
-  auto src_offsets = rmm::device_buffer{strings_count * sizeof(size_type), stream};
+  auto src_offsets = rmm::device_uvector<size_type>(strings_count, stream);
 
   // copy null mask
   rmm::device_buffer null_mask =
