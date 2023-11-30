@@ -63,6 +63,9 @@ ConfigureTest(HASH
 ConfigureTest(BLOOM_FILTER
     bloom_filter.cu)
 
+ConfigureTest(TIMEZONES
+    timezones.cpp)
+
 ConfigureTest(UTILITIES
     utilities.cpp)
 
