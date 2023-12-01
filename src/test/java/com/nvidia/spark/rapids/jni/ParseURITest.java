@@ -85,6 +85,14 @@ public class ParseURITest {
       "www.nvidia.com:81/Free.fr/L7D9qw9X4S-aC0&amp;D4X0/Panels&amp;solutionId=0X54a/cCdyncharset=UTF-8&amp;t=01wx58Tab&amp;ps=solution/ccmd=_help&amp;locale0X1&amp;countrycode=MA/",
       "http://www.nvidia.com/tags.php?%2F88\323\351\300ึณวน\331\315\370%2F",
       "http://www.nvidia.com//wp-admin/includes/index.html#9389#123",
+      "http://[1:2:3:4:5:6:7::]",
+      "http://[::2:3:4:5:6:7:8]",
+      "http://[fe80::7:8%eth0]",
+      "http://[fe80::7:8%1]",
+      "http://www.nvidia.com/object.php?object=ะก-\320%9Fะฑ-ะฟ-ะก\321%82\321%80ะตะป\321%8Cะฝะฐ-\321%83ะป-\320%97ะฐะฒะพะด\321%81ะบะฐ\321%8F.html&sid=5",
+      "http://www.nvidia.com/picshow.asp?id=106&mnid=5080&classname=\271\253ืฐฦช",
+      "http://-.~_!$&'()*+,;=:%40:80%2f::::::@nvidia.com:443",
+      "http://userid:password@nvidia.com:8080/",
       "",
       null};
 
