@@ -19,8 +19,9 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
-#include <limits>
 #include <rmm/device_uvector.hpp>
+
+#include <limits>
 
 using namespace cudf;
 
