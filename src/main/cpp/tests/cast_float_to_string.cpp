@@ -19,8 +19,6 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
-#include <cudf/strings/convert/convert_floats.hpp>
-
 #include <limits>
 #include <rmm/device_uvector.hpp>
 
