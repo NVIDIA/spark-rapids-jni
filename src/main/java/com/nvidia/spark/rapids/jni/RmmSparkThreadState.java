@@ -22,24 +22,16 @@ package com.nvidia.spark.rapids.jni;
  */
 public enum RmmSparkThreadState {
   UNKNOWN(-1), // thread is not associated with anything...
-  TASK_RUNNING(0), // task thread running normally
-  TASK_WAIT_ON_SHUFFLE(1), // task thread waiting on shuffle
-  TASK_BUFN_WAIT_ON_SHUFFLE(2), // task thread waiting on shuffle, but marked as BUFN
-  TASK_ALLOC(3), // task thread in the middle of doing an allocation
-  TASK_ALLOC_FREE(4), // task thread in the middle of doing an allocation and a free happened
-  TASK_BLOCKED(5), // task thread that is temporarily blocked
-  TASK_BUFN_THROW(6), // task thread that should throw an exception to roll back before blocking
-  TASK_BUFN_WAIT(7), // task thread that threw an exception to roll back and now should
+  THREAD_RUNNING(0), // task thread running normally
+  THREAD_ALLOC(1), // task thread in the middle of doing an allocation
+  THREAD_ALLOC_FREE(2), // task thread in the middle of doing an allocation and a free happened
+  THREAD_BLOCKED(3), // task thread that is temporarily blocked
+  THREAD_BUFN_THROW(4), // task thread that should throw an exception to roll back before blocking
+  THREAD_BUFN_WAIT(5), // task thread that threw an exception to roll back and now should
   // block the next time alloc is called
-  TASK_BUFN(8), // task thread that is blocked until higher priority tasks start to succeed
-  TASK_SPLIT_THROW(9), // task thread that should throw an exception to split input and retry
-  TASK_REMOVE_THROW(10), // task thread that is being removed and needs to throw an exception
-  SHUFFLE_RUNNING(11), // shuffle thread that is running normally
-  SHUFFLE_ALLOC(12), // shuffle thread that is in the middle of doing an alloc
-  SHUFFLE_ALLOC_FREE(13), // shuffle thread that is doing an alloc and a free happened.
-  SHUFFLE_BLOCKED(14), // shuffle thread that is temporarily blocked
-  SHUFFLE_THROW(15), // shuffle thread that needs to throw an OOM
-  SHUFFLE_REMOVE_THROW(16); // shuffle thread that is being removed and needs to throw an exception
+  THREAD_BUFN(6), // task thread that is blocked until higher priority tasks start to succeed
+  THREAD_SPLIT_THROW(7), // task thread that should throw an exception to split input and retry
+  THREAD_REMOVE_THROW(8); // task thread that is being removed and needs to throw an exception
 
   private final int nativeId;
 

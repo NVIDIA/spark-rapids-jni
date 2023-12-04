@@ -18,6 +18,8 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.MemoryBuffer;
 import ai.rapids.cudf.Rmm;
 import ai.rapids.cudf.RmmAllocationMode;
 import ai.rapids.cudf.RmmCudaMemoryResource;
@@ -25,7 +27,6 @@ import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandler;
 import ai.rapids.cudf.RmmLimitingResourceAdaptor;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
-import ai.rapids.cudf.ColumnVector.EventHandler;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,7 @@ public class RmmSparkTest {
 
   public static class TaskThread extends Thread {
     private final String name;
-    private final boolean isShuffle;
+    private final boolean isForPool;
     private long threadId = -1;
     private long taskId = 100;
 
@@ -71,10 +72,10 @@ public class RmmSparkTest {
       this.taskId = taskId;
     }
 
-    public TaskThread(String name, boolean isShuffle) {
+    public TaskThread(String name, boolean isForPool) {
       super(name);
       this.name = name;
-      this.isShuffle = isShuffle;
+      this.isForPool = isForPool;
     }
 
     public synchronized long getThreadId() {
@@ -89,17 +90,15 @@ public class RmmSparkTest {
       Future<Void> waitForStart = doIt(new TaskThreadOp<Void>() {
         @Override
         public Void doIt() {
-          if (isShuffle) {
-            RmmSpark.associateCurrentThreadWithShuffle();
-          } else {
-            RmmSpark.associateCurrentThreadWithTask(taskId);
+          if (!isForPool) {
+            RmmSpark.currentThreadIsDedicatedToTask(taskId);
           }
           return null;
         }
 
         @Override
         public String toString() {
-          return "INIT TASK " + name + " " + (isShuffle ? "SHUFFLE" : ("TASK " + taskId));
+          return "INIT TASK " + name + " " + (isForPool ? "POOL" : ("TASK " + taskId));
         }
       });
       System.err.println("WAITING FOR STARTUP (" + name + ")");
@@ -278,13 +277,16 @@ public class RmmSparkTest {
         }
         System.err.println("INSIDE THREAD RUNNING (" + name + ")");
         while (true) {
-          TaskThreadOp op = queue.poll(1000, TimeUnit.MILLISECONDS);
-          System.err.println("GOT '" + op + "' ON " + name);
-          if (op instanceof TaskThreadDoneOp) {
-            return;
-          }
-          // null is returned from the queue on a timeout
+          // Because of how our deadlock detection code works we don't want to
+          // block this thread, so we do this in a busy loop. It is not ideal,
+          // but works, and is more accurate to what the Spark is likely to do
+          TaskThreadOp op = queue.poll();
+          // null is returned from the queue if it is empty
           if (op != null) {
+            System.err.println("GOT '" + op + "' ON " + name);
+            if (op instanceof TaskThreadDoneOp) {
+              return;
+            }
             op.doIt();
             System.err.println("'" + op + "' FINISHED ON " + name);
           }
@@ -293,7 +295,6 @@ public class RmmSparkTest {
         System.err.println("THROWABLE CAUGHT IN " + name);
         t.printStackTrace(System.err);
       } finally {
-        RmmSpark.removeCurrentThreadAssociation();
         System.err.println("THREAD EXITING " + name);
       }
     }
@@ -306,22 +307,23 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testInsertOOMs() {
+  public void testInsertOOMsGpu() {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
     long taskid = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid));
-    RmmSpark.associateThreadWithTask(threadId, taskid);
-    assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     try {
       RmmSpark.startRetryBlock(threadId);
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
 
       try {
         Thread.sleep(1); // Just in case we run on a really fast system in the future where
@@ -332,36 +334,101 @@ public class RmmSparkTest {
       // Force an exception
       RmmSpark.forceRetryOOM(threadId);
       // No change in the state after a force
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
-      assertThrows(RetryOOM.class, () -> Rmm.alloc(100).close());
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      assertThrows(GpuRetryOOM.class, () -> Rmm.alloc(100).close());
       assert(RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
 
       // Verify that injecting OOM does not cause the block to actually happen or
       // the state to change
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
 
       // Force another exception
       RmmSpark.forceSplitAndRetryOOM(threadId);
       // No change in state after force
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
-      assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
 
       // Verify that injecting OOM does not cause the block to actually happen
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    } finally {
+      RmmSpark.taskDone(taskid);
+    }
+    assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
+  }
+
+  @Test
+  public void testInsertOOMsCpu() {
+    Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
+    RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
+    LimitingOffHeapAllocForTests.setLimit(512 * 1024 * 1024);
+    long threadId = RmmSpark.getCurrentThreadId();
+    long taskid = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
+    assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
+    assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
+    assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+    assertEquals(0, RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid));
+    RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
+    assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    try {
+      RmmSpark.startRetryBlock(threadId);
+      // Allocate something small and verify that it works...
+      LimitingOffHeapAllocForTests.alloc(100).close();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+
+      try {
+        Thread.sleep(1); // Just in case we run on a really fast system in the future where
+        // all of this is sub-nanosecond...
+      } catch (InterruptedException e) {
+        // Ignored
+      }
+      // Force an exception
+      RmmSpark.forceRetryOOM(threadId);
+      // No change in the state after a force
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      assertThrows(CpuRetryOOM.class, () -> LimitingOffHeapAllocForTests.alloc(100).close());
+      assert(RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
+
+      // Verify that injecting OOM does not cause the block to actually happen or
+      // the state to change
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
+      assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+      RmmSpark.blockThreadUntilReady();
+
+      // Allocate something small and verify that it works...
+      LimitingOffHeapAllocForTests.alloc(100).close();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+
+      // Force another exception
+      RmmSpark.forceSplitAndRetryOOM(threadId);
+      // No change in state after force
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      assertThrows(CpuSplitAndRetryOOM.class, () -> LimitingOffHeapAllocForTests.alloc(100).close());
+      assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
+      assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+
+      // Verify that injecting OOM does not cause the block to actually happen
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      RmmSpark.blockThreadUntilReady();
+
+      // Allocate something small and verify that it works...
+      LimitingOffHeapAllocForTests.alloc(100).close();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
       RmmSpark.taskDone(taskid);
     }
@@ -374,16 +441,18 @@ public class RmmSparkTest {
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = 100;
     long taskId = 1;
+    long[] taskIds = new long[] {taskId};
+    Thread t = Thread.currentThread();
     try {
-      RmmSpark.associateThreadWithTask(threadId, taskId);
-      RmmSpark.associateThreadWithTask(threadId, taskId);
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
+      RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       // Not removing twice because we don't have to match up the counts so it fits with how
       // the GPU semaphore is used.
-      RmmSpark.associateThreadWithShuffle(threadId);
-      RmmSpark.associateThreadWithShuffle(threadId);
-      RmmSpark.removeThreadAssociation(threadId);
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.shuffleThreadWorkingTasks(threadId, t, taskIds);
+      RmmSpark.shuffleThreadWorkingTasks(threadId, t, taskIds);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     } finally {
       RmmSpark.taskDone(taskId);
     }
@@ -397,17 +466,21 @@ public class RmmSparkTest {
     long threadIdTwo = 300;
     long taskId = 2;
     long otherTaskId = 3;
+    long[] taskIds = new long[] {taskId, otherTaskId};
+    Thread t = Thread.currentThread();
     try {
-      RmmSpark.associateThreadWithTask(threadIdOne, taskId);
-      assertThrows(CudfException.class, () -> RmmSpark.associateThreadWithShuffle(threadIdOne));
-      assertThrows(CudfException.class, () -> RmmSpark.associateThreadWithTask(threadIdOne, otherTaskId));
+      RmmSpark.startDedicatedTaskThread(threadIdOne, taskId, t);
+      assertThrows(CudfException.class, () -> RmmSpark.shuffleThreadWorkingTasks(threadIdOne, t, taskIds));
+      // There can be races when a thread goes from one task to another, so we just make it safe to do.
+      RmmSpark.startDedicatedTaskThread(threadIdOne, otherTaskId, t);
 
-      RmmSpark.associateThreadWithShuffle(threadIdTwo);
-      assertThrows(CudfException.class, () -> RmmSpark.associateThreadWithTask(threadIdTwo, otherTaskId));
+      RmmSpark.shuffleThreadWorkingTasks(threadIdTwo, t, taskIds);
+      assertThrows(CudfException.class, () -> RmmSpark.startDedicatedTaskThread(threadIdTwo, otherTaskId, t));
       // Remove the association
-      RmmSpark.removeThreadAssociation(threadIdTwo);
+      RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, taskId);
+      RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, otherTaskId);
       // Add in a new association
-      RmmSpark.associateThreadWithTask(threadIdTwo, taskId);
+      RmmSpark.startDedicatedTaskThread(threadIdTwo, taskId, t);
     } finally {
       RmmSpark.taskDone(taskId);
       RmmSpark.taskDone(otherTaskId);
@@ -415,19 +488,40 @@ public class RmmSparkTest {
   }
 
 
-  static class AllocOnAnotherThread implements AutoCloseable {
+  static abstract class AllocOnAnotherThread implements AutoCloseable {
     final TaskThread thread;
     final long size;
-    DeviceMemoryBuffer b = null;
+    final long taskId;
+    MemoryBuffer b = null;
     Future<Void> fb;
     Future<Void> fc = null;
 
     public AllocOnAnotherThread(TaskThread thread, long size) {
       this.thread = thread;
       this.size = size;
+      this.taskId = -1;
       fb = thread.doIt(new TaskThreadOp<Void>() {
         @Override
         public Void doIt() {
+          doAlloc();
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "ALLOC(" + size + ")";
+        }
+      });
+    }
+
+    public AllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      this.thread = thread;
+      this.size = size;
+      this.taskId = taskId;
+      fb = thread.doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          RmmSpark.shuffleThreadWorkingOnTasks(new long[]{taskId});
           doAlloc();
           return null;
         }
@@ -443,7 +537,7 @@ public class RmmSparkTest {
       fb.get(1000, TimeUnit.MILLISECONDS);
     }
 
-    public void freeOnThread() throws ExecutionException, InterruptedException, TimeoutException {
+    public void freeOnThread() {
       if (fc != null) {
         throw new IllegalStateException("free called multiple times");
       }
@@ -473,20 +567,60 @@ public class RmmSparkTest {
       waitForFree();
     }
 
-    private Void doAlloc() {
+    abstract protected Void doAlloc();
+
+    @Override
+    public synchronized void close() {
+      if (b != null) {
+        try {
+          b.close();
+          b = null;
+        } finally {
+          if (this.taskId > 0) {
+            RmmSpark.poolThreadFinishedForTasks(thread.threadId, new long[]{taskId});
+          }
+        }
+      }
+    }
+  }
+
+  public static class GpuAllocOnAnotherThread extends AllocOnAnotherThread {
+
+    public GpuAllocOnAnotherThread(TaskThread thread, long size) {
+      super(thread, size);
+    }
+
+    public GpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      super(thread, size, taskId);
+    }
+
+    @Override
+    protected Void doAlloc() {
       DeviceMemoryBuffer tmp = Rmm.alloc(size);
       synchronized (this) {
         b = tmp;
       }
       return null;
     }
+  }
+
+  public static class CpuAllocOnAnotherThread extends AllocOnAnotherThread {
+
+    public CpuAllocOnAnotherThread(TaskThread thread, long size) {
+      super(thread, size);
+    }
+
+    public CpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      super(thread, size, taskId);
+    }
 
     @Override
-    public synchronized void close() {
-      if (b != null) {
-        b.close();
-        b = null;
+    protected Void doAlloc() {
+      HostMemoryBuffer tmp = LimitingOffHeapAllocForTests.alloc(size);
+      synchronized (this) {
+        b = tmp;
       }
+      return null;
     }
   }
 
@@ -514,6 +648,51 @@ public class RmmSparkTest {
   }
 
   @Test
+  public void testNonBlockingCpuAlloc() {
+    // We are not going to use the GPU here, but this sets it all up for us.
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    // We are just going to pretend that we are doing an allocations
+    long taskId = 0;
+    long threadId = RmmSpark.getCurrentThreadId();
+    RmmSpark.currentThreadIsDedicatedToTask(taskId);
+    assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    try {
+      boolean wasRecursive = RmmSpark.preCpuAlloc(100, false);
+      assertEquals(RmmSparkThreadState.THREAD_ALLOC, RmmSpark.getStateOf(threadId));
+      long address;
+      try (HostMemoryBuffer buffer = HostMemoryBuffer.allocate(100)) {
+        address = buffer.getAddress();
+        RmmSpark.postCpuAllocSuccess(address, 100, false, wasRecursive);
+        assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      }
+      RmmSpark.cpuDeallocate(address, 100);
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    } finally {
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+    }
+  }
+
+  @Test
+  public void testNonBlockingCpuAllocFailedOOM() {
+    // We are not going to use the GPU here, but this sets it all up for us.
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    // We are just going to pretend that we are doing an allocations
+    long taskId = 0;
+    long threadId = RmmSpark.getCurrentThreadId();
+    RmmSpark.currentThreadIsDedicatedToTask(taskId);
+    assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    try {
+      boolean wasRecursive = RmmSpark.preCpuAlloc(100, false);
+      assertEquals(RmmSparkThreadState.THREAD_ALLOC, RmmSpark.getStateOf(threadId));
+      // TODO put this on a background thread so we can time out if it blocks.
+      RmmSpark.postCpuAllocFailed(true, false, wasRecursive);
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+    } finally {
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+    }
+  }
+
+  @Test
   public void testBasicBlocking() throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
@@ -523,16 +702,49 @@ public class RmmSparkTest {
     taskTwo.initialize();
     try {
       long tOneId = taskOne.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tOneId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
 
       long tTwoId = taskTwo.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tTwoId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
 
-      try (AllocOnAnotherThread firstOne = new AllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread firstOne = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new AllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
-          taskTwo.pollForState(RmmSparkThreadState.TASK_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+          taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          // Free the first allocation to wake up the second task...
+          firstOne.freeAndWait();
+          secondOne.waitForAlloc();
+          secondOne.freeAndWait();
+        }
+      }
+    } finally {
+      taskOne.done();
+      taskTwo.done();
+    }
+  }
+
+  @Test
+  public void testBasicCpuBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    taskOne.initialize();
+    taskTwo.initialize();
+    try {
+      long tOneId = taskOne.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
+
+      long tTwoId = taskTwo.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
+
+      try (AllocOnAnotherThread firstOne = new CpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+        firstOne.waitForAlloc();
+        // This one should block
+        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+          taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Free the first allocation to wake up the second task...
           firstOne.freeAndWait();
           secondOne.waitForAlloc();
@@ -543,6 +755,68 @@ public class RmmSparkTest {
     } finally {
       taskOne.done();
       taskTwo.done();
+    }
+  }
+
+  @Test
+  public void testBasicMixedBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    TaskThread taskThree = new TaskThread("TEST THREAD THREE", 3);
+    TaskThread taskFour = new TaskThread("TEST THREAD FOUR", 4);
+    taskOne.initialize();
+    taskTwo.initialize();
+    taskThree.initialize();
+    taskFour.initialize();
+    try {
+      long tOneId = taskOne.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
+
+      long tTwoId = taskTwo.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
+
+      long tThreeId = taskThree.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tThreeId));
+
+      long tFourId = taskFour.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tFourId));
+
+      try (AllocOnAnotherThread firstGpuAlloc = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+        firstGpuAlloc.waitForAlloc();
+
+        try (AllocOnAnotherThread firstCpuAlloc = new CpuAllocOnAnotherThread(taskTwo, 5 * 1024 * 1024)) {
+          firstCpuAlloc.waitForAlloc();
+
+          // Blocking GPU Alloc
+          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, 6 * 1024 * 1024)) {
+            taskThree.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+
+            // Blocking CPU Alloc
+            try (AllocOnAnotherThread secondCpuAlloc = new CpuAllocOnAnotherThread(taskFour, 6 * 1024 * 1024)) {
+              taskFour.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+
+              // We want to make sure that the order of wakeup corresponds to the location of the data that was released
+              // Not necessarily the priority of the task/thread.
+              firstCpuAlloc.freeAndWait();
+              secondCpuAlloc.waitForAlloc();
+              secondCpuAlloc.freeAndWait();
+            }
+
+            // Now do the GPU frees
+            firstGpuAlloc.freeAndWait();
+            secondGpuAlloc.waitForAlloc();
+            secondGpuAlloc.freeAndWait();
+          }
+        }
+      }
+    } finally {
+      taskOne.done();
+      taskTwo.done();
+      taskThree.done();
+      taskFour.done();
     }
   }
 
@@ -559,30 +833,112 @@ public class RmmSparkTest {
     taskTwo.initialize();
     try {
       long sOneId = shuffleOne.getThreadId();
-      assertEquals(RmmSparkThreadState.SHUFFLE_RUNNING, RmmSpark.getStateOf(sOneId));
+      // It is not in a running state until it has something to do.
 
       long tOneId = taskOne.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tOneId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
 
       long tTwoId = taskTwo.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tTwoId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
 
-      try (AllocOnAnotherThread firstOne = new AllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread firstOne = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new AllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
-          taskTwo.pollForState(RmmSparkThreadState.TASK_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+          taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          // Make sure that shuffle has higher priority than tasks...
+          try (AllocOnAnotherThread thirdOne = new GpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024, 2)) {
+            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+            // But taskOne is not blocked, so there will be no retry until it is blocked, or else
+            // it is making progress
+            taskOne.doIt((TaskThreadOp<Void>) () -> {
+              try {
+                Thread.sleep(200);
+              } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+              return null;
+            });
 
-          // Make sure that shuffle has higher priority than do tasks...
-          try (AllocOnAnotherThread thirdOne = new AllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024)) {
-            shuffleOne.pollForState(RmmSparkThreadState.SHUFFLE_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+            try {
+              secondOne.waitForAlloc();
+              fail("SHOULD HAVE THROWN...");
+            } catch (ExecutionException ee) {
+              assert (ee.getCause() instanceof GpuRetryOOM);
+            }
+            secondOne.freeAndWait();
+
             // Free the first allocation to wake up the shuffle thread, but not the second task yet...
             firstOne.freeAndWait();
+
             thirdOne.waitForAlloc();
             thirdOne.freeAndWait();
           }
-          secondOne.waitForAlloc();
-          secondOne.freeAndWait();
+        }
+      }
+    } finally {
+      shuffleOne.done();
+      taskOne.done();
+      taskTwo.done();
+    }
+  }
+
+
+  @Test
+  public void testShuffleBlockingCpu() throws ExecutionException, InterruptedException, TimeoutException {
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
+    TaskThread shuffleOne = new TaskThread("TEST THREAD SHUFFLE", true);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+
+    shuffleOne.initialize();
+    taskOne.initialize();
+    taskTwo.initialize();
+    try {
+      long sOneId = shuffleOne.getThreadId();
+      // It is not in a running state until it has something to do.
+
+      long tOneId = taskOne.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
+
+      long tTwoId = taskTwo.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
+
+      try (AllocOnAnotherThread firstOne = new CpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+        firstOne.waitForAlloc();
+        // This one should block
+        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+          taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          // Make sure that shuffle has higher priority than tasks...
+          try (AllocOnAnotherThread thirdOne = new CpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024, 2)) {
+            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+            // But taskOne is not blocked, so there will be no retry until it is blocked, or else
+            // it is making progress
+            taskOne.doIt((TaskThreadOp<Void>) () -> {
+              try {
+                Thread.sleep(200);
+              } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+              return null;
+            });
+
+            try {
+              secondOne.waitForAlloc();
+              fail("SHOULD HAVE THROWN...");
+            } catch (ExecutionException ee) {
+              assert (ee.getCause() instanceof CpuRetryOOM);
+            }
+            secondOne.freeAndWait();
+
+            // Free the first allocation to wake up the shuffle thread, but not the second task yet...
+            firstOne.freeAndWait();
+
+            thirdOne.waitForAlloc();
+            thirdOne.freeAndWait();
+          }
         }
       }
     } finally {
@@ -604,47 +960,110 @@ public class RmmSparkTest {
     taskTwo.initialize();
     try {
       long tThreeId = taskThree.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tThreeId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tThreeId));
 
       long tTwoId = taskTwo.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(tTwoId));
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
 
-      try (AllocOnAnotherThread allocThreeOne = new AllocOnAnotherThread(taskThree, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread allocThreeOne = new GpuAllocOnAnotherThread(taskThree, 5 * 1024 * 1024)) {
         allocThreeOne.waitForAlloc();
-        try (AllocOnAnotherThread allocTwoOne = new AllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+        try (AllocOnAnotherThread allocTwoOne = new GpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
           allocTwoOne.waitForAlloc();
 
-          // This one should block
-          try (AllocOnAnotherThread allocTwoTwo = new AllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
-            taskTwo.pollForState(RmmSparkThreadState.TASK_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          try (AllocOnAnotherThread allocTwoTwo = new GpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+            taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
-            try (AllocOnAnotherThread allocThreeTwo = new AllocOnAnotherThread(taskThree, 4 * 1024 * 1024)) {
+            try (AllocOnAnotherThread allocThreeTwo = new GpuAllocOnAnotherThread(taskThree, 4 * 1024 * 1024)) {
               // This one should be able to allocate because there is not enough memory, but
               // now all the threads would be blocked, so the lowest priority thread is going to
               // become BUFN
-              taskThree.pollForState(RmmSparkThreadState.TASK_BUFN_WAIT, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000, TimeUnit.MILLISECONDS);
               try {
                 allocThreeTwo.waitForAlloc();
                 fail("ALLOC AFTER BUFN SHOULD HAVE THROWN...");
               } catch (ExecutionException ee) {
-                assert(ee.getCause() instanceof RetryOOM);
+                assert(ee.getCause() instanceof GpuRetryOOM);
               }
               // allocOneTwo cannot be freed, nothing was allocated because it threw an exception.
               allocThreeOne.freeAndWait();
               Future<Void> f = taskThree.blockUntilReady();
-              taskThree.pollForState(RmmSparkThreadState.TASK_BUFN, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN, 1000, TimeUnit.MILLISECONDS);
 
               // taskOne should only wake up after we finish task 2
               // Task two is now able to alloc
               allocTwoTwo.freeAndWait();
               allocTwoOne.freeAndWait();
               // Task two has freed things, but is still not done, so task one will stay blocked...
-              taskTwo.pollForState(RmmSparkThreadState.TASK_RUNNING, 1000, TimeUnit.MILLISECONDS);
-              taskThree.pollForState(RmmSparkThreadState.TASK_BUFN, 1000, TimeUnit.MILLISECONDS);
+              taskTwo.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN, 1000, TimeUnit.MILLISECONDS);
 
               taskTwo.done().get(1000, TimeUnit.MILLISECONDS);
               // Now that task two is done see if task one is running again...
-              taskThree.pollForState(RmmSparkThreadState.TASK_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              // Now we could finish trying our allocations, but this is good enough...
+            }
+          }
+        }
+      }
+    } finally {
+      taskThree.done();
+      taskTwo.done();
+    }
+  }
+
+  @Test
+  public void testBasicBUFNCpu() throws ExecutionException, InterruptedException, TimeoutException {
+    // 10 MiB
+    setupRmmForTestingWithLimits(10 * 1024 * 1024);
+    LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
+    // A task id of 3 is higher than a task id of 2, so it should be a lower
+    // priority and become BUFN ahead of taskTwo.
+    TaskThread taskThree = new TaskThread("TEST THREAD ONE", 3);
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    taskThree.initialize();
+    taskTwo.initialize();
+    try {
+      long tThreeId = taskThree.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tThreeId));
+
+      long tTwoId = taskTwo.getThreadId();
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
+
+      try (AllocOnAnotherThread allocThreeOne = new CpuAllocOnAnotherThread(taskThree, 5 * 1024 * 1024)) {
+        allocThreeOne.waitForAlloc();
+        try (AllocOnAnotherThread allocTwoOne = new CpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+          allocTwoOne.waitForAlloc();
+
+          try (AllocOnAnotherThread allocTwoTwo = new CpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+            taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+
+            try (AllocOnAnotherThread allocThreeTwo = new CpuAllocOnAnotherThread(taskThree, 4 * 1024 * 1024)) {
+              // This one should be able to allocate because there is not enough memory, but
+              // now all the threads would be blocked, so the lowest priority thread is going to
+              // become BUFN
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000, TimeUnit.MILLISECONDS);
+              try {
+                allocThreeTwo.waitForAlloc();
+                fail("ALLOC AFTER BUFN SHOULD HAVE THROWN...");
+              } catch (ExecutionException ee) {
+                assert(ee.getCause() instanceof CpuRetryOOM);
+              }
+              // allocOneTwo cannot be freed, nothing was allocated because it threw an exception.
+              allocThreeOne.freeAndWait();
+              Future<Void> f = taskThree.blockUntilReady();
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN, 1000, TimeUnit.MILLISECONDS);
+
+              // taskOne should only wake up after we finish task 2
+              // Task two is now able to alloc
+              allocTwoTwo.freeAndWait();
+              allocTwoOne.freeAndWait();
+              // Task two has freed things, but is still not done, so task one will stay blocked...
+              taskTwo.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN, 1000, TimeUnit.MILLISECONDS);
+
+              taskTwo.done().get(1000, TimeUnit.MILLISECONDS);
+              // Now that task two is done see if task one is running again...
+              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
               // Now we could finish trying our allocations, but this is good enough...
             }
           }
@@ -666,24 +1085,24 @@ public class RmmSparkTest {
     taskOne.initialize();
     try {
       long threadId = taskOne.getThreadId();
-      assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
-      try (AllocOnAnotherThread one = new AllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
+      try (AllocOnAnotherThread one = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         one.waitForAlloc();
-        try (AllocOnAnotherThread two = new AllocOnAnotherThread(taskOne, 6 * 1024 * 1024)) {
+        try (AllocOnAnotherThread two = new GpuAllocOnAnotherThread(taskOne, 6 * 1024 * 1024)) {
           two.waitForAlloc();
           fail("Expect that allocating more memory than is allowed would fail");
         } catch (ExecutionException oom) {
-          assert oom.getCause() instanceof RetryOOM : oom.toString();
+          assert oom.getCause() instanceof GpuRetryOOM : oom.toString();
         }
         try {
           taskOne.blockUntilReady().get(1000, TimeUnit.MILLISECONDS);
           fail("Expect split and retry after all tasks blocked.");
         } catch (ExecutionException oom) {
-          assert oom.getCause() instanceof SplitAndRetryOOM : oom.toString();
+          assert oom.getCause() instanceof GpuSplitAndRetryOOM : oom.toString();
         }
-        assertEquals(RmmSparkThreadState.TASK_RUNNING, RmmSpark.getStateOf(threadId));
+        assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
         // Now we try to allocate with half the data.
-        try (AllocOnAnotherThread secondTry = new AllocOnAnotherThread(taskOne, 3 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondTry = new GpuAllocOnAnotherThread(taskOne, 3 * 1024 * 1024)) {
           secondTry.waitForAlloc();
         }
       }
@@ -697,8 +1116,9 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
-    RmmSpark.associateThreadWithTask(threadId, taskid);
+    long taskId = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
@@ -707,7 +1127,7 @@ public class RmmSparkTest {
       int numRetryOOMs = 3;
       RmmSpark.forceRetryOOM(threadId, numRetryOOMs);
       for (int i = 0; i < numRetryOOMs; i++) {
-        assertThrows(RetryOOM.class, () -> Rmm.alloc(100).close());
+        assertThrows(GpuRetryOOM.class, () -> Rmm.alloc(100).close());
         // Verify that injecting OOM does not cause the block to actually happen
         RmmSpark.blockThreadUntilReady();
       }
@@ -719,7 +1139,7 @@ public class RmmSparkTest {
       int numSplitAndRetryOOMs = 5;
       RmmSpark.forceSplitAndRetryOOM(threadId, numSplitAndRetryOOMs);
       for (int i = 0; i < numSplitAndRetryOOMs; i++) {
-        assertThrows(SplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
+        assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
         // Verify that injecting OOM does not cause the block to actually happen
         RmmSpark.blockThreadUntilReady();
       }
@@ -727,7 +1147,7 @@ public class RmmSparkTest {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -736,8 +1156,9 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
-    RmmSpark.associateThreadWithTask(threadId, taskid);
+    long taskId = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
@@ -754,7 +1175,7 @@ public class RmmSparkTest {
       // Allocate something small and verify that it works...
       Rmm.alloc(100).close();
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
   }
 
@@ -763,23 +1184,24 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskId = 0; // This is arbitrary
     long numRetries = 0;
-    RmmSpark.associateThreadWithTask(threadId, taskid);
+    Thread t = Thread.currentThread();
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     long startTime = System.nanoTime();
     try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
       while (numRetries < 10000) {
         try {
           Rmm.alloc(2 * 1024 * 1024).close();
           fail("overallocation should have failed");
-        } catch (RetryOOM room) {
+        } catch (GpuRetryOOM room) {
           numRetries++;
           try {
             RmmSpark.blockThreadUntilReady();
-          } catch (SplitAndRetryOOM sroom) {
+          } catch (GpuSplitAndRetryOOM sroom) {
             numRetries++;
           }
-        } catch (SplitAndRetryOOM sroom) {
+        } catch (GpuSplitAndRetryOOM sroom) {
           fail("retry should be thrown before split and retry...");
         }
       }
@@ -788,7 +1210,7 @@ public class RmmSparkTest {
       // The 500 is hard coded in the code below
       assertEquals(500, numRetries);
     } finally {
-      RmmSpark.removeThreadAssociation(threadId);
+      RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     }
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
@@ -812,14 +1234,15 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
-    RmmSpark.associateThreadWithTask(threadId, taskid);
+    long taskId = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
         try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
-        RmmSpark.removeThreadAssociation(threadId);
+        RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
     assertEquals(11, rmmEventHandler.getAllocationCount());
@@ -832,14 +1255,15 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
-    RmmSpark.associateThreadWithTask(threadId, taskid);
+    long taskId = 0; // This is arbitrary
+    Thread t = Thread.currentThread();
+    RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
         try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
         fail("overallocation should have failed");
       } finally {
-        RmmSpark.removeThreadAssociation(threadId);
+        RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
     assertEquals(0, rmmEventHandler.getAllocationCount());

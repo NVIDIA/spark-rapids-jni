@@ -194,6 +194,8 @@ class string_to_float {
     compute_validity(_valid, _except);
   }
 
+  static constexpr int max_safe_digits = 19;
+
  private:
   // shuffle down to remove whitespace
   __device__ void remove_leading_whitespace()
@@ -318,8 +320,7 @@ class string_to_float {
     int decimal_pos = 0;      // absolute decimal pos
 
     // have we seen a valid digit yet?
-    bool seen_valid_digit         = false;
-    constexpr int max_safe_digits = 19;
+    bool seen_valid_digit = false;
     do {
       int num_chars = _blen - _bpos;
 
@@ -603,7 +604,9 @@ __global__ void string_to_float_kernel(T* out,
   size_type const row = tid / 32;
   if (row >= num_rows) { return; }
 
-  __shared__ uint64_t ipow[19];
+  // one more than max safe digits to ensure that we can reference
+  // max_safe_digits into the array.
+  __shared__ uint64_t ipow[string_to_float<T, block_size>::max_safe_digits + 1];
   if (threadIdx.x == 0) {
     ipow[0]  = 1;
     ipow[1]  = 10;
@@ -624,6 +627,7 @@ __global__ void string_to_float_kernel(T* out,
     ipow[16] = 10000000000000000;
     ipow[17] = 100000000000000000;
     ipow[18] = 1000000000000000000;
+    ipow[19] = 10000000000000000000;
   }
   __syncthreads();
 
