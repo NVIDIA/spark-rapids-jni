@@ -48,14 +48,15 @@ struct format_float_fn {
   __device__ cudf::size_type compute_output_size(FloatType value, int digits) const
   {
     bool constexpr is_float = std::is_same_v<FloatType, float>;
-    return static_cast<cudf::size_type>(ftos_converter::compute_format_float_size(static_cast<double>(value), digits, is_float));
+    return static_cast<cudf::size_type>(
+      ftos_converter::compute_format_float_size(static_cast<double>(value), digits, is_float));
   }
 
   __device__ void format_float(cudf::size_type idx, int digits) const
   {
-    auto const value = d_floats.element<FloatType>(idx);
+    auto const value        = d_floats.element<FloatType>(idx);
     bool constexpr is_float = std::is_same_v<FloatType, float>;
-    auto const output = d_chars + d_offsets[idx];
+    auto const output       = d_chars + d_offsets[idx];
     ftos_converter::format_float(static_cast<double>(value), digits, is_float, output);
   }
 
@@ -81,29 +82,29 @@ struct format_float_fn {
 struct dispatch_format_float_fn {
   template <typename FloatType, CUDF_ENABLE_IF(std::is_floating_point_v<FloatType>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
-                                     int digits,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
+                                           int digits,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::mr::device_memory_resource* mr) const
   {
     auto const strings_count = floats.size();
-    auto const input_ptr = cudf::column_device_view::create(floats, stream);
+    auto const input_ptr     = cudf::column_device_view::create(floats, stream);
 
-    auto [offsets, chars] =
-      cudf::strings::detail::make_strings_children(format_float_fn<FloatType>{*input_ptr, digits}, strings_count, stream, mr);
+    auto [offsets, chars] = cudf::strings::detail::make_strings_children(
+      format_float_fn<FloatType>{*input_ptr, digits}, strings_count, stream, mr);
 
     return cudf::make_strings_column(strings_count,
-                               std::move(offsets),
-                               std::move(chars),
-                               floats.null_count(),
-                               cudf::detail::copy_bitmask(floats, stream, mr));
+                                     std::move(offsets),
+                                     std::move(chars),
+                                     floats.null_count(),
+                                     cudf::detail::copy_bitmask(floats, stream, mr));
   }
 
   // non-float types throw an exception
   template <typename T, CUDF_ENABLE_IF(not std::is_floating_point_v<T>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
-                                     int,
-                                     rmm::cuda_stream_view,
-                                     rmm::mr::device_memory_resource*) const
+                                           int,
+                                           rmm::cuda_stream_view,
+                                           rmm::mr::device_memory_resource*) const
   {
     CUDF_FAIL("Values for format_float function must be a float type.");
   }
@@ -113,14 +114,12 @@ struct dispatch_format_float_fn {
 
 // This will convert all float column types into a strings column.
 std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
-                                    int digits,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::mr::device_memory_resource* mr)
+                                           int digits,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::mr::device_memory_resource* mr)
 {
   auto const strings_count = floats.size();
-  if (strings_count == 0) {
-    return cudf::make_empty_column(cudf::type_id::STRING);
-  }
+  if (strings_count == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
   return type_dispatcher(floats.type(), dispatch_format_float_fn{}, floats, digits, stream, mr);
 }
@@ -128,10 +127,10 @@ std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
 }  // namespace detail
 
 // external API
-std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats, 
-                                      int digits,
-                                      rmm::cuda_stream_view stream, 
-                                      rmm::mr::device_memory_resource* mr)
+std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
+                                           int digits,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
   return detail::format_float(floats, digits, stream, mr);

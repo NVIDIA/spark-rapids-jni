@@ -117,7 +117,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloatWi
   try {
     cudf::jni::auto_set_device(env);
 
-    cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::format_float(cv, digits, cudf::get_default_stream()));
   }
@@ -133,7 +133,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
   try {
     cudf::jni::auto_set_device(env);
 
-    cudf::column_view cv{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::decimal_to_non_ansi_string(cv, cudf::get_default_stream()));
   }
