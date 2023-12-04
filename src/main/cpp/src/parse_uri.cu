@@ -585,7 +585,11 @@ uri_parts __device__ validate_uri(const char* str, int len)
         for (int i = 0; i < auth_size; ++i) {
           switch (auth[i]) {
             case '@':
-              if (amp == -1) amp = i;
+              if (amp == -1) {
+                amp = i;
+                if (last_colon > 0) { last_colon = -1; }
+                if (closingbracket > 0) { closingbracket = -1; }
+              }
               break;
             case ':': last_colon = amp > 0 ? i - amp - 1 : i; break;
             case ']':
@@ -608,7 +612,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
         }
         if (last_colon > 0 && last_colon > closingbracket) {
           // Found a port, attempt to parse it
-          ret.port = {auth + last_colon + 1, len - last_colon - 1};
+          ret.port = {auth + last_colon + 1, auth_size - last_colon - 1};
           if (!validate_port(ret.port)) {
             ret.valid = false;
             return ret;

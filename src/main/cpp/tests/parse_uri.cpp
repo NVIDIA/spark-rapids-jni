@@ -89,7 +89,8 @@ cudf::test::strings_column_wrapper get_test_data(test_types t)
          "object.php?object=ะก-\320%9Fะฑ-ะฟ-ะก\321%82\321%80ะตะป\321%8Cะฝะฐ-\321%83ะป-\320%"
          "97ะฐะฒะพะด\321%81ะบะฐ\321%8F.html&sid=5",
          "http://www.nvidia.com/picshow.asp?id=106&mnid=5080&classname=\271\253ืฐฦช",
-         "http://-.~_!$&'()*+,;=:%40:80%2f::::::@nvidia.com:443"});
+         "http://-.~_!$&'()*+,;=:%40:80%2f::::::@nvidia.com:443",
+         "http://userid:password@example.com:8080/"});
     case test_types::IPv6:
       return cudf::test::strings_column_wrapper({
         "https://[fe80::]",
@@ -174,9 +175,10 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
                                                "",
                                                "",
                                                "",
+                                               "http",
                                                "http"},
                                               {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1,
-                                               1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1});
+                                               1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
