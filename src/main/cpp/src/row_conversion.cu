@@ -81,8 +81,8 @@ constexpr auto NUM_WARPS_IN_BLOCK = 32;
 #pragma nv_diag_suppress static_var_with_dynamic_init
 
 using namespace cudf;
-using detail::make_device_uvector_sync;
 using detail::make_device_uvector_async;
+using detail::make_device_uvector_sync;
 using rmm::device_uvector;
 
 #ifdef ASYNC_MEMCPY_SUPPORTED
@@ -1560,10 +1560,12 @@ batch_data build_batches(size_type num_rows,
 
   // Evaluate the row size values before calling `inclusive_scan` to workaround
   // memory issue in https://github.com/NVIDIA/spark-rapids-jni/issues/1567.
-  thrust::copy(rmm::exec_policy(stream), row_sizes, row_sizes + num_rows,
-               cumulative_row_sizes.begin());
-  thrust::inclusive_scan(rmm::exec_policy(stream), cumulative_row_sizes.begin(),
-                         cumulative_row_sizes.end(), cumulative_row_sizes.begin());
+  thrust::copy(
+    rmm::exec_policy(stream), row_sizes, row_sizes + num_rows, cumulative_row_sizes.begin());
+  thrust::inclusive_scan(rmm::exec_policy(stream),
+                         cumulative_row_sizes.begin(),
+                         cumulative_row_sizes.end(),
+                         cumulative_row_sizes.begin());
 
   // This needs to be split this into 2 gig batches. Care must be taken to avoid a batch larger than
   // 2 gigs. Imagine a table with 900 meg rows. The batches should occur every 2 rows, but if a

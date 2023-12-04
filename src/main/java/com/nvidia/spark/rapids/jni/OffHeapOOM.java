@@ -14,12 +14,19 @@
  * limitations under the License.
  */
 
-#include <cudf/column/column_view.hpp>
+package com.nvidia.spark.rapids.jni;
 
-namespace spark_rapids_jni {
+/**
+ * A special version of an out of memory error that indicates we ran out of off heap CPU memory.
+ * This is mostly to avoid a fatal error that would force the worker process to restart. This
+ * should be recoverable.
+ */
+public class OffHeapOOM extends RuntimeException {
+  public OffHeapOOM() {
+    super();
+  }
 
-std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const& input);
-
-std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const& input);
-
-}  // namespace spark_rapids_jni
+  public OffHeapOOM(String message) {
+    super(message);
+  }
+}

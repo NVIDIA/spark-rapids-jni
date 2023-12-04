@@ -329,6 +329,7 @@ public class RmmSparkMonteCarlo {
               if (runner.debugOoms) {
                 System.err.println("OOM for task: " + t.taskId +
                     " and thread: " + RmmSpark.getCurrentThreadId() + " " + oom);
+                oom.printStackTrace(System.err);
               }
               // ignored
             }
@@ -360,7 +361,7 @@ public class RmmSparkMonteCarlo {
           }
         }
       } catch (Throwable e) {
-        System.err.println("ERROR: " + e);
+        System.err.println("ERROR: TID: " + RmmSpark.getCurrentThreadId() + " " + e);
         e.printStackTrace(System.err);
         hadOtherFailures = true;
       }
@@ -373,18 +374,10 @@ public class RmmSparkMonteCarlo {
 
   static class ShuffleThreadFactory implements ThreadFactory {
     static final AtomicLong idGen = new AtomicLong(0);
-    long id = idGen.getAndIncrement();
     @Override
     public Thread newThread(Runnable runnable) {
-      Runnable wrapped = () -> {
-        RmmSpark.associateCurrentThreadWithShuffle();
-        try {
-          runnable.run();
-        } finally {
-          RmmSpark.removeCurrentThreadAssociation();
-        }
-      };
-      Thread t = new Thread(wrapped);
+      long id = idGen.getAndIncrement();
+      Thread t = new Thread(runnable);
       t.setDaemon(true);
       t.setName("SHUFFLE-THREAD-" + id);
       return t;
@@ -543,6 +536,37 @@ public class RmmSparkMonteCarlo {
   }
 
   interface MemoryOp {
+    default void doIt(DeviceMemoryBuffer[] buffers, long taskId) {
+      long threadId = RmmSpark.getCurrentThreadId();
+      RmmSpark.shuffleThreadWorkingOnTasks(new long[]{taskId});
+      RmmSpark.startRetryBlock(threadId);
+      try {
+        int tries = 0;
+        while (tries < 100 && tries >= 0) {
+          try {
+            if (tries > 0) {
+              RmmSpark.blockThreadUntilReady();
+            }
+            tries++;
+            doIt(buffers);
+            tries = -1;
+          } catch (GpuRetryOOM oom) {
+            // Don't need to clear the buffers, because there is only one buffer.
+            numRetry.incrementAndGet();
+          } catch (CpuRetryOOM oom) {
+            // Don't need to clear the buffers, because there is only one buffer.
+            numRetry.incrementAndGet();
+          }
+        }
+        if (tries >= 100) {
+          throw new OutOfMemoryError("Could not make shuffle work after " + tries + " tries");
+        }
+      } finally {
+        RmmSpark.endRetryBlock(threadId);
+        RmmSpark.poolThreadFinishedForTask(taskId);
+      }
+    }
+
     void doIt(DeviceMemoryBuffer[] buffers);
 
     MemoryOp[] split();
@@ -748,7 +772,7 @@ public class RmmSparkMonteCarlo {
       }
     }
 
-    public void run(ExecutorService shuffle) {
+    public void run(ExecutorService shuffle, long taskId) {
       buffers = new DeviceMemoryBuffer[numBuffers];
       allocatedBeforeError = 0;
       boolean isForShuffle = shuffle != null;
@@ -757,28 +781,31 @@ public class RmmSparkMonteCarlo {
         try {
           for (MemoryOp op: operations) {
             if (isForShuffle) {
-              // If shuffle is enabled the first allocation will happen on the shuffle thread...
-              RmmSpark.threadCouldBlockOnShuffle();
               try {
-                Future<?> f = shuffle.submit(() -> op.doIt(buffers));
+                RmmSpark.submittingToPool();
+                Future<?> f = shuffle.submit(() -> op.doIt(buffers, taskId));
+                RmmSpark.doneWaitingOnPool();
+                RmmSpark.waitingOnPool();
                 f.get(1000, TimeUnit.SECONDS);
               } finally {
                 isForShuffle = false;
-                RmmSpark.threadDoneWithShuffle();
+                RmmSpark.doneWaitingOnPool();
               }
             } else {
               op.doIt(buffers);
             }
           }
           done = true;
-        } catch (RetryOOM room) {
+        } catch (GpuRetryOOM room) {
+          numRetry.incrementAndGet();
+          cleanBuffers();
+          RmmSpark.blockThreadUntilReady();
+        } catch (CpuRetryOOM room) {
           numRetry.incrementAndGet();
           cleanBuffers();
           RmmSpark.blockThreadUntilReady();
         } catch (ExecutionException ee) {
-          // We are not able to do split and retry/etc from a shuffle
-          // so just bubble the exception on up
-          OutOfMemoryError oom = new OutOfMemoryError("");
+          OutOfMemoryError oom = new OutOfMemoryError("Came From Shuffle");
           oom.addSuppressed(ee);
           throw oom;
         } catch (InterruptedException | TimeoutException e) {
@@ -844,14 +871,19 @@ public class RmmSparkMonteCarlo {
 
     public void run(ExecutorService shuffle) {
       Thread.currentThread().setName("TASK RUNNER FOR " + taskId);
-      RmmSpark.associateCurrentThreadWithTask(taskId);
+      RmmSpark.currentThreadIsDedicatedToTask(taskId);
       try {
         RmmSpark.currentThreadStartRetryBlock();
         while (!toDo.isEmpty()) {
           TaskOpSet tos = toDo.pollFirst();
           try {
-            tos.run(shuffle);
-          } catch (SplitAndRetryOOM soom) {
+            tos.run(shuffle, taskId);
+          } catch (GpuSplitAndRetryOOM soom) {
+            TaskOpSet[] split = tos.split();
+            toDo.push(split[1]);
+            toDo.push(split[0]);
+            numSplitAndRetry.incrementAndGet();
+          } catch (CpuSplitAndRetryOOM soom) {
             TaskOpSet[] split = tos.split();
             toDo.push(split[1]);
             toDo.push(split[0]);

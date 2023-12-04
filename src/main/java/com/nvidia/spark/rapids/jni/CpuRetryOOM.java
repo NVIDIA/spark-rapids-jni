@@ -14,12 +14,19 @@
  * limitations under the License.
  */
 
-#include <cudf/column/column_view.hpp>
+package com.nvidia.spark.rapids.jni;
 
-namespace spark_rapids_jni {
+/**
+ * A special version of an out of memory error that indicates we ran out of off heap memory, but
+ * should roll back to a point when all memory for the task is spillable and then retry the
+ * operation.
+ */
+public class CpuRetryOOM extends OffHeapOOM {
+  public CpuRetryOOM() {
+    super();
+  }
 
-std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const& input);
-
-std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const& input);
-
-}  // namespace spark_rapids_jni
+  public CpuRetryOOM(String message) {
+    super(message);
+  }
+}
