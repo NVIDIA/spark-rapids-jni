@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -188,6 +188,19 @@ public class SparkResourceAdaptor
    * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the GpuRetryOOM should be thrown
+   * @param oom the type of OOM ot inject
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
+   */
+  public void forceRetryOOM(long threadId, int numOOMs, OomInjectionType oom, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oom.getId(), skipCount);
+    forceRetryOOM(getHandle(), threadId, numOOMs, oom.getId(), skipCount);
+  }
+
+  // TODO this should be removed one we move the tests over to use the enum.
+  /**
+   * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the GpuRetryOOM should be thrown
    * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
    * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
@@ -203,6 +216,19 @@ public class SparkResourceAdaptor
       "non-negative oomMode<" + OomInjectionType.values().length + " expected: actual=" + oomMode;
   }
 
+  /**
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
+   * @param oom the type of OOM ot inject
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
+   */
+  public void forceSplitAndRetryOOM(long threadId, int numOOMs, OomInjectionType oom, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oom.getId(), skipCount);
+    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs, oom.getId(), skipCount);
+  }
+
+  // TODO this should be removed one we move the tests over to use the enum.
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
@@ -250,7 +276,6 @@ public class SparkResourceAdaptor
   public long getAndResetComputeTimeLostToRetry(long taskId) {
     return getAndResetComputeTimeLostToRetry(getHandle(), taskId);
   }
-
 
   /**
    * Called before doing an allocation on the CPU. This could throw an injected exception to help

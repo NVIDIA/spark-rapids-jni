@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,18 +23,25 @@ import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
-import java.util.Arrays;
-import java.util.Map;
-
 /**
  * Initialize RMM in ways that are specific to Spark.
  */
 public class RmmSpark {
 
   public enum OomInjectionType {
-    CPU_OR_GPU,
-    CPU,
-    GPU;
+    CPU_OR_GPU(0),
+    CPU(1),
+    GPU(2);
+
+    private final int id;
+
+    OomInjectionType(int id) {
+      this.id = id;
+    }
+
+    public int getId() {
+      return id;
+    }
   }
 
   private static volatile SparkResourceAdaptor sra = null;
@@ -436,6 +443,7 @@ public class RmmSpark {
     forceRetryOOM(threadId, 1);
   }
 
+  //TODO remove this API once we know no one is calling it.
   /**
    * Force the thread with the given ID to throw a GpuRetryOOM or CpuRetryOOM on their next
    * allocation attempt, depending on the type of allocation being done.
@@ -454,8 +462,25 @@ public class RmmSpark {
     }
   }
 
+  /**
+   * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the GpuRetryOOM should be thrown
+   * @param oom the type of OOM ot inject
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
+   */
+  public static void forceRetryOOM(long threadId, int numOOMs, OomInjectionType oom, int skipCount) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.forceRetryOOM(threadId, numOOMs, oom, skipCount);
+      } else {
+        throw new IllegalStateException("RMM has not been configured for OOM injection");
+      }
+    }
+  }
+
   public static void forceRetryOOM(long threadId, int numOOMs) {
-    forceRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU.ordinal(), 0);
+    forceRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU, 0);
   }
 
   /**
@@ -467,6 +492,7 @@ public class RmmSpark {
     forceSplitAndRetryOOM(threadId, 1);
   }
 
+  // TODO remove this API one no one calls it
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM or CpuSplitAndRetryOOm
    * on their next allocation attempt, depending on the allocation being done.
@@ -485,8 +511,25 @@ public class RmmSpark {
     }
   }
 
+  /**
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
+   * @param threadId the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
+   * @param oom the type of OOM ot inject
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
+   */
+  public static void forceSplitAndRetryOOM(long threadId, int numOOMs, OomInjectionType oom, int skipCount) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.forceSplitAndRetryOOM(threadId, numOOMs, oom, skipCount);
+      } else {
+        throw new IllegalStateException("RMM has not been configured for OOM injection");
+      }
+    }
+  }
+
   public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
-    forceSplitAndRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU.ordinal(), 0);
+    forceSplitAndRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU, 0);
   }
 
   /**

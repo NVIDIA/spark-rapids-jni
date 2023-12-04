@@ -1758,9 +1758,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const tid    = static_cast<long>(pthread_self());
     auto const thread = threads.find(tid);
     if (thread != threads.end()) {
-      log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
+      log_status(is_for_cpu? "CPU_DEALLOC" : "DEALLOC", tid, thread->second.task_id, thread->second.state);
     } else {
-      log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
+      log_status(is_for_cpu? "CPU_DEALLOC" : "DEALLOC", tid, -2, thread_state::UNKNOWN);
     }
 
     for (auto& [thread_id, t_state] : threads) {
