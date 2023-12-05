@@ -130,10 +130,10 @@ cudf::test::strings_column_wrapper get_test_data(test_types t)
 
 TEST_F(ParseURIProtocolTests, Simple)
 {
-  auto col    = get_test_data(test_types::SIMPLE);
-  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::SIMPLE);
+  auto const result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"https", "http", "file", "smb", "http", "file", "", "", ""}, {1, 1, 1, 1, 1, 1, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
@@ -141,10 +141,10 @@ TEST_F(ParseURIProtocolTests, Simple)
 
 TEST_F(ParseURIProtocolTests, SparkEdges)
 {
-  auto col    = get_test_data(test_types::SPARK_EDGES);
-  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::SPARK_EDGES);
+  auto const result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"https",
      "https",
      "filesystemmagicthing",
@@ -190,10 +190,10 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
 
 TEST_F(ParseURIProtocolTests, IP6)
 {
-  auto col    = get_test_data(test_types::IPv6);
-  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::IPv6);
+  auto const result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"https", "https", "https", "https", "http", "https", "https", "https", "", ""},
     {1, 1, 1, 1, 1, 1, 1, 1, 0, 0});
 
@@ -202,10 +202,10 @@ TEST_F(ParseURIProtocolTests, IP6)
 
 TEST_F(ParseURIProtocolTests, IP4)
 {
-  auto col    = get_test_data(test_types::IPv4);
-  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::IPv4);
+  auto const result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"https", "https", "https", "https", "https", "https"});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
@@ -213,20 +213,20 @@ TEST_F(ParseURIProtocolTests, IP4)
 
 TEST_F(ParseURIProtocolTests, UTF8)
 {
-  auto col    = get_test_data(test_types::UTF8);
-  auto result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::UTF8);
+  auto const result = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"https", "http", "http", ""}, {1, 1, 1, 0});
+  cudf::test::strings_column_wrapper const expected({"https", "http", "http", ""}, {1, 1, 1, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
 
 TEST_F(ParseURIHostTests, Simple)
 {
-  auto col    = get_test_data(test_types::SIMPLE);
-  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::SIMPLE);
+  auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"www.nvidia.com", "www.nvidia.com", "path", "network", "", "", "", "", ""},
     {1, 1, 1, 1, 0, 0, 0, 0, 0});
 
@@ -235,10 +235,10 @@ TEST_F(ParseURIHostTests, Simple)
 
 TEST_F(ParseURIHostTests, SparkEdges)
 {
-  auto col    = get_test_data(test_types::SPARK_EDGES);
-  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::SPARK_EDGES);
+  auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected(
+  cudf::test::strings_column_wrapper const expected(
     {"nvidia.com",
      "http",
      "bob.yaml",
@@ -284,10 +284,10 @@ TEST_F(ParseURIHostTests, SparkEdges)
 
 TEST_F(ParseURIHostTests, IP6)
 {
-  auto col    = get_test_data(test_types::IPv6);
-  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::IPv6);
+  auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"[fe80::]",
+  cudf::test::strings_column_wrapper const expected({"[fe80::]",
                                                "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
                                                "[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
                                                "[2001:db8::1:0]",
@@ -304,10 +304,10 @@ TEST_F(ParseURIHostTests, IP6)
 
 TEST_F(ParseURIHostTests, IP4)
 {
-  auto col    = get_test_data(test_types::IPv4);
-  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::IPv4);
+  auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"192.168.1.100", "192.168.1.100", "", "", "", ""},
+  cudf::test::strings_column_wrapper const expected({"192.168.1.100", "192.168.1.100", "", "", "", ""},
                                               {1, 1, 0, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
@@ -315,10 +315,10 @@ TEST_F(ParseURIHostTests, IP4)
 
 TEST_F(ParseURIHostTests, UTF8)
 {
-  auto col    = get_test_data(test_types::UTF8);
-  auto result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
+  auto const col    = get_test_data(test_types::UTF8);
+  auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper expected({"nvidia.com", "", "", ""}, {1, 0, 0, 0});
+  cudf::test::strings_column_wrapper const expected({"nvidia.com", "", "", ""}, {1, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
