@@ -292,9 +292,10 @@ bool __device__ validate_domain_name(string_view name)
 {
   // domain name can be alphanum or -.
   // slash can not be the first of last character of the domain name or around a .
-  bool last_was_slash  = false;
-  bool last_was_period = false;
-  bool numeric_start   = false;
+  bool last_was_slash          = false;
+  bool last_was_period         = false;
+  bool numeric_start           = false;
+  int characters_before_period = 0;
   for (auto iter = name.begin(); iter < name.end(); ++iter) {
     auto const c = *iter;
     if (!is_alphanum(c) && c != '-' && c != '.') { return false; }
@@ -311,12 +312,14 @@ bool __device__ validate_domain_name(string_view name)
       last_was_slash  = true;
       last_was_period = false;
     } else if (c == '.') {
-      if (last_was_slash) { return false; }
-      last_was_period = true;
-      last_was_slash  = false;
+      if (last_was_slash || last_was_period || characters_before_period == 0) { return false; }
+      last_was_period          = true;
+      last_was_slash           = false;
+      characters_before_period = 0;
     } else {
       last_was_period = false;
       last_was_slash  = false;
+      characters_before_period++;
     }
   }
 
