@@ -26,7 +26,8 @@ import ai.rapids.cudf.ColumnVector;
 
 public class ParseURITest {
   void buildExpectedAndRun(String[] testData) {
-    String[] expectedStrings = new String[testData.length];
+    String[] expectedProtocolStrings = new String[testData.length];
+    String[] expectedHostStrings = new String[testData.length];
     for (int i=0; i<testData.length; i++) {
       String scheme = null;
       try {
@@ -37,12 +38,26 @@ public class ParseURITest {
       } catch (NullPointerException ex) {
         // leave the scheme null if URI is null
       }
-      expectedStrings[i] = scheme;
+      String host = null;
+      try {
+        URI uri = new URI(testData[i]);
+        host = uri.getHost();
+      } catch (URISyntaxException ex) {
+        // leave the host null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the host null if URI is null
+      }
+
+      expectedProtocolStrings[i] = scheme;
+      expectedHostStrings[i] = host;
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expected = ColumnVector.fromStrings(expectedStrings);
-      ColumnVector result = ParseURI.parseURIProtocol(v0)) {
-      AssertUtils.assertColumnsAreEqual(expected, result);
+      ColumnVector expectedProtocol = ColumnVector.fromStrings(expectedProtocolStrings);
+      ColumnVector expectedHost = ColumnVector.fromStrings(expectedHostStrings);
+      ColumnVector protocolResult = ParseURI.parseURIProtocol(v0);
+      ColumnVector hostResult = ParseURI.parseURIHost(v0)) {
+      AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
+      AssertUtils.assertColumnsAreEqual(expectedHost, hostResult);
     }
   }
   
@@ -102,6 +117,7 @@ public class ParseURITest {
   @Test
   void parseURIToProtocolUTF8Test() {
     String[] testData = {
+      "https:// /path/to/file",
       "https://nvidia.com/%4EV%49%44%49%41",
       "http://%77%77%77.%4EV%49%44%49%41.com",
       "http://✪↩d⁚f„⁈.ws/123"};
@@ -116,8 +132,8 @@ public class ParseURITest {
       "https://192.168.1.100:8443/",
       "https://192.168.1.100.5/",
       "https://192.168.1/",
-      "https://280.100.1.1/"};
-
+      "https://280.100.1.1/",
+      "https://182.168..100/path/to/file"};
     buildExpectedAndRun(testData);
   }
 
@@ -130,6 +146,10 @@ public class ParseURITest {
       "https://[2001:db8::1:0]",
       "http://[2001:db8::2:1]",
       "https://[::1]",
+      "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
+      "https://[2001:db8:3333:4444:5555:6666:1.2.3.4]/path/to/file",
+      "https://[2001:db8:3333:4444:5555:6666:7777:8888:1.2.3.4]/path/to/file",
+      "https://[::db8:3333:4444:5555:6666:1.2.3.4]/path/to/file]",
       "https://[2001:db8:85a3:8d3:1319:8a2e:370:7348]:443",
       "https://[2001:]db8:85a3:8d3:1319:8a2e:370:7348/",
       "https://[][][][]nvidia.com/",
