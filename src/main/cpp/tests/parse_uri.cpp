@@ -288,16 +288,16 @@ TEST_F(ParseURIHostTests, IP6)
   auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper const expected({"[fe80::]",
-                                               "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
-                                               "[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
-                                               "[2001:db8::1:0]",
-                                               "[2001:db8::2:1]",
-                                               "[::1]",
-                                               "[2001:db8:85a3:8d3:1319:8a2e:370:7348]",
-                                               "[2001:db8:3333:4444:5555:6666:1.2.3.4]",
-                                               "",
-                                               ""},
-                                              {1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0});
+                                                     "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+                                                     "[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]",
+                                                     "[2001:db8::1:0]",
+                                                     "[2001:db8::2:1]",
+                                                     "[::1]",
+                                                     "[2001:db8:85a3:8d3:1319:8a2e:370:7348]",
+                                                     "[2001:db8:3333:4444:5555:6666:1.2.3.4]",
+                                                     "",
+                                                     ""},
+                                                    {1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
@@ -307,8 +307,8 @@ TEST_F(ParseURIHostTests, IP4)
   auto const col    = get_test_data(test_types::IPv4);
   auto const result = spark_rapids_jni::parse_uri_to_host(cudf::strings_column_view{col});
 
-  cudf::test::strings_column_wrapper const expected({"192.168.1.100", "192.168.1.100", "", "", "", ""},
-                                              {1, 1, 0, 0, 0, 0});
+  cudf::test::strings_column_wrapper const expected(
+    {"192.168.1.100", "192.168.1.100", "", "", "", ""}, {1, 1, 0, 0, 0, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }
