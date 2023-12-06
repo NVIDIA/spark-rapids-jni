@@ -87,6 +87,22 @@ public class DecimalUtilsTest {
   }
 
   @Test
+  void multiply128WithoutInterimCast() {
+    try (ColumnVector lhs =
+                 makeDec128Column("-8533444864753048107770677711.1312637916");
+         ColumnVector rhs =
+                 makeDec128Column("-12.0000000000");
+         ColumnVector expectedBasic =
+                 makeDec128Column("102401338377036577293248132533.575165");
+         ColumnVector expectedValid =
+                 ColumnVector.fromBooleans(false);
+         Table found = DecimalUtils.mul128(lhs, rhs, -6)) {
+      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedBasic, found.getColumn(1));
+    }
+  }
+
+  @Test
   void largePosMultiplyTenByTen() {
     try (ColumnVector lhs =
              makeDec128Column("577694940161436285811555447.3103121126");

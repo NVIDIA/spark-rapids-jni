@@ -25,7 +25,6 @@ public class DecimalUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-
   /**
    * Multiply two DECIMAL128 columns together into a DECIMAL128 product rounded to the specified
    * scale with overflow detection. This method considers a precision greater than 38 as overflow
@@ -38,8 +37,30 @@ public class DecimalUtils {
    *         DECIMAL128 product value. A null input row will result in a corresponding null output
    *         row.
    */
+  public static Table mul128(ColumnView a, ColumnView b, int productScale) {
+    return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale, false));
+  }
+
+  /**
+   * Multiply two DECIMAL128 columns together into a DECIMAL128 product rounded to the specified
+   * scale with overflow detection. This method considers a precision greater than 38 as overflow
+   * even if the number still fits in a 128-bit representation.
+   *
+   * WARNING: This method has a bug which we match with Spark versions before 3.4.2, 4.0.0, 3.5.1. Consider the
+   * following example using Decimal with a precision of 38 and scale of 10:
+   * -8533444864753048107770677711.1312637916 * -12.0000000000 = 102401338377036577293248132533.575166
+   * while the actual answer based on Java BigDecimal is 102401338377036577293248132533.575165
+   *
+   * @param a factor input, must match row count of the other factor input
+   * @param b factor input, must match row count of the other factor input
+   * @param productScale scale to use for the product type
+   * @return table containing a boolean column and a DECIMAL128 product column of the specified
+   *         scale. The boolean value will be true if an overflow was detected for that row's
+   *         DECIMAL128 product value. A null input row will result in a corresponding null output
+   *         row.
+   */
   public static Table multiply128(ColumnView a, ColumnView b, int productScale) {
-    return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale));
+    return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale, true));
   }
 
   /**
@@ -148,7 +169,7 @@ public class DecimalUtils {
     return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
   }
 
-  private static native long[] multiply128(long viewA, long viewB, int productScale);
+  private static native long[] multiply128(long viewA, long viewB, int productScale, boolean interimCast);
 
   private static native long[] divide128(long viewA, long viewB, int quotientScale, boolean isIntegerDivide);
 

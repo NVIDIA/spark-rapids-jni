@@ -657,14 +657,16 @@ struct dec128_multiplier {
   dec128_multiplier(bool* overflows,
                     cudf::mutable_column_view const& product_view,
                     cudf::column_view const& a_col,
-                    cudf::column_view const& b_col)
+                    cudf::column_view const& b_col,
+                    bool const& cast_interim_result)
     : overflows(overflows),
       a_data(a_col.data<__int128_t>()),
       b_data(b_col.data<__int128_t>()),
       product_data(product_view.data<__int128_t>()),
       a_scale(a_col.type().scale()),
       b_scale(b_col.type().scale()),
-      prod_scale(product_view.type().scale())
+      prod_scale(product_view.type().scale()),
+      cast_interim_result(cast_interim_result)
   {
   }
 
@@ -675,21 +677,24 @@ struct dec128_multiplier {
 
     chunked256 product = multiply(a, b);
 
+    int dec_precision = precision10(product);
+
+    int mult_scale = a_scale + b_scale;
+
     // Spark does some really odd things that I personally think are a bug
     // https://issues.apache.org/jira/browse/SPARK-40129
     // But to match Spark we need to first round the result to a precision of 38
     // and this is specific to the value in the result of the multiply.
     // Then we need to round the result to the final scale that we care about.
-    int dec_precision       = precision10(product);
-    int first_div_precision = dec_precision - 38;
+    if (cast_interim_result) {
+      int first_div_precision = dec_precision - 38;
+      if (first_div_precision > 0) {
+        auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
+        product                            = divide_and_round(product, first_div_scale_divisor);
 
-    int mult_scale = a_scale + b_scale;
-    if (first_div_precision > 0) {
-      auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
-      product                            = divide_and_round(product, first_div_scale_divisor);
-
-      // a_scale and b_scale are negative. first_div_precision is not
-      mult_scale = a_scale + b_scale + first_div_precision;
+        // a_scale and b_scale are negative. first_div_precision is not
+        mult_scale = a_scale + b_scale + first_div_precision;
+      }
     }
 
     int exponent = prod_scale - mult_scale;
@@ -718,6 +723,7 @@ struct dec128_multiplier {
  private:
   // output column for overflow detected
   bool* const overflows;
+  bool cast_interim_result;
 
   // input data for multiply
   __int128_t const* const a_data;
@@ -968,6 +974,7 @@ namespace cudf::jni {
 std::unique_ptr<cudf::table> multiply_decimal128(cudf::column_view const& a,
                                                  cudf::column_view const& b,
                                                  int32_t product_scale,
+                                                 bool const& cast_interim_result,
                                                  rmm::cuda_stream_view stream)
 {
   CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
@@ -992,10 +999,11 @@ std::unique_ptr<cudf::table> multiply_decimal128(cudf::column_view const& a,
   auto overflows_view = columns[0]->mutable_view();
   auto product_view   = columns[1]->mutable_view();
   check_scale_divisor(a.type().scale() + b.type().scale(), product_scale);
-  thrust::for_each(rmm::exec_policy(stream),
-                   thrust::make_counting_iterator<cudf::size_type>(0),
-                   thrust::make_counting_iterator<cudf::size_type>(num_rows),
-                   dec128_multiplier(overflows_view.begin<bool>(), product_view, a, b));
+  thrust::for_each(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+    dec128_multiplier(overflows_view.begin<bool>(), product_view, a, b, cast_interim_result));
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
