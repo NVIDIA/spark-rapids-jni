@@ -31,6 +31,7 @@ public class DateTimeRebase {
    * 1970-01-01T00:00:00Z to a local date-time in Proleptic Gregorian calendar, reinterpreting
    * the result as in Julian calendar, then compute the number of days or microseconds since the
    * epoch from that Julian local date-time.
+   * <p>
    * This is to match with Apache Spark's `localRebaseGregorianToJulianDays` and
    * `rebaseGregorianToJulianMicros` functions with timezone fixed to UTC.
    */
@@ -38,5 +39,21 @@ public class DateTimeRebase {
     return new ColumnVector(rebaseGregorianToJulian(input.getNativeView()));
   }
 
+  /**
+   * Convert the given timestamps as a number of days or microseconds since the epoch instant
+   * 1970-01-01T00:00:00Z to a local date-time in Julian calendar, reinterpreting the result
+   * as in Proleptic Gregorian calendar, then compute the number of days or microseconds since the
+   * epoch from that Gregorian local date-time.
+   * <p>
+   * This is to match with Apache Spark's `localRebaseJulianToGregorianDays` and
+   * `rebaseJulianToGregorianMicros` functions with timezone fixed to UTC.
+   */
+  public static ColumnVector rebaseJulianToGregorian(ColumnView input) {
+    return new ColumnVector(rebaseJulianToGregorian(input.getNativeView()));
+  }
+
+
   private static native long rebaseGregorianToJulian(long nativeHandle);
+
+  private static native long rebaseJulianToGregorian(long nativeHandle);
 }
