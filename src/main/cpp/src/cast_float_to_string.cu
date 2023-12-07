@@ -37,8 +37,9 @@ struct float_to_string_fn {
   cudf::size_type* d_offsets;
   char* d_chars;
 
-  __device__ cudf::size_type compute_output_size(FloatType value) const
+  __device__ cudf::size_type compute_output_size(cudf::size_type idx) const
   {
+    auto const value        = d_floats.element<FloatType>(idx);
     bool constexpr is_float = std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
       ftos_converter::compute_ftos_size(static_cast<double>(value), is_float));
@@ -61,7 +62,7 @@ struct float_to_string_fn {
     if (d_chars != nullptr) {
       float_to_string(idx);
     } else {
-      d_offsets[idx] = compute_output_size(d_floats.element<FloatType>(idx));
+      d_offsets[idx] = compute_output_size(idx);
     }
   }
 };
