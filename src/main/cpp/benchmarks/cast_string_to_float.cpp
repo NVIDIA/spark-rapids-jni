@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "cast_string.hpp"
+#include <cast_string.hpp>
 
 #include <benchmarks/common/generate_input.hpp>
 
