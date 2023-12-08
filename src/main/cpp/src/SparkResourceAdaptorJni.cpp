@@ -226,6 +226,12 @@ struct task_metrics {
   }
 };
 
+
+struct oom_injections {
+  int retry_oom_injected           = 0;
+  int split_and_retry_oom_injected = 0;
+};
+
 /**
  * This is the full state of a thread. Some things like the thread_id and task_id
  * should not change after the state is set up. Everything else is up for change,
@@ -250,9 +256,10 @@ class full_thread_state {
   bool is_cpu_alloc = false;
   // Is the thread transitively blocked on a pool or not.
   bool pool_blocked                = false;
-  int retry_oom_injected           = 0;
-  int split_and_retry_oom_injected = 0;
   int cudf_exception_injected      = 0;
+  oom_injections cpu_ooms;
+  oom_injections gpu_ooms;
+
   // watchdog limit on maximum number of retries to avoid unexpected live lock situations
   int num_times_retried = 0;
   // When did the retry time for this thread start, or when did the block time end.
@@ -668,7 +675,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      threads_at->second.retry_oom_injected = num_ooms;
+      threads_at->second.cpu_ooms.retry_oom_injected = num_ooms;
+      threads_at->second.gpu_ooms.retry_oom_injected = num_ooms;
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
     }
@@ -683,7 +691,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      threads_at->second.split_and_retry_oom_injected = num_ooms;
+      threads_at->second.cpu_ooms.split_and_retry_oom_injected = num_ooms;
+      threads_at->second.gpu_ooms.split_and_retry_oom_injected = num_ooms;
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
     }
@@ -1228,16 +1237,18 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         default: break;
       }
 
-      if (thread->second.retry_oom_injected > 0) {
-        thread->second.retry_oom_injected--;
+      oom_injections &ooms = is_for_cpu 
+        ? thread->second.cpu_ooms
+        : thread->second.gpu_ooms;
+
+      if (ooms.retry_oom_injected > 0) {
+        ooms.retry_oom_injected--;
+        fprintf(stderr, "### GERA_DEBUG is_for_cpu=%d retry_oom_injected=%d\n",  is_for_cpu, ooms.retry_oom_injected);
         thread->second.metrics.num_times_retry_throw++;
         log_status("INJECTED_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
         thread->second.record_failed_retry_time();
-        if (is_for_cpu) {
-          throw_java_exception(CPU_RETRY_OOM_CLASS, "injected RetryOOM");
-        } else {
-          throw_java_exception(GPU_RETRY_OOM_CLASS, "injected RetryOOM");
-        }
+        auto ex_class_name = is_for_cpu ? CPU_RETRY_OOM_CLASS : GPU_RETRY_OOM_CLASS;
+        throw_java_exception(ex_class_name, "injected RetryOOM");
       }
 
       if (thread->second.cudf_exception_injected > 0) {
@@ -1248,17 +1259,14 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
       }
 
-      if (thread->second.split_and_retry_oom_injected > 0) {
-        thread->second.split_and_retry_oom_injected--;
+      if (ooms.split_and_retry_oom_injected > 0) {
+        ooms.split_and_retry_oom_injected--;
         thread->second.metrics.num_times_split_retry_throw++;
         log_status(
           "INJECTED_SPLIT_AND_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
         thread->second.record_failed_retry_time();
-        if (is_for_cpu) {
-          throw_java_exception(CPU_SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
-        } else {
-          throw_java_exception(GPU_SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
-        }
+        auto ex_class_name = is_for_cpu ? CPU_SPLIT_AND_RETRY_OOM_CLASS : GPU_SPLIT_AND_RETRY_OOM_CLASS;
+        throw_java_exception(ex_class_name, "injected SplitAndRetryOOM");
       }
 
       if (blocking) { block_thread_until_ready(thread_id, lock); }
