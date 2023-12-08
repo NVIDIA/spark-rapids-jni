@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -105,6 +106,22 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toFloat(
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(spark_rapids_jni::string_to_float(
       cudf::jni::make_data_type(j_dtype, 0), scv, ansi_enabled, cudf::get_default_stream()));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloat(JNIEnv* env,
+                                                                               jclass,
+                                                                               jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::float_to_string(cv, cudf::get_default_stream()));
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
