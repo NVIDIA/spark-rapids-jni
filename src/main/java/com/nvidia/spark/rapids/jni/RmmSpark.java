@@ -23,10 +23,63 @@ import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
+import java.util.Arrays;
+import java.util.Map;
+
 /**
  * Initialize RMM in ways that are specific to Spark.
  */
 public class RmmSpark {
+
+  public enum OomInjectionType {
+    CPU_OR_GPU,
+    CPU,
+    GPU;
+  }
+
+  public static class OomInjection {
+    public final OomInjectionType injectionType;
+    public final int skipCount;
+    public final int oomCount;
+
+    private OomInjection(OomInjectionType injectionType, int skipCount, int oomCount) {
+      this.injectionType = injectionType;
+      this.skipCount = skipCount;
+      this.oomCount = oomCount;
+      System.err.println("GERA_DEBUG creating OomInjection" +
+        " type=" + injectionType + "/" + injectionType.ordinal() +
+        " oomCount=" + oomCount +
+        " skipCount=" + skipCount
+      );
+    }
+
+    public static OomInjection fromString(String s) {
+      switch (s) {
+        case "true": return defaultOomInjection();
+        case "false": return zerInjection();
+        default:
+          // csv of kv pairs
+          final Map<String, String> injectionConf = Arrays.stream(s.split(",")).map(kv -> kv.split("="))
+            .collect(java.util.stream.Collectors.toMap(a -> a[0], a -> a[1]));
+          return new OomInjection(OomInjectionType.valueOf(injectionConf.get("type")),
+            Integer.parseInt(injectionConf.getOrDefault("skip", "0")),
+            Integer.parseInt(injectionConf.getOrDefault("num_ooms", "1")));
+      }
+    }
+
+    private static OomInjection defaultOomInjection() {
+      return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 1);
+    }
+
+    private static OomInjection zerInjection() {
+      return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 0);
+    }
+
+    public void inject(long threadId) {
+      currentThreadIsDedicatedToTask(threadId);
+      forceRetryOOM(getCurrentThreadId(), oomCount, injectionType.ordinal(), skipCount);
+    }
+  }
 
   private static volatile SparkResourceAdaptor sra = null;
 
@@ -433,6 +486,16 @@ public class RmmSpark {
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the *RetryOOM should be thrown
    */
+  public static void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.forceRetryOOM(threadId, numOOMs, oomMode, skipCount);
+      } else {
+        throw new IllegalStateException("RMM has not been configured for OOM injection");
+      }
+    }
+  }
+
   public static void forceRetryOOM(long threadId, int numOOMs) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {

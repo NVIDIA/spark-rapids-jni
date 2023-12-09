@@ -191,6 +191,10 @@ public class SparkResourceAdaptor
     forceRetryOOM(getHandle(), threadId, numOOMs);
   }
 
+  public void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    forceRetryOOM(getHandle(), threadId, numOOMs, oomMode, skipCount);
+  }
+
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
@@ -296,6 +300,8 @@ public class SparkResourceAdaptor
   private static native void waitingOnPool(long handle, long threadId);
   private static native void doneWaitingOnPool(long handle, long threadId);
   private static native void forceRetryOOM(long handle, long threadId, int numOOMs);
+  private static native void forceRetryOOM(long handle, long threadId, int numOOMs, int oomMode, int skipCount);
+
   private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs);
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
