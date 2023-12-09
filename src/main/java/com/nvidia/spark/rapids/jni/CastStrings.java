@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -81,6 +81,16 @@ public class CastStrings {
   }
 
   /**
+   * Convert a float column to a string column.
+   *
+   * @param cv the column data to process
+   * @return the converted column
+   */
+  public static ColumnVector fromFloat(ColumnView cv) {
+    return new ColumnVector(fromFloat(cv.getNativeView()));
+  }
+
+  /**
    * Convert a decimal column to a string column.
    *
    * @param cv the column data to process
@@ -137,6 +147,7 @@ public class CastStrings {
       int precision, int scale);
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
   private static native long fromDecimal(long nativeColumnView);
+  private static native long fromFloat(long nativeColumnView);
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
