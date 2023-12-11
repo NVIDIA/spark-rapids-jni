@@ -46,11 +46,6 @@ public class RmmSpark {
       this.injectionType = injectionType;
       this.skipCount = skipCount;
       this.oomCount = oomCount;
-      System.err.println("GERA_DEBUG creating OomInjection" +
-        " type=" + injectionType + "/" + injectionType.ordinal() +
-        " oomCount=" + oomCount +
-        " skipCount=" + skipCount
-      );
     }
 
     public static OomInjection fromString(String s) {
