@@ -1264,11 +1264,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       if (thread->second.retry_oom.matches(is_for_cpu)) {
         if (thread->second.retry_oom.skip_count > 0) {
-          logger->debug("SKIPPING INJECTED_RETRY_OOM({}) thread_id={},task_id={},skip_count={}",
-                        is_for_cpu ? "CPU" : "GPU",
-                        thread_id,
-                        thread->second.task_id,
-                        thread->second.retry_oom.skip_count);
+          logger->info("SKIPPING INJECTED_RETRY_OOM({}) thread_id={},task_id={},skip_count={}",
+                       is_for_cpu ? "CPU" : "GPU",
+                       thread_id,
+                       thread->second.task_id,
+                       thread->second.retry_oom.skip_count);
           --thread->second.retry_oom.skip_count;
         } else if (thread->second.retry_oom.hit_count > 0) {
           thread->second.retry_oom.hit_count--;
