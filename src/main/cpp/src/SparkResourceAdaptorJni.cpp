@@ -237,10 +237,22 @@ struct oom_state_type {
   int skip_count  = 0;
   oom_type filter = oom_type::CPU_OR_GPU;
 
+  void init(int const num_ooms, int const skip_count, int const oom_type_id)
+  {
+    if (num_ooms < 0) { throw std::invalid_argument("num_ooms cannot be negative"); }
+    if (skip_count < 0) { throw std::invalid_argument("skip_count cannot be negative"); }
+    if (oom_type_id < 0 || oom_type_id > 2) {
+      throw std::invalid_argument("oom_filter must be between 0 and 2");
+    }
+    this->hit_count  = hit_count;
+    this->skip_count = skip_count;
+    this->filter     = static_cast<oom_type>(oom_type_id);
+  }
+
   bool matches(bool is_for_cpu)
   {
-    return (is_for_cpu && (filter == oom_type::CPU || filter == oom_type::CPU_OR_GPU)) ||
-           (!is_for_cpu && (filter == oom_type::GPU || filter == oom_type::CPU_OR_GPU));
+    return filter == oom_type::CPU_OR_GPU || (is_for_cpu && filter == oom_type::CPU) ||
+           ((!is_for_cpu) && filter == oom_type::GPU);
   }
 };
 
@@ -688,18 +700,10 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                        int const oom_filter,
                        int const skip_count)
   {
-    if (num_ooms < 0) { throw std::invalid_argument("num_ooms cannot be negative"); }
-    if (skip_count < 0) { throw std::invalid_argument("skipCount cannot be negative"); }
-    if (oom_filter < 0 || oom_filter > 2) {
-      throw std::invalid_argument("oom_filter must be between 0 and 2");
-    }
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      auto& oom_state      = threads_at->second.retry_oom;
-      oom_state.hit_count  = num_ooms;
-      oom_state.filter     = static_cast<oom_type>(oom_filter);
-      oom_state.skip_count = skip_count;
+      threads_at->second.retry_oom.init(num_ooms, skip_count, oom_filter);
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
     }
@@ -709,15 +713,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * Force a specific thread to throw one or more SplitAndRetryOOM exceptions
    * when an alloc is called. This is intended only for testing.
    */
-  void force_split_and_retry_oom(long const thread_id, int const num_ooms)
+  void force_split_and_retry_oom(long const thread_id,
+                                 int const num_ooms,
+                                 int const oom_filter,
+                                 int const skip_count)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const threads_at = threads.find(thread_id);
     if (threads_at != threads.end()) {
-      auto& oom_state      = threads_at->second.split_and_retry_oom;
-      oom_state.hit_count  = num_ooms;
-      oom_state.filter     = oom_type::CPU_OR_GPU;
-      oom_state.skip_count = 0;
+      threads_at->second.retry_oom.init(num_ooms, skip_count, oom_filter);
     } else {
       throw std::invalid_argument("the thread is not associated with any task/shuffle");
     }
@@ -1264,11 +1268,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       if (thread->second.retry_oom.matches(is_for_cpu)) {
         if (thread->second.retry_oom.skip_count > 0) {
-          logger->info("SKIPPING INJECTED_RETRY_OOM({}) thread_id={},task_id={},skip_count={}",
-                       is_for_cpu ? "CPU" : "GPU",
-                       thread_id,
-                       thread->second.task_id,
-                       thread->second.retry_oom.skip_count);
+          logger->debug("SKIPPING INJECTED_RETRY_OOM({}) thread_id={},task_id={},skip_count={}",
+                        is_for_cpu ? "CPU" : "GPU",
+                        thread_id,
+                        thread->second.task_id,
+                        thread->second.retry_oom.skip_count);
           --thread->second.retry_oom.skip_count;
         } else if (thread->second.retry_oom.hit_count > 0) {
           thread->second.retry_oom.hit_count--;
@@ -1991,13 +1995,13 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceSplitAndRetryOOM(
-  JNIEnv* env, jclass, jlong ptr, jlong thread_id, jint num_ooms)
+  JNIEnv* env, jclass, jlong ptr, jlong thread_id, jint num_ooms, jint oom_filter, jint skip_count)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
-    mr->force_split_and_retry_oom(thread_id, num_ooms);
+    mr->force_split_and_retry_oom(thread_id, num_ooms, oom_filter, skip_count);
   }
   CATCH_STD(env, )
 }

@@ -48,10 +48,28 @@ public class RmmSpark {
       this.oomCount = oomCount;
     }
 
+    /**
+     * Convert a string value to the injection configuration OomInjection.
+     *
+     * The new format is a CSV in any order
+     *  "num_ooms=<integer>,skip=<integer>,type=<string value of OomInjectionType>"
+     *
+     * "type" maps to OomInjectionType to run count against oomCount and skipCount
+     * "num_ooms" maps to oomCount (default 1), the number of allocations resulting in an OOM
+     * "skip" maps to skipCount (default 0), the number of matching  allocations to skip before
+     * injecting an OOM at the skip+1st allocation.
+     *
+     * For backwards compatibility support existing binary configuration
+     *   "false", disabled, i.e. oomCount=0, skipCount=0, injectionType=CPU_OR_GPU
+     *   "true" or anything else but "false"  yields the default oomCount=1, skipCount=0, injectionType=CPU_OR_GPU
+     *
+     * @param s one of "true", "false" or a CSV such as "num_ooms=2,skip=3,type=CPU"
+     * @return an OomInjection corresponding to the value of s
+     */
     public static OomInjection fromString(String s) {
       switch (s) {
         case "true": return defaultOomInjection();
-        case "false": return zerInjection();
+        case "false": return noopInjection();
         default:
           // csv of kv pairs
           final Map<String, String> injectionConf = Arrays.stream(s.split(",")).map(kv -> kv.split("="))
@@ -66,7 +84,7 @@ public class RmmSpark {
       return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 1);
     }
 
-    private static OomInjection zerInjection() {
+    private static OomInjection noopInjection() {
       return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 0);
     }
 
