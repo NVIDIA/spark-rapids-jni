@@ -32,48 +32,46 @@
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
-#include <cudf/utilities/span.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 #include <cudf/wrappers/timestamps.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 #include <thrust/execution_policy.h>
-#include <thrust/for_each.h>
-#include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/logical.h>
 #include <thrust/optional.h>
-#include <thrust/pair.h>
 #include <thrust/transform.h>
+#include <thrust/tuple.h>
 
 #include "datetime_parser.hpp"
 
 namespace {
 
-using timestamp_components = spark_rapids_jni::timestamp_components;
+/**
+ * represents local date time in a time zone.
+ */
+struct timestamp_components {
+  int32_t year; // max 6 digits
+  int8_t month;
+  int8_t day;
+  int8_t hour;
+  int8_t minute;
+  int8_t second;
+  int32_t microseconds;
+};
 
 /**
- * Get the timestamp from epoch from a local date time in a specific time zone.
- * Note: local date time may be overlap or gap, refer to `ZonedDateTime.of`
- *
+ * convert a local time in a time zone to UTC timestamp
  */
-__device__ cudf::timestamp_us
-create_timestamp_from_components_and_zone(timestamp_components local_timestamp_components,
-                                          cudf::string_view time_zone) {
-  // TODO: implements:
-  //   val localDateTime = LocalDateTime.of(localDate, localTime)
-  //   val zonedDateTime = ZonedDateTime.of(localDateTime, zoneId)
-  //   val instant = Instant.from(zonedDateTime) // main work
-  //   instantToMicros(instant)
-  // here just return a zero
-  return cudf::timestamp_us{cudf::duration_us{0L}};
-}
-
-__device__ __host__ inline bool is_digit(const char chr) {
-  return (chr >= '0' && chr <= '9');
+__device__ __host__ thrust::tuple<cudf::timestamp_us, bool>
+to_utc_timestamp(timestamp_components components, cudf::string_view const &time_zone) {
+  // TODO replace the temp implementation
+  long v = 365L * 86400L * 1000000L * components.year + 30L * 86400L * 1000000L * components.month +
+           86400L * 1000000L * components.day + 3600L * 1000000L * components.hour +
+           60L * 1000000L * components.minute + 1000000L * components.second +
+           components.microseconds;
+  return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{v}}, true);
 }
 
 __device__ __host__ inline bool is_whitespace(const char chr) {
@@ -83,79 +81,6 @@ __device__ __host__ inline bool is_whitespace(const char chr) {
     case '\t':
     case '\n': return true;
     default: return false;
-  }
-}
-
-/**
- * first trim the time zone,
- * then format (+|-)h:mm, (+|-)hh:m or (+|-)h:m to (+|-)hh:mm
- * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
- * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L39
- */
-__device__ __host__ cudf::string_view format_zone_id(const cudf::string_view &time_zone_id) {
-  const char *curr_ptr = time_zone_id.data();
-  const char *end_ptr = curr_ptr + time_zone_id.size_bytes();
-
-  // trim left
-  int num_of_left_white_space = 0;
-  while (curr_ptr < end_ptr && is_whitespace(*curr_ptr)) {
-    ++curr_ptr;
-    ++num_of_left_white_space;
-  }
-  // trim right
-  while (curr_ptr < (end_ptr - 1) && is_whitespace(*(end_ptr - 1))) {
-    --end_ptr;
-  }
-
-  const int length_after_trim = end_ptr - curr_ptr;
-  int state = 0;
-  char ret[] = "+00:00";     // save the formatted result
-  bool is_valid_form = true; // is one form of: (+|-)h:mm$, (+|-)hh:m$, (+|-)h:m$, (+|-)hh:mm$
-  int curr_digit_num = 0;
-  while (curr_ptr <= end_ptr && is_valid_form) {
-    char chr = *curr_ptr;
-    if (0 == state) {                                           // expect '+' or '-'
-      if (curr_ptr == end_ptr || !('+' == chr || '-' == chr)) { // get $
-        is_valid_form = false;
-      } else { // get '+' or '-'
-        ret[0] = chr;
-        state = 1;
-      }
-    } else if (1 == state) {     // exepct hour digits then ':'
-      if (curr_ptr == end_ptr) { // get $
-        is_valid_form = false;
-      } else if (is_digit(chr) && curr_digit_num < 2) { // get digit
-        ++curr_digit_num;
-        // set hh part
-        ret[1] = ret[2];
-        ret[2] = chr;
-      } else if (':' == chr && curr_digit_num > 0) { // get ':'
-        curr_digit_num = 0;
-        state = 2;
-      } else {
-        is_valid_form = false;
-      }
-    } else if (2 == state) {                            // expect minute digits then '$'
-      if (curr_ptr == end_ptr && curr_digit_num > 0) {  // get $
-        state = 3;                                      // success state
-      } else if (is_digit(chr) && curr_digit_num < 2) { // get digit
-        ++curr_digit_num;
-        // set mm part
-        ret[4] = ret[5];
-        ret[5] = chr;
-      } else {
-        is_valid_form = false;
-      }
-    }
-    ++curr_ptr;
-  }
-
-  if (3 == state) {
-    // success
-    return cudf::string_view(ret, 6);
-  } else {
-    // failed to format, just trim time zone id
-    return cudf::string_view(time_zone_id.data() + num_of_left_white_space, length_after_trim);
   }
 }
 
@@ -169,28 +94,14 @@ __device__ __host__ bool is_valid_digits(int segment, int digits) {
          (segment != 0 && segment != 6 && segment != 7 && digits > 0 && digits <= 2);
 }
 
-/**
- *
- * Try to parse timestamp string and get a tuple which contains:
- * - timestamp_components in timestamp string: (year, month, day, hour, minute, seconds,
- * microseconds). If timestamp string does not contain date and only contains time, then
- * (year,month,day) is a invalid value (-1, -1, -1). If timestamp string is invalid, then all the
- * components is -1.
- * - time zone in timestamp string, use default time zone if it's empty
- *
- * Note: the returned time zone is not validated
- *
- * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
- * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L394
- */
-__device__ __host__ thrust::pair<timestamp_components, cudf::string_view>
-parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
-                                        cudf::string_view default_time_zone) {
-  auto error_compoments = timestamp_components{-1, -1, -1, -1, -1, -1, -1};
-  auto error_time_zone = cudf::string_view();
+__device__ __host__ thrust::tuple<cudf::timestamp_us, bool>
+parse_string_to_timestamp_us(cudf::string_view const &timestamp_str, const char *default_time_zone,
+                             cudf::size_type default_time_zone_char_len, bool allow_time_zone,
+                             bool allow_special_expressions, bool ansi_mode) {
+  auto error_us = cudf::timestamp_us{cudf::duration_us{0}};
 
   if (timestamp_str.empty()) {
-    return thrust::make_pair(error_compoments, error_time_zone);
+    return thrust::make_tuple(error_us, false);
   }
 
   const char *curr_ptr = timestamp_str.data();
@@ -206,7 +117,7 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
   }
 
   if (curr_ptr == end_ptr) {
-    return thrust::make_pair(error_compoments, error_time_zone);
+    return thrust::make_tuple(error_us, false);
   }
 
   const char *const bytes = curr_ptr;
@@ -241,7 +152,7 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
       } else if (i < 2) {
         if (b == '-') {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
@@ -250,43 +161,43 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
         } else if (0 == i && ':' == b && !year_sign.has_value()) {
           just_time = true;
           if (!is_valid_digits(3, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[3] = current_segment_value;
           current_segment_value = 0;
           current_segment_digits = 0;
           i = 4;
         } else {
-          return thrust::make_pair(error_compoments, error_time_zone);
+          return thrust::make_tuple(error_us, false);
         }
       } else if (2 == i) {
         if (' ' == b || 'T' == b) {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return thrust::make_pair(error_compoments, error_time_zone);
+          return thrust::make_tuple(error_us, false);
         }
       } else if (3 == i || 4 == i) {
         if (':' == b) {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return thrust::make_pair(error_compoments, error_time_zone);
+          return thrust::make_tuple(error_us, false);
         }
       } else if (5 == i || 6 == i) {
         if ('.' == b && 5 == i) {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
@@ -294,7 +205,7 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
           i += 1;
         } else {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
@@ -309,14 +220,14 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
       } else {
         if (i < segments_len && (':' == b || ' ' == b)) {
           if (!is_valid_digits(i, current_segment_digits)) {
-            return thrust::make_pair(error_compoments, error_time_zone);
+            return thrust::make_tuple(error_us, false);
           }
           segments[i] = current_segment_value;
           current_segment_value = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return thrust::make_pair(error_compoments, error_time_zone);
+          return thrust::make_tuple(error_us, false);
         }
       }
     } else {
@@ -334,7 +245,7 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
   }
 
   if (!is_valid_digits(i, current_segment_digits)) {
-    return thrust::make_pair(error_compoments, error_time_zone);
+    return thrust::make_tuple(error_us, false);
   }
   segments[i] = current_segment_value;
 
@@ -345,13 +256,13 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
 
   cudf::string_view timze_zone;
   if (tz.has_value()) {
-    timze_zone = format_zone_id(tz.value());
+    timze_zone = tz.value();
   } else {
-    timze_zone = default_time_zone;
+    timze_zone = cudf::string_view(default_time_zone, default_time_zone_char_len);
   }
 
   segments[0] *= year_sign.value_or(1);
-  // above is translated from Spark.
+  // above is ported from Spark.
 
   // set components
   auto components = timestamp_components{segments[0],
@@ -364,90 +275,74 @@ parse_string_to_timestamp_components_tz(cudf::string_view timestamp_str,
   if (just_time) {
     components.year = components.month = components.day = -1;
   }
-  return thrust::make_pair(components, timze_zone);
+  return to_utc_timestamp(components, timze_zone);
 }
 
 struct parse_timestamp_string_fn {
   cudf::column_device_view const d_strings;
-  cudf::string_view default_time_zone;
+  const char *default_time_zone;
+  cudf::size_type default_time_zone_char_len;
+  bool allow_time_zone;
+  bool allow_special_expressions;
+  bool ansi_mode;
 
-  __device__ cudf::timestamp_us operator()(const cudf::size_type &idx) const {
+  __device__ thrust::tuple<cudf::timestamp_us, bool> operator()(const cudf::size_type &idx) const {
     auto const d_str = d_strings.element<cudf::string_view>(idx);
-    auto components_tz = parse_string_to_timestamp_components_tz(d_str, default_time_zone);
-    return create_timestamp_from_components_and_zone(components_tz.first, components_tz.second);
+    return parse_string_to_timestamp_us(d_str, default_time_zone, default_time_zone_char_len,
+                                        allow_time_zone, allow_special_expressions, ansi_mode);
   }
 };
 
 /**
  *
- * Trims and parses timestamp string column to a timestamp column and a time zone
- * column
+ * Trims and parses timestamp string column to a timestamp column and a is valid column
  *
  */
-std::unique_ptr<cudf::column> parse_string_to_timestamp_and_time_zone(
-    cudf::strings_column_view const &input, cudf::string_view default_time_zone,
-    rmm::cuda_stream_view stream, rmm::mr::device_memory_resource *mr) {
+std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>>
+string_to_timestamp(cudf::strings_column_view const &input,
+                    std::string_view const &default_time_zone, bool allow_time_zone,
+                    bool allow_special_expressions, bool ansi_mode, rmm::cuda_stream_view stream,
+                    rmm::mr::device_memory_resource *mr) {
   auto d_strings = cudf::column_device_view::create(input.parent(), stream);
 
   auto output_timestamp = cudf::make_timestamp_column(
       cudf::data_type{cudf::type_id::TIMESTAMP_MICROSECONDS}, input.size(),
       cudf::detail::copy_bitmask(input.parent(), stream, mr), input.null_count(), stream, mr);
+  auto output_bool = cudf::make_fixed_width_column(
+      cudf::data_type{cudf::type_id::BOOL8}, input.size(),
+      cudf::detail::copy_bitmask(input.parent(), stream, mr), input.null_count(), stream, mr);
 
-  thrust::transform(rmm::exec_policy(stream), thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(input.size()),
-                    output_timestamp->mutable_view().begin<cudf::timestamp_us>(),
-                    parse_timestamp_string_fn{*d_strings, default_time_zone});
+  thrust::transform(
+      rmm::exec_policy(stream), thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(input.size()),
+      thrust::make_zip_iterator(
+          thrust::make_tuple(output_timestamp->mutable_view().begin<cudf::timestamp_us>(),
+                             output_bool->mutable_view().begin<bool>())),
+      parse_timestamp_string_fn{*d_strings, default_time_zone.data(),
+                                static_cast<cudf::size_type>(default_time_zone.size()),
+                                allow_time_zone, allow_special_expressions, ansi_mode});
 
-  return output_timestamp;
+  return std::make_pair(std::move(output_timestamp), std::move(output_bool));
 }
 
 } // namespace
 
 namespace spark_rapids_jni {
 
-/**
- *
- * Trims and parses timestamp string column to a timestamp components column and a time zone
- * column, then create timestamp column
- * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
- * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L394
- *
- * @param input input string column view.
- * @param default_time_zone if input string does not contain a time zone, use this time zone.
- * @returns timestamp components column and time zone string.
- * be empty.
- */
-std::unique_ptr<cudf::column> parse_string_to_timestamp(cudf::strings_column_view const &input,
-                                                        cudf::string_view default_time_zone) {
+std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>>
+parse_string_to_timestamp(cudf::strings_column_view const &input,
+                          std::string_view const &default_time_zone, bool allow_time_zone,
+                          bool allow_special_expressions, bool ansi_mode) {
   auto timestamp_type = cudf::data_type{cudf::type_id::TIMESTAMP_MICROSECONDS};
   if (input.size() == 0) {
-    return cudf::make_empty_column(timestamp_type.id());
+    return std::make_pair(cudf::make_empty_column(timestamp_type.id()),
+                          cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}));
   }
 
   auto const stream = cudf::get_default_stream();
   auto const mr = rmm::mr::get_current_device_resource();
-  return parse_string_to_timestamp_and_time_zone(input, default_time_zone, stream, mr);
-}
-
-/**
- *
- * Refer to `SparkDateTimeUtils.stringToTimestampWithoutTimeZone`
- */
-std::unique_ptr<cudf::column>
-string_to_timestamp_without_time_zone(cudf::strings_column_view const &input,
-                                      bool allow_time_zone) {
-  // TODO
-  throw std::runtime_error("Not implemented!!!");
-}
-
-/**
- *
- * Refer to `SparkDateTimeUtils.stringToTimestamp`
- */
-std::unique_ptr<cudf::column> string_to_timestamp(cudf::strings_column_view const &input,
-                                                  cudf::string_view time_zone) {
-  // TODO
-  throw std::runtime_error("Not implemented!!!");
+  return string_to_timestamp(input, default_time_zone, allow_time_zone, allow_special_expressions,
+                             ansi_mode, stream, mr);
 }
 
 } // namespace spark_rapids_jni
