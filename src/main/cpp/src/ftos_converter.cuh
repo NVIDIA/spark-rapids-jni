@@ -243,8 +243,7 @@ __device__ inline uint32_t mulShift32(uint32_t const m, uint64_t const factor, i
 __device__ inline int copy_special_str(char* const result,
                                        bool const sign,
                                        bool const exponent,
-                                       bool const mantissa,
-                                       int const digits = 1)
+                                       bool const mantissa)
 {
   if (mantissa) {
     memcpy(result, "NaN", 3);
@@ -255,27 +254,15 @@ __device__ inline int copy_special_str(char* const result,
     memcpy(result + sign, "Infinity", 8);
     return sign + 8;
   }
-  result[sign] = '0';
-  if (digits == 0) {
-    return sign + 1;
-  } else {
-    result[sign + 1] = '.';
-  }
-  for (int i = 0; i < digits; i++) {
-    result[sign + 2 + i] = '0';
-  }
-  return sign + 2 + digits;
+  memcpy(result + sign, "0.0", 3);
+  return sign + 3;
 }
 
-__device__ inline int special_str_size(bool const sign,
-                                       bool const exponent,
-                                       bool const mantissa,
-                                       int const digits = 1)
+__device__ inline int special_str_size(bool const sign, bool const exponent, bool const mantissa)
 {
   if (mantissa) { return 3; }
   if (exponent) { return sign + 8; }
-  if (digits == 0) { return sign + 1; }
-  return sign + 2 + digits;
+  return sign + 3;
 }
 
 __device__ inline uint32_t float_to_bits(float const f)
@@ -1504,16 +1491,54 @@ __device__ inline int format_float_size(floating_decimal_32 const v, bool const 
   return index;
 }
 
+__device__ inline int copy_format_special_str(char* const result,
+                                              bool const sign,
+                                              bool const exponent,
+                                              bool const mantissa,
+                                              int const digits = 1)
+{
+  if (mantissa) {
+    memcpy(result, "\xEF\xBF\xBD", 3);  // U+FFFD, replacement character, NaN
+    return 3;
+  }
+  if (sign) { result[0] = '-'; }
+  if (exponent) {
+    memcpy(result + sign, "\xE2\x88\x9E", 3);  // U+221E, infinity symbol
+    return sign + 3;
+  }
+  result[sign] = '0';
+  if (digits == 0) {
+    return sign + 1;
+  } else {
+    result[sign + 1] = '.';
+  }
+  for (int i = 0; i < digits; i++) {
+    result[sign + 2 + i] = '0';
+  }
+  return sign + 2 + digits;
+}
+
+__device__ inline int special_format_str_size(bool const sign,
+                                              bool const exponent,
+                                              bool const mantissa,
+                                              int const digits = 1)
+{
+  if (mantissa) { return 3; }
+  if (exponent) { return sign + 3; }
+  if (digits == 0) { return sign + 1; }
+  return sign + 2 + digits;
+}
+
 __device__ inline int compute_format_float_size(double value, int digits, bool is_float)
 {
   bool sign = false, special = false;
   if (is_float) {
     floating_decimal_32 v = f2d(value, sign, special);
-    if (special) { return special_str_size(sign, v.exponent, v.mantissa, digits); }
+    if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
     return format_float_size(v, sign, digits);
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
-    if (special) { return special_str_size(sign, v.exponent, v.mantissa, digits); }
+    if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
     return format_float_size(v, sign, digits);
   }
 }
@@ -1523,11 +1548,11 @@ __device__ inline int format_float(double value, int digits, bool is_float, char
   bool sign = false, special = false;
   if (is_float) {
     floating_decimal_32 v = f2d(value, sign, special);
-    if (special) { return copy_special_str(output, sign, v.exponent, v.mantissa, digits); }
+    if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
     return to_formated_chars(v, sign, output, digits);
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
-    if (special) { return copy_special_str(output, sign, v.exponent, v.mantissa, digits); }
+    if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
     return to_formated_chars(v, sign, output, digits);
   }
 }

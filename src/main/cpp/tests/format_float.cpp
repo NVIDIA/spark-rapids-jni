@@ -48,7 +48,7 @@ TEST_F(FormatFloatTests, FormatFloats32)
                                                            "0.00000",
                                                            "5.00000",
                                                            "-4.00000",
-                                                           "NaN",
+                                                           "\xEF\xBF\xBD",
                                                            "123,456,790,000.00000",
                                                            "-0.00000"};
 
@@ -80,7 +80,7 @@ TEST_F(FormatFloatTests, FormatFloats64)
                                                            "0.00000",
                                                            "5.00000",
                                                            "-4.00000",
-                                                           "NaN",
+                                                           "\xEF\xBF\xBD",
                                                            "839,542,223,232.79420",
                                                            "-0.00000"};
 
