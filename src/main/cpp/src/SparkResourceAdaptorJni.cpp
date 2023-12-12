@@ -1268,7 +1268,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       if (thread->second.retry_oom.matches(is_for_cpu)) {
         if (thread->second.retry_oom.skip_count > 0) {
-          logger->debug("SKIPPING INJECTED_RETRY_OOM({}) thread_id={},task_id={},skip_count={}",
+          logger->debug("SKIPPING INJECTED_RETRY_OOM_{} thread_id={},task_id={},skip_count={}",
                         is_for_cpu ? "CPU" : "GPU",
                         thread_id,
                         thread->second.task_id,
@@ -1277,7 +1277,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         } else if (thread->second.retry_oom.hit_count > 0) {
           thread->second.retry_oom.hit_count--;
           thread->second.metrics.num_times_retry_throw++;
-          log_status("INJECTED_RETRY_OOM", thread_id, thread->second.task_id, thread->second.state);
+          std::string const op_prefix = "INJECTED_RETRY_OOM";
+          std::string const op        = op_prefix + (is_for_cpu ? "CPU" : "GPU");
+          log_status(op, thread_id, thread->second.task_id, thread->second.state);
           thread->second.record_failed_retry_time();
           throw_java_exception(is_for_cpu ? CPU_RETRY_OOM_CLASS : GPU_RETRY_OOM_CLASS,
                                "injected RetryOOM");

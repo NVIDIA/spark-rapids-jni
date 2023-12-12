@@ -36,64 +36,7 @@ public class RmmSpark {
     CPU,
     GPU;
   }
-
-  public static class OomInjection {
-    public final OomInjectionType injectionType;
-    public final int skipCount;
-    public final int oomCount;
-
-    private OomInjection(OomInjectionType injectionType, int skipCount, int oomCount) {
-      this.injectionType = injectionType;
-      this.skipCount = skipCount;
-      this.oomCount = oomCount;
-    }
-
-    /**
-     * Convert a string value to the injection configuration OomInjection.
-     *
-     * The new format is a CSV in any order
-     *  "num_ooms=<integer>,skip=<integer>,type=<string value of OomInjectionType>"
-     *
-     * "type" maps to OomInjectionType to run count against oomCount and skipCount
-     * "num_ooms" maps to oomCount (default 1), the number of allocations resulting in an OOM
-     * "skip" maps to skipCount (default 0), the number of matching  allocations to skip before
-     * injecting an OOM at the skip+1st allocation.
-     *
-     * For backwards compatibility support existing binary configuration
-     *   "false", disabled, i.e. oomCount=0, skipCount=0, injectionType=CPU_OR_GPU
-     *   "true" or anything else but "false"  yields the default oomCount=1, skipCount=0, injectionType=CPU_OR_GPU
-     *
-     * @param s one of "true", "false" or a CSV such as "num_ooms=2,skip=3,type=CPU"
-     * @return an OomInjection corresponding to the value of s
-     */
-    public static OomInjection fromString(String s) {
-      switch (s) {
-        case "true": return defaultOomInjection();
-        case "false": return noopInjection();
-        default:
-          // csv of kv pairs
-          final Map<String, String> injectionConf = Arrays.stream(s.split(",")).map(kv -> kv.split("="))
-            .collect(java.util.stream.Collectors.toMap(a -> a[0], a -> a[1]));
-          return new OomInjection(OomInjectionType.valueOf(injectionConf.get("type")),
-            Integer.parseInt(injectionConf.getOrDefault("skip", "0")),
-            Integer.parseInt(injectionConf.getOrDefault("num_ooms", "1")));
-      }
-    }
-
-    private static OomInjection defaultOomInjection() {
-      return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 1);
-    }
-
-    private static OomInjection noopInjection() {
-      return new OomInjection(OomInjectionType.CPU_OR_GPU, 0, 0);
-    }
-
-    public void inject(long threadId) {
-      currentThreadIsDedicatedToTask(threadId);
-      forceRetryOOM(getCurrentThreadId(), oomCount, injectionType.ordinal(), skipCount);
-    }
-  }
-
+  
   private static volatile SparkResourceAdaptor sra = null;
 
   /**
