@@ -39,17 +39,17 @@ struct DateTimeParserTest : public cudf::test::BaseFixture
 
 TEST_F(DateTimeParserTest, ParseTimestamp)
 {
-  auto const ts_col = timestamp_col{
-      -719162L, -354285L, -141714, -141438, -141437, -141432, -141427, -31463, -31453, -1, 0, 18335};
+  auto v = (2023L * 365L * 86400L + 11L * 30L * 86400L + 5L * 86400L + 3L * 3600L + 4L * 60L + 55L) * 1000000L;
+  auto const ts_col = timestamp_col{v, v, v + 123456};
 
   auto const ts_strings =
       cudf::test::strings_column_wrapper{"2023-11-05T03:04:55Z",
-                                         "2023-11-05T03:04:55 ",
-                                         "2023-11-05T03:04:55.123456   "};
+                                        "2023-11-05T03:04:55 ",
+                                        "2023-11-05T03:04:55.123456   "};
   auto const parsed_ts =
-      cudf::strings::string_to_timestamp(cudf::strings_column_view(ts_strings),
-                                         "Z",
-                                         true,
-                                         true);
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(ts_col, *parsed_ts);
+      spark_rapids_jni::string_to_timestamp(cudf::strings_column_view(ts_strings),
+                                            "Z",
+                                            true,
+                                            true);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(ts_col, *(parsed_ts.first));
 }

@@ -62,12 +62,15 @@ struct timestamp_components
 __device__ __host__ thrust::tuple<cudf::timestamp_us, bool>
 to_utc_timestamp(timestamp_components components, cudf::string_view const &time_zone)
 {
-  // TODO replace the temp implementation
-  long v = 365L * 86400L * 1000000L * components.year + 30L * 86400L * 1000000L * components.month +
-            86400L * 1000000L * components.day + 3600L * 1000000L * components.hour +
-            60L * 1000000L * components.minute + 1000000L * components.second +
-            components.microseconds;
-  return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{v}}, true);
+  // TODO replace the fake implementation
+  long seconds = components.year * 365L * 86400L +
+                 components.month * 30L * 86400L +
+                 components.day * 86400L +
+                 components.hour * 3600L +
+                 components.minute * 60L +
+                 components.second;
+  long us = seconds * 1000000L + components.microseconds;
+  return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{us}}, true);
 }
 
 __device__ __host__ inline bool is_whitespace(const char chr)
@@ -492,11 +495,13 @@ parse_string_to_timestamp(cudf::strings_column_view const &input,
     }
     else
     {
+      // TODO update bitmask
       return std::make_pair(std::move(timestamp_column), true);
     }
   }
   else
   {
+    // TODO update bitmask
     return std::make_pair(std::move(timestamp_column), true);
   }
 }
