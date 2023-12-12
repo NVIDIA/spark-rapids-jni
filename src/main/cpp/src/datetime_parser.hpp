@@ -63,9 +63,30 @@ namespace spark_rapids_jni {
  * @param ansi_mode is ansi mode
  * @returns a timestamp column and a bool column. Bool column is empty if ansi mode is false, not empty otherwise.
  */
-std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>>
+std::pair<std::unique_ptr<cudf::column>, bool>
 parse_string_to_timestamp(cudf::strings_column_view const &input,
                           std::string_view const &default_time_zone,
+                          bool allow_time_zone,
+                          bool allow_special_expressions,
+                          bool ansi_mode);
+/**
+ * Refer to `parse_string_to_timestamp`
+ * If timestamp string does not contain date info(yyyy mm dd), use current date
+*/
+std::pair<std::unique_ptr<cudf::column>, bool>
+string_to_timestamp(cudf::strings_column_view const &input,
+                          std::string_view const &default_time_zone,
+                          bool allow_special_expressions,
+                          bool ansi_mode);
+
+/**
+ * Refer to `parse_string_to_timestamp`
+ * 
+ * @param allow_time_zone whether allow time zone in the timestamp string. e.g.: 
+ *   1991-04-14T02:00:00Asia/Shanghai is invalid when do not allow time zone.
+*/
+std::pair<std::unique_ptr<cudf::column>, bool>
+string_to_timestamp_without_time_zone(cudf::strings_column_view const &input,
                           bool allow_time_zone,
                           bool allow_special_expressions,
                           bool ansi_mode);
