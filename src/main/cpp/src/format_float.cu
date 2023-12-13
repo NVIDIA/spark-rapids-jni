@@ -23,7 +23,6 @@
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/type_dispatcher.hpp>
 
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
@@ -35,23 +34,23 @@ namespace {
 template <typename FloatType>
 struct format_float_fn {
   cudf::column_device_view d_floats;
-  int const digits;
+  int digits;
   cudf::size_type* d_offsets;
   char* d_chars;
 
-  __device__ cudf::size_type compute_output_size(FloatType value, int digits) const
+  __device__ cudf::size_type compute_output_size(FloatType value, int digits_) const
   {
     bool constexpr is_float = std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
-      ftos_converter::compute_format_float_size(static_cast<double>(value), digits, is_float));
+      ftos_converter::compute_format_float_size(static_cast<double>(value), digits_, is_float));
   }
 
-  __device__ void format_float(cudf::size_type idx, int digits) const
+  __device__ void format_float(cudf::size_type idx, int digits_) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
     bool constexpr is_float = std::is_same_v<FloatType, float>;
     auto const output       = d_chars + d_offsets[idx];
-    ftos_converter::format_float(static_cast<double>(value), digits, is_float, output);
+    ftos_converter::format_float(static_cast<double>(value), digits_, is_float, output);
   }
 
   __device__ void operator()(cudf::size_type idx) const
