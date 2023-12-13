@@ -44,7 +44,7 @@ public class DecimalUtils {
    * row.
    */
   public static Table multiply128(ColumnView a, ColumnView b, int productScale) {
-    return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale, false));
+    return new Table(multiply128(a.getNativeView(), b.getNativeView(), productScale, true));
   }
 
   /**
