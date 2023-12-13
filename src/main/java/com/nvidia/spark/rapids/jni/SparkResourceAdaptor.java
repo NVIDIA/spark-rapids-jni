@@ -184,10 +184,6 @@ public class SparkResourceAdaptor
     doneWaitingOnPool(getHandle(), threadId);
   }
 
-  public void forceRetryOOM(long threadId, int numOOMs) {
-    forceRetryOOM(getHandle(), threadId, numOOMs, RmmSpark.OomInjectionType.CPU_OR_GPU.ordinal(), 0);
-  }
-
   /**
    * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
@@ -205,10 +201,6 @@ public class SparkResourceAdaptor
     assert skipCount >= 0 : "non-negative skipCount expected: actual=" + skipCount;
     assert oomMode >= 0 && oomMode < OomInjectionType.values().length:
       "non-negative oomMode<" + OomInjectionType.values().length + " expected: actual=" + oomMode;
-  }
-
-  public void forceSplitAndRetryOOM(long threadId, int numOOMs) {
-    forceSplitAndRetryOOM(threadId, numOOMs, RmmSpark.OomInjectionType.CPU_OR_GPU.ordinal(), 0);
   }
 
   /**
