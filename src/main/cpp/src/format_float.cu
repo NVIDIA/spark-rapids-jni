@@ -23,6 +23,7 @@
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/utilities/type_dispatcher.hpp>
 
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
@@ -75,7 +76,7 @@ struct format_float_fn {
 struct dispatch_format_float_fn {
   template <typename FloatType, CUDF_ENABLE_IF(std::is_floating_point_v<FloatType>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
-                                           int digits,
+                                           int const digits,
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource* mr) const
   {
@@ -97,7 +98,7 @@ struct dispatch_format_float_fn {
   // non-float types throw an exception
   template <typename T, CUDF_ENABLE_IF(not std::is_floating_point_v<T>)>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
-                                           int,
+                                           int const,
                                            rmm::cuda_stream_view,
                                            rmm::mr::device_memory_resource*) const
   {
@@ -109,7 +110,7 @@ struct dispatch_format_float_fn {
 
 // This will convert all float column types into a strings column.
 std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
-                                           int digits,
+                                           int const digits,
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource* mr)
 {
@@ -120,7 +121,7 @@ std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
 
 // external API
 std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
-                                           int digits,
+                                           int const digits,
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource* mr)
 {

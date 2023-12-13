@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -117,7 +117,7 @@ std::unique_ptr<cudf::column> string_to_float(
 
 std::unique_ptr<cudf::column> format_float(
   cudf::column_view const& input,
-  int digits,
+  int const digits,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
