@@ -15,6 +15,8 @@
  */
 package com.nvidia.spark.rapids.jni;
 
+import com.nvidia.spark.rapids.jni.RmmSpark.OomInjectionType;
+
 import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
@@ -186,18 +188,31 @@ public class SparkResourceAdaptor
    * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the GpuRetryOOM should be thrown
+   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
-  public void forceRetryOOM(long threadId, int numOOMs) {
-    forceRetryOOM(getHandle(), threadId, numOOMs);
+  public void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oomMode, skipCount);
+    forceRetryOOM(getHandle(), threadId, numOOMs, oomMode, skipCount);
+  }
+
+  private void validateOOMInjectionParams(int numOOMs, int oomMode, int skipCount) {
+    assert numOOMs >= 0 : "non-negative numOoms expected: actual=" + numOOMs;
+    assert skipCount >= 0 : "non-negative skipCount expected: actual=" + skipCount;
+    assert oomMode >= 0 && oomMode < OomInjectionType.values().length:
+      "non-negative oomMode<" + OomInjectionType.values().length + " expected: actual=" + oomMode;
   }
 
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
+   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
-  public void forceSplitAndRetryOOM(long threadId, int numOOMs) {
-    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs);
+  public void forceSplitAndRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oomMode, skipCount);
+    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs, oomMode, skipCount);
   }
 
   /**
@@ -295,8 +310,8 @@ public class SparkResourceAdaptor
   private static native void submittingToPool(long handle, long threadId);
   private static native void waitingOnPool(long handle, long threadId);
   private static native void doneWaitingOnPool(long handle, long threadId);
-  private static native void forceRetryOOM(long handle, long threadId, int numOOMs);
-  private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs);
+  private static native void forceRetryOOM(long handle, long threadId, int numOOMs, int oomMode, int skipCount);
+  private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs, int oomMode, int skipCount);
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
   private static native int getStateOf(long handle, long threadId);

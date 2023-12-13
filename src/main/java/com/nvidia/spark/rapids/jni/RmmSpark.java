@@ -23,10 +23,19 @@ import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
+import java.util.Arrays;
+import java.util.Map;
+
 /**
  * Initialize RMM in ways that are specific to Spark.
  */
 public class RmmSpark {
+
+  public enum OomInjectionType {
+    CPU_OR_GPU,
+    CPU,
+    GPU;
+  }
 
   private static volatile SparkResourceAdaptor sra = null;
 
@@ -432,15 +441,21 @@ public class RmmSpark {
    * allocation attempt, depending on the type of allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the *RetryOOM should be thrown
+   * @param oomMode the ordinal corresponding to OomInjectionType to filter allocations
+   * @param skipCount how many matching allocations to skip
    */
-  public static void forceRetryOOM(long threadId, int numOOMs) {
+  public static void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
-        sra.forceRetryOOM(threadId, numOOMs);
+        sra.forceRetryOOM(threadId, numOOMs, oomMode, skipCount);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
       }
     }
+  }
+
+  public static void forceRetryOOM(long threadId, int numOOMs) {
+    forceRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU.ordinal(), 0);
   }
 
   /**
@@ -457,15 +472,21 @@ public class RmmSpark {
    * on their next allocation attempt, depending on the allocation being done.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numOOMs the number of times the *SplitAndRetryOOM should be thrown
+   * @param oomMode the ordinal corresponding to OomInjectionType to filter allocations
+   * @param skipCount how many matching allocations to skip
    */
-  public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
+  public static void forceSplitAndRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
-        sra.forceSplitAndRetryOOM(threadId, numOOMs);
+        sra.forceSplitAndRetryOOM(threadId, numOOMs, oomMode, skipCount);
       } else {
         throw new IllegalStateException("RMM has not been configured for OOM injection");
       }
     }
+  }
+
+  public static void forceSplitAndRetryOOM(long threadId, int numOOMs) {
+    forceSplitAndRetryOOM(threadId, numOOMs, OomInjectionType.CPU_OR_GPU.ordinal(), 0);
   }
 
   /**
