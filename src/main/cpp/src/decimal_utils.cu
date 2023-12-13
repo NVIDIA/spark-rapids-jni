@@ -680,22 +680,22 @@ struct dec128_multiplier {
     int dec_precision = precision10(product);
 
     int const mult_scale = [&]() {
-        // According to https://issues.apache.org/jira/browse/SPARK-40129
-        // and https://issues.apache.org/jira/browse/SPARK-45786, Spark has a bug in
-        // versions 3.2.4, 3.3.3, 3.4.1, 3.5.0 and 4.0.0 The bug is fixed for later versions but to
-        // match the legacy behavior we need to first round the result to a precision of 38 then we need
-        // to round the result to the final scale that we care about.
-        if (cast_interim_result) {
-          int first_div_precision = dec_precision - 38;
-          if (first_div_precision > 0) {
-            auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
-            product                            = divide_and_round(product, first_div_scale_divisor);
+      // According to https://issues.apache.org/jira/browse/SPARK-40129
+      // and https://issues.apache.org/jira/browse/SPARK-45786, Spark has a bug in
+      // versions 3.2.4, 3.3.3, 3.4.1, 3.5.0 and 4.0.0 The bug is fixed for later versions but to
+      // match the legacy behavior we need to first round the result to a precision of 38 then we
+      // need to round the result to the final scale that we care about.
+      if (cast_interim_result) {
+        int first_div_precision = dec_precision - 38;
+        if (first_div_precision > 0) {
+          auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
+          product                            = divide_and_round(product, first_div_scale_divisor);
 
-            // a_scale and b_scale are negative. first_div_precision is not
-            return a_scale + b_scale + first_div_precision;
-          }
+          // a_scale and b_scale are negative. first_div_precision is not
+          return a_scale + b_scale + first_div_precision;
         }
-        return a_scale + b_scale;
+      }
+      return a_scale + b_scale;
     }();
 
     int exponent = prod_scale - mult_scale;
