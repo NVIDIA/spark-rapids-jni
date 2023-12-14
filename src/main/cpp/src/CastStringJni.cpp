@@ -30,6 +30,7 @@
 #include <cudf/unary.hpp>
 
 #include "cudf_jni_apis.hpp"
+#include "datetime_parser.hpp"
 #include "dtype_utils.hpp"
 #include "jni_utils.hpp"
 
@@ -254,5 +255,52 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
     return jni::release_as_jlong(result);
   }
   CATCH_CAST_EXCEPTION(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
+                                                         jclass,
+                                                         jlong input_column,
+                                                         jstring default_time_zone,
+                                                         jboolean allow_special_expressions,
+                                                         jboolean ansiEnabled)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::jni::native_jstring default_zone(env, default_time_zone);
+    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto [ret_cv, success] = spark_rapids_jni::string_to_timestamp(
+      input_view, default_zone.get(), allow_special_expressions, ansiEnabled);
+    if (success) { return cudf::jni::release_as_jlong(ret_cv); }
+  }
+  CATCH_STD(env, 0);
+
+  // sucess is false, throw exception.
+  // Note: do not need to release ret_cv, because it's nullptr when success is false.
+  JNI_THROW_NEW(env, "java/lang/IllegalArgumentException", "Parse failed on Ansi mode", 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestampWithoutTimeZone(
+  JNIEnv* env,
+  jclass,
+  jlong input_column,
+  jboolean allowTimeZone,
+  jboolean allow_special_expressions,
+  jboolean ansiEnabled)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto input_view{*reinterpret_cast<cudf::column_view const*>(input_column)};
+    auto [ret_cv, success] = spark_rapids_jni::string_to_timestamp_without_time_zone(
+      input_view, allowTimeZone, allow_special_expressions, ansiEnabled);
+    if (success) { return cudf::jni::release_as_jlong(ret_cv); }
+  }
+  CATCH_STD(env, 0);
+
+  // sucess is false, throw exception.
+  // Note: do not need to release ret_cv, because it's nullptr when success is false.
+  JNI_THROW_NEW(env, "java/lang/IllegalArgumentException", "Parse failed on Ansi mode", 0);
 }
 }

@@ -152,6 +152,89 @@ public class CastStrings {
     return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
   }
 
+  /**
+   * Trims and parses a timestamp string column with time zone suffix to a
+   * timestamp column.
+   * Use the default time zone if string does not contain time zone.
+   *
+   * Supports the following formats:
+   * `[+-]yyyy*`
+   * `[+-]yyyy*-[m]m`
+   * `[+-]yyyy*-[m]m-[d]d`
+   * `[+-]yyyy*-[m]m-[d]d `
+   * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * 
+   * Supports the following time zones:
+   * - Z - Zulu time zone UTC+0
+   * - +|-[h]h:[m]m
+   * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Example:
+   * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
+   * ts = toTimestamp(input, "UTC", allowSpecialExpressions = true, ansiEnabled =
+   * false)
+   * ts is: ['2023-01-01 00:00:00', '2023-01-01T00:00:00']
+   * 
+   * @param cv                      The input string column to be converted.
+   * @param defaultTimeZone         Use the default time zone if string does not
+   *                                contain time zone.
+   * @param allowSpecialExpressions Whether allow: epoch, now, today, tomorrow
+   * @param ansiEnabled             is Ansi mode
+   * @return a timestamp column
+   * @throws IllegalArgumentException if cv contains invalid value when
+   *                                  ansiEnabled is true
+   */
+  public static ColumnVector toTimestamp(ColumnView cv, String defaultTimeZone,
+      boolean allowSpecialExpressions, boolean ansiEnabled) {
+    if (defaultTimeZone == null || defaultTimeZone.isEmpty()) {
+      throw new IllegalArgumentException("Default time zone can not be empty.");
+    }
+    return new ColumnVector(toTimestamp(cv.getNativeView(), defaultTimeZone,
+        allowSpecialExpressions, ansiEnabled));
+  }
+
+  /**
+   * Trims and parses a timestamp string column with time zone suffix to a
+   * timestamp column.
+   * Do not use the time zones in timestamp strings.
+   *
+   * Supports the following formats:
+   * `[+-]yyyy*`
+   * `[+-]yyyy*-[m]m`
+   * `[+-]yyyy*-[m]m-[d]d`
+   * `[+-]yyyy*-[m]m-[d]d `
+   * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * 
+   * Supports the following time zones:
+   * - Z - Zulu time zone UTC+0
+   * - +|-[h]h:[m]m
+   * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Example:
+   * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
+   * ts = toTimestampWithoutTimeZone(input, allowTimeZone = true,
+   * allowSpecialExpressions = true, ansiEnabled = false)
+   * ts is: ['2023-01-01 00:00:00', '2023-01-01T08:00:00']
+   * 
+   * @param cv                      The input string column to be converted.
+   * @param allow_time_zone         whether allow time zone in the timestamp
+   *                                string. e.g.:
+   *                                1991-04-14T02:00:00Asia/Shanghai is invalid
+   *                                when do not allow time zone.
+   * @param allowSpecialExpressions Whether allow: epoch, now, today, tomorrow
+   * @param ansiEnabled             is Ansi mode
+   * @return a timestamp column
+   * @throws IllegalArgumentException if cv contains invalid value when
+   *                                  ansiEnabled is true
+   */
+  public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone,
+      boolean allowSpecialExpressions, boolean ansiEnabled) {
+    return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,
+        allowSpecialExpressions, ansiEnabled));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -163,4 +246,8 @@ public class CastStrings {
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
+  private static native long toTimestamp(long nativeColumnView, String defaultTimeZone,
+      boolean allowSpecialExpressions, boolean ansiEnabled);
+  private static native long toTimestampWithoutTimeZone(long nativeColumnView,
+      boolean allowTimeZone, boolean allowSpecialExpressions, boolean ansiEnabled);
 }

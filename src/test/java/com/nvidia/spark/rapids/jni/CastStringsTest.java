@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
@@ -323,5 +324,75 @@ public class CastStringsTest {
     {
       convTestInternal(input, expected, 16);
     }
+  }
+
+  // TODO update after this PR is done.
+  @Test
+  void toTimestampTestNonAnsi() {
+    long d_2023_1_1 = (2023L * 365L * 86400L + 1 * 30L * 86400L + 1 * 86400L) * 1000000L;
+    long d_2023_11_1 = (2023L * 365L * 86400L + 11 * 30L * 86400L + 1 * 86400L) * 1000000L;
+    long d_2023_11_5 = (2023L * 365L * 86400L + 11L * 30L * 86400L + 5L * 86400L) * 1000000L;
+    long t_3_4_55 = (3L * 3600L + 4L * 60L + 55L) * 1000000L;
+    long d_2023_11_5_t_3_4_55 = d_2023_11_5 + t_3_4_55;
+
+    try (
+        ColumnVector input = ColumnVector.fromStrings(
+            null,
+            " 2023 ",
+            " 2023-11 ",
+            " 2023-11-5 ",
+            " 2023-11-05 3:04:55   ",
+            " 2023-11-05T03:4:55   ",
+            " 2023-11-05T3:4:55   ",
+            "  2023-11-5T3:4:55.",
+            "  2023-11-5T3:4:55.Iran",
+            "  2023-11-5T3:4:55.1 ",
+            "  2023-11-5T3:4:55.1Iran",
+            "  2023-11-05T03:04:55.123456  ",
+            "  2023-11-05T03:04:55.123456Iran  ",
+            " 222222 ",
+            " ", // invalid
+            "", // invalid
+            "1-" // invalid
+        );
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            null,
+            d_2023_1_1,
+            d_2023_11_1,
+            d_2023_11_5,
+            d_2023_11_5_t_3_4_55,
+            d_2023_11_5_t_3_4_55,
+            d_2023_11_5_t_3_4_55,
+            d_2023_11_5_t_3_4_55,
+            d_2023_11_5_t_3_4_55,
+            d_2023_11_5_t_3_4_55 + 100000,
+            d_2023_11_5_t_3_4_55 + 100000,
+            d_2023_11_5_t_3_4_55 + 123456,
+            d_2023_11_5_t_3_4_55 + 123456,
+            (222222L * 365L * 86400L + 1 * 30L * 86400L + 1 * 86400L) * 1000000L,
+            null,
+            null,
+            null);
+        ColumnVector actual = CastStrings.toTimestamp(input,
+            "Asia/Shanghai", false, false)) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void toTimestampTestAnsi() {
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings(" invalid_value ")) {
+        // ansiEnabled is true
+        CastStrings.toTimestamp(input, "Asia/Shanghai", false, true);
+      }
+    });
+
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings(" invalid_value ")) {
+        // ansiEnabled is true
+        CastStrings.toTimestampWithoutTimeZone(input, true, false, true);
+      }
+    });
   }
 }
