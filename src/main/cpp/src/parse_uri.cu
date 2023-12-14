@@ -22,6 +22,7 @@
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
+#include <cudf/strings/convert/convert_urls.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/string_view.cuh>
@@ -47,10 +48,20 @@ struct uri_parts {
   string_view userinfo;
   string_view port;
   string_view opaque;
-  bool valid{false};
+  uint32_t valid{0};
 };
 
-enum class URI_chunks : int8_t { PROTOCOL, HOST, AUTHORITY, PATH, QUERY, USERINFO };
+enum class URI_chunks : int8_t {
+  PROTOCOL,
+  HOST,
+  AUTHORITY,
+  PATH,
+  FRAGMENT,
+  QUERY,
+  USERINFO,
+  PORT,
+  OPAQUE
+};
 
 enum class chunk_validity : int8_t { VALID, INVALID, FATAL };
 
@@ -503,9 +514,10 @@ uri_parts __device__ validate_uri(const char* str, int len)
   if (hash >= 0) {
     ret.fragment = {str + hash + 1, len - hash - 1};
     if (!validate_fragment(ret.fragment)) {
-      ret.valid = false;
+      ret.valid = 0;
       return ret;
     }
+    ret.valid |= (1 << (int)URI_chunks::FRAGMENT);
 
     len = hash;
 
@@ -519,9 +531,10 @@ uri_parts __device__ validate_uri(const char* str, int len)
     // we have a scheme up to the :
     ret.scheme = {str, col};
     if (!validate_scheme(ret.scheme)) {
-      ret.valid = false;
+      ret.valid = 0;
       return ret;
     }
+    ret.valid |= (1 << (int)URI_chunks::PROTOCOL);
 
     // skip over scheme
     auto const skip = col + 1;
@@ -534,7 +547,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
 
   // no more string to parse is an error
   if (len <= 0) {
-    ret.valid = false;
+    ret.valid = 0;
     return ret;
   }
 
@@ -545,9 +558,10 @@ uri_parts __device__ validate_uri(const char* str, int len)
     if (question >= 0) {
       ret.query = {str + question + 1, len - question - 1};
       if (!validate_query(ret.query)) {
-        ret.valid = false;
+        ret.valid = 0;
         return ret;
       }
+      ret.valid |= (1 << (int)URI_chunks::QUERY);
     }
     auto const path_len = question >= 0 ? question : len;
 
@@ -567,17 +581,17 @@ uri_parts __device__ validate_uri(const char* str, int len)
       if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 &&
           ret.fragment.size_bytes() == 0) {
         // invalid! - but spark like to return things as long as you don't have illegal characters
-        // ret.valid = false;
-        ret.valid = true;
+        // ret.valid = 0;
         return ret;
       }
 
       if (ret.authority.size_bytes() > 0) {
         auto ipv6_address = ret.authority.size_bytes() > 2 && *ret.authority.begin() == '[';
         if (!validate_authority(ret.authority, ipv6_address)) {
-          ret.valid = false;
+          ret.valid = 0;
           return ret;
         }
+        ret.valid |= (1 << (int)URI_chunks::AUTHORITY);
 
         // Inspect the authority for userinfo, host, and port
         const char* auth   = ret.authority.data();
@@ -604,9 +618,11 @@ uri_parts __device__ validate_uri(const char* str, int len)
         if (amp > 0) {
           ret.userinfo = {auth, amp};
           if (!validate_userinfo(ret.userinfo)) {
-            ret.valid = false;
+            ret.valid = 0;
             return ret;
           }
+          ret.valid |= (1 << (int)URI_chunks::USERINFO);
+
           // skip over the @
           amp++;
 
@@ -617,17 +633,19 @@ uri_parts __device__ validate_uri(const char* str, int len)
           // Found a port, attempt to parse it
           ret.port = {auth + last_colon + 1, auth_size - last_colon - 1};
           if (!validate_port(ret.port)) {
-            ret.valid = false;
+            ret.valid = 0;
             return ret;
           }
+          ret.valid |= (1 << (int)URI_chunks::PORT);
           ret.host = {auth, last_colon};
         } else {
           ret.host = {auth, auth_size};
         }
         auto host_ret = validate_host(ret.host);
         switch (host_ret) {
-          case chunk_validity::FATAL: ret.valid = false; return ret;
+          case chunk_validity::FATAL: ret.valid = 0; return ret;
           case chunk_validity::INVALID: ret.host = {}; break;
+          case chunk_validity::VALID: ret.valid |= (1 << (int)URI_chunks::HOST); break;
         }
       }
     } else {
@@ -635,18 +653,19 @@ uri_parts __device__ validate_uri(const char* str, int len)
       ret.path = {str, len};
     }
     if (!validate_path(ret.path)) {
-      ret.valid = false;
+      ret.valid = 0;
       return ret;
     }
+    ret.valid |= (1 << (int)URI_chunks::PATH);
   } else {
     ret.opaque = {str, len};
     if (!validate_opaque(ret.opaque)) {
-      ret.valid = false;
+      ret.valid = 0;
       return ret;
     }
+    ret.valid |= (1 << (int)URI_chunks::OPAQUE);
   }
 
-  ret.valid = true;
   return ret;
 }
 
@@ -697,7 +716,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const string_length = in_string.size_bytes();
 
     auto const uri = validate_uri(in_chars, string_length);
-    if (!uri.valid) {
+    if ((uri.valid & (1 << (int)chunk)) == 0) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
     } else {
@@ -727,11 +746,18 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
           out_lengths[row_idx] = uri.userinfo.size_bytes();
           out_offsets[row_idx] = uri.userinfo.data() - base_ptr;
           break;
-      }
-
-      if (out_lengths[row_idx] == 0) {
-        // A URI can be valid, but still have no data for a specific chunk
-        clear_bit(out_validity, row_idx);
+        case URI_chunks::PORT:
+          out_lengths[row_idx] = uri.port.size_bytes();
+          out_offsets[row_idx] = uri.port.data() - base_ptr;
+          break;
+        case URI_chunks::FRAGMENT:
+          out_lengths[row_idx] = uri.fragment.size_bytes();
+          out_offsets[row_idx] = uri.fragment.data() - base_ptr;
+          break;
+        case URI_chunks::OPAQUE:
+          out_lengths[row_idx] = uri.opaque.size_bytes();
+          out_offsets[row_idx] = uri.opaque.data() - base_ptr;
+          break;
       }
     }
   }
@@ -856,6 +882,16 @@ std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
 {
   CUDF_FUNC_RANGE();
   return detail::parse_uri(input, detail::URI_chunks::HOST, stream, mr);
+}
+
+std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+  auto ret = detail::parse_uri(
+    input, detail::URI_chunks::QUERY, stream, rmm::mr::get_current_device_resource());
+  return cudf::strings::url_decode(ret->view(), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
