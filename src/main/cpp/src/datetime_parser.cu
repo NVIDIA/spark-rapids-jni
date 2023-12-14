@@ -72,6 +72,15 @@ __device__ __host__ thrust::tuple<cudf::timestamp_us, bool> to_utc_timestamp(
 }
 
 /**
+ * Convert a local time in a time zone to a UTC timestamp
+ */
+__device__ __host__ thrust::tuple<cudf::timestamp_us, bool> to_utc_timestamp(
+  timestamp_components const& components)
+{
+  return to_utc_timestamp(components, cudf::string_view("UTC", 3));
+}
+
+/**
  * Is white space
  */
 __device__ __host__ inline bool is_whitespace(const char chr)
@@ -332,10 +341,20 @@ __device__ __host__ thrust::tuple<cudf::timestamp_us, bool> parse_string_to_time
   segments[0] *= year_sign.value_or(1);
   // above is ported from Spark.
 
+  // set components
+  auto components = timestamp_components{segments[0],
+                                         static_cast<int8_t>(segments[1]),
+                                         static_cast<int8_t>(segments[2]),
+                                         static_cast<int8_t>(segments[3]),
+                                         static_cast<int8_t>(segments[4]),
+                                         static_cast<int8_t>(segments[5]),
+                                         segments[6]};
   if (default_time_zone_char_len == 0) {
     // invoke from `string_to_timestamp_without_time_zone`
     if (just_time || !allow_time_zone && tz.has_value()) {
       return thrust::make_tuple(error_us, false);
+    } else {
+      return to_utc_timestamp(components);
     }
   } else {
     // invoke from `string_to_timestamp`
@@ -348,19 +367,10 @@ __device__ __host__ thrust::tuple<cudf::timestamp_us, bool> parse_string_to_time
 
       // do not support currently
       return thrust::make_tuple(error_us, false);
+    } else {
+      return to_utc_timestamp(components, time_zone);
     }
   }
-
-  // set components
-  auto components = timestamp_components{segments[0],
-                                         static_cast<int8_t>(segments[1]),
-                                         static_cast<int8_t>(segments[2]),
-                                         static_cast<int8_t>(segments[3]),
-                                         static_cast<int8_t>(segments[4]),
-                                         static_cast<int8_t>(segments[5]),
-                                         segments[6]};
-
-  return to_utc_timestamp(components, time_zone);
 }
 
 struct parse_timestamp_string_fn {
@@ -441,7 +451,7 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> to_times
 }
 
 /**
- * Set the null mask of timestamp column according to the valid column.
+ * Set the null mask of timestamp column according to the validity column.
  */
 void update_bitmask(cudf::column& timestamp_column,
                     cudf::column const& validity_column,
