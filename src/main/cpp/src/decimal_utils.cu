@@ -975,7 +975,7 @@ namespace cudf::jni {
 std::unique_ptr<cudf::table> multiply_decimal128(cudf::column_view const& a,
                                                  cudf::column_view const& b,
                                                  int32_t product_scale,
-                                                 bool const& cast_interim_result,
+                                                 bool const cast_interim_result,
                                                  rmm::cuda_stream_view stream)
 {
   CUDF_EXPECTS(a.type().id() == cudf::type_id::DECIMAL128, "not a DECIMAL128 column");
