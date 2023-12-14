@@ -464,7 +464,7 @@ void update_bitmask(cudf::column& timestamp_column,
   masks.push_back(static_cast<cudf::bitmask_type*>(valid_bitmask.data()));
   offsets.push_back(0);
 
-  // merge 2 bitmasks 
+  // merge 2 bitmasks
   auto [null_mask, null_count] =
     cudf::detail::bitmask_and(masks, offsets, timestamp_column.size(), stream, mr);
 
