@@ -84,8 +84,8 @@ public class CastStrings {
    * Convert a float column to a formatted string column.
    *
    * @param cv the column data to process
-   * @return the converted column
    * @param digits the number of digits to display after the decimal point
+   * @return the converted column
    */
   public static ColumnVector fromFloatWithFormat(ColumnView cv, int digits) {
     return new ColumnVector(fromFloatWithFormat(cv.getNativeView(), digits));
