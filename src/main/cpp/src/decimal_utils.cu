@@ -677,8 +677,6 @@ struct dec128_multiplier {
 
     chunked256 product = multiply(a, b);
 
-    int dec_precision = precision10(product);
-
     int const mult_scale = [&]() {
       // According to https://issues.apache.org/jira/browse/SPARK-40129
       // and https://issues.apache.org/jira/browse/SPARK-45786, Spark has a bug in
@@ -686,7 +684,7 @@ struct dec128_multiplier {
       // match the legacy behavior we need to first round the result to a precision of 38 then we
       // need to round the result to the final scale that we care about.
       if (cast_interim_result) {
-        int first_div_precision = dec_precision - 38;
+        auto const first_div_precision = precision10(product) - 38;
         if (first_div_precision > 0) {
           auto const first_div_scale_divisor = pow_ten(first_div_precision).as_128_bits();
           product                            = divide_and_round(product, first_div_scale_divisor);
@@ -724,7 +722,7 @@ struct dec128_multiplier {
  private:
   // output column for overflow detected
   bool* const overflows;
-  bool cast_interim_result;
+  bool const cast_interim_result;
 
   // input data for multiply
   __int128_t const* const a_data;
