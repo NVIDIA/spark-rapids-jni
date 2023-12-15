@@ -38,14 +38,14 @@ struct format_float_fn {
   cudf::size_type* d_offsets;
   char* d_chars;
 
-  __device__ cudf::size_type compute_output_size(FloatType value) const
+  __device__ cudf::size_type compute_output_size(FloatType const value) const
   {
     bool constexpr is_float = std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
       ftos_converter::compute_format_float_size(static_cast<double>(value), digits, is_float));
   }
 
-  __device__ void format_float(cudf::size_type idx) const
+  __device__ void format_float(cudf::size_type const idx) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
     bool constexpr is_float = std::is_same_v<FloatType, float>;
@@ -53,7 +53,7 @@ struct format_float_fn {
     ftos_converter::format_float(static_cast<double>(value), digits, is_float, output);
   }
 
-  __device__ void operator()(cudf::size_type idx) const
+  __device__ void operator()(cudf::size_type const idx) const
   {
     if (d_floats.is_null(idx)) {
       if (d_chars == nullptr) { d_offsets[idx] = 0; }
