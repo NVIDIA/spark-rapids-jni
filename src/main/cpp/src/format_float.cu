@@ -38,14 +38,14 @@ struct format_float_fn {
   cudf::size_type* d_offsets;
   char* d_chars;
 
-  __device__ cudf::size_type compute_output_size(FloatType value, int digits_) const
+  __device__ cudf::size_type compute_output_size(FloatType value) const
   {
     bool constexpr is_float = std::is_same_v<FloatType, float>;
     return static_cast<cudf::size_type>(
       ftos_converter::compute_format_float_size(static_cast<double>(value), digits_, is_float));
   }
 
-  __device__ void format_float(cudf::size_type idx, int digits_) const
+  __device__ void format_float(cudf::size_type idx) const
   {
     auto const value        = d_floats.element<FloatType>(idx);
     bool constexpr is_float = std::is_same_v<FloatType, float>;
