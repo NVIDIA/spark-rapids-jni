@@ -164,6 +164,7 @@ add_library(
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/cast_decimal_to_string.cu
+  src/format_float.cu
   src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu

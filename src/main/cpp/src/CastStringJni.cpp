@@ -125,6 +125,21 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloat(J
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloatWithFormat(
+  JNIEnv* env, jclass, jlong input_column, jint digits)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::format_float(cv, digits, cudf::get_default_stream()));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal(JNIEnv* env,
                                                                                  jclass,
                                                                                  jlong input_column)

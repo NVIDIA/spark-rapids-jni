@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#pragma once
+
 #include <cuda/std/cassert>
 #include <cuda/std/climits>
 #include <cuda/std/cstdint>
@@ -116,34 +118,32 @@ __constant__ uint32_t const POW5_OFFSETS[21] = {
 
 constexpr uint32_t POW5_TABLE_SIZE = 26;
 
-__constant__ uint64_t const DOUBLE_POW5_TABLE[POW5_TABLE_SIZE] = {
-  1ull,
-  5ull,
-  25ull,
-  125ull,
-  625ull,
-  3125ull,
-  15625ull,
-  78125ull,
-  390625ull,
-  1953125ull,
-  9765625ull,
-  48828125ull,
-  244140625ull,
-  1220703125ull,
-  6103515625ull,
-  30517578125ull,
-  152587890625ull,
-  762939453125ull,
-  3814697265625ull,
-  19073486328125ull,
-  95367431640625ull,
-  476837158203125ull,
-  2384185791015625ull,
-  11920928955078125ull,
-  59604644775390625ull,
-  298023223876953125ull  //, 1490116119384765625ull
-};
+__constant__ uint64_t const DOUBLE_POW5_TABLE[POW5_TABLE_SIZE] = {1ull,
+                                                                  5ull,
+                                                                  25ull,
+                                                                  125ull,
+                                                                  625ull,
+                                                                  3125ull,
+                                                                  15625ull,
+                                                                  78125ull,
+                                                                  390625ull,
+                                                                  1953125ull,
+                                                                  9765625ull,
+                                                                  48828125ull,
+                                                                  244140625ull,
+                                                                  1220703125ull,
+                                                                  6103515625ull,
+                                                                  30517578125ull,
+                                                                  152587890625ull,
+                                                                  762939453125ull,
+                                                                  3814697265625ull,
+                                                                  19073486328125ull,
+                                                                  95367431640625ull,
+                                                                  476837158203125ull,
+                                                                  2384185791015625ull,
+                                                                  11920928955078125ull,
+                                                                  59604644775390625ull,
+                                                                  298023223876953125ull};
 
 //===== common.h from ryu =====
 
@@ -1063,7 +1063,7 @@ __device__ inline bool d2d_small_int(uint64_t const ieeeMantissa,
   return true;
 }
 
-__device__ floating_decimal_64 d2d(double f, bool& ieeeSign, bool& special)
+__device__ inline floating_decimal_64 d2d(double f, bool& ieeeSign, bool& special)
 {
   // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
   uint64_t const bits = double_to_bits(f);
@@ -1100,7 +1100,7 @@ __device__ floating_decimal_64 d2d(double f, bool& ieeeSign, bool& special)
   return v;
 }
 
-__device__ int d2s_buffered_n(double f, char* result)
+__device__ inline int d2s_buffered_n(double f, char* result)
 {
   bool sign = false, special = false;
   floating_decimal_64 v = d2d(f, sign, special);
@@ -1108,7 +1108,7 @@ __device__ int d2s_buffered_n(double f, char* result)
   return to_chars(v, sign, result);
 }
 
-__device__ floating_decimal_32 f2d(float f, bool& ieeeSign, bool& special)
+__device__ inline floating_decimal_32 f2d(float f, bool& ieeeSign, bool& special)
 {
   // Step 1: Decode the floating-point number, and unify normalized and subnormal cases.
   uint32_t const bits = float_to_bits(f);
@@ -1128,7 +1128,7 @@ __device__ floating_decimal_32 f2d(float f, bool& ieeeSign, bool& special)
   return f2d(ieeeMantissa, ieeeExponent);
 }
 
-__device__ int f2s_buffered_n(float f, char* result)
+__device__ inline int f2s_buffered_n(float f, char* result)
 {
   bool sign = false, special = false;
   floating_decimal_32 v = f2d(f, sign, special);
@@ -1138,7 +1138,7 @@ __device__ int f2s_buffered_n(float f, char* result)
 
 //===== compute float to string size =====
 
-__device__ int compute_d2s_size(double value)
+__device__ inline int compute_d2s_size(double value)
 {
   bool sign = false, special = false;
   floating_decimal_64 v = d2d(value, sign, special);
@@ -1146,7 +1146,7 @@ __device__ int compute_d2s_size(double value)
   return d2s_size(v, sign);
 }
 
-__device__ int compute_f2s_size(float value)
+__device__ inline int compute_f2s_size(float value)
 {
   bool sign = false, special = false;
   floating_decimal_32 v = f2d(value, sign, special);
@@ -1158,7 +1158,7 @@ __device__ int compute_f2s_size(float value)
 
 //===== APIs =====
 
-__device__ int compute_ftos_size(double value, bool is_float)
+__device__ inline int compute_ftos_size(double value, bool is_float)
 {
   if (is_float) {
     return compute_f2s_size(value);
@@ -1167,12 +1167,393 @@ __device__ int compute_ftos_size(double value, bool is_float)
   }
 }
 
-__device__ int float_to_string(double value, bool is_float, char* output)
+__device__ inline int float_to_string(double value, bool is_float, char* output)
 {
   if (is_float) {
     return f2s_buffered_n(value, output);
   } else {
     return d2s_buffered_n(value, output);
+  }
+}
+
+//===== format float =====
+
+__constant__ uint64_t const POW10_TABLE[19] = {1ull,
+                                               10ull,
+                                               100ull,
+                                               1000ull,
+                                               10000ull,
+                                               100000ull,
+                                               1000000ull,
+                                               10000000ull,
+                                               100000000ull,
+                                               1000000000ull,
+                                               10000000000ull,
+                                               100000000000ull,
+                                               1000000000000ull,
+                                               10000000000000ull,
+                                               100000000000000ull,
+                                               1000000000000000ull,
+                                               10000000000000000ull,
+                                               100000000000000000ull};
+
+template <typename T>
+__device__ inline T round_half_even(T const input, int const olength, int const digits)
+{
+  // "round" a integer to digits digits, with the half-even rounding mode.
+  if (digits > olength) {
+    T num = input;
+    for (int i = 0; i < digits - olength; i++) {
+      num *= 10;
+    }
+    return num;
+  }
+  T div = POW10_TABLE[olength - digits];
+  T mod = input % div;
+  T num = input / div;
+  if (mod > (div / 2) || ((mod == (div / 2) && (num % 2 == 1) && mod != 0))) { num++; }
+  return num;
+}
+
+__device__ inline int to_formated_chars(floating_decimal_64 const v,
+                                        bool const sign,
+                                        char* const result,
+                                        int digits)
+{
+  int index = 0;
+  if (sign) { result[index++] = '-'; }
+  uint64_t output        = v.mantissa;
+  const uint32_t olength = decimalLength17(output);
+  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  if (exp < 0) {
+    // Decimal dot is before any of the digits.
+    int index_for_carrier = index;
+    result[index++]       = '0';
+    if (digits == 0) { return index; }
+    result[index++]   = '.';
+    int actural_round = digits;
+    for (int i = -1; i > exp; i--) {
+      index_for_carrier = index;
+      result[index++]   = '0';
+      actural_round--;
+      if (actural_round == 0) {
+        if (i != exp + 1) { return index; }  // else, possible carry
+        break;
+      }
+    }
+    int actural_olength     = fmin(int(olength), actural_round);
+    uint64_t rounded_output = round_half_even(output, olength, actural_round);
+    // check if carry
+    if (rounded_output >= POW10_TABLE[actural_olength]) {
+      result[index_for_carrier] = '1';
+      rounded_output -= POW10_TABLE[actural_olength];
+    }
+    int current = index;
+    for (int i = 0; i < actural_olength; i++) {
+      result[current + actural_olength - i - 1] = (char)('0' + rounded_output % 10);
+      rounded_output /= 10;
+      index++;
+    }
+    actural_round -= actural_olength;
+    if (actural_round > 0) {
+      for (int i = 0; i < actural_round; i++) {
+        result[index++] = '0';
+      }
+    }
+  } else if (exp + 1 >= olength) {
+    // Decimal dot is after any of the digits.
+    int integer_len = index + exp + 1 + exp / 3;
+    int sep_cnt     = 0;
+    int rev_index   = 0;
+    for (int i = olength; i < exp + 1; i++) {
+      result[integer_len - (rev_index++) - 1] = '0';
+      sep_cnt++;
+      if (sep_cnt == 3) {
+        result[integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                 = 0;
+      }
+    }
+    for (int i = 0; i < olength; i++) {
+      if (sep_cnt == 3) {
+        result[integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                 = 0;
+      }
+      result[integer_len - (rev_index++) - 1] = (char)('0' + output % 10);
+      sep_cnt++;
+      output /= 10;
+    }
+    index = integer_len;
+    if (digits == 0) { return index; }
+    result[index++] = '.';
+    for (int i = 0; i < digits; i++) {
+      result[index++] = '0';
+    }
+  } else {
+    uint32_t temp_d = digits, tailing_zero = 0;
+    if (exp + digits > olength) {
+      temp_d       = olength - exp;
+      tailing_zero = digits - temp_d;
+    }
+    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
+    uint64_t pow10          = POW10_TABLE[temp_d];
+    uint64_t integer        = rounded_output / pow10;
+    uint64_t decimal        = rounded_output % pow10;
+    // calculate integer length after format to cover carry case
+    uint32_t integer_len          = decimalLength17(integer);
+    uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
+    uint32_t sep_cnt              = 0;
+    int rev_index                 = 0;
+    for (int i = 0; i < integer_len; i++) {
+      if (sep_cnt == 3) {
+        result[formated_integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                          = 0;
+      }
+      result[formated_integer_len - (rev_index++) - 1] = (char)('0' + integer % 10);
+      sep_cnt++;
+      integer /= 10;
+    }
+    index = formated_integer_len;
+    if (digits == 0) { return index; }
+    result[index++] = '.';
+    int current     = index;
+    for (int i = 0; i < tailing_zero; i++) {
+      result[current + digits - i - 1] = '0';
+      index++;
+    }
+    for (int i = tailing_zero; i < digits; i++) {
+      result[current + digits - i - 1] = (char)('0' + decimal % 10);
+      decimal /= 10;
+      index++;
+    }
+  }
+  return index;
+}
+
+__device__ inline int format_float_size(floating_decimal_64 const v, bool const sign, int digits)
+{
+  int index = 0;
+  if (sign) { index++; }
+  uint64_t output        = v.mantissa;
+  const uint32_t olength = decimalLength17(output);
+  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  if (exp < 0) {
+    index += 2 + digits;
+  } else if (exp + 1 >= olength) {
+    index += exp + 1 + exp / 3 + 1 + digits;
+  } else {
+    uint32_t temp_d = digits;
+    if (exp + digits > olength) { temp_d = olength - exp; }
+    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
+    uint64_t pow10          = POW10_TABLE[temp_d];
+    uint64_t integer        = rounded_output / pow10;
+    uint32_t integer_len    = decimalLength17(integer);
+    index += integer_len + (integer_len - 1) / 3 + 1 + digits;
+  }
+  if (digits == 0) { index--; }
+  return index;
+}
+
+__device__ inline int to_formated_chars(floating_decimal_32 const v,
+                                        bool const sign,
+                                        char* const result,
+                                        int digits)
+{
+  int index = 0;
+  if (sign) { result[index++] = '-'; }
+  uint32_t output        = v.mantissa;
+  uint32_t const olength = decimalLength9(output);
+  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  if (exp < 0) {
+    // Decimal dot is before any of the digits.
+    int index_for_carrier = index;
+    result[index++]       = '0';
+    if (digits == 0) { return index; }
+    result[index++]   = '.';
+    int actural_round = digits;
+    for (int i = -1; i > exp; i--) {
+      index_for_carrier = index;
+      result[index++]   = '0';
+      actural_round--;
+      if (actural_round == 0) {
+        if (i != exp + 1) { return index; }  // else, possible carry
+        break;
+      }
+    }
+    int actural_olength     = fmin(int(olength), actural_round);
+    uint64_t rounded_output = round_half_even(output, olength, actural_round);
+    // check if carry
+    if (rounded_output >= POW10_TABLE[actural_olength]) {
+      result[index_for_carrier] = '1';
+      rounded_output -= POW10_TABLE[actural_olength];
+    }
+    int current = index;
+    for (int i = 0; i < actural_olength; i++) {
+      result[current + actural_olength - i - 1] = (char)('0' + rounded_output % 10);
+      rounded_output /= 10;
+      index++;
+    }
+    actural_round -= actural_olength;
+    if (actural_round > 0) {
+      for (int i = 0; i < actural_round; i++) {
+        result[index++] = '0';
+      }
+    }
+  } else if (exp + 1 >= olength) {
+    // Decimal dot is after any of the digits.
+    int integer_len = index + exp + 1 + exp / 3;
+    int sep_cnt     = 0;
+    int rev_index   = 0;
+    for (int i = olength; i < exp + 1; i++) {
+      result[integer_len - (rev_index++) - 1] = '0';
+      sep_cnt++;
+      if (sep_cnt == 3) {
+        result[integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                 = 0;
+      }
+    }
+    for (int i = 0; i < olength; i++) {
+      if (sep_cnt == 3) {
+        result[integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                 = 0;
+      }
+      result[integer_len - (rev_index++) - 1] = (char)('0' + output % 10);
+      sep_cnt++;
+      output /= 10;
+    }
+    index = integer_len;
+    if (digits == 0) { return index; }
+    result[index++] = '.';
+    for (int i = 0; i < digits; i++) {
+      result[index++] = '0';
+    }
+  } else {
+    uint32_t temp_d = digits, tailing_zero = 0;
+    if (exp + digits > olength) {
+      temp_d       = olength - exp;
+      tailing_zero = digits - temp_d;
+    }
+    uint32_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
+    uint32_t pow10          = POW10_TABLE[temp_d];
+    uint32_t integer        = rounded_output / pow10;
+    uint32_t decimal        = rounded_output % pow10;
+    // calculate integer length after format to cover carry case
+    uint32_t integer_len          = decimalLength9(integer);
+    uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
+    uint32_t sep_cnt              = 0;
+    int rev_index                 = 0;
+    for (int i = 0; i < integer_len; i++) {
+      if (sep_cnt == 3) {
+        result[formated_integer_len - (rev_index++) - 1] = ',';
+        sep_cnt                                          = 0;
+      }
+      result[formated_integer_len - (rev_index++) - 1] = (char)('0' + integer % 10);
+      sep_cnt++;
+      integer /= 10;
+    }
+    index = formated_integer_len;
+    if (digits == 0) { return index; }
+    result[index++] = '.';
+    int current     = index;
+    for (int i = 0; i < tailing_zero; i++) {
+      result[current + digits - i - 1] = '0';
+      index++;
+    }
+    for (int i = tailing_zero; i < digits; i++) {
+      result[current + digits - i - 1] = (char)('0' + decimal % 10);
+      decimal /= 10;
+      index++;
+    }
+  }
+  return index;
+}
+
+__device__ inline int format_float_size(floating_decimal_32 const v, bool const sign, int digits)
+{
+  int index = 0;
+  if (sign) { index++; }
+  uint64_t output        = v.mantissa;
+  uint32_t const olength = decimalLength9(output);
+  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  if (exp < 0) {
+    index += 2 + digits;
+  } else if (exp + 1 >= olength) {
+    index += exp + 1 + exp / 3 + 1 + digits;
+  } else {
+    uint32_t temp_d = digits;
+    if (exp + digits > olength) { temp_d = olength - exp; }
+    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
+    uint64_t pow10          = POW10_TABLE[temp_d];
+    uint64_t integer        = rounded_output / pow10;
+    uint32_t integer_len    = decimalLength9(integer);
+    index += integer_len + (integer_len - 1) / 3 + 1 + digits;
+  }
+  if (digits == 0) { index--; }
+  return index;
+}
+
+__device__ inline int copy_format_special_str(char* const result,
+                                              bool const sign,
+                                              bool const exponent,
+                                              bool const mantissa,
+                                              int const digits = 1)
+{
+  if (mantissa) {
+    memcpy(result, "\xEF\xBF\xBD", 3);  // U+FFFD, replacement character, NaN
+    return 3;
+  }
+  if (sign) { result[0] = '-'; }
+  if (exponent) {
+    memcpy(result + sign, "\xE2\x88\x9E", 3);  // U+221E, infinity symbol
+    return sign + 3;
+  }
+  result[sign] = '0';
+  if (digits == 0) {
+    return sign + 1;
+  } else {
+    result[sign + 1] = '.';
+  }
+  for (int i = 0; i < digits; i++) {
+    result[sign + 2 + i] = '0';
+  }
+  return sign + 2 + digits;
+}
+
+__device__ inline int special_format_str_size(bool const sign,
+                                              bool const exponent,
+                                              bool const mantissa,
+                                              int const digits = 1)
+{
+  if (mantissa) { return 3; }
+  if (exponent) { return sign + 3; }
+  if (digits == 0) { return sign + 1; }
+  return sign + 2 + digits;
+}
+
+__device__ inline int compute_format_float_size(double value, int digits, bool is_float)
+{
+  bool sign = false, special = false;
+  if (is_float) {
+    floating_decimal_32 v = f2d(value, sign, special);
+    if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
+    return format_float_size(v, sign, digits);
+  } else {
+    floating_decimal_64 v = d2d(value, sign, special);
+    if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
+    return format_float_size(v, sign, digits);
+  }
+}
+
+__device__ inline int format_float(double value, int digits, bool is_float, char* output)
+{
+  bool sign = false, special = false;
+  if (is_float) {
+    floating_decimal_32 v = f2d(value, sign, special);
+    if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
+    return to_formated_chars(v, sign, output, digits);
+  } else {
+    floating_decimal_64 v = d2d(value, sign, special);
+    if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
+    return to_formated_chars(v, sign, output, digits);
   }
 }
 
