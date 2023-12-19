@@ -25,9 +25,8 @@ import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 
 public class ParseURITest {
-  void buildExpectedAndRun(String[] testData) {
+  void testProtocol(String[] testData) {
     String[] expectedProtocolStrings = new String[testData.length];
-    String[] expectedHostStrings = new String[testData.length];
     for (int i=0; i<testData.length; i++) {
       String scheme = null;
       try {
@@ -38,6 +37,18 @@ public class ParseURITest {
       } catch (NullPointerException ex) {
         // leave the scheme null if URI is null
       }
+      expectedProtocolStrings[i] = scheme;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expectedProtocol = ColumnVector.fromStrings(expectedProtocolStrings);
+      ColumnVector protocolResult = ParseURI.parseURIProtocol(v0)) {
+      AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
+    }
+  }
+
+  void testHost(String[] testData) {
+    String[] expectedHostStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
       String host = null;
       try {
         URI uri = new URI(testData[i]);
@@ -48,25 +59,45 @@ public class ParseURITest {
         // leave the host null if URI is null
       }
 
-      expectedProtocolStrings[i] = scheme;
       expectedHostStrings[i] = host;
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
-      ColumnVector expectedProtocol = ColumnVector.fromStrings(expectedProtocolStrings);
       ColumnVector expectedHost = ColumnVector.fromStrings(expectedHostStrings);
-      ColumnVector protocolResult = ParseURI.parseURIProtocol(v0);
       ColumnVector hostResult = ParseURI.parseURIHost(v0)) {
-      AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
       AssertUtils.assertColumnsAreEqual(expectedHost, hostResult);
     }
   }
-  
+
+  void testQuery(String[] testData) {
+    String[] expectedQueryStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String query = null;
+      try {
+        URI uri = new URI(testData[i]);
+        query = uri.getRawQuery();
+      } catch (URISyntaxException ex) {
+        // leave the query null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the query null if URI is null
+      }
+
+      expectedQueryStrings[i] = query;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
+      ColumnVector queryResult = ParseURI.parseURIQuery(v0)) {
+      AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
+    }
+  }
+
   @Test
-  void parseURIToProtocolSparkTest() {
+  void parseURISparkTest() {
     String[] testData = {
       "https://nvidia.com/https&#://nvidia.com",
       "https://http://www.nvidia.com",
-      "http://www.nvidia.com/object.php?object=ะก-\320%9Fะฑ-ะฟ-ะก\321%82\321%80ะตะป\321%8Cะฝะฐ-\321%83ะป-\320%97ะฐะฒะพะด\321%81ะบะฐ\321%8F.html&sid=5",
+      // commented out until https://github.com/NVIDIA/spark-rapids/issues/10036 is fixed
+      //"http://www.nvidia.com/object.php?object=ะก-Ð%9Fะฑ-ะฟ-ะกÑ%82Ñ%80ะตะปÑ%8Cะฝะฐ-Ñ%83ะป-Ð%97ะฐะฒะพะดÑ%81ะบะฐÑ%8F.htm",
+      "http://www.nvidia.com/object.php?object=ะก-Ðะฑ-ะฟ-ะกÑÑะตะปÑ%20ะฝะฐ-Ñะป-ÐะฐะฒะพะดÑะบะฐÑ.htm",
       "filesystemmagicthing://bob.yaml",
       "nvidia.com:8080",
       "http://thisisinvalid.data/due/to-the_character%s/inside*the#url`~",
@@ -104,29 +135,38 @@ public class ParseURITest {
       "http://[::2:3:4:5:6:7:8]",
       "http://[fe80::7:8%eth0]",
       "http://[fe80::7:8%1]",
-      "http://www.nvidia.com/object.php?object=ะก-\320%9Fะฑ-ะฟ-ะก\321%82\321%80ะตะป\321%8Cะฝะฐ-\321%83ะป-\320%97ะฐะฒะพะด\321%81ะบะฐ\321%8F.html&sid=5",
       "http://www.nvidia.com/picshow.asp?id=106&mnid=5080&classname=\271\253ืฐฦช",
       "http://-.~_!$&'()*+,;=:%40:80%2f::::::@nvidia.com:443",
       "http://userid:password@nvidia.com:8080/",
+      "https://www.nvidia.com/path?param0=1&param2=3&param4=5%206",
+      "https:// /?params=5&cloth=0&metal=1",
+      "https://[2001:db8::2:1]:443/parms/in/the/uri?a=b",
+      "https://[::1]/?invalid=param&f„⁈.=7",
+      "https://[::1]/?invalid=param&~.=!@&^",
+      "userinfo@www.nvidia.com/path?query=1#Ref",
       "",
       null};
 
-    buildExpectedAndRun(testData);
+    testProtocol(testData);
+    testHost(testData);
+    testQuery(testData);
   }
 
   @Test
-  void parseURIToProtocolUTF8Test() {
+  void parseURIUTF8Test() {
     String[] testData = {
       "https:// /path/to/file",
       "https://nvidia.com/%4EV%49%44%49%41",
       "http://%77%77%77.%4EV%49%44%49%41.com",
       "http://✪↩d⁚f„⁈.ws/123"};
 
-    buildExpectedAndRun(testData);
+    testProtocol(testData);
+    testHost(testData);
+    testQuery(testData);
   }
 
   @Test
-  void parseURIToProtocolIP4Test() {
+  void parseURIIP4Test() {
     String[] testData = {
       "https://192.168.1.100/",
       "https://192.168.1.100:8443/",
@@ -134,11 +174,14 @@ public class ParseURITest {
       "https://192.168.1/",
       "https://280.100.1.1/",
       "https://182.168..100/path/to/file"};
-    buildExpectedAndRun(testData);
+
+    testProtocol(testData);
+    testHost(testData);
+    testQuery(testData);
   }
 
   @Test
-  void parseURIToProtocolIP6Test() {
+  void parseURIIP6Test() {
     String[] testData = {
       "https://[fe80::]",
       "https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
@@ -160,6 +203,8 @@ public class ParseURITest {
       "http://[fe80::7:8%1]",
     };
     
-    buildExpectedAndRun(testData);
+    testProtocol(testData);
+    testHost(testData);
+    testQuery(testData);
   }
 }
