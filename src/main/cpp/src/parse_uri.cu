@@ -386,90 +386,97 @@ chunk_validity __device__ validate_host(string_view host)
 bool __device__ validate_query(string_view query)
 {
   // query can be alphanum and _-!.~'()*,;:$&+=?/[]@"
-  return validate_chunk(query, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
-        !(c >= '?' && c <= ']' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
-      return false;
-    }
-    return true;
-  }));
+  return validate_chunk(
+    query, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+          !(c >= '?' && c <= ']' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
+        return false;
+      }
+      return true;
+    }));
 }
 
 bool __device__ validate_authority(string_view authority, bool allow_invalid_escapes)
 {
   // authority needs to be alphanum and @[]_-!.'()*,;:$&+=
-  return validate_chunk(
-    authority,
-    cuda::proclaim_return_type<bool>([allow_invalid_escapes] __device__(string_view::const_iterator iter) {
-      auto const c = *iter;
-      if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
-          !(c >= '@' && c <= '_' && c != '^' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '~' &&
-          (!allow_invalid_escapes || c != '%')) {
-        return false;
-      }
-      return true;
-    }),
-    allow_invalid_escapes);
+  return validate_chunk(authority,
+                        cuda::proclaim_return_type<bool>(
+                          [allow_invalid_escapes] __device__(string_view::const_iterator iter) {
+                            auto const c = *iter;
+                            if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') &&
+                                c != '=' && !(c >= '@' && c <= '_' && c != '^' && c != '\\') &&
+                                !(c >= 'a' && c <= 'z') && c != '~' &&
+                                (!allow_invalid_escapes || c != '%')) {
+                              return false;
+                            }
+                            return true;
+                          }),
+                        allow_invalid_escapes);
 }
 
 bool __device__ validate_userinfo(string_view userinfo)
 {
   // can't be ] or [ in here
-  return validate_chunk(userinfo, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c == '[' || c == ']') { return false; }
-    return true;
-  }));
+  return validate_chunk(
+    userinfo, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c == '[' || c == ']') { return false; }
+      return true;
+    }));
 }
 
 bool __device__ validate_port(string_view port)
 {
   // port is positive numeric >=0 according to spark...shrug
-  return validate_chunk(port, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c < '0' && c > '9') { return false; }
-    return true;
-  }));
+  return validate_chunk(
+    port, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c < '0' && c > '9') { return false; }
+      return true;
+    }));
 }
 
 bool __device__ validate_path(string_view path)
 {
   // path can be alphanum and @[]_-!.~'()*?/&,;:$+=
-  return validate_chunk(path, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
-        c != '_' && !(c >= 'a' && c <= 'z') && c != '~') {
-      return false;
-    }
-    return true;
-  }));
+  return validate_chunk(
+    path, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
+          c != '_' && !(c >= 'a' && c <= 'z') && c != '~') {
+        return false;
+      }
+      return true;
+    }));
 }
 
 bool __device__ validate_opaque(string_view opaque)
 {
   // opaque can be alphanum and @[]_-!.~'()*?/,;:$@+=
-  return validate_chunk(opaque, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
-        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
-      return false;
-    }
-    return true;
-  }));
+  return validate_chunk(
+    opaque, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+          !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+        return false;
+      }
+      return true;
+    }));
 }
 
 bool __device__ validate_fragment(string_view fragment)
 {
   // fragment can be alphanum and @[]_-!.~'()*?/,;:$&+=
-  return validate_chunk(fragment, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
-    auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
-        !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
-      return false;
-    }
-    return true;
-  }));
+  return validate_chunk(
+    fragment, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
+      auto const c = *iter;
+      if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
+          !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
+        return false;
+      }
+      return true;
+    }));
 }
 
 uri_parts __device__ validate_uri(const char* str, int len)

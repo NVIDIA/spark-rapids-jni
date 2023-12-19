@@ -318,14 +318,15 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(0) + num_words,
     dst,
-    cuda::proclaim_return_type<cudf::bitmask_type>([src, num_buffers = bloom_filters.size(), stride = buf_size] __device__(
-      cudf::size_type word_index) {
-      cudf::bitmask_type out = (reinterpret_cast<cudf::bitmask_type const*>(src))[word_index];
-      for (auto idx = 1; idx < num_buffers; idx++) {
-        out |= (reinterpret_cast<cudf::bitmask_type const*>(src + idx * stride))[word_index];
-      }
-      return out;
-    }));
+    cuda::proclaim_return_type<cudf::bitmask_type>(
+      [src, num_buffers = bloom_filters.size(), stride = buf_size] __device__(
+        cudf::size_type word_index) {
+        cudf::bitmask_type out = (reinterpret_cast<cudf::bitmask_type const*>(src))[word_index];
+        for (auto idx = 1; idx < num_buffers; idx++) {
+          out |= (reinterpret_cast<cudf::bitmask_type const*>(src + idx * stride))[word_index];
+        }
+        return out;
+      }));
 
   // create the 1-row list column and move it into a scalar.
   return std::make_unique<cudf::list_scalar>(

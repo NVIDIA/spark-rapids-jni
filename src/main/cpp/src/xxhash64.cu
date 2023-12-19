@@ -288,10 +288,11 @@ class device_row_hasher {
       _table.begin(),
       _table.end(),
       _seed,
-      cuda::proclaim_return_type<hash_value_type>([row_index, nulls = _check_nulls] __device__(auto hash, auto column) {
-        return cudf::type_dispatcher(
-          column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
-      }));
+      cuda::proclaim_return_type<hash_value_type>(
+        [row_index, nulls = _check_nulls] __device__(auto hash, auto column) {
+          return cudf::type_dispatcher(
+            column.type(), element_hasher_adapter{}, column, row_index, nulls, hash);
+        }));
   }
 
   /**

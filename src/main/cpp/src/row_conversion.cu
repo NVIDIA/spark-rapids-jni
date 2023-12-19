@@ -259,10 +259,11 @@ build_string_row_offsets(table_view const& tbl,
                     d_row_sizes.begin(),
                     d_row_sizes.end(),
                     d_row_sizes.begin(),
-                    cuda::proclaim_return_type<size_type>([fixed_width_and_validity_size] __device__(auto row_size) {
-                      return util::round_up_unsafe(fixed_width_and_validity_size + row_size,
-                                                   JCUDF_ROW_ALIGNMENT);
-                    }));
+                    cuda::proclaim_return_type<size_type>(
+                      [fixed_width_and_validity_size] __device__(auto row_size) {
+                        return util::round_up_unsafe(fixed_width_and_validity_size + row_size,
+                                                     JCUDF_ROW_ALIGNMENT);
+                      }));
 
   return {std::move(d_row_sizes), std::move(d_offsets_iterators)};
 }
@@ -1657,12 +1658,13 @@ int compute_tile_counts(device_span<size_type const> const& batch_row_boundaries
     iter,
     iter + num_batches,
     num_tiles.begin(),
-    cuda::proclaim_return_type<size_type>([desired_tile_height,
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(auto batch_index) -> size_type {
-      return util::div_rounding_up_unsafe(
-        batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
-        desired_tile_height);
-    }));
+    cuda::proclaim_return_type<size_type>(
+      [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
+        auto batch_index) -> size_type {
+        return util::div_rounding_up_unsafe(
+          batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
+          desired_tile_height);
+      }));
   return thrust::reduce(rmm::exec_policy(stream), num_tiles.begin(), num_tiles.end());
 }
 
@@ -1695,21 +1697,24 @@ size_type build_tiles(
     iter,
     iter + num_batches,
     num_tiles.begin(),
-    cuda::proclaim_return_type<size_type>([desired_tile_height,
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(auto batch_index) -> size_type {
-      return util::div_rounding_up_unsafe(
-        batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
-        desired_tile_height);
-    }));
+    cuda::proclaim_return_type<size_type>(
+      [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
+        auto batch_index) -> size_type {
+        return util::div_rounding_up_unsafe(
+          batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
+          desired_tile_height);
+      }));
 
   size_type const total_tiles =
     thrust::reduce(rmm::exec_policy(stream), num_tiles.begin(), num_tiles.end());
 
   device_uvector<size_type> tile_starts(num_batches + 1, stream);
   auto tile_iter = cudf::detail::make_counting_transform_iterator(
-    0, cuda::proclaim_return_type<size_type>([num_tiles = num_tiles.data(), num_batches] __device__(auto i) {
-      return (i < num_batches) ? num_tiles[i] : 0;
-    }));
+    0,
+    cuda::proclaim_return_type<size_type>(
+      [num_tiles = num_tiles.data(), num_batches] __device__(auto i) {
+        return (i < num_batches) ? num_tiles[i] : 0;
+      }));
   thrust::exclusive_scan(rmm::exec_policy(stream),
                          tile_iter,
                          tile_iter + num_batches + 1,
@@ -1720,31 +1725,33 @@ size_type build_tiles(
     iter,
     iter + total_tiles,
     tiles.begin(),
-    cuda::proclaim_return_type<tile_info>([                     =,
-     tile_starts          = tile_starts.data(),
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(size_type tile_index) {
-      // what batch this tile falls in
-      auto const batch_index_iter =
-        thrust::upper_bound(thrust::seq, tile_starts, tile_starts + num_batches, tile_index);
-      auto const batch_index = std::distance(tile_starts, batch_index_iter) - 1;
-      // local index within the tile
-      int const local_tile_index = tile_index - tile_starts[batch_index];
-      // the start row for this batch.
-      int const batch_row_start = batch_row_boundaries[batch_index];
-      // the start row for this tile
-      int const tile_row_start = batch_row_start + (local_tile_index * desired_tile_height);
-      // the end row for this tile
-      int const max_row = std::min(total_number_of_rows - 1,
-                                   batch_index + 1 > num_batches
-                                     ? std::numeric_limits<size_type>::max()
-                                     : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
-      int const tile_row_end =
-        std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
+    cuda::proclaim_return_type<tile_info>(
+      [                     =,
+       tile_starts          = tile_starts.data(),
+       batch_row_boundaries = batch_row_boundaries.data()] __device__(size_type tile_index) {
+        // what batch this tile falls in
+        auto const batch_index_iter =
+          thrust::upper_bound(thrust::seq, tile_starts, tile_starts + num_batches, tile_index);
+        auto const batch_index = std::distance(tile_starts, batch_index_iter) - 1;
+        // local index within the tile
+        int const local_tile_index = tile_index - tile_starts[batch_index];
+        // the start row for this batch.
+        int const batch_row_start = batch_row_boundaries[batch_index];
+        // the start row for this tile
+        int const tile_row_start = batch_row_start + (local_tile_index * desired_tile_height);
+        // the end row for this tile
+        int const max_row =
+          std::min(total_number_of_rows - 1,
+                   batch_index + 1 > num_batches
+                     ? std::numeric_limits<size_type>::max()
+                     : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
+        int const tile_row_end =
+          std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
 
-      // stuff the tile
-      return tile_info{
-        column_start, tile_row_start, column_end, tile_row_end, static_cast<int>(batch_index)};
-    }));
+        // stuff the tile
+        return tile_info{
+          column_start, tile_row_start, column_end, tile_row_end, static_cast<int>(batch_index)};
+      }));
 
   return total_tiles;
 }
@@ -2346,7 +2353,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(num_batches),
                     gpu_batch_row_boundaries.begin(),
-                    cuda::proclaim_return_type<size_type>([num_rows] __device__(auto i) { return i == 0 ? 0 : num_rows; }));
+                    cuda::proclaim_return_type<size_type>(
+                      [num_rows] __device__(auto i) { return i == 0 ? 0 : num_rows; }));
 
   int info_count = 0;
   detail::determine_tiles(column_info.column_sizes,
@@ -2458,9 +2466,10 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     std::vector<char*> string_data_col_ptrs;
     for (auto& col_string_lengths : string_lengths) {
       device_uvector<size_type> output_string_offsets(num_rows + 1, stream, mr);
-      auto tmp = cuda::proclaim_return_type<int32_t>([num_rows, col_string_lengths] __device__(auto const& i) {
-        return i < num_rows ? col_string_lengths[i] : 0;
-      });
+      auto tmp = cuda::proclaim_return_type<int32_t>(
+        [num_rows, col_string_lengths] __device__(auto const& i) {
+          return i < num_rows ? col_string_lengths[i] : 0;
+        });
       auto bounded_iter = cudf::detail::make_counting_transform_iterator(0, tmp);
       thrust::exclusive_scan(rmm::exec_policy(stream),
                              bounded_iter,

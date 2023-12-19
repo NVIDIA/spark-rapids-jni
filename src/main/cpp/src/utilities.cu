@@ -53,18 +53,19 @@ std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
 
   std::unique_ptr<rmm::device_buffer> out =
     std::make_unique<rmm::device_buffer>(mask_size * sizeof(cudf::bitmask_type), stream, mr);
-  thrust::transform(
-    rmm::exec_policy(stream),
-    thrust::make_counting_iterator(0),
-    thrust::make_counting_iterator(0) + mask_size,
-    static_cast<cudf::bitmask_type*>(out->data()),
-    cuda::proclaim_return_type<cudf::bitmask_type>([buffers = d_input.data(), num_buffers = input.size()] __device__(cudf::size_type word_index) {
-      cudf::bitmask_type out = buffers[0][word_index];
-      for (auto idx = 1; idx < num_buffers; idx++) {
-        out |= buffers[idx][word_index];
-      }
-      return out;
-    }));
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(0) + mask_size,
+                    static_cast<cudf::bitmask_type*>(out->data()),
+                    cuda::proclaim_return_type<cudf::bitmask_type>(
+                      [buffers     = d_input.data(),
+                       num_buffers = input.size()] __device__(cudf::size_type word_index) {
+                        cudf::bitmask_type out = buffers[0][word_index];
+                        for (auto idx = 1; idx < num_buffers; idx++) {
+                          out |= buffers[idx][word_index];
+                        }
+                        return out;
+                      }));
 
   return out;
 }
