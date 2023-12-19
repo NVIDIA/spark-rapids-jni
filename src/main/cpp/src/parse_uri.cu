@@ -891,9 +891,8 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  auto ret = detail::parse_uri(
+  return detail::parse_uri(
     input, detail::URI_chunks::QUERY, stream, rmm::mr::get_current_device_resource());
-  return cudf::strings::url_decode(ret->view(), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
