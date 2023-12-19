@@ -30,6 +30,8 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
 
+#include <cuda/functional>
+
 namespace {
 
 // Convert a date in Julian calendar to the number of days since epoch.
@@ -73,7 +75,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const& 
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_D>(),
-    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+    cuda::proclaim_return_type<cudf::timestamp_D>([d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
       auto constexpr julian_end = cuda::std::chrono::year_month_day{
         cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
       auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
@@ -94,7 +96,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const& 
 
       // Reinterpret year/month/day as in Julian calendar then compute the days since epoch.
       return cudf::timestamp_D{cudf::duration_D{days_from_julian(ymd)}};
-    });
+    }));
 
   return output;
 }
@@ -142,7 +144,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const& 
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(input.size()),
                     output->mutable_view().begin<cudf::timestamp_D>(),
-                    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+                    cuda::proclaim_return_type<cudf::timestamp_D>([d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
                       auto const days_ts = d_input[idx].time_since_epoch().count();
                       if (days_ts >= -141427) {  // Gregorian start day
                         return d_input[idx];
@@ -154,7 +156,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const& 
                       auto const result =
                         cuda::std::chrono::local_days{ymd}.time_since_epoch().count();
                       return cudf::timestamp_D{cudf::duration_D{result}};
-                    });
+                    }));
 
   return output;
 }
@@ -242,7 +244,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_us>(),
-    [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
+    cuda::proclaim_return_type<cudf::timestamp_us>([d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
       // This timestamp corresponds to October 15th, 1582 UTC.
       // After this day, there is no difference in microsecond values between Gregorian
       // and Julian calendars.
@@ -274,7 +276,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
       result += timeparts.subsecond;
 
       return cudf::timestamp_us{cudf::duration_us{result}};
-    });
+    }));
 
   return output;
 }
@@ -304,7 +306,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_us>(),
-    [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
+    cuda::proclaim_return_type<cudf::timestamp_us>([d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
       // This timestamp corresponds to October 15th, 1582 UTC.
       // After this day, there is no difference in microsecond values between Gregorian
       // and Julian calendars.
@@ -328,7 +330,7 @@ std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const
       result += timeparts.subsecond;
 
       return cudf::timestamp_us{cudf::duration_us{result}};
-    });
+    }));
 
   return output;
 }

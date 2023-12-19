@@ -29,6 +29,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/functional>
+
 #include <memory>
 
 namespace spark_rapids_jni {
@@ -164,11 +166,11 @@ bool __device__ validate_ipv6(string_view s)
   int address_char_count{0};
   bool address_has_hex{false};
 
-  auto const leading_double_colon = [&]() {
+  auto const leading_double_colon = cuda::proclaim_return_type<bool>([&]() {
     auto iter = s.begin();
     if (*iter == '[') iter++;
     return *iter++ == ':' && *iter == ':';
-  }();
+  })();
 
   for (auto iter = s.begin(); iter < s.end(); ++iter) {
     auto const c = *iter;
@@ -384,14 +386,14 @@ chunk_validity __device__ validate_host(string_view host)
 bool __device__ validate_query(string_view query)
 {
   // query can be alphanum and _-!.~'()*,;:$&+=?/[]@"
-  return validate_chunk(query, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(query, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '"' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
         !(c >= '?' && c <= ']' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '_' && c != '~') {
       return false;
     }
     return true;
-  });
+  }));
 }
 
 bool __device__ validate_authority(string_view authority, bool allow_invalid_escapes)
@@ -399,7 +401,7 @@ bool __device__ validate_authority(string_view authority, bool allow_invalid_esc
   // authority needs to be alphanum and @[]_-!.'()*,;:$&+=
   return validate_chunk(
     authority,
-    [allow_invalid_escapes] __device__(string_view::const_iterator iter) {
+    cuda::proclaim_return_type<bool>([allow_invalid_escapes] __device__(string_view::const_iterator iter) {
       auto const c = *iter;
       if (c != '!' && c != '$' && !(c >= '&' && c <= ';' && c != '/') && c != '=' &&
           !(c >= '@' && c <= '_' && c != '^' && c != '\\') && !(c >= 'a' && c <= 'z') && c != '~' &&
@@ -407,67 +409,67 @@ bool __device__ validate_authority(string_view authority, bool allow_invalid_esc
         return false;
       }
       return true;
-    },
+    }),
     allow_invalid_escapes);
 }
 
 bool __device__ validate_userinfo(string_view userinfo)
 {
   // can't be ] or [ in here
-  return validate_chunk(userinfo, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(userinfo, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c == '[' || c == ']') { return false; }
     return true;
-  });
+  }));
 }
 
 bool __device__ validate_port(string_view port)
 {
   // port is positive numeric >=0 according to spark...shrug
-  return validate_chunk(port, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(port, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c < '0' && c > '9') { return false; }
     return true;
-  });
+  }));
 }
 
 bool __device__ validate_path(string_view path)
 {
   // path can be alphanum and @[]_-!.~'()*?/&,;:$+=
-  return validate_chunk(path, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(path, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
         c != '_' && !(c >= 'a' && c <= 'z') && c != '~') {
       return false;
     }
     return true;
-  });
+  }));
 }
 
 bool __device__ validate_opaque(string_view opaque)
 {
   // opaque can be alphanum and @[]_-!.~'()*?/,;:$@+=
-  return validate_chunk(opaque, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(opaque, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
         !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;
-  });
+  }));
 }
 
 bool __device__ validate_fragment(string_view fragment)
 {
   // fragment can be alphanum and @[]_-!.~'()*?/,;:$&+=
-  return validate_chunk(fragment, [] __device__(string_view::const_iterator iter) {
+  return validate_chunk(fragment, cuda::proclaim_return_type<bool>([] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
     if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' &&
         !(c >= '?' && c <= ']' && c != '\\') && c != '_' && c != '~' && !(c >= 'a' && c <= 'z')) {
       return false;
     }
     return true;
-  });
+  }));
 }
 
 uri_parts __device__ validate_uri(const char* str, int len)

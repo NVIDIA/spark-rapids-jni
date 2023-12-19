@@ -27,6 +27,8 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/tabulate.h>
 
+#include <cuda/functional>
+
 namespace spark_rapids_jni {
 
 namespace {
@@ -77,10 +79,10 @@ class murmur_device_row_hasher {
       _table.begin(),
       _table.end(),
       _seed,
-      [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
+      cuda::proclaim_return_type<murmur_hash_value_type>([row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
         return cudf::type_dispatcher(
           column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
-      });
+      }));
   }
 
  private:

@@ -28,6 +28,8 @@
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 
+#include <cuda/functional>
+
 namespace {
 
 // pretends to be an array of uint32_t, but really only stores
@@ -253,7 +255,7 @@ std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(0) + num_rows,
     output_dv_ptr->begin<int64_t>(),
-    [num_bits_per_entry, num_columns, input = *input_dv] __device__(cudf::size_type row_index) {
+    cuda::proclaim_return_type<int64_t>([num_bits_per_entry, num_columns, input = *input_dv] __device__(cudf::size_type row_index) {
       uint_backed_array<uint64_t> row(num_bits_per_entry);
       for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
         auto const column   = input.column(column_index);
@@ -264,7 +266,7 @@ std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,
       auto const transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
       return static_cast<int64_t>(
         to_hilbert_index(transposed_index, num_bits_per_entry, num_columns));
-    });
+    }));
 
   return output_data_col;
 }
