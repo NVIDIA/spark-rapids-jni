@@ -518,7 +518,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
       ret.valid = 0;
       return ret;
     }
-    ret.valid |= (1 << (int)URI_chunks::FRAGMENT);
+    ret.valid |= (1 << static_cast<int>(URI_chunks::FRAGMENT));
 
     len = hash;
 
@@ -535,7 +535,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
       ret.valid = 0;
       return ret;
     }
-    ret.valid |= (1 << (int)URI_chunks::PROTOCOL);
+    ret.valid |= (1 << static_cast<int>(URI_chunks::PROTOCOL));
 
     // skip over scheme
     auto const skip = col + 1;
@@ -563,7 +563,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
         ret.valid = 0;
         return ret;
       }
-      ret.valid |= (1 << (int)URI_chunks::QUERY);
+      ret.valid |= (1 << static_cast<int>(URI_chunks::QUERY));
     }
     auto const path_len = question >= 0 ? question : len;
 
@@ -593,7 +593,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
           ret.valid = 0;
           return ret;
         }
-        ret.valid |= (1 << (int)URI_chunks::AUTHORITY);
+        ret.valid |= (1 << static_cast<int>(URI_chunks::AUTHORITY));
 
         // Inspect the authority for userinfo, host, and port
         const char* auth   = ret.authority.data();
@@ -623,7 +623,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
             ret.valid = 0;
             return ret;
           }
-          ret.valid |= (1 << (int)URI_chunks::USERINFO);
+          ret.valid |= (1 << static_cast<int>(URI_chunks::USERINFO));
 
           // skip over the @
           amp++;
@@ -638,7 +638,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
             ret.valid = 0;
             return ret;
           }
-          ret.valid |= (1 << (int)URI_chunks::PORT);
+          ret.valid |= (1 << static_cast<int>(URI_chunks::PORT));
           ret.host = {auth, last_colon};
         } else {
           ret.host = {auth, auth_size};
@@ -647,7 +647,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
         switch (host_ret) {
           case chunk_validity::FATAL: ret.valid = 0; return ret;
           case chunk_validity::INVALID: ret.host = {}; break;
-          case chunk_validity::VALID: ret.valid |= (1 << (int)URI_chunks::HOST); break;
+          case chunk_validity::VALID: ret.valid |= (1 << static_cast<int>(URI_chunks::HOST)); break;
         }
       }
     } else {
@@ -658,14 +658,14 @@ uri_parts __device__ validate_uri(const char* str, int len)
       ret.valid = 0;
       return ret;
     }
-    ret.valid |= (1 << (int)URI_chunks::PATH);
+    ret.valid |= (1 << static_cast<int>(URI_chunks::PATH));
   } else {
     ret.opaque = {str, len};
     if (!validate_opaque(ret.opaque)) {
       ret.valid = 0;
       return ret;
     }
-    ret.valid |= (1 << (int)URI_chunks::OPAQUE);
+    ret.valid |= (1 << static_cast<int>(URI_chunks::OPAQUE));
   }
 
   return ret;
@@ -718,7 +718,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const string_length = in_string.size_bytes();
 
     auto const uri = validate_uri(in_chars, string_length);
-    if ((uri.valid & (1 << (int)chunk)) == 0) {
+    if ((uri.valid & (1 << static_cast<int>(chunk))) == 0) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
     } else {

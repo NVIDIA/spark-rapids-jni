@@ -148,7 +148,7 @@ TEST_F(ParseURIProtocolTests, Simple)
   cudf::test::strings_column_wrapper const expected(
     {"https", "http", "file", "smb", "http", "file", "", "", ""}, {1, 1, 1, 1, 1, 1, 0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIProtocolTests, SparkEdges)
@@ -197,7 +197,7 @@ TEST_F(ParseURIProtocolTests, SparkEdges)
     {1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1,
      1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIProtocolTests, IP6)
@@ -209,7 +209,7 @@ TEST_F(ParseURIProtocolTests, IP6)
     {"https", "https", "https", "https", "http", "https", "https", "https", "", ""},
     {1, 1, 1, 1, 1, 1, 1, 1, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIProtocolTests, IP4)
@@ -220,7 +220,7 @@ TEST_F(ParseURIProtocolTests, IP4)
   cudf::test::strings_column_wrapper const expected(
     {"https", "https", "https", "https", "https", "https"});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIProtocolTests, UTF8)
@@ -230,7 +230,7 @@ TEST_F(ParseURIProtocolTests, UTF8)
 
   cudf::test::strings_column_wrapper const expected({"https", "http", "http", ""}, {1, 1, 1, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIHostTests, Simple)
@@ -242,7 +242,7 @@ TEST_F(ParseURIHostTests, Simple)
     {"www.nvidia.com", "www.nvidia.com", "path", "network", "", "", "", "", ""},
     {1, 1, 1, 1, 0, 0, 0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIHostTests, SparkEdges)
@@ -291,7 +291,7 @@ TEST_F(ParseURIHostTests, SparkEdges)
     {1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
      1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIHostTests, IP6)
@@ -311,7 +311,7 @@ TEST_F(ParseURIHostTests, IP6)
                                                      ""},
                                                     {1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIHostTests, IP4)
@@ -322,7 +322,7 @@ TEST_F(ParseURIHostTests, IP4)
   cudf::test::strings_column_wrapper const expected(
     {"192.168.1.100", "192.168.1.100", "", "", "", ""}, {1, 1, 0, 0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIHostTests, UTF8)
@@ -332,7 +332,7 @@ TEST_F(ParseURIHostTests, UTF8)
 
   cudf::test::strings_column_wrapper const expected({"nvidia.com", "", "", ""}, {1, 0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIQueryTests, Simple)
@@ -343,7 +343,7 @@ TEST_F(ParseURIQueryTests, Simple)
   cudf::test::strings_column_wrapper const expected({"param1=2", "", "", "", "", "", "", "", ""},
                                                     {1, 0, 0, 0, 0, 0, 0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIQueryTests, SparkEdges)
@@ -357,7 +357,7 @@ TEST_F(ParseURIQueryTests, SparkEdges)
      "?", "?/", "", "query;p2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""},
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }
 
 TEST_F(ParseURIQueryTests, Queries)
@@ -369,5 +369,5 @@ TEST_F(ParseURIQueryTests, Queries)
     {"param0=1&param2=3&param4=5", "", "a=b", "invalid=param&f„⁈.=7", "", "query=1"},
     {1, 0, 1, 1, 0, 1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }

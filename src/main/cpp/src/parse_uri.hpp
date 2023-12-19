@@ -49,7 +49,7 @@ std::unique_ptr<cudf::column> parse_uri_to_protocol(
  */
 std::unique_ptr<cudf::column> parse_uri_to_host(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
@@ -62,7 +62,7 @@ std::unique_ptr<cudf::column> parse_uri_to_host(
  */
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
