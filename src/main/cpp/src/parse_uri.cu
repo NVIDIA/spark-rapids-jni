@@ -166,11 +166,11 @@ bool __device__ validate_ipv6(string_view s)
   int address_char_count{0};
   bool address_has_hex{false};
 
-  auto const leading_double_colon = cuda::proclaim_return_type<bool>([&]() {
+  auto const leading_double_colon = [&]() {
     auto iter = s.begin();
     if (*iter == '[') iter++;
     return *iter++ == ':' && *iter == ':';
-  })();
+  }();
 
   for (auto iter = s.begin(); iter < s.end(); ++iter) {
     auto const c = *iter;
