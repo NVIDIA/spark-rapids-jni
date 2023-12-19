@@ -447,7 +447,7 @@ bool __device__ validate_path(string_view path)
   // path can be alphanum and @[]_-!.~'()*?/&,;:$+=
   return validate_chunk(path, [] __device__(string_view::const_iterator iter) {
     auto const c = *iter;
-    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '@' && c <= 'Z') &&
+    if (c != '!' && c != '$' && !(c >= '&' && c <= ';') && c != '=' && !(c >= '?' && c <= 'Z') &&
         c != '_' && !(c >= 'a' && c <= 'z') && c != '~') {
       return false;
     }
@@ -485,6 +485,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
 {
   uri_parts ret;
 
+  auto const original_str = str;
   // look for :/# characters.
   int col      = -1;
   int slash    = -1;
@@ -551,8 +552,9 @@ uri_parts __device__ validate_uri(const char* str, int len)
     return ret;
   }
 
-  // If we have a '/' as the next character, we have a heirarchical uri. If not it is opaque.
-  bool const heirarchical = str[0] == '/';
+  // If we have a '/' as the next character or this is still the start of the string, we have a
+  // heirarchical uri. If not it is opaque.
+  bool const heirarchical = str[0] == '/' || str == original_str;
   if (heirarchical) {
     // a '?' will break this into query and path/authority
     if (question >= 0) {
@@ -650,7 +652,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
       }
     } else {
       // path with no authority
-      ret.path = {str, len};
+      ret.path = {str, path_len};
     }
     if (!validate_path(ret.path)) {
       ret.valid = 0;

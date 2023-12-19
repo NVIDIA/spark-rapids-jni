@@ -133,6 +133,7 @@ cudf::test::strings_column_wrapper get_test_data(test_types t)
         "https://[2001:db8::2:1]:443/parms/in/the/uri?a=b",
         "https://[::1]/?invalid=param&f„⁈.=7",
         "https://[::1]/?invalid=param&~.=!@&^",
+        "userinfo@www.nvidia.com/path?query=1#Ref",
       });
     default: CUDF_FAIL("Test type unsupported!"); return cudf::test::strings_column_wrapper();
   }
@@ -365,7 +366,8 @@ TEST_F(ParseURIQueryTests, Queries)
   auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col});
 
   cudf::test::strings_column_wrapper const expected(
-    {"param0=1&param2=3&param4=5", "", "a=b", "invalid=param&f„⁈.=7", ""}, {1, 0, 1, 1, 0});
+    {"param0=1&param2=3&param4=5", "", "a=b", "invalid=param&f„⁈.=7", "", "query=1"},
+    {1, 0, 1, 1, 0, 1});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }

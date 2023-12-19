@@ -138,6 +138,12 @@ public class ParseURITest {
       "http://www.nvidia.com/picshow.asp?id=106&mnid=5080&classname=\271\253ืฐฦช",
       "http://-.~_!$&'()*+,;=:%40:80%2f::::::@nvidia.com:443",
       "http://userid:password@nvidia.com:8080/",
+      "https://www.nvidia.com/path?param0=1&param2=3&param4=5",
+      "https:// /?params=5&cloth=0&metal=1",
+      "https://[2001:db8::2:1]:443/parms/in/the/uri?a=b",
+      "https://[::1]/?invalid=param&f„⁈.=7",
+      "https://[::1]/?invalid=param&~.=!@&^",
+      "userinfo@www.nvidia.com/path?query=1#Ref",
       "",
       null};
 
