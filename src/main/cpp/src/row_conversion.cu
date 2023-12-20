@@ -1583,9 +1583,10 @@ batch_data build_batches(size_type num_rows,
   while (last_row_end < num_rows) {
     auto offset_row_sizes = thrust::make_transform_iterator(
       cumulative_row_sizes.begin(),
-      cuda::proclaim_return_type<uint64_t>([last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
-        return i - cumulative_row_sizes[last_row_end];
-      }));
+      cuda::proclaim_return_type<uint64_t>(
+        [last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
+          return i - cumulative_row_sizes[last_row_end];
+        }));
     auto search_start = offset_row_sizes + last_row_end;
     auto search_end   = offset_row_sizes + num_rows;
 
