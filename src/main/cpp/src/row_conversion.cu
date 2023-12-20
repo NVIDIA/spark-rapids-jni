@@ -2467,7 +2467,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     std::vector<char*> string_data_col_ptrs;
     for (auto& col_string_lengths : string_lengths) {
       device_uvector<size_type> output_string_offsets(num_rows + 1, stream, mr);
-      auto tmp = cuda::proclaim_return_type<int32_t>(
+      auto tmp = cuda::proclaim_return_type<size_type>(
         [num_rows, col_string_lengths] __device__(auto const& i) {
           return i < num_rows ? col_string_lengths[i] : 0;
         });
