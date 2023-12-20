@@ -94,7 +94,7 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
-# Overrides
+# Set up rapids-cmake overrides
 rapids_cpm_package_override(cmake/versions.json)
 
 # find CCCL

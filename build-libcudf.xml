@@ -40,6 +40,7 @@
       <arg value="-DBUILD_TESTS=OFF"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
       <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
+      <arg value="-DCMAKE_PROJECT_INCLUDE=${cudf.path}/../../src/main/cpp/cmake/version_overrides.cmake"/>
       <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
       <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
       <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
