@@ -30,6 +30,8 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
 
+#include <cuda/functional>
+
 namespace {
 
 // Convert a date in Julian calendar to the number of days since epoch.
@@ -73,28 +75,29 @@ std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const& 
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_D>(),
-    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
-      auto constexpr julian_end = cuda::std::chrono::year_month_day{
-        cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
-      auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
-        cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{15}};
+    cuda::proclaim_return_type<cudf::timestamp_D>(
+      [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+        auto constexpr julian_end = cuda::std::chrono::year_month_day{
+          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
+        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
+          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{15}};
 
-      auto const days_ts          = d_input[idx].time_since_epoch().count();
-      auto const days_since_epoch = cuda::std::chrono::sys_days(cudf::duration_D{days_ts});
+        auto const days_ts          = d_input[idx].time_since_epoch().count();
+        auto const days_since_epoch = cuda::std::chrono::sys_days(cudf::duration_D{days_ts});
 
-      // Convert the input into local date in Proleptic Gregorian calendar.
-      auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
-      if (ymd > julian_end && ymd < gregorian_start) {
-        // This is the same as rebasing from the local date given at `gregorian_start`.
-        return cudf::timestamp_D{cudf::duration_D{-141427}};
-      }
+        // Convert the input into local date in Proleptic Gregorian calendar.
+        auto const ymd = cuda::std::chrono::year_month_day(days_since_epoch);
+        if (ymd > julian_end && ymd < gregorian_start) {
+          // This is the same as rebasing from the local date given at `gregorian_start`.
+          return cudf::timestamp_D{cudf::duration_D{-141427}};
+        }
 
-      // No change since this time.
-      if (ymd >= gregorian_start) { return d_input[idx]; }
+        // No change since this time.
+        if (ymd >= gregorian_start) { return d_input[idx]; }
 
-      // Reinterpret year/month/day as in Julian calendar then compute the days since epoch.
-      return cudf::timestamp_D{cudf::duration_D{days_from_julian(ymd)}};
-    });
+        // Reinterpret year/month/day as in Julian calendar then compute the days since epoch.
+        return cudf::timestamp_D{cudf::duration_D{days_from_julian(ymd)}};
+      }));
 
   return output;
 }
@@ -142,19 +145,20 @@ std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const& 
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(input.size()),
                     output->mutable_view().begin<cudf::timestamp_D>(),
-                    [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
-                      auto const days_ts = d_input[idx].time_since_epoch().count();
-                      if (days_ts >= -141427) {  // Gregorian start day
-                        return d_input[idx];
-                      }
+                    cuda::proclaim_return_type<cudf::timestamp_D>(
+                      [d_input = input.begin<cudf::timestamp_D>()] __device__(auto const idx) {
+                        auto const days_ts = d_input[idx].time_since_epoch().count();
+                        if (days_ts >= -141427) {  // Gregorian start day
+                          return d_input[idx];
+                        }
 
-                      // Reinterpret year/month/day as in Gregorian calendar then compute the days
-                      // since epoch.
-                      auto const ymd = julian_from_days(days_ts);
-                      auto const result =
-                        cuda::std::chrono::local_days{ymd}.time_since_epoch().count();
-                      return cudf::timestamp_D{cudf::duration_D{result}};
-                    });
+                        // Reinterpret year/month/day as in Gregorian calendar then compute the days
+                        // since epoch.
+                        auto const ymd = julian_from_days(days_ts);
+                        auto const result =
+                          cuda::std::chrono::local_days{ymd}.time_since_epoch().count();
+                        return cudf::timestamp_D{cudf::duration_D{result}};
+                      }));
 
   return output;
 }
@@ -242,39 +246,40 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_us>(),
-    [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
-      // This timestamp corresponds to October 15th, 1582 UTC.
-      // After this day, there is no difference in microsecond values between Gregorian
-      // and Julian calendars.
-      int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
+    cuda::proclaim_return_type<cudf::timestamp_us>(
+      [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
+        // This timestamp corresponds to October 15th, 1582 UTC.
+        // After this day, there is no difference in microsecond values between Gregorian
+        // and Julian calendars.
+        int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
 
-      auto const micros_ts = d_input[idx].time_since_epoch().count();
-      if (micros_ts >= last_switch_gregorian_ts) { return d_input[idx]; }
+        auto const micros_ts = d_input[idx].time_since_epoch().count();
+        if (micros_ts >= last_switch_gregorian_ts) { return d_input[idx]; }
 
-      // Convert the input into local date-time in Proleptic Gregorian calendar.
-      auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
-        cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
-      auto const ymd              = cuda::std::chrono::year_month_day(days_since_epoch);
-      auto const timeparts        = get_time_components(micros_ts);
+        // Convert the input into local date-time in Proleptic Gregorian calendar.
+        auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
+          cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
+        auto const ymd              = cuda::std::chrono::year_month_day(days_since_epoch);
+        auto const timeparts        = get_time_components(micros_ts);
 
-      auto constexpr julian_end = cuda::std::chrono::year_month_day{
-        cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
-      auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
-        cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{15}};
+        auto constexpr julian_end = cuda::std::chrono::year_month_day{
+          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{4}};
+        auto constexpr gregorian_start = cuda::std::chrono::year_month_day{
+          cuda::std::chrono::year{1582}, cuda::std::chrono::month{10}, cuda::std::chrono::day{15}};
 
-      // Reinterpret the local date-time as in Julian calendar and compute microseconds since
-      // the epoch from that Julian local date-time.
-      // If the input date is outside of both calendars, consider it as it is a local date
-      // given at `gregorian_start` (-141427 Julian days since epoch).
-      auto const julian_days =
-        (ymd > julian_end && ymd < gregorian_start) ? -141427 : days_from_julian(ymd);
-      int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
-                       (timeparts.minute * 60L) + timeparts.second;
-      result *= MICROS_PER_SECOND;  // to microseconds
-      result += timeparts.subsecond;
+        // Reinterpret the local date-time as in Julian calendar and compute microseconds since
+        // the epoch from that Julian local date-time.
+        // If the input date is outside of both calendars, consider it as it is a local date
+        // given at `gregorian_start` (-141427 Julian days since epoch).
+        auto const julian_days =
+          (ymd > julian_end && ymd < gregorian_start) ? -141427 : days_from_julian(ymd);
+        int64_t result = (julian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
+                         (timeparts.minute * 60L) + timeparts.second;
+        result *= MICROS_PER_SECOND;  // to microseconds
+        result += timeparts.subsecond;
 
-      return cudf::timestamp_us{cudf::duration_us{result}};
-    });
+        return cudf::timestamp_us{cudf::duration_us{result}};
+      }));
 
   return output;
 }
@@ -304,31 +309,32 @@ std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(input.size()),
     output->mutable_view().begin<cudf::timestamp_us>(),
-    [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
-      // This timestamp corresponds to October 15th, 1582 UTC.
-      // After this day, there is no difference in microsecond values between Gregorian
-      // and Julian calendars.
-      int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
+    cuda::proclaim_return_type<cudf::timestamp_us>(
+      [d_input = input.begin<cudf::timestamp_us>()] __device__(auto const idx) {
+        // This timestamp corresponds to October 15th, 1582 UTC.
+        // After this day, there is no difference in microsecond values between Gregorian
+        // and Julian calendars.
+        int64_t constexpr last_switch_gregorian_ts = -12219292800000000L;
 
-      auto const micros_ts = d_input[idx].time_since_epoch().count();
-      if (micros_ts >= last_switch_gregorian_ts) { return d_input[idx]; }
+        auto const micros_ts = d_input[idx].time_since_epoch().count();
+        if (micros_ts >= last_switch_gregorian_ts) { return d_input[idx]; }
 
-      // Convert the input into local date-time in Julian calendar.
-      auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
-        cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
-      auto const ymd              = julian_from_days(days_since_epoch.time_since_epoch().count());
-      auto const timeparts        = get_time_components(micros_ts);
+        // Convert the input into local date-time in Julian calendar.
+        auto const days_since_epoch = cuda::std::chrono::sys_days(static_cast<cudf::duration_D>(
+          cuda::std::chrono::floor<cuda::std::chrono::days>(cudf::duration_us(micros_ts))));
+        auto const ymd              = julian_from_days(days_since_epoch.time_since_epoch().count());
+        auto const timeparts        = get_time_components(micros_ts);
 
-      // Reinterpret the local date-time as in Gregorian calendar and compute microseconds since
-      // the epoch from that Gregorian local date-time.
-      auto const gregorian_days = cuda::std::chrono::local_days(ymd).time_since_epoch().count();
-      int64_t result            = (gregorian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
-                       (timeparts.minute * 60L) + timeparts.second;
-      result *= MICROS_PER_SECOND;  // to microseconds
-      result += timeparts.subsecond;
+        // Reinterpret the local date-time as in Gregorian calendar and compute microseconds since
+        // the epoch from that Gregorian local date-time.
+        auto const gregorian_days = cuda::std::chrono::local_days(ymd).time_since_epoch().count();
+        int64_t result            = (gregorian_days * 24L * 3600L) + (timeparts.hour * 3600L) +
+                         (timeparts.minute * 60L) + timeparts.second;
+        result *= MICROS_PER_SECOND;  // to microseconds
+        result += timeparts.subsecond;
 
-      return cudf::timestamp_us{cudf::duration_us{result}};
-    });
+        return cudf::timestamp_us{cudf::duration_us{result}};
+      }));
 
   return output;
 }

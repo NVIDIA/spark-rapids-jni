@@ -16,7 +16,8 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
-#include "row_conversion.hpp"
+
+#include <cudf/row_conversion.hpp>
 
 extern "C" {
 
@@ -31,7 +32,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRowsFixedWidthOptimized(
     cudf::jni::auto_set_device(env);
     cudf::table_view const* n_input_table = reinterpret_cast<cudf::table_view const*>(input_table);
     std::vector<std::unique_ptr<cudf::column>> cols =
-      spark_rapids_jni::convert_to_rows_fixed_width_optimized(*n_input_table);
+      cudf::convert_to_rows_fixed_width_optimized(*n_input_table);
     int const num_columns = cols.size();
     cudf::jni::native_jlongArray outcol_handles(env, num_columns);
     std::transform(cols.begin(), cols.end(), outcol_handles.begin(), [](auto& col) {
@@ -50,9 +51,8 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRows(JNIEnv* env, jclass
   try {
     cudf::jni::auto_set_device(env);
     cudf::table_view const* n_input_table = reinterpret_cast<cudf::table_view const*>(input_table);
-    std::vector<std::unique_ptr<cudf::column>> cols =
-      spark_rapids_jni::convert_to_rows(*n_input_table);
-    int const num_columns = cols.size();
+    std::vector<std::unique_ptr<cudf::column>> cols = cudf::convert_to_rows(*n_input_table);
+    int const num_columns                           = cols.size();
     cudf::jni::native_jlongArray outcol_handles(env, num_columns);
     std::transform(cols.begin(), cols.end(), outcol_handles.begin(), [](auto& col) {
       return cudf::jni::release_as_jlong(col);
@@ -84,7 +84,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
                    std::back_inserter(types_vec),
                    [](jint type, jint scale) { return cudf::jni::make_data_type(type, scale); });
     std::unique_ptr<cudf::table> result =
-      spark_rapids_jni::convert_from_rows_fixed_width_optimized(list_input, types_vec);
+      cudf::convert_from_rows_fixed_width_optimized(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
   CATCH_STD(env, 0);
@@ -110,8 +110,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_RowConversion_conv
                    n_scale.begin(),
                    std::back_inserter(types_vec),
                    [](jint type, jint scale) { return cudf::jni::make_data_type(type, scale); });
-    std::unique_ptr<cudf::table> result =
-      spark_rapids_jni::convert_from_rows(list_input, types_vec);
+    std::unique_ptr<cudf::table> result = cudf::convert_from_rows(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
   CATCH_STD(env, 0);

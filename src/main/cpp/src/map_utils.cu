@@ -54,6 +54,8 @@
 //
 #include <cub/device/device_radix_sort.cuh>
 
+#include <cuda/functional>
+
 namespace spark_rapids_jni {
 
 using namespace cudf::io::json;
@@ -179,29 +181,33 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
   auto token_levels = rmm::device_uvector<TreeDepthT>(tokens.size(), stream);
 
   // Whether the token pops from the parent node stack.
-  auto const does_pop = [] __device__(PdaTokenT const token) -> bool {
-    switch (token) {
-      case token_t::StructMemberEnd:
-      case token_t::StructEnd:
-      case token_t::ListEnd: return true;
-      default: return false;
-    };
-  };
+  auto const does_pop =
+    cuda::proclaim_return_type<bool>([] __device__(PdaTokenT const token) -> bool {
+      switch (token) {
+        case token_t::StructMemberEnd:
+        case token_t::StructEnd:
+        case token_t::ListEnd: return true;
+        default: return false;
+      };
+    });
 
   // Whether the token pushes onto the parent node stack.
-  auto const does_push = [] __device__(PdaTokenT const token) -> bool {
-    switch (token) {
-      case token_t::FieldNameBegin:
-      case token_t::StructBegin:
-      case token_t::ListBegin: return true;
-      default: return false;
-    };
-  };
+  auto const does_push =
+    cuda::proclaim_return_type<bool>([] __device__(PdaTokenT const token) -> bool {
+      switch (token) {
+        case token_t::FieldNameBegin:
+        case token_t::StructBegin:
+        case token_t::ListBegin: return true;
+        default: return false;
+      };
+    });
 
   auto const push_pop_it = thrust::make_transform_iterator(
-    tokens.begin(), [does_push, does_pop] __device__(PdaTokenT const token) -> cudf::size_type {
-      return does_push(token) - does_pop(token);
-    });
+    tokens.begin(),
+    cuda::proclaim_return_type<cudf::size_type>(
+      [does_push, does_pop] __device__(PdaTokenT const token) -> cudf::size_type {
+        return does_push(token) - does_pop(token);
+      }));
   thrust::exclusive_scan(
     rmm::exec_policy(stream), push_pop_it, push_pop_it + tokens.size(), token_levels.begin());
 
@@ -302,20 +308,20 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
   rmm::device_uvector<NodeIndexT> const& node_token_ids,
   rmm::cuda_stream_view stream)
 {
-  auto const first_childs_parent_token_id = [tokens =
-                                               tokens.begin()] __device__(auto i) -> NodeIndexT {
-    if (i <= 0) { return -1; }
-    if (tokens[i - 1] == token_t::StructBegin || tokens[i - 1] == token_t::ListBegin) {
-      return i - 1;
-    } else if (tokens[i - 1] == token_t::FieldNameEnd) {
-      return i - 2;
-    } else if (tokens[i - 1] == token_t::StructMemberBegin &&
-               (tokens[i - 2] == token_t::StructBegin || tokens[i - 2] == token_t::ListBegin)) {
-      return i - 2;
-    } else {
-      return -1;
-    }
-  };
+  auto const first_childs_parent_token_id = cuda::proclaim_return_type<NodeIndexT>(
+    [tokens = tokens.begin()] __device__(auto i) -> NodeIndexT {
+      if (i <= 0) { return -1; }
+      if (tokens[i - 1] == token_t::StructBegin || tokens[i - 1] == token_t::ListBegin) {
+        return i - 1;
+      } else if (tokens[i - 1] == token_t::FieldNameEnd) {
+        return i - 2;
+      } else if (tokens[i - 1] == token_t::StructMemberBegin &&
+                 (tokens[i - 2] == token_t::StructBegin || tokens[i - 2] == token_t::ListBegin)) {
+        return i - 2;
+      } else {
+        return -1;
+      }
+    });
 
   auto parent_node_ids = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   thrust::transform(
@@ -323,14 +329,15 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
     node_token_ids.begin(),
     node_token_ids.end(),
     parent_node_ids.begin(),
-    [node_ids_gpu = node_token_ids.begin(), num_nodes, first_childs_parent_token_id] __device__(
-      NodeIndexT const tid) -> NodeIndexT {
-      auto const pid = first_childs_parent_token_id(tid);
-      return pid < 0
-               ? cudf::io::json::parent_node_sentinel
-               : thrust::lower_bound(thrust::seq, node_ids_gpu, node_ids_gpu + num_nodes, pid) -
-                   node_ids_gpu;
-    });
+    cuda::proclaim_return_type<NodeIndexT>(
+      [node_ids_gpu = node_token_ids.begin(), num_nodes, first_childs_parent_token_id] __device__(
+        NodeIndexT const tid) -> NodeIndexT {
+        auto const pid = first_childs_parent_token_id(tid);
+        return pid < 0
+                 ? cudf::io::json::parent_node_sentinel
+                 : thrust::lower_bound(thrust::seq, node_ids_gpu, node_ids_gpu + num_nodes, pid) -
+                     node_ids_gpu;
+      }));
 
   // Propagate parent node to siblings from first sibling - inplace.
   auto const node_levels = compute_node_levels(num_nodes, tokens, stream);
@@ -356,20 +363,21 @@ rmm::device_uvector<int8_t> check_key_or_value_nodes(
     transform_it,
     transform_it + parent_node_ids.size(),
     key_or_value.begin(),
-    [key_sentinel   = key_sentinel,
-     value_sentinel = value_sentinel,
-     parent_ids     = parent_node_ids.begin()] __device__(auto const node_id) -> int8_t {
-      if (parent_ids[node_id] > 0) {
-        auto const grand_parent = parent_ids[parent_ids[node_id]];
-        if (grand_parent == 0) {
-          return key_sentinel;
-        } else if (parent_ids[grand_parent] == 0) {
-          return value_sentinel;
+    cuda::proclaim_return_type<int8_t>(
+      [key_sentinel   = key_sentinel,
+       value_sentinel = value_sentinel,
+       parent_ids     = parent_node_ids.begin()] __device__(auto const node_id) -> int8_t {
+        if (parent_ids[node_id] > 0) {
+          auto const grand_parent = parent_ids[parent_ids[node_id]];
+          if (grand_parent == 0) {
+            return key_sentinel;
+          } else if (parent_ids[grand_parent] == 0) {
+            return value_sentinel;
+          }
         }
-      }
 
-      return 0;
-    });
+        return 0;
+      }));
 
 #ifdef DEBUG_FROM_JSON
   print_debug(key_or_value, "Nodes are key/value (1==key, 2==value)", ", ", stream);
@@ -390,53 +398,58 @@ struct node_ranges_fn {
 
   __device__ thrust::pair<SymbolOffsetT, SymbolOffsetT> operator()(cudf::size_type node_id) const
   {
-    [[maybe_unused]] auto const is_begin_of_section = [] __device__(PdaTokenT const token) {
-      switch (token) {
-        case token_t::StructBegin:
-        case token_t::ListBegin:
-        case token_t::StringBegin:
-        case token_t::ValueBegin:
-        case token_t::FieldNameBegin: return true;
-        default: return false;
-      };
-    };
+    [[maybe_unused]] auto const is_begin_of_section =
+      cuda::proclaim_return_type<bool>([] __device__(PdaTokenT const token) {
+        switch (token) {
+          case token_t::StructBegin:
+          case token_t::ListBegin:
+          case token_t::StringBegin:
+          case token_t::ValueBegin:
+          case token_t::FieldNameBegin: return true;
+          default: return false;
+        };
+      });
 
     // The end-of-* partner token for a given beginning-of-* token
-    auto const end_of_partner = [] __device__(PdaTokenT const token) {
-      switch (token) {
-        case token_t::StructBegin: return token_t::StructEnd;
-        case token_t::ListBegin: return token_t::ListEnd;
-        case token_t::StringBegin: return token_t::StringEnd;
-        case token_t::ValueBegin: return token_t::ValueEnd;
-        case token_t::FieldNameBegin: return token_t::FieldNameEnd;
-        default: return token_t::ErrorBegin;
-      };
-    };
+    auto const end_of_partner =
+      cuda::proclaim_return_type<token_t>([] __device__(PdaTokenT const token) {
+        switch (token) {
+          case token_t::StructBegin: return token_t::StructEnd;
+          case token_t::ListBegin: return token_t::ListEnd;
+          case token_t::StringBegin: return token_t::StringEnd;
+          case token_t::ValueBegin: return token_t::ValueEnd;
+          case token_t::FieldNameBegin: return token_t::FieldNameEnd;
+          default: return token_t::ErrorBegin;
+        };
+      });
 
     // Encode a fixed value for nested node types (list+struct).
-    auto const nested_node_to_value = [] __device__(PdaTokenT const token) -> int32_t {
-      switch (token) {
-        case token_t::StructBegin: return 1;
-        case token_t::StructEnd: return -1;
-        case token_t::ListBegin: return 1 << 8;
-        case token_t::ListEnd: return -(1 << 8);
-        default: return 0;
-      };
-    };
+    auto const nested_node_to_value =
+      cuda::proclaim_return_type<int32_t>([] __device__(PdaTokenT const token) -> int32_t {
+        switch (token) {
+          case token_t::StructBegin: return 1;
+          case token_t::StructEnd: return -1;
+          case token_t::ListBegin: return 1 << 8;
+          case token_t::ListEnd: return -(1 << 8);
+          default: return 0;
+        };
+      });
 
-    auto const get_token_index = [include_quote_char = include_quote_char] __device__(
-                                   PdaTokenT const token, SymbolOffsetT const token_index) {
-      constexpr SymbolOffsetT quote_char_size = 1;
-      switch (token) {
-        // Strip off quote char included for StringBegin
-        case token_t::StringBegin: return token_index + (include_quote_char ? 0 : quote_char_size);
-        // Strip off or Include trailing quote char for string values for StringEnd
-        case token_t::StringEnd: return token_index + (include_quote_char ? quote_char_size : 0);
-        // Strip off quote char included for FieldNameBegin
-        case token_t::FieldNameBegin: return token_index + quote_char_size;
-        default: return token_index;
-      };
-    };
+    auto const get_token_index = cuda::proclaim_return_type<SymbolOffsetT>(
+      [include_quote_char = include_quote_char] __device__(PdaTokenT const token,
+                                                           SymbolOffsetT const token_index) {
+        constexpr SymbolOffsetT quote_char_size = 1;
+        switch (token) {
+          // Strip off quote char included for StringBegin
+          case token_t::StringBegin:
+            return token_index + (include_quote_char ? 0 : quote_char_size);
+          // Strip off or Include trailing quote char for string values for StringEnd
+          case token_t::StringEnd: return token_index + (include_quote_char ? quote_char_size : 0);
+          // Strip off quote char included for FieldNameBegin
+          case token_t::FieldNameBegin: return token_index + quote_char_size;
+          default: return token_index;
+        };
+      });
 
     if (key_or_value[node_id] != key_sentinel && key_or_value[node_id] != value_sentinel) {
       return thrust::make_pair(0, 0);
@@ -529,13 +542,15 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
-    return key_or_value[node_id] == key_sentinel;
-  };
+  auto const is_key = cuda::proclaim_return_type<bool>(
+    [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+      return key_or_value[node_id] == key_sentinel;
+    });
 
-  auto const is_value = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
-    return key_or_value[node_id] == value_sentinel;
-  };
+  auto const is_value = cuda::proclaim_return_type<bool>(
+    [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+      return key_or_value[node_id] == value_sentinel;
+    });
 
   auto extract_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream, mr);
@@ -574,17 +589,19 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 
   // For the nodes having parent_id == 0 (they are json object given by one input row), set their
   // child counts to zero. Otherwise, set child counts to `-1` (a sentinel number).
-  thrust::transform(rmm::exec_policy(stream),
-                    parent_node_ids.begin(),
-                    parent_node_ids.end(),
-                    node_child_counts.begin(),
-                    [] __device__(auto const parent_id) -> NodeIndexT {
-                      return parent_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
-                    });
+  thrust::transform(
+    rmm::exec_policy(stream),
+    parent_node_ids.begin(),
+    parent_node_ids.end(),
+    node_child_counts.begin(),
+    cuda::proclaim_return_type<NodeIndexT>([] __device__(auto const parent_id) -> NodeIndexT {
+      return parent_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
+    }));
 
-  auto const is_key = [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
-    return key_or_value[node_id] == key_sentinel;
-  };
+  auto const is_key = cuda::proclaim_return_type<bool>(
+    [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
+      return key_or_value[node_id] == key_sentinel;
+    });
 
   // Count the number of keys for each json object using `atomicAdd`.
   auto const transform_it = thrust::counting_iterator<int>(0);
@@ -608,7 +625,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
     node_child_counts.begin(),
     node_child_counts.end(),
     list_offsets.begin(),
-    [] __device__(auto const count) { return count >= 0; },
+    cuda::proclaim_return_type<bool>([] __device__(auto const count) { return count >= 0; }),
     stream);
   CUDF_EXPECTS(thrust::distance(list_offsets.begin(), copy_end) == static_cast<int64_t>(n_lists),
                "Invalid list size computation.");
