@@ -30,7 +30,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRowsFixedWidthOptimized(
     cudf::table_view const *n_input_table =
         reinterpret_cast<cudf::table_view const *>(input_table);
     std::vector<std::unique_ptr<cudf::column>> cols =
-        cudf::jni::convert_to_rows_fixed_width_optimized(*n_input_table);
+        cudf::convert_to_rows_fixed_width_optimized(*n_input_table);
     int const num_columns = cols.size();
     cudf::jni::native_jlongArray outcol_handles(env, num_columns);
     std::transform(cols.begin(), cols.end(), outcol_handles.begin(),
@@ -50,7 +50,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRows(
     cudf::table_view const *n_input_table =
         reinterpret_cast<cudf::table_view const *>(input_table);
     std::vector<std::unique_ptr<cudf::column>> cols =
-        cudf::jni::convert_to_rows(*n_input_table);
+        cudf::convert_to_rows(*n_input_table);
     int const num_columns = cols.size();
     cudf::jni::native_jlongArray outcol_handles(env, num_columns);
     std::transform(cols.begin(), cols.end(), outcol_handles.begin(),
@@ -82,7 +82,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
                      return cudf::jni::make_data_type(type, scale);
                    });
     std::unique_ptr<cudf::table> result =
-        cudf::jni::convert_from_rows_fixed_width_optimized(list_input,
+        cudf::convert_from_rows_fixed_width_optimized(list_input,
                                                            types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
@@ -111,7 +111,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRows(
                      return cudf::jni::make_data_type(type, scale);
                    });
     std::unique_ptr<cudf::table> result =
-        cudf::jni::convert_from_rows(list_input, types_vec);
+        cudf::convert_from_rows(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
   CATCH_STD(env, 0);
