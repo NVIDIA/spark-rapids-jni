@@ -82,8 +82,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
                      return cudf::jni::make_data_type(type, scale);
                    });
     std::unique_ptr<cudf::table> result =
-        cudf::convert_from_rows_fixed_width_optimized(list_input,
-                                                           types_vec);
+        cudf::convert_from_rows_fixed_width_optimized(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
   CATCH_STD(env, 0);
