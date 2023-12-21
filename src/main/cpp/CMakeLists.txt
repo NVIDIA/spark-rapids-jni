@@ -94,11 +94,8 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
-# find libcu++
-include(${rapids-cmake-dir}/cpm/libcudacxx.cmake)
-
-# find thrust/cub
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thrust.cmake)
+# find CCCL
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # JNI
 find_package(JNI REQUIRED)
@@ -174,7 +171,6 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
-  src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
