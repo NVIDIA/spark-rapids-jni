@@ -16,7 +16,8 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
-#include "row_conversion.hpp"
+
+#include <cudf/row_conversion.hpp>
 
 extern "C" {
 
