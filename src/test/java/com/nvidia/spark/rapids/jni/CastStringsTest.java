@@ -20,8 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.AbstractMap;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -326,72 +329,143 @@ public class CastStringsTest {
     }
   }
 
-  // TODO update after this PR is done.
   @Test
-  void toTimestampTestNonAnsi() {
-    long d_2023_1_1 = (2023L * 365L * 86400L + 1 * 30L * 86400L + 1 * 86400L) * 1000000L;
-    long d_2023_11_1 = (2023L * 365L * 86400L + 11 * 30L * 86400L + 1 * 86400L) * 1000000L;
-    long d_2023_11_5 = (2023L * 365L * 86400L + 11L * 30L * 86400L + 5L * 86400L) * 1000000L;
-    long t_3_4_55 = (3L * 3600L + 4L * 60L + 55L) * 1000000L;
-    long d_2023_11_5_t_3_4_55 = d_2023_11_5 + t_3_4_55;
+  void toTimestampTestAnsiWithoutTz() {
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings(" invalid_value ")) {
+        // ansiEnabled is true
+        CastStrings.toTimestampWithoutTimeZone(input, false, true);
+      }
+    });
+
+    Instant instant = LocalDateTime.parse("2023-11-05T03:04:55").toInstant(ZoneOffset.UTC);
+    long expectedResults = instant.getEpochSecond() * 1000000L;
 
     try (
-        ColumnVector input = ColumnVector.fromStrings(
-            null,
-            " 2023 ",
-            " 2023-11 ",
-            " 2023-11-5 ",
-            " 2023-11-05 3:04:55   ",
-            " 2023-11-05T03:4:55   ",
-            " 2023-11-05T3:4:55   ",
-            "  2023-11-5T3:4:55.",
-            "  2023-11-5T3:4:55.Iran",
-            "  2023-11-5T3:4:55.1 ",
-            "  2023-11-5T3:4:55.1Iran",
-            "  2023-11-05T03:04:55.123456  ",
-            "  2023-11-05T03:04:55.123456Iran  ",
-            " 222222 ",
-            " ", // invalid
-            "", // invalid
-            "1-" // invalid
-        );
-        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-            null,
-            d_2023_1_1,
-            d_2023_11_1,
-            d_2023_11_5,
-            d_2023_11_5_t_3_4_55,
-            d_2023_11_5_t_3_4_55,
-            d_2023_11_5_t_3_4_55,
-            d_2023_11_5_t_3_4_55,
-            d_2023_11_5_t_3_4_55,
-            d_2023_11_5_t_3_4_55 + 100000,
-            d_2023_11_5_t_3_4_55 + 100000,
-            d_2023_11_5_t_3_4_55 + 123456,
-            d_2023_11_5_t_3_4_55 + 123456,
-            (222222L * 365L * 86400L + 1 * 30L * 86400L + 1 * 86400L) * 1000000L,
-            null,
-            null,
-            null);
-        ColumnVector actual = CastStrings.toTimestamp(input,
-            "Asia/Shanghai", false, false)) {
+        ColumnVector input = ColumnVector.fromStrings("2023-11-05 3:04:55");
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedResults);
+        ColumnVector actual = CastStrings.toTimestampWithoutTimeZone(input, false, true)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
   }
 
   @Test
-  void toTimestampTestAnsi() {
-    assertThrows(IllegalArgumentException.class, () -> {
-      try (ColumnVector input = ColumnVector.fromStrings(" invalid_value ")) {
-        // ansiEnabled is true
-        CastStrings.toTimestamp(input, "Asia/Shanghai", false, true);
+  void toTimestampTestWithTz() {
+    List<Map.Entry<String, Long>> entries = new ArrayList<>();
+    // Without timezone
+    entries.add(new AbstractMap.SimpleEntry<>("  2000-01-29 ", 949104000000000L));
+    // Timezone IDs
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-05 3:4:55 America/Sao_Paulo", 1699164295000000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1   Asia/Shanghai", 1699124695100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-1-29 13:59:8 Iran", 949141748000000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1968-03-25T23:59:1.123Asia/Tokyo", -55846858877000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1968-03-25T23:59:1.123456Asia/Tokyo", -55846858876544L));
+  
+    // UTC-like timezones
+    //  no adjustment
+    entries.add(new AbstractMap.SimpleEntry<>("1970-9-9 2:33:44 Z", 21695624000000L));
+    entries.add(new AbstractMap.SimpleEntry<>(" 1969-12-1 2:3:4.999Z", -2671015001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1954-10-20 00:11:22 GMT  ", -479692118000000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1984-1-3 00:11:22UTC", 441936682000000L));
+    //  hh
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12 UTC+18 ", 910231201120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12UTC+0", 910296001120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12UTC-00", 910296001120000L));
+    entries.add(new AbstractMap.SimpleEntry<>(" 1998-11-05T20:00:1.12   GMT+09 ", 910263601120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12   GMT-1", 910299601120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12  UTC-6", 910317601120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12  UTC-18", 910360801120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12UTC-00", 910296001120000L));
+    entries.add(new AbstractMap.SimpleEntry<>(" 1998-11-05T20:00:1.12   +09 ", 910263601120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12   -1", 910299601120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12 +18 ", 910231201120000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1998-11-05T20:00:1.12-00", 910296001120000L));
+    //  hh:mm
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 UTC+1428", -2723095001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 GMT-1501", -2616955001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 GMT+1:22", -2675935001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.8888 GMT+8:2", -2699935111200L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 UTC+17:9", -2732755001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 UTC-09:11", -2637955001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 +1428  ", -2723095001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999-1501  ", -2616955001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999 +1:22 ", -2675935001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.8888 +8:2  ", -2699935111200L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999+17:9", -2732755001000L));
+    entries.add(new AbstractMap.SimpleEntry<>("1969-12-1 2:3:4.999    -09:11", -2637955001000L));
+    //  hh:mm::ss
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 GMT+112233", 1571569871100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 UTC-100102", 1571646886100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 UTC+11:22:33", 1571569871100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 GMT-10:10:10", 1571647434100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 GMT-8:08:01", 1571640105100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 UTC+4:59:59", 1571592825100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 00:1:20.3  +102030", 1571492450300000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 00:1:20.3   -020103", 1571536943300000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1   -8:08:01  ", 1571640105100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1+4:59:59", 1571592825100000L));
+
+    int validDataSize = entries.size();
+
+    // Invalid instances
+    // Timezone without hh:mm:ss
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 Iran", null));
+    // Invalid Timezone ID
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 Asia/London", null));
+    // Invalid UTC-like timezone
+    //  overflow
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 +10:60", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 UTC-7:59:60", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 +19", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 UTC-23", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 GMT+1801", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 -180001", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 UTC+18:00:10", null));
+    entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 GMT-23:5", null));
+
+    List<String> inputs = new ArrayList<>();
+    List<Long> expects = new ArrayList<>();
+    for (Map.Entry<String, Long> entry : entries) {
+      inputs.add(entry.getKey());
+      expects.add(entry.getValue());
+    }
+
+    // Throw unsupported exception for symbols because Europe/London contains DST rules
+    assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings("2000-01-29 1:2:3 Europe/London")) {
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
+      }
+    });
+    // Throw unsupported exception for symbols of special dates
+    for (String date : new String[]{"epoch", "now", "today", "yesterday", "tomorrow"})
+    assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings(date)) {
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
       }
     });
 
+    // non-ANSI mode
+    try (
+        ColumnVector input = ColumnVector.fromStrings(inputs.toArray(new String[0]));
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expects.toArray(new Long[0]));
+        ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), false)) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+
+    // Should NOT throw exception because all inputs are valid
+    String[] validInputs = inputs.stream().limit(validDataSize).toArray(String[]::new);
+    Long[] validExpects = expects.stream().limit(validDataSize).toArray(Long[]::new);
+    try (
+        ColumnVector input = ColumnVector.fromStrings(validInputs);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(validExpects);
+        ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), true)) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+
+    // Throw IllegalArgumentException for invalid timestamps under ANSI mode
     assertThrows(IllegalArgumentException.class, () -> {
-      try (ColumnVector input = ColumnVector.fromStrings(" invalid_value ")) {
-        // ansiEnabled is true
-        CastStrings.toTimestampWithoutTimeZone(input, true, false, true);
+      try (ColumnVector input = ColumnVector.fromStrings(inputs.toArray(new String[0]))) {
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), true);
       }
     });
   }

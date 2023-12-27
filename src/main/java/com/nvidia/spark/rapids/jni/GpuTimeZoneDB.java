@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneRules;
@@ -27,15 +28,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.*;
+import java.util.function.Function;
 
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.HostColumnVector;
-import ai.rapids.cudf.Table;
+import ai.rapids.cudf.*;
 
 public class GpuTimeZoneDB {
 
   public static final int TIMEOUT_SECS = 300;
+  public static final String[] SPECIAL_TZ_LITERALS = {"epoch", "now", "today", "tomorrow", "yesterday"};
 
 
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
@@ -43,14 +43,18 @@ public class GpuTimeZoneDB {
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
+  private CompletableFuture<HostColumnVector> zoneIdVectorFuture;
+  private CompletableFuture<HostColumnVector> specialTzLiteralsFuture;
 
   private boolean closed = false;
 
   GpuTimeZoneDB() {
     zoneIdToTableFuture = new CompletableFuture<>();
     fixedTransitionsFuture = new CompletableFuture<>();
+    zoneIdVectorFuture = new CompletableFuture<>();
+    specialTzLiteralsFuture = new CompletableFuture<>();
   }
-  
+
   private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
   // This method is default visibility for testing purposes only. The instance will be never be exposed publicly
   // for this class.
@@ -157,10 +161,11 @@ public class GpuTimeZoneDB {
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
-  private boolean isLoaded() {
-    return zoneIdToTableFuture.isDone();
+  public boolean isLoaded() {
+    return zoneIdToTableFuture.isDone() && fixedTransitionsFuture.isDone() &&
+            zoneIdVectorFuture.isDone() && specialTzLiteralsFuture.isDone();
   }
-  
+
   private void loadData(Executor executor) throws IllegalStateException {
     // Start loading the data in separate thread and return
     try {
@@ -176,6 +181,9 @@ public class GpuTimeZoneDB {
       try {
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+        List<String> zondIdList = new ArrayList<>();
+        List<String> unsupportedZoneList = new ArrayList<>();
+
         for (String tzId : TimeZone.getAvailableIDs()) {
           ZoneId zoneId;
           try {
@@ -189,6 +197,7 @@ public class GpuTimeZoneDB {
           ZoneRules zoneRules = zoneId.getRules();
           // Filter by non-repeating rules
           if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
+            unsupportedZoneList.add(zoneId.getId());
             continue;
           }
           if (!zoneIdToTable.containsKey(zoneId.getId())) {
@@ -198,16 +207,27 @@ public class GpuTimeZoneDB {
             if (zoneRules.isFixedOffset()) {
               data.add(
                   new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                      zoneRules.getOffset(Instant.now()).getTotalSeconds())
+                      zoneRules.getOffset(Instant.now()).getTotalSeconds(), Long.MIN_VALUE)
               );
             } else {
               // Capture the first official offset (before any transition) using Long min
               ZoneOffsetTransition first = transitions.get(0);
               data.add(
                   new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                      first.getOffsetBefore().getTotalSeconds())
+                      first.getOffsetBefore().getTotalSeconds(), Long.MIN_VALUE)
               );
               transitions.forEach(t -> {
+                // A simple approach to transform LocalDateTime to a value which is proportional to
+                // the exact EpochSecond. After caching these values along with EpochSeconds, we
+                // can easily search out which time zone transition rule we should apply according
+                // to LocalDateTime structs. The searching procedure is same as the binary search with
+                // exact EpochSeconds(convert_timestamp_tz_functor), except using "loose EpochSeconds"
+                // as search index instead of exact EpochSeconds.
+                Function<LocalDateTime, Long> localToLooseEpochSecond = lt ->
+                        86400L * (lt.getYear() * 400L + (lt.getMonthValue() - 1) * 31L +
+                                lt.getDayOfMonth() - 1) +
+                                3600L * lt.getHour() + 60L * lt.getMinute() + lt.getSecond();
+
                 // Whether transition is an overlap vs gap.
                 // In Spark:
                 // if it's a gap, then we use the offset after *on* the instant
@@ -219,35 +239,53 @@ public class GpuTimeZoneDB {
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
+                          t.getOffsetAfter().getTotalSeconds(),
+                          localToLooseEpochSecond.apply(t.getDateTimeAfter())
+                      )
                   );
                 } else {
                   data.add(
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
+                          t.getOffsetAfter().getTotalSeconds(),
+                          localToLooseEpochSecond.apply(t.getDateTimeBefore())
+                      )
                   );
                 }
               });
             }
             masterTransitions.add(data);
             zoneIdToTable.put(zoneId.getId(), idx);
+            zondIdList.add(zoneId.getId());
           }
         }
+        zoneIdToTableFuture.complete(zoneIdToTable);
+
         HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
             new HostColumnVector.BasicType(false, DType.INT64),
             new HostColumnVector.BasicType(false, DType.INT64),
-            new HostColumnVector.BasicType(false, DType.INT32));
+            new HostColumnVector.BasicType(false, DType.INT32),
+            new HostColumnVector.BasicType(false, DType.INT64));
         HostColumnVector.DataType resultType =
             new HostColumnVector.ListType(false, childType);
-        HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType,
-            masterTransitions.toArray(new List[0]));
-        fixedTransitionsFuture.complete(fixedTransitions);
-        zoneIdToTableFuture.complete(zoneIdToTable);
+
+        zondIdList.addAll(unsupportedZoneList);
+
+        try (HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType, masterTransitions.toArray(new List[0]))) {
+          try (HostColumnVector zoneIdVector = HostColumnVector.fromStrings(zondIdList.toArray(new String[0]))) {
+            try (HostColumnVector specialTzVector = HostColumnVector.fromStrings(SPECIAL_TZ_LITERALS)) {
+              fixedTransitionsFuture.complete(fixedTransitions.incRefCount());
+              zoneIdVectorFuture.complete(zoneIdVector.incRefCount());
+              specialTzLiteralsFuture.complete(specialTzVector.incRefCount());
+            }
+          }
+        }
       } catch (Exception e) {
         fixedTransitionsFuture.completeExceptionally(e);
         zoneIdToTableFuture.completeExceptionally(e);
+        zoneIdVectorFuture.completeExceptionally(e);
+        specialTzLiteralsFuture.completeExceptionally(e);
         throw e;
       }
     }
@@ -273,7 +311,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private Map<String, Integer> getZoneIDMap() {
+  public Map<String, Integer> getZoneIDMap() {
     try {
       return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
@@ -281,7 +319,25 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private Table getTransitions() {
+  public ColumnVector getZoneIDVector() {
+    try {
+      HostColumnVector hcv = zoneIdVectorFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
+      return hcv.copyToDevice();
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public ColumnVector getSpecialTzVector() {
+    try {
+      HostColumnVector hcv = specialTzLiteralsFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
+      return hcv.copyToDevice();
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public Table getTransitions() {
     try (ColumnVector fixedTransitions = getFixedTransitions()) {
       return new Table(fixedTransitions);
     }

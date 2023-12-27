@@ -68,11 +68,13 @@ namespace spark_rapids_jni {
  * @returns a timestamp column and a bool column. Bool column is empty if ansi mode is false, not
  * empty otherwise.
  */
-std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp(
-  cudf::strings_column_view const& input,
-  std::string_view const& default_time_zone,
-  bool allow_special_expressions,
-  bool ansi_mode);
+std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_with_tz(
+    cudf::strings_column_view const& input,
+    cudf::column_view const& transitions,
+    cudf::strings_column_view const& tz_indices,
+    cudf::strings_column_view const& special_datetime_lit,
+    cudf::size_type default_tz_index,
+    bool ansi_mode);
 
 /**
  *
@@ -128,8 +130,8 @@ std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp(
  */
 std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_without_time_zone(
   cudf::strings_column_view const& input,
+  cudf::strings_column_view const& special_datetime_lit,
   bool allow_time_zone,
-  bool allow_special_expressions,
   bool ansi_mode);
 
 }  // namespace spark_rapids_jni

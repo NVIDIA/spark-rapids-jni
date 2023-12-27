@@ -18,6 +18,8 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
+import java.time.ZoneId;
+
 /** Utility class for casting between string columns and native type columns */
 public class CastStrings {
   static {
@@ -179,19 +181,30 @@ public class CastStrings {
    * @param cv                      The input string column to be converted.
    * @param defaultTimeZone         Use the default time zone if string does not
    *                                contain time zone.
-   * @param allowSpecialExpressions Whether allow: epoch, now, today, tomorrow
    * @param ansiEnabled             is Ansi mode
    * @return a timestamp column
    * @throws IllegalArgumentException if cv contains invalid value when
    *                                  ansiEnabled is true
    */
-  public static ColumnVector toTimestamp(ColumnView cv, String defaultTimeZone,
-      boolean allowSpecialExpressions, boolean ansiEnabled) {
-    if (defaultTimeZone == null || defaultTimeZone.isEmpty()) {
-      throw new IllegalArgumentException("Default time zone can not be empty.");
+  public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
+    if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
+              defaultTimeZone.toString()));
     }
-    return new ColumnVector(toTimestamp(cv.getNativeView(), defaultTimeZone,
-        allowSpecialExpressions, ansiEnabled));
+
+    GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
+    if (!singleton.isLoaded()) {
+      GpuTimeZoneDB.cacheDatabase();
+    }
+
+    Integer tzIndex = singleton.getZoneIDMap().get(defaultTimeZone.normalized().toString());
+
+    try (Table transitions = singleton.getTransitions();
+         ColumnVector tzIndices = singleton.getZoneIDVector();
+         ColumnVector specialTz = singleton.getSpecialTzVector()) {
+      return new ColumnVector(toTimestamp(cv.getNativeView(), transitions.getNativeView(),
+              tzIndices.getNativeView(), specialTz.getNativeView(), tzIndex, ansiEnabled));
+    }
   }
 
   /**
@@ -219,20 +232,25 @@ public class CastStrings {
    * ts is: ['2023-01-01 00:00:00', '2023-01-01T08:00:00']
    * 
    * @param cv                      The input string column to be converted.
-   * @param allow_time_zone         whether allow time zone in the timestamp
+   * @param allowTimeZone           whether allow time zone in the timestamp
    *                                string. e.g.:
    *                                1991-04-14T02:00:00Asia/Shanghai is invalid
    *                                when do not allow time zone.
-   * @param allowSpecialExpressions Whether allow: epoch, now, today, tomorrow
    * @param ansiEnabled             is Ansi mode
    * @return a timestamp column
    * @throws IllegalArgumentException if cv contains invalid value when
    *                                  ansiEnabled is true
    */
-  public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone,
-      boolean allowSpecialExpressions, boolean ansiEnabled) {
-    return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,
-        allowSpecialExpressions, ansiEnabled));
+  public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone, boolean ansiEnabled) {
+    GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
+    if (!singleton.isLoaded()) {
+      GpuTimeZoneDB.cacheDatabase();
+    }
+
+    try (ColumnVector specialTz = singleton.getSpecialTzVector()) {
+      return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), specialTz.getNativeView(),
+              allowTimeZone,  ansiEnabled));
+    }
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -246,8 +264,8 @@ public class CastStrings {
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
-  private static native long toTimestamp(long nativeColumnView, String defaultTimeZone,
-      boolean allowSpecialExpressions, boolean ansiEnabled);
-  private static native long toTimestampWithoutTimeZone(long nativeColumnView,
-      boolean allowTimeZone, boolean allowSpecialExpressions, boolean ansiEnabled);
+  private static native long toTimestamp(long input,
+      long transitions, long tzIndices, long specialDate, int tzIndex, boolean ansiEnabled);
+  private static native long toTimestampWithoutTimeZone(long input,
+      long specialDate, boolean allowTimeZone, boolean ansiEnabled);
 }
