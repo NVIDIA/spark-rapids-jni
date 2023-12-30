@@ -90,6 +90,8 @@ public class GpuTimeZoneDB {
   public static void shutdown() {
     if (instance.isLoaded()) {
       instance.close();
+      // Recreate a new instance to reload the database if necessary
+      instance = new GpuTimeZoneDB();
     }
   }
 
