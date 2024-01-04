@@ -1202,11 +1202,8 @@ __device__ inline T round_half_even(T const input, int const olength, int const 
 {
   // "round" a integer to digits digits, with the half-even rounding mode.
   if (digits > olength) {
-    T num = input;
-    for (int i = 0; i < digits - olength; i++) {
-      num *= 10;
-    }
-    return num;
+    // trailing zeros will be handled later
+    return input;
   }
   T div = POW10_TABLE[olength - digits];
   T mod = input % div;
@@ -1215,10 +1212,10 @@ __device__ inline T round_half_even(T const input, int const olength, int const 
   return num;
 }
 
-__device__ inline int to_formated_chars(floating_decimal_64 const v,
-                                        bool const sign,
-                                        char* const result,
-                                        int digits)
+__device__ inline int to_formated_double_chars(floating_decimal_64 const v,
+                                               bool const sign,
+                                               char* const result,
+                                               int digits)
 {
   int index = 0;
   if (sign) { result[index++] = '-'; }
@@ -1289,9 +1286,10 @@ __device__ inline int to_formated_chars(floating_decimal_64 const v,
       result[index++] = '0';
     }
   } else {
+    // 0 <= exp < olength - 1
     uint32_t temp_d = digits, tailing_zero = 0;
-    if (exp + digits > olength) {
-      temp_d       = olength - exp;
+    if (exp + digits + 1 > olength) {
+      temp_d       = olength - exp - 1;
       tailing_zero = digits - temp_d;
     }
     uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
@@ -1329,7 +1327,7 @@ __device__ inline int to_formated_chars(floating_decimal_64 const v,
   return index;
 }
 
-__device__ inline int format_float_size(floating_decimal_64 const v, bool const sign, int digits)
+__device__ inline int format_double_size(floating_decimal_64 const v, bool const sign, int digits)
 {
   int index = 0;
   if (sign) { index++; }
@@ -1342,7 +1340,7 @@ __device__ inline int format_float_size(floating_decimal_64 const v, bool const 
     index += exp + 1 + exp / 3 + 1 + digits;
   } else {
     uint32_t temp_d = digits;
-    if (exp + digits > olength) { temp_d = olength - exp; }
+    if (exp + digits + 1 > olength) { temp_d = olength - exp - 1; }
     uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
     uint64_t pow10          = POW10_TABLE[temp_d];
     uint64_t integer        = rounded_output / pow10;
@@ -1353,10 +1351,10 @@ __device__ inline int format_float_size(floating_decimal_64 const v, bool const 
   return index;
 }
 
-__device__ inline int to_formated_chars(floating_decimal_32 const v,
-                                        bool const sign,
-                                        char* const result,
-                                        int digits)
+__device__ inline int to_formated_float_chars(floating_decimal_32 const v,
+                                              bool const sign,
+                                              char* const result,
+                                              int digits)
 {
   int index = 0;
   if (sign) { result[index++] = '-'; }
@@ -1428,8 +1426,8 @@ __device__ inline int to_formated_chars(floating_decimal_32 const v,
     }
   } else {
     uint32_t temp_d = digits, tailing_zero = 0;
-    if (exp + digits > olength) {
-      temp_d       = olength - exp;
+    if (exp + digits + 1 > olength) {
+      temp_d       = olength - exp - 1;
       tailing_zero = digits - temp_d;
     }
     uint32_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
@@ -1480,7 +1478,7 @@ __device__ inline int format_float_size(floating_decimal_32 const v, bool const 
     index += exp + 1 + exp / 3 + 1 + digits;
   } else {
     uint32_t temp_d = digits;
-    if (exp + digits > olength) { temp_d = olength - exp; }
+    if (exp + digits + 1 > olength) { temp_d = olength - exp - 1; }
     uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
     uint64_t pow10          = POW10_TABLE[temp_d];
     uint64_t integer        = rounded_output / pow10;
@@ -1539,7 +1537,7 @@ __device__ inline int compute_format_float_size(double value, int digits, bool i
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
     if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
-    return format_float_size(v, sign, digits);
+    return format_double_size(v, sign, digits);
   }
 }
 
@@ -1549,11 +1547,11 @@ __device__ inline int format_float(double value, int digits, bool is_float, char
   if (is_float) {
     floating_decimal_32 v = f2d(value, sign, special);
     if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
-    return to_formated_chars(v, sign, output, digits);
+    return to_formated_float_chars(v, sign, output, digits);
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
     if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
-    return to_formated_chars(v, sign, output, digits);
+    return to_formated_double_chars(v, sign, output, digits);
   }
 }
 
