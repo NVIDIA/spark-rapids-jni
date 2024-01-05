@@ -68,6 +68,8 @@ TEST_F(FormatFloatTests, FormatFloats64)
                                                    -4.0d,
                                                    std::numeric_limits<double>::quiet_NaN(),
                                                    839542223232.794248339d,
+                                                   3232.794248339d,
+                                                   11234000000.0d,
                                                    -0.0d};
 
   auto const expected = cudf::test::strings_column_wrapper{"100.00000",
@@ -80,6 +82,8 @@ TEST_F(FormatFloatTests, FormatFloats64)
                                                            "-4.00000",
                                                            "\xEF\xBF\xBD",
                                                            "839,542,223,232.79420",
+                                                           "3,232.79425",
+                                                           "11,234,000,000.00000",
                                                            "-0.00000"};
 
   auto results = spark_rapids_jni::format_float(floats, 5, cudf::get_default_stream());
