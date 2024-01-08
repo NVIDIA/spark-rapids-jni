@@ -1216,10 +1216,10 @@ __device__ inline T round_half_even(T const input, int const olength, int const 
  * Convert a floating_decimal_32/64 to a formatted string as the default format (#,###,###.##)
  * of format_number in Spark.
  *
- * @param v: floating_decimal_32/64 value
- * @param sign: sign of the number
- * @param result: output string
- * @param digits: number of digits after decimal point
+ * @param v The input floating_decimal_32/64 value
+ * @param sign Sign of the number
+ * @param result Output string
+ * @param digits Number of digits after decimal point
  */
 template <typename T, typename U>
 __device__ inline int to_formatted_chars(T const v, bool const sign, char* const result, int digits)
@@ -1340,7 +1340,7 @@ __device__ inline int format_size(T const v, bool const sign, int digits)
   int index = 0;
   if (sign) { index++; }
   U output               = v.mantissa;
-  const uint32_t olength = decimalLength(output);
+  uint32_t const  olength = decimalLength(output);
   int32_t exp            = v.exponent + (int32_t)olength - 1;
   if (exp < 0) {
     index += 2 + digits;
