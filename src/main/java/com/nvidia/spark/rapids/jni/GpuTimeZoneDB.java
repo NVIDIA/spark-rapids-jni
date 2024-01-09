@@ -18,7 +18,10 @@ package com.nvidia.spark.rapids.jni;
 
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoField;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
@@ -43,12 +46,14 @@ public class GpuTimeZoneDB {
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
+  private CompletableFuture<HostColumnVector> transitionRulesFuture;
 
   private boolean closed = false;
 
   GpuTimeZoneDB() {
     zoneIdToTableFuture = new CompletableFuture<>();
     fixedTransitionsFuture = new CompletableFuture<>();
+    transitionRulesFuture = new CompletableFuture<>();
   }
   
   private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
@@ -134,9 +139,15 @@ public class GpuTimeZoneDB {
   // TODO: Deprecate this API when we support all timezones 
   // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
   public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
+    return desiredTimeZone != null;
+    // return desiredTimeZone != null &&
+    //   (desiredTimeZone.getRules().isFixedOffset() ||
+    //   desiredTimeZone.getRules().getTransitionRules().isEmpty());
+  }
+
+  public static boolean isDSTTimeZone(ZoneId desiredTimeZone) {
     return desiredTimeZone != null &&
-      (desiredTimeZone.getRules().isFixedOffset() ||
-      desiredTimeZone.getRules().getTransitionRules().isEmpty());
+      !desiredTimeZone.getRules().getTransitionRules().isEmpty();
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
@@ -146,6 +157,7 @@ public class GpuTimeZoneDB {
       return false;
     }
   }
+
 
   // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
@@ -170,12 +182,37 @@ public class GpuTimeZoneDB {
     }
   }
 
+  // Whether transition is an overlap vs gap.
+  // In Spark:
+  // if it's a gap, then we use the offset after *on* the instant
+  // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
+  // So, for the transition to UTC, you need to compare to instant + {offset before} 
+  // The time math still uses {offset after}
+  private void addTransitionToList(ZoneOffsetTransition transition, List<HostColumnVector.StructData> transitionsData) {
+    if (transition.isGap()) {
+      transitionsData.add(
+          new HostColumnVector.StructData(
+              transition.getInstant().getEpochSecond(),
+              transition.getInstant().getEpochSecond() + transition.getOffsetAfter().getTotalSeconds(),
+              transition.getOffsetAfter().getTotalSeconds())
+      );
+    } else {
+      transitionsData.add(
+          new HostColumnVector.StructData(
+              transition.getInstant().getEpochSecond(),
+              transition.getInstant().getEpochSecond() + transition.getOffsetBefore().getTotalSeconds(),
+              transition.getOffsetAfter().getTotalSeconds())
+      );
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private void doLoadData() {
     synchronized (this) {
       try {
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+        List<List<HostColumnVector.StructData>> masterTransitionRules = new ArrayList<>();
         for (String tzId : TimeZone.getAvailableIDs()) {
           ZoneId zoneId;
           try {
@@ -188,65 +225,91 @@ public class GpuTimeZoneDB {
           }
           ZoneRules zoneRules = zoneId.getRules();
           // Filter by non-repeating rules
-          if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
-            continue;
-          }
+          // if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
+          //   continue;
+          // }
           if (!zoneIdToTable.containsKey(zoneId.getId())) {
             List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
             int idx = masterTransitions.size();
-            List<HostColumnVector.StructData> data = new ArrayList<>();
+            List<HostColumnVector.StructData> transitionsData = new ArrayList<>();
             if (zoneRules.isFixedOffset()) {
-              data.add(
+              transitionsData.add(
                   new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                       zoneRules.getOffset(Instant.now()).getTotalSeconds())
               );
             } else {
               // Capture the first official offset (before any transition) using Long min
               ZoneOffsetTransition first = transitions.get(0);
-              data.add(
+              transitionsData.add(
                   new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                       first.getOffsetBefore().getTotalSeconds())
               );
               transitions.forEach(t -> {
-                // Whether transition is an overlap vs gap.
-                // In Spark:
-                // if it's a gap, then we use the offset after *on* the instant
-                // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
-                // So, for the transition to UTC, you need to compare to instant + {offset before} 
-                // The time math still uses {offset after}
-                if (t.isGap()) {
-                  data.add(
-                      new HostColumnVector.StructData(
-                          t.getInstant().getEpochSecond(),
-                          t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
-                  );
-                } else {
-                  data.add(
-                      new HostColumnVector.StructData(
-                          t.getInstant().getEpochSecond(),
-                          t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
-                  );
-                }
+                addTransitionToList(t, transitionsData);
               });
+
             }
-            masterTransitions.add(data);
+            List<ZoneOffsetTransitionRule> zoneTransitionRules = zoneRules.getTransitionRules();
+            if (zoneTransitionRules.isEmpty()) {
+              masterTransitionRules.add(null);
+            } else {
+              List<HostColumnVector.StructData> rulesData = new ArrayList<>();
+              int currentYear = ZonedDateTime.now(ZoneId.of("UTC")).getYear();
+              for (ZoneOffsetTransitionRule rule : zoneTransitionRules) {
+                // add current year transitions
+                ZoneOffsetTransition transition = rule.createTransition(currentYear);
+                addTransitionToList(transition, transitionsData);
+
+                // add rule
+                rulesData.add(
+                  new HostColumnVector.StructData(
+                    rule.getMonth().ordinal(),
+                    rule.getDayOfMonthIndicator(),
+                    rule.getDayOfWeek().ordinal(),
+                    rule.getLocalTime().get(ChronoField.HOUR_OF_DAY),
+                    rule.getLocalTime().get(ChronoField.MINUTE_OF_HOUR),
+                    rule.isMidnightEndOfDay(),
+                    rule.getTimeDefinition().ordinal(),
+                    rule.getOffsetBefore().getTotalSeconds(),
+                    rule.getOffsetAfter().getTotalSeconds()
+                  )
+                );
+              }
+              masterTransitionRules.add(rulesData);
+            }
+            masterTransitions.add(transitionsData);
             zoneIdToTable.put(zoneId.getId(), idx);
           }
         }
-        HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
+        HostColumnVector.DataType ftChildType = new HostColumnVector.StructType(false,
             new HostColumnVector.BasicType(false, DType.INT64),
             new HostColumnVector.BasicType(false, DType.INT64),
             new HostColumnVector.BasicType(false, DType.INT32));
-        HostColumnVector.DataType resultType =
-            new HostColumnVector.ListType(false, childType);
-        HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType,
+        HostColumnVector.DataType ftResultType =
+            new HostColumnVector.ListType(false, ftChildType);
+        HostColumnVector fixedTransitions = HostColumnVector.fromLists(ftResultType,
             masterTransitions.toArray(new List[0]));
         fixedTransitionsFuture.complete(fixedTransitions);
+        HostColumnVector.DataType rChildType = new HostColumnVector.StructType(true, 
+          new HostColumnVector.BasicType(false, DType.INT8),  // month
+          new HostColumnVector.BasicType(false, DType.INT8),  // day-of-month indicator
+          new HostColumnVector.BasicType(false, DType.INT8),  // day-of-week
+          new HostColumnVector.BasicType(false, DType.INT8),  // hour-of-day
+          new HostColumnVector.BasicType(false, DType.INT8),  // minute-of-hour
+          new HostColumnVector.BasicType(false, DType.BOOL8),  // is-midnight-end-of-day
+          new HostColumnVector.BasicType(false, DType.INT8),  // time-definition
+          new HostColumnVector.BasicType(false, DType.INT32), // offset-before
+          new HostColumnVector.BasicType(false, DType.INT32)  // offset-after
+        );
+        HostColumnVector.DataType rResultType =
+            new HostColumnVector.ListType(false, rChildType);
+        HostColumnVector transitionRules = HostColumnVector.fromLists(rResultType,
+            masterTransitionRules.toArray(new List[0]));
+        transitionRulesFuture.complete(transitionRules);
         zoneIdToTableFuture.complete(zoneIdToTable);
       } catch (Exception e) {
         fixedTransitionsFuture.completeExceptionally(e);
+        transitionRulesFuture.completeExceptionally(e);
         zoneIdToTableFuture.completeExceptionally(e);
         throw e;
       }
@@ -273,6 +336,14 @@ public class GpuTimeZoneDB {
     }
   }
 
+  private HostColumnVector getHostTransitionRules() {
+    try {
+      return transitionRulesFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
+    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private Map<String, Integer> getZoneIDMap() {
     try {
       return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
@@ -290,6 +361,11 @@ public class GpuTimeZoneDB {
   private ColumnVector getFixedTransitions() {
     HostColumnVector hostTransitions = getHostFixedTransitions();
     return hostTransitions.copyToDevice();
+  }
+
+  private ColumnVector getTransitionRules() {
+    HostColumnVector transitionRules = getHostTransitionRules();
+    return transitionRules.copyToDevice();
   }
 
   /**
@@ -310,6 +386,26 @@ public class GpuTimeZoneDB {
     }
     HostColumnVector transitions = getHostFixedTransitions();
     return transitions.getList(idx);
+  }
+
+  /**
+   * FOR TESTING PURPOSES ONLY, DO NOT USE IN PRODUCTION
+   *
+   * This method retrieves the raw list of struct data that forms the list of 
+   * fixed transitions for a particular zoneId. 
+   *
+   * It has default visibility so the test can access it.
+   * @param zoneId
+   * @return list of fixed transitions
+   */
+  List getHostTransitionRules(String zoneId) {
+    zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
+    Integer idx = getZoneIDMap().get(zoneId);
+    if (idx == null) {
+      return null;
+    }
+    HostColumnVector transitionRules = getHostTransitionRules();
+    return transitionRules.getList(idx);
   }
 
 
