@@ -147,9 +147,25 @@ __constant__ uint64_t const DOUBLE_POW5_TABLE[POW5_TABLE_SIZE] = {1ull,
 
 //===== common.h from ryu =====
 
-// Returns the number of decimal digits in v, which must not contain more than 9 digits.
-__device__ inline uint32_t decimalLength9(uint32_t const v)
+// Returns the number of decimal digits in v, which must not contain more than 9/17 digits.
+template <typename T>
+__device__ inline uint32_t decimal_length(T const v)
 {
+  static_assert(std::is_integral_v<T> && !std::is_signed_v<T>);
+  if constexpr (sizeof(T) == sizeof(int64_t)) {
+    // The average output length is 16.38 digits, so we check high-to-low.
+    // Function precondition: v is not an 18, 19, or 20-digit number.
+    // (17 digits are sufficient for round-tripping.)
+    assert(v < 100000000000000000L);
+    if (v >= 10000000000000000L) { return 17; }
+    if (v >= 1000000000000000L) { return 16; }
+    if (v >= 100000000000000L) { return 15; }
+    if (v >= 10000000000000L) { return 14; }
+    if (v >= 1000000000000L) { return 13; }
+    if (v >= 100000000000L) { return 12; }
+    if (v >= 10000000000L) { return 11; }
+    if (v >= 1000000000L) { return 10; }
+  }
   // Function precondition: v is not a 10-digit number.
   // (f2s: 9 digits are sufficient for round-tripping.)
   // (d2fixed: We print 9-digit blocks.)
@@ -173,7 +189,7 @@ __device__ inline int32_t pow5bits(int32_t const e)
   // than 2^9297.
   assert(e >= 0);
   assert(e <= 3528);
-  return (int32_t)(((((uint32_t)e) * 1217359) >> 19) + 1);
+  return static_cast<int32_t>((((static_cast<uint32_t>(e)) * 1217359) >> 19) + 1);
 }
 
 // Returns floor(log_10(2^e)); requires 0 <= e <= 1650.
@@ -182,7 +198,7 @@ __device__ inline uint32_t log10Pow2(int32_t const e)
   // The first value this approximation fails for is 2^1651 which is just greater than 10^297.
   assert(e >= 0);
   assert(e <= 1650);
-  return (((uint32_t)e) * 78913) >> 18;
+  return ((static_cast<uint32_t>(e)) * 78913) >> 18;
 }
 
 // Returns floor(log_10(5^e)); requires 0 <= e <= 2620.
@@ -191,7 +207,7 @@ __device__ inline uint32_t log10Pow5(int32_t const e)
   // The first value this approximation fails for is 5^2621 which is just greater than 10^1832.
   assert(e >= 0);
   assert(e <= 2620);
-  return (((uint32_t)e) * 732923) >> 20;
+  return (static_cast<uint32_t>(e) * 732923) >> 20;
 }
 
 __device__ inline uint32_t pow5factor_32(uint32_t value)
@@ -229,15 +245,15 @@ __device__ inline uint32_t mulShift32(uint32_t const m, uint64_t const factor, i
 
   // The casts here help MSVC to avoid calls to the __allmul library
   // function.
-  uint32_t const factorLo = (uint32_t)(factor);
-  uint32_t const factorHi = (uint32_t)(factor >> 32);
-  uint64_t const bits0    = (uint64_t)m * factorLo;
-  uint64_t const bits1    = (uint64_t)m * factorHi;
+  uint32_t const factorLo = static_cast<uint32_t>(factor);
+  uint32_t const factorHi = static_cast<uint32_t>(factor >> 32);
+  uint64_t const bits0    = static_cast<uint64_t>(m) * factorLo;
+  uint64_t const bits1    = static_cast<uint64_t>(m) * factorHi;
 
   uint64_t const sum        = (bits0 >> 32) + bits1;
   uint64_t const shiftedSum = sum >> (shift - 32);
   assert(shiftedSum <= UINT32_MAX);
-  return (uint32_t)shiftedSum;
+  return static_cast<uint32_t>(shiftedSum);
 }
 
 __device__ inline int copy_special_str(char* const result,
@@ -284,29 +300,29 @@ __device__ inline uint64_t double_to_bits(double const d)
 __device__ inline uint64_t umul128(uint64_t const a, uint64_t const b, uint64_t* const productHi)
 {
   // The casts here help MSVC to avoid calls to the __allmul library function.
-  uint32_t const aLo = (uint32_t)a;
-  uint32_t const aHi = (uint32_t)(a >> 32);
-  uint32_t const bLo = (uint32_t)b;
-  uint32_t const bHi = (uint32_t)(b >> 32);
+  uint32_t const aLo = static_cast<uint32_t>(a);
+  uint32_t const aHi = static_cast<uint32_t>(a >> 32);
+  uint32_t const bLo = static_cast<uint32_t>(b);
+  uint32_t const bHi = static_cast<uint32_t>(b >> 32);
 
-  uint64_t const b00 = (uint64_t)aLo * bLo;
-  uint64_t const b01 = (uint64_t)aLo * bHi;
-  uint64_t const b10 = (uint64_t)aHi * bLo;
-  uint64_t const b11 = (uint64_t)aHi * bHi;
+  uint64_t const b00 = static_cast<uint64_t>(aLo) * bLo;
+  uint64_t const b01 = static_cast<uint64_t>(aLo) * bHi;
+  uint64_t const b10 = static_cast<uint64_t>(aHi) * bLo;
+  uint64_t const b11 = static_cast<uint64_t>(aHi) * bHi;
 
-  uint32_t const b00Lo = (uint32_t)b00;
-  uint32_t const b00Hi = (uint32_t)(b00 >> 32);
+  uint32_t const b00Lo = static_cast<uint32_t>(b00);
+  uint32_t const b00Hi = static_cast<uint32_t>(b00 >> 32);
 
   uint64_t const mid1   = b10 + b00Hi;
-  uint32_t const mid1Lo = (uint32_t)(mid1);
-  uint32_t const mid1Hi = (uint32_t)(mid1 >> 32);
+  uint32_t const mid1Lo = static_cast<uint32_t>(mid1);
+  uint32_t const mid1Hi = static_cast<uint32_t>(mid1 >> 32);
 
   uint64_t const mid2   = b01 + mid1Lo;
-  uint32_t const mid2Lo = (uint32_t)(mid2);
-  uint32_t const mid2Hi = (uint32_t)(mid2 >> 32);
+  uint32_t const mid2Lo = static_cast<uint32_t>(mid2);
+  uint32_t const mid2Hi = static_cast<uint32_t>(mid2 >> 32);
 
   uint64_t const pHi = b11 + mid1Hi + mid2Hi;
-  uint64_t const pLo = ((uint64_t)mid2Lo << 32) | b00Lo;
+  uint64_t const pLo = (static_cast<uint64_t>(mid2Lo) << 32) | b00Lo;
 
   *productHi = pHi;
   return pLo;
@@ -461,42 +477,16 @@ __device__ inline uint32_t mulPow5divPow2(uint32_t const m, uint32_t const i, in
 
 //===== d2s.c and f2s.c from ryu =====
 
-__device__ inline uint32_t decimalLength17(uint64_t const v)
-{
-  // This is slightly faster than a loop.
-  // The average output length is 16.38 digits, so we check high-to-low.
-  // Function precondition: v is not an 18, 19, or 20-digit number.
-  // (17 digits are sufficient for round-tripping.)
-  assert(v < 100000000000000000L);
-  if (v >= 10000000000000000L) { return 17; }
-  if (v >= 1000000000000000L) { return 16; }
-  if (v >= 100000000000000L) { return 15; }
-  if (v >= 10000000000000L) { return 14; }
-  if (v >= 1000000000000L) { return 13; }
-  if (v >= 100000000000L) { return 12; }
-  if (v >= 10000000000L) { return 11; }
-  if (v >= 1000000000L) { return 10; }
-  if (v >= 100000000L) { return 9; }
-  if (v >= 10000000L) { return 8; }
-  if (v >= 1000000L) { return 7; }
-  if (v >= 100000L) { return 6; }
-  if (v >= 10000L) { return 5; }
-  if (v >= 1000L) { return 4; }
-  if (v >= 100L) { return 3; }
-  if (v >= 10L) { return 2; }
-  return 1;
-}
-
 __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t const ieeeExponent)
 {
   int32_t e2;
   uint64_t m2;
   if (ieeeExponent == 0) {
     // We subtract 2 so that the bounds computation has 2 additional bits.
-    e2 = 1 - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
+    e2 = static_cast<int32_t>(1 - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2);
     m2 = ieeeMantissa;
   } else {
-    e2 = (int32_t)ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
+    e2 = static_cast<int32_t>(ieeeExponent) - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS - 2;
     m2 = (1ull << DOUBLE_MANTISSA_BITS) | ieeeMantissa;
   }
   bool const even         = (m2 & 1) == 0;
@@ -519,9 +509,9 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
     // I tried special-casing q == 0, but there was no effect on performance.
     // This expression is slightly faster than max(0, log10Pow2(e2) - 1).
     uint32_t const q = log10Pow2(e2) - (e2 > 3);
-    e10              = (int32_t)q;
-    int32_t const k  = DOUBLE_POW5_INV_BITCOUNT + pow5bits((int32_t)q) - 1;
-    int32_t const i  = -e2 + (int32_t)q + k;
+    e10              = static_cast<int32_t>(q);
+    int32_t const k  = DOUBLE_POW5_INV_BITCOUNT + pow5bits(static_cast<int32_t>(q)) - 1;
+    int32_t const i  = -e2 + static_cast<int32_t>(q) + k;
     uint64_t pow5[2];
     double_computeInvPow5(q, pow5);
     vr = mulShiftAll64(m2, pow5, i, &vp, &vm, mmShift);
@@ -530,7 +520,7 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
       // This should use q <= 22, but I think 21 is also safe. Smaller values
       // may still be safe, but it's more difficult to reason about them.
       // Only one of mp, mv, and mm can be a multiple of 5, if any.
-      uint32_t const mvMod5 = ((uint32_t)mv) - 5 * ((uint32_t)div5(mv));
+      uint32_t const mvMod5 = (static_cast<uint32_t>(mv)) - 5 * (static_cast<uint32_t>(div5(mv)));
       if (mvMod5 == 0) {
         vrIsTrailingZeros = multipleOfPowerOf5(mv, q);
       } else if (acceptBounds) {
@@ -546,10 +536,10 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
   } else {
     // This expression is slightly faster than max(0, log10Pow5(-e2) - 1).
     uint32_t const q = log10Pow5(-e2) - (-e2 > 1);
-    e10              = (int32_t)q + e2;
-    int32_t const i  = -e2 - (int32_t)q;
+    e10              = static_cast<int32_t>(q) + e2;
+    int32_t const i  = -e2 - static_cast<int32_t>(q);
     int32_t const k  = pow5bits(i) - DOUBLE_POW5_BITCOUNT;
-    int32_t const j  = (int32_t)q - k;
+    int32_t const j  = static_cast<int32_t>(q) - k;
 
     uint64_t pow5[2];
     double_computePow5(i, pow5);
@@ -586,12 +576,12 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
       uint64_t const vpDiv10 = div10(vp);
       uint64_t const vmDiv10 = div10(vm);
       if (vpDiv10 <= vmDiv10) { break; }
-      uint32_t const vmMod10 = ((uint32_t)vm) - 10 * ((uint32_t)vmDiv10);
+      uint32_t const vmMod10 = (static_cast<uint32_t>(vm)) - 10 * (static_cast<uint32_t>(vmDiv10));
       uint64_t const vrDiv10 = div10(vr);
-      uint32_t const vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
+      uint32_t const vrMod10 = (static_cast<uint32_t>(vr)) - 10 * (static_cast<uint32_t>(vrDiv10));
       vmIsTrailingZeros &= vmMod10 == 0;
       vrIsTrailingZeros &= lastRemovedDigit == 0;
-      lastRemovedDigit = (uint8_t)vrMod10;
+      lastRemovedDigit = static_cast<uint8_t>(vrMod10);
       vr               = vrDiv10;
       vp               = vpDiv10;
       vm               = vmDiv10;
@@ -601,13 +591,15 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
     if (vmIsTrailingZeros) {
       for (;;) {
         uint64_t const vmDiv10 = div10(vm);
-        uint32_t const vmMod10 = ((uint32_t)vm) - 10 * ((uint32_t)vmDiv10);
+        uint32_t const vmMod10 =
+          (static_cast<uint32_t>(vm)) - 10 * (static_cast<uint32_t>(vmDiv10));
         if (vmMod10 != 0) { break; }
         uint64_t const vpDiv10 = div10(vp);
         uint64_t const vrDiv10 = div10(vr);
-        uint32_t const vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
+        uint32_t const vrMod10 =
+          (static_cast<uint32_t>(vr)) - 10 * (static_cast<uint32_t>(vrDiv10));
         vrIsTrailingZeros &= lastRemovedDigit == 0;
-        lastRemovedDigit = (uint8_t)vrMod10;
+        lastRemovedDigit = static_cast<uint8_t>(vrMod10);
         vr               = vrDiv10;
         vp               = vpDiv10;
         vm               = vmDiv10;
@@ -628,11 +620,12 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
     uint64_t const vmDiv100 = div100(vm);
     if (vpDiv100 > vmDiv100) {  // Optimization: remove two digits at a time (~86.2%).
       uint64_t const vrDiv100 = div100(vr);
-      uint32_t const vrMod100 = ((uint32_t)vr) - 100 * ((uint32_t)vrDiv100);
-      roundUp                 = vrMod100 >= 50;
-      vr                      = vrDiv100;
-      vp                      = vpDiv100;
-      vm                      = vmDiv100;
+      uint32_t const vrMod100 =
+        (static_cast<uint32_t>(vr)) - 100 * (static_cast<uint32_t>(vrDiv100));
+      roundUp = vrMod100 >= 50;
+      vr      = vrDiv100;
+      vp      = vpDiv100;
+      vm      = vmDiv100;
       removed += 2;
     }
     // Loop iterations below (approximately), without optimization above:
@@ -644,7 +637,7 @@ __device__ inline floating_decimal_64 d2d(uint64_t const ieeeMantissa, uint32_t 
       uint64_t const vmDiv10 = div10(vm);
       if (vpDiv10 <= vmDiv10) { break; }
       uint64_t const vrDiv10 = div10(vr);
-      uint32_t const vrMod10 = ((uint32_t)vr) - 10 * ((uint32_t)vrDiv10);
+      uint32_t const vrMod10 = (static_cast<uint32_t>(vr)) - 10 * (static_cast<uint32_t>(vrDiv10));
       roundUp                = vrMod10 >= 5;
       vr                     = vrDiv10;
       vp                     = vpDiv10;
@@ -669,10 +662,10 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
   uint32_t m2;
   if (ieeeExponent == 0) {
     // We subtract 2 so that the bounds computation has 2 additional bits.
-    e2 = 1 - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2;
+    e2 = static_cast<int32_t>(1 - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2);
     m2 = ieeeMantissa;
   } else {
-    e2 = (int32_t)ieeeExponent - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2;
+    e2 = static_cast<int32_t>(ieeeExponent) - FLOAT_BIAS - FLOAT_MANTISSA_BITS - 2;
     m2 = (1u << FLOAT_MANTISSA_BITS) | ieeeMantissa;
   }
   bool const even         = (m2 & 1) == 0;
@@ -693,9 +686,9 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
   uint8_t lastRemovedDigit = 0;
   if (e2 >= 0) {
     uint32_t const q = log10Pow2(e2);
-    e10              = (int32_t)q;
-    int32_t const k  = FLOAT_POW5_INV_BITCOUNT + pow5bits((int32_t)q) - 1;
-    int32_t const i  = -e2 + (int32_t)q + k;
+    e10              = static_cast<int32_t>(q);
+    int32_t const k  = FLOAT_POW5_INV_BITCOUNT + pow5bits(static_cast<int32_t>(q)) - 1;
+    int32_t const i  = -e2 + static_cast<int32_t>(q) + k;
     vr               = mulPow5InvDivPow2(mv, q, i);
     vp               = mulPow5InvDivPow2(mp, q, i);
     vm               = mulPow5InvDivPow2(mm, q, i);
@@ -703,8 +696,9 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
       // We need to know one removed digit even if we are not going to loop below. We could use
       // q = X - 1 above, except that would require 33 bits for the result, and we've found that
       // 32-bit arithmetic is faster even on 64-bit machines.
-      int32_t const l  = FLOAT_POW5_INV_BITCOUNT + pow5bits((int32_t)(q - 1)) - 1;
-      lastRemovedDigit = (uint8_t)(mulPow5InvDivPow2(mv, q - 1, -e2 + (int32_t)q - 1 + l) % 10);
+      int32_t const l  = FLOAT_POW5_INV_BITCOUNT + pow5bits(static_cast<int32_t>(q - 1)) - 1;
+      lastRemovedDigit = static_cast<uint8_t>(
+        mulPow5InvDivPow2(mv, q - 1, -e2 + static_cast<int32_t>(q) - 1 + l) % 10);
     }
     if (q <= 9) {
       // The largest power of 5 that fits in 24 bits is 5^10, but q <= 9 seems to be safe as well.
@@ -719,16 +713,17 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
     }
   } else {
     uint32_t const q = log10Pow5(-e2);
-    e10              = (int32_t)q + e2;
-    int32_t const i  = -e2 - (int32_t)q;
+    e10              = static_cast<int32_t>(q) + e2;
+    int32_t const i  = -e2 - static_cast<int32_t>(q);
     int32_t const k  = pow5bits(i) - FLOAT_POW5_BITCOUNT;
-    int32_t j        = (int32_t)q - k;
-    vr               = mulPow5divPow2(mv, (uint32_t)i, j);
-    vp               = mulPow5divPow2(mp, (uint32_t)i, j);
-    vm               = mulPow5divPow2(mm, (uint32_t)i, j);
+    int32_t j        = static_cast<int32_t>(q) - k;
+    vr               = mulPow5divPow2(mv, static_cast<uint32_t>(i), j);
+    vp               = mulPow5divPow2(mp, static_cast<uint32_t>(i), j);
+    vm               = mulPow5divPow2(mm, static_cast<uint32_t>(i), j);
     if (q != 0 && (vp - 1) / 10 <= vm / 10) {
-      j                = (int32_t)q - 1 - (pow5bits(i + 1) - FLOAT_POW5_BITCOUNT);
-      lastRemovedDigit = (uint8_t)(mulPow5divPow2(mv, (uint32_t)(i + 1), j) % 10);
+      j = static_cast<int32_t>(q) - 1 - (pow5bits(i + 1) - FLOAT_POW5_BITCOUNT);
+      lastRemovedDigit =
+        static_cast<uint8_t>(mulPow5divPow2(mv, static_cast<uint32_t>(i + 1), j) % 10);
     }
     if (q <= 1) {
       // {vr,vp,vm} is trailing zeros if {mv,mp,mm} has at least q trailing 0 bits.
@@ -754,7 +749,7 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
     while (vp / 10 > vm / 10) {
       vmIsTrailingZeros &= vm % 10 == 0;
       vrIsTrailingZeros &= lastRemovedDigit == 0;
-      lastRemovedDigit = (uint8_t)(vr % 10);
+      lastRemovedDigit = static_cast<uint8_t>(vr % 10);
       vr /= 10;
       vp /= 10;
       vm /= 10;
@@ -763,7 +758,7 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
     if (vmIsTrailingZeros) {
       while (vm % 10 == 0) {
         vrIsTrailingZeros &= lastRemovedDigit == 0;
-        lastRemovedDigit = (uint8_t)(vr % 10);
+        lastRemovedDigit = static_cast<uint8_t>(vr % 10);
         vr /= 10;
         vp /= 10;
         vm /= 10;
@@ -781,7 +776,7 @@ __device__ inline floating_decimal_32 f2d(uint32_t const ieeeMantissa, uint32_t 
     // Loop iterations below (approximately):
     // 0: 13.6%, 1: 70.7%, 2: 14.1%, 3: 1.39%, 4: 0.14%, 5+: 0.01%
     while (vp / 10 > vm / 10) {
-      lastRemovedDigit = (uint8_t)(vr % 10);
+      lastRemovedDigit = static_cast<uint8_t>(vr % 10);
       vr /= 10;
       vp /= 10;
       vm /= 10;
@@ -805,8 +800,8 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
   if (sign) { result[index++] = '-'; }
 
   uint64_t output         = v.mantissa;
-  uint32_t const olength  = decimalLength17(output);
-  int32_t exp             = v.exponent + (int32_t)olength - 1;
+  uint32_t const olength  = decimal_length(output);
+  int32_t exp             = v.exponent + static_cast<int32_t>(olength) - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
   // Values in the interval [1E-3, 1E7) are special.
@@ -885,8 +880,8 @@ __device__ inline int d2s_size(floating_decimal_64 const v, bool const sign)
   if (sign) { index++; }
 
   uint64_t output         = v.mantissa;
-  uint32_t const olength  = decimalLength17(output);
-  int32_t exp             = v.exponent + (int32_t)olength - 1;
+  uint32_t const olength  = decimal_length(output);
+  int32_t exp             = v.exponent + static_cast<int32_t>(olength) - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
   if (scientificNotation) {
@@ -925,7 +920,7 @@ __device__ inline int to_chars(floating_decimal_32 const v, bool const sign, cha
   if (sign) { result[index++] = '-'; }
 
   uint32_t output         = v.mantissa;
-  uint32_t const olength  = decimalLength9(output);
+  uint32_t const olength  = decimal_length(output);
   int32_t exp             = v.exponent + olength - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
@@ -1000,7 +995,7 @@ __device__ inline int f2s_size(floating_decimal_32 const v, bool const sign)
   if (sign) { index++; }
 
   uint32_t output         = v.mantissa;
-  uint32_t const olength  = decimalLength9(output);
+  uint32_t const olength  = decimal_length(output);
   int32_t exp             = v.exponent + olength - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
@@ -1036,7 +1031,7 @@ __device__ inline bool d2d_small_int(uint64_t const ieeeMantissa,
                                      floating_decimal_64* const v)
 {
   uint64_t const m2 = (1ull << DOUBLE_MANTISSA_BITS) | ieeeMantissa;
-  int32_t const e2  = (int32_t)ieeeExponent - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS;
+  int32_t const e2  = static_cast<int32_t>(ieeeExponent) - DOUBLE_BIAS - DOUBLE_MANTISSA_BITS;
 
   if (e2 > 0) {
     // f = m2 * 2^e2 >= 2^53 is an integer.
@@ -1057,7 +1052,7 @@ __device__ inline bool d2d_small_int(uint64_t const ieeeMantissa,
 
   // f is an integer in the range [1, 2^53).
   // Note: mantissa might contain trailing (decimal) 0's.
-  // Note: since 2^53 < 10^16, there is no need to adjust decimalLength17().
+  // Note: since 2^53 < 10^16, there is no need to adjust decimal_length().
   v->mantissa = m2 >> -e2;
   v->exponent = 0;
   return true;
@@ -1072,12 +1067,12 @@ __device__ inline floating_decimal_64 d2d(double f, bool& ieeeSign, bool& specia
   ieeeSign                    = ((bits >> (DOUBLE_MANTISSA_BITS + DOUBLE_EXPONENT_BITS)) & 1) != 0;
   uint64_t const ieeeMantissa = bits & ((1ull << DOUBLE_MANTISSA_BITS) - 1);
   uint32_t const ieeeExponent =
-    (uint32_t)((bits >> DOUBLE_MANTISSA_BITS) & ((1u << DOUBLE_EXPONENT_BITS) - 1));
+    static_cast<uint32_t>((bits >> DOUBLE_MANTISSA_BITS) & ((1u << DOUBLE_EXPONENT_BITS) - 1));
   // Case distinction; exit early for the easy cases.
   if (ieeeExponent == ((1u << DOUBLE_EXPONENT_BITS) - 1u) ||
       (ieeeExponent == 0 && ieeeMantissa == 0)) {
     special = true;
-    return floating_decimal_64{ieeeMantissa, (int32_t)ieeeExponent};
+    return floating_decimal_64{ieeeMantissa, static_cast<int32_t>(ieeeExponent)};
   }
   special = false;
   floating_decimal_64 v;
@@ -1089,7 +1084,7 @@ __device__ inline floating_decimal_64 d2d(double f, bool& ieeeSign, bool& specia
     // trailing zeros in to_chars only if needed - once fixed-point notation output is implemented.)
     for (;;) {
       uint64_t const q = div10(v.mantissa);
-      uint32_t const r = ((uint32_t)v.mantissa) - 10 * ((uint32_t)q);
+      uint32_t const r = (static_cast<uint32_t>(v.mantissa)) - 10 * (static_cast<uint32_t>(q));
       if (r != 0) { break; }
       v.mantissa = q;
       ++v.exponent;
@@ -1122,7 +1117,7 @@ __device__ inline floating_decimal_32 f2d(float f, bool& ieeeSign, bool& special
   if (ieeeExponent == ((1u << FLOAT_EXPONENT_BITS) - 1u) ||
       (ieeeExponent == 0 && ieeeMantissa == 0)) {
     special = true;
-    return floating_decimal_32{ieeeMantissa, (int32_t)ieeeExponent};
+    return floating_decimal_32{ieeeMantissa, static_cast<int32_t>(ieeeExponent)};
   }
   special = false;
   return f2d(ieeeMantissa, ieeeExponent);
@@ -1212,48 +1207,57 @@ __device__ inline T round_half_even(T const input, int const olength, int const 
   return num;
 }
 
-__device__ inline int to_formated_double_chars(floating_decimal_64 const v,
-                                               bool const sign,
-                                               char* const result,
-                                               int digits)
+/*
+ * Convert a floating_decimal_32/64 to a formatted string as the default format (#,###,###.##)
+ * of format_number in Spark.
+ *
+ * @param v The input floating_decimal_32/64 value
+ * @param sign Sign of the number
+ * @param result Output string
+ * @param digits Number of digits after decimal point
+ */
+template <typename T>
+__device__ inline int to_formatted_chars(T const v, bool const sign, char* const result, int digits)
 {
+  static_assert(std::is_same_v<T, floating_decimal_32> || std::is_same_v<T, floating_decimal_64>);
+  using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { result[index++] = '-'; }
-  uint64_t output        = v.mantissa;
-  const uint32_t olength = decimalLength17(output);
-  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  U output               = v.mantissa;
+  uint32_t const olength = decimal_length(output);
+  int32_t exp            = v.exponent + static_cast<int32_t>(olength) - 1;
   if (exp < 0) {
     // Decimal dot is before any of the digits.
     int index_for_carrier = index;
     result[index++]       = '0';
     if (digits == 0) { return index; }
-    result[index++]   = '.';
-    int actural_round = digits;
+    result[index++]  = '.';
+    int actual_round = digits;
     for (int i = -1; i > exp; i--) {
       index_for_carrier = index;
       result[index++]   = '0';
-      actural_round--;
-      if (actural_round == 0) {
+      actual_round--;
+      if (actual_round == 0) {
         if (i != exp + 1) { return index; }  // else, possible carry
         break;
       }
     }
-    int actural_olength     = fmin(int(olength), actural_round);
-    uint64_t rounded_output = round_half_even(output, olength, actural_round);
+    int actual_olength = fmin(int(olength), actual_round);
+    U rounded_output   = round_half_even(output, olength, actual_round);
     // check if carry
-    if (rounded_output >= POW10_TABLE[actural_olength]) {
+    if (rounded_output >= POW10_TABLE[actual_olength]) {
       result[index_for_carrier] = '1';
-      rounded_output -= POW10_TABLE[actural_olength];
+      rounded_output -= POW10_TABLE[actual_olength];
     }
     int current = index;
-    for (int i = 0; i < actural_olength; i++) {
-      result[current + actural_olength - i - 1] = (char)('0' + rounded_output % 10);
+    for (int i = 0; i < actual_olength; i++) {
+      result[current + actual_olength - i - 1] = (char)('0' + rounded_output % 10);
       rounded_output /= 10;
       index++;
     }
-    actural_round -= actural_olength;
-    if (actural_round > 0) {
-      for (int i = 0; i < actural_round; i++) {
+    actual_round -= actual_olength;
+    if (actual_round > 0) {
+      for (int i = 0; i < actual_round; i++) {
         result[index++] = '0';
       }
     }
@@ -1292,12 +1296,12 @@ __device__ inline int to_formated_double_chars(floating_decimal_64 const v,
       temp_d       = olength - exp - 1;
       tailing_zero = digits - temp_d;
     }
-    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
-    uint64_t pow10          = POW10_TABLE[temp_d];
-    uint64_t integer        = rounded_output / pow10;
-    uint64_t decimal        = rounded_output % pow10;
+    U rounded_output = round_half_even(output, olength, exp + temp_d + 1);
+    U pow10          = POW10_TABLE[temp_d];
+    U integer        = rounded_output / pow10;
+    U decimal        = rounded_output % pow10;
     // calculate integer length after format to cover carry case
-    uint32_t integer_len          = decimalLength17(integer);
+    uint32_t integer_len          = decimal_length(integer);
     uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
     uint32_t sep_cnt              = 0;
     int rev_index                 = 0;
@@ -1327,13 +1331,16 @@ __device__ inline int to_formated_double_chars(floating_decimal_64 const v,
   return index;
 }
 
-__device__ inline int format_double_size(floating_decimal_64 const v, bool const sign, int digits)
+template <typename T>
+__device__ inline int format_size(T const v, bool const sign, int digits)
 {
+  static_assert(std::is_same_v<T, floating_decimal_32> || std::is_same_v<T, floating_decimal_64>);
+  using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { index++; }
-  uint64_t output        = v.mantissa;
-  const uint32_t olength = decimalLength17(output);
-  int32_t exp            = v.exponent + (int32_t)olength - 1;
+  U output               = v.mantissa;
+  uint32_t const olength = decimal_length(output);
+  int32_t exp            = v.exponent + static_cast<int32_t>(olength) - 1;
   if (exp < 0) {
     index += 2 + digits;
   } else if (exp + 1 >= olength) {
@@ -1341,148 +1348,10 @@ __device__ inline int format_double_size(floating_decimal_64 const v, bool const
   } else {
     uint32_t temp_d = digits;
     if (exp + digits + 1 > olength) { temp_d = olength - exp - 1; }
-    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
-    uint64_t pow10          = POW10_TABLE[temp_d];
-    uint64_t integer        = rounded_output / pow10;
-    uint32_t integer_len    = decimalLength17(integer);
-    index += integer_len + (integer_len - 1) / 3 + 1 + digits;
-  }
-  if (digits == 0) { index--; }
-  return index;
-}
-
-__device__ inline int to_formated_float_chars(floating_decimal_32 const v,
-                                              bool const sign,
-                                              char* const result,
-                                              int digits)
-{
-  int index = 0;
-  if (sign) { result[index++] = '-'; }
-  uint32_t output        = v.mantissa;
-  uint32_t const olength = decimalLength9(output);
-  int32_t exp            = v.exponent + (int32_t)olength - 1;
-  if (exp < 0) {
-    // Decimal dot is before any of the digits.
-    int index_for_carrier = index;
-    result[index++]       = '0';
-    if (digits == 0) { return index; }
-    result[index++]   = '.';
-    int actural_round = digits;
-    for (int i = -1; i > exp; i--) {
-      index_for_carrier = index;
-      result[index++]   = '0';
-      actural_round--;
-      if (actural_round == 0) {
-        if (i != exp + 1) { return index; }  // else, possible carry
-        break;
-      }
-    }
-    int actural_olength     = fmin(int(olength), actural_round);
-    uint64_t rounded_output = round_half_even(output, olength, actural_round);
-    // check if carry
-    if (rounded_output >= POW10_TABLE[actural_olength]) {
-      result[index_for_carrier] = '1';
-      rounded_output -= POW10_TABLE[actural_olength];
-    }
-    int current = index;
-    for (int i = 0; i < actural_olength; i++) {
-      result[current + actural_olength - i - 1] = (char)('0' + rounded_output % 10);
-      rounded_output /= 10;
-      index++;
-    }
-    actural_round -= actural_olength;
-    if (actural_round > 0) {
-      for (int i = 0; i < actural_round; i++) {
-        result[index++] = '0';
-      }
-    }
-  } else if (exp + 1 >= olength) {
-    // Decimal dot is after any of the digits.
-    int integer_len = index + exp + 1 + exp / 3;
-    int sep_cnt     = 0;
-    int rev_index   = 0;
-    for (int i = olength; i < exp + 1; i++) {
-      result[integer_len - (rev_index++) - 1] = '0';
-      sep_cnt++;
-      if (sep_cnt == 3) {
-        result[integer_len - (rev_index++) - 1] = ',';
-        sep_cnt                                 = 0;
-      }
-    }
-    for (int i = 0; i < olength; i++) {
-      if (sep_cnt == 3) {
-        result[integer_len - (rev_index++) - 1] = ',';
-        sep_cnt                                 = 0;
-      }
-      result[integer_len - (rev_index++) - 1] = (char)('0' + output % 10);
-      sep_cnt++;
-      output /= 10;
-    }
-    index = integer_len;
-    if (digits == 0) { return index; }
-    result[index++] = '.';
-    for (int i = 0; i < digits; i++) {
-      result[index++] = '0';
-    }
-  } else {
-    uint32_t temp_d = digits, tailing_zero = 0;
-    if (exp + digits + 1 > olength) {
-      temp_d       = olength - exp - 1;
-      tailing_zero = digits - temp_d;
-    }
-    uint32_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
-    uint32_t pow10          = POW10_TABLE[temp_d];
-    uint32_t integer        = rounded_output / pow10;
-    uint32_t decimal        = rounded_output % pow10;
-    // calculate integer length after format to cover carry case
-    uint32_t integer_len          = decimalLength9(integer);
-    uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
-    uint32_t sep_cnt              = 0;
-    int rev_index                 = 0;
-    for (int i = 0; i < integer_len; i++) {
-      if (sep_cnt == 3) {
-        result[formated_integer_len - (rev_index++) - 1] = ',';
-        sep_cnt                                          = 0;
-      }
-      result[formated_integer_len - (rev_index++) - 1] = (char)('0' + integer % 10);
-      sep_cnt++;
-      integer /= 10;
-    }
-    index = formated_integer_len;
-    if (digits == 0) { return index; }
-    result[index++] = '.';
-    int current     = index;
-    for (int i = 0; i < tailing_zero; i++) {
-      result[current + digits - i - 1] = '0';
-      index++;
-    }
-    for (int i = tailing_zero; i < digits; i++) {
-      result[current + digits - i - 1] = (char)('0' + decimal % 10);
-      decimal /= 10;
-      index++;
-    }
-  }
-  return index;
-}
-
-__device__ inline int format_float_size(floating_decimal_32 const v, bool const sign, int digits)
-{
-  int index = 0;
-  if (sign) { index++; }
-  uint64_t output        = v.mantissa;
-  uint32_t const olength = decimalLength9(output);
-  int32_t exp            = v.exponent + (int32_t)olength - 1;
-  if (exp < 0) {
-    index += 2 + digits;
-  } else if (exp + 1 >= olength) {
-    index += exp + 1 + exp / 3 + 1 + digits;
-  } else {
-    uint32_t temp_d = digits;
-    if (exp + digits + 1 > olength) { temp_d = olength - exp - 1; }
-    uint64_t rounded_output = round_half_even(output, olength, exp + temp_d + 1);
-    uint64_t pow10          = POW10_TABLE[temp_d];
-    uint64_t integer        = rounded_output / pow10;
-    uint32_t integer_len    = decimalLength9(integer);
+    U rounded_output     = round_half_even(output, olength, exp + temp_d + 1);
+    U pow10              = POW10_TABLE[temp_d];
+    U integer            = rounded_output / pow10;
+    uint32_t integer_len = decimal_length(integer);
     index += integer_len + (integer_len - 1) / 3 + 1 + digits;
   }
   if (digits == 0) { index--; }
@@ -1533,11 +1402,11 @@ __device__ inline int compute_format_float_size(double value, int digits, bool i
   if (is_float) {
     floating_decimal_32 v = f2d(value, sign, special);
     if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
-    return format_float_size(v, sign, digits);
+    return format_size<floating_decimal_32>(v, sign, digits);
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
     if (special) { return special_format_str_size(sign, v.exponent, v.mantissa, digits); }
-    return format_double_size(v, sign, digits);
+    return format_size<floating_decimal_64>(v, sign, digits);
   }
 }
 
@@ -1547,11 +1416,11 @@ __device__ inline int format_float(double value, int digits, bool is_float, char
   if (is_float) {
     floating_decimal_32 v = f2d(value, sign, special);
     if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
-    return to_formated_float_chars(v, sign, output, digits);
+    return to_formatted_chars<floating_decimal_32>(v, sign, output, digits);
   } else {
     floating_decimal_64 v = d2d(value, sign, special);
     if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
-    return to_formated_double_chars(v, sign, output, digits);
+    return to_formatted_chars<floating_decimal_64>(v, sign, output, digits);
   }
 }
 
