@@ -78,11 +78,12 @@ namespace spark_rapids_jni {
  * if there exists invalid inputs and ANSI mode is on.
  */
 std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
-    cudf::strings_column_view const &input,
-    cudf::column_view const &transitions,
-    cudf::strings_column_view const &tz_indices,
-    cudf::strings_column_view const &special_datetime_lit,
-    cudf::size_type default_tz_index, bool ansi_mode);
+  cudf::strings_column_view const& input,
+  cudf::column_view const& transitions,
+  cudf::strings_column_view const& tz_indices,
+  cudf::strings_column_view const& special_datetime_lit,
+  cudf::size_type default_tz_index,
+  bool ansi_mode);
 
 /**
  *
@@ -140,8 +141,9 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
  * if there exists invalid inputs and ANSI mode is on.
  */
 std::unique_ptr<cudf::column> string_to_timestamp_without_tz(
-    cudf::strings_column_view const &input,
-    cudf::strings_column_view const &special_datetime_lit, bool allow_time_zone,
-    bool ansi_mode);
+  cudf::strings_column_view const& input,
+  cudf::strings_column_view const& special_datetime_lit,
+  bool allow_time_zone,
+  bool ansi_mode);
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
