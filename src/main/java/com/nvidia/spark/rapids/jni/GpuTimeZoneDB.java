@@ -34,64 +34,78 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
 
 public class GpuTimeZoneDB {
-
-  public static final int TIMEOUT_SECS = 300;
-
+  private boolean cacheEmpty = true;
 
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
-  private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
-  private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
+  private Map<String, Integer> zoneIdToTable;
+  private HostColumnVector fixedTransitions;
 
-  private boolean closed = false;
-
-  GpuTimeZoneDB() {
-    zoneIdToTableFuture = new CompletableFuture<>();
-    fixedTransitionsFuture = new CompletableFuture<>();
+  private GpuTimeZoneDB() {
   }
   
-  private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
+  private static final GpuTimeZoneDB instance = new GpuTimeZoneDB();
   // This method is default visibility for testing purposes only. The instance will be never be exposed publicly
   // for this class.
   static GpuTimeZoneDB getInstance() {
     return instance;
   }
-  
+
   /**
-   * Start to cache the database. This should be called on startup of an executor. It should start
-   * to cache the data on the CPU in a background thread. It should return immediately and allow the
-   * other APIs to be called. Depending on what we want to do we can have the other APIs block
-   * until this is done caching, or we can have private APIs that would let us load and use specific
-   * parts of the database. I prefer the former solution at least until we see a performance hit
-   * where we are waiting on the database to finish loading.
+   * This should be called on startup of an executor.
+   */
+  public static void cacheDatabaseAsync() {
+    Runnable runnable = () -> {
+      try {
+        cacheDatabase();
+      } catch (Exception e) {
+        // ignore
+      }
+    };
+    Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+    thread.setName("gpu-timezone-database-0");
+    thread.setDaemon(true);
+    thread.start();
+  }
+
+  /**
+   * cache the database.
    */
   public static void cacheDatabase() {
-    synchronized (instance) {
-      if (!instance.isLoaded()) {
-        Executor executor = Executors.newSingleThreadExecutor(
-          new ThreadFactory() {
-            private ThreadFactory defaultFactory = Executors.defaultThreadFactory();
+    instance.cacheDatabaseImpl();
+  }
 
-            @Override
-            public Thread newThread(Runnable r) {
-              Thread thread = defaultFactory.newThread(r);
-              thread.setName("gpu-timezone-database-0");
-              thread.setDaemon(true);
-              return thread;
-            }
-          });
-        instance.loadData(executor);
+  public static void shutdown() {
+    instance.shutdownImpl();
+  }
+
+  private synchronized void cacheDatabaseImpl() {
+    if (cacheEmpty) {
+      try {
+        loadData();
+        cacheEmpty = false;
+      } catch (Exception e) {
+        // if it has exception, try to close the cache
+        try (HostColumnVector hcv = getHostFixedTransitions()) {
+          // automatically closed
+        }
+        zoneIdToTable.clear();
+        fixedTransitions = null;
+        zoneIdToTable = null;
+        throw e;
       }
     }
   }
 
-
-  public static void shutdown() {
-    if (instance.isLoaded()) {
-      instance.close();
-      // Recreate a new instance to reload the database if necessary
-      instance = new GpuTimeZoneDB();
+  public synchronized void shutdownImpl() {
+    if (!cacheEmpty) {
+      try (HostColumnVector hcv = getHostFixedTransitions()) {
+        // automatically closed
+      }
+      fixedTransitions = null;
+      zoneIdToTable = null;
+      cacheEmpty = true;
     }
   }
 
@@ -102,15 +116,12 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           currentTimeZone.toString()));
     }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
+    cacheDatabase(); // lazy load the database
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
+          transitions.getNativeView(), tzIndex));
+    }
   }
   
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
@@ -120,15 +131,12 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           desiredTimeZone.toString()));
     }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
+    cacheDatabase(); // lazy load the database
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
+          transitions.getNativeView(), tzIndex));
+    }
   }
   
   // TODO: Deprecate this API when we support all timezones 
@@ -157,128 +165,89 @@ public class GpuTimeZoneDB {
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
-  private boolean isLoaded() {
-    return zoneIdToTableFuture.isDone();
-  }
-  
-  private void loadData(Executor executor) throws IllegalStateException {
-    // Start loading the data in separate thread and return
-    try {
-      executor.execute(this::doLoadData);
-    } catch (RejectedExecutionException e) {
-      throw new IllegalStateException(e);
-    }
-  }
-
   @SuppressWarnings("unchecked")
-  private void doLoadData() {
-    synchronized (this) {
-      try {
-        Map<String, Integer> zoneIdToTable = new HashMap<>();
-        List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
-        for (String tzId : TimeZone.getAvailableIDs()) {
-          ZoneId zoneId;
-          try {
-            zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
-          } catch (ZoneRulesException e) {
-            // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
-            // this use is deprecated due to ambiguity reasons (same abbrevation can be used for 
-            // multiple time zones). These are not supported by ZoneId.of(...) directly here.
-            continue;
-          }
-          ZoneRules zoneRules = zoneId.getRules();
-          // Filter by non-repeating rules
-          if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
-            continue;
-          }
-          if (!zoneIdToTable.containsKey(zoneId.getId())) {
-            List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
-            int idx = masterTransitions.size();
-            List<HostColumnVector.StructData> data = new ArrayList<>();
-            if (zoneRules.isFixedOffset()) {
-              data.add(
-                  new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                      zoneRules.getOffset(Instant.now()).getTotalSeconds())
-              );
-            } else {
-              // Capture the first official offset (before any transition) using Long min
-              ZoneOffsetTransition first = transitions.get(0);
-              data.add(
-                  new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                      first.getOffsetBefore().getTotalSeconds())
-              );
-              transitions.forEach(t -> {
-                // Whether transition is an overlap vs gap.
-                // In Spark:
-                // if it's a gap, then we use the offset after *on* the instant
-                // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
-                // So, for the transition to UTC, you need to compare to instant + {offset before} 
-                // The time math still uses {offset after}
-                if (t.isGap()) {
-                  data.add(
-                      new HostColumnVector.StructData(
-                          t.getInstant().getEpochSecond(),
-                          t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
-                  );
-                } else {
-                  data.add(
-                      new HostColumnVector.StructData(
-                          t.getInstant().getEpochSecond(),
-                          t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds())
-                  );
-                }
-              });
-            }
-            masterTransitions.add(data);
-            zoneIdToTable.put(zoneId.getId(), idx);
-          }
+  private void loadData() {
+    try {
+      List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+      for (String tzId : TimeZone.getAvailableIDs()) {
+        ZoneId zoneId;
+        try {
+          zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
+        } catch (ZoneRulesException e) {
+          // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
+          // this use is deprecated due to ambiguity reasons (same abbrevation can be used for
+          // multiple time zones). These are not supported by ZoneId.of(...) directly here.
+          continue;
         }
-        HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
-            new HostColumnVector.BasicType(false, DType.INT64),
-            new HostColumnVector.BasicType(false, DType.INT64),
-            new HostColumnVector.BasicType(false, DType.INT32));
-        HostColumnVector.DataType resultType =
-            new HostColumnVector.ListType(false, childType);
-        HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType,
-            masterTransitions.toArray(new List[0]));
-        fixedTransitionsFuture.complete(fixedTransitions);
-        zoneIdToTableFuture.complete(zoneIdToTable);
-      } catch (Exception e) {
-        fixedTransitionsFuture.completeExceptionally(e);
-        zoneIdToTableFuture.completeExceptionally(e);
-        throw e;
+        ZoneRules zoneRules = zoneId.getRules();
+        // Filter by non-repeating rules
+        if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
+          continue;
+        }
+        zoneIdToTable = new HashMap<>();
+        if (!zoneIdToTable.containsKey(zoneId.getId())) {
+          List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
+          int idx = masterTransitions.size();
+          List<HostColumnVector.StructData> data = new ArrayList<>();
+          if (zoneRules.isFixedOffset()) {
+            data.add(
+                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+                    zoneRules.getOffset(Instant.now()).getTotalSeconds())
+            );
+          } else {
+            // Capture the first official offset (before any transition) using Long min
+            ZoneOffsetTransition first = transitions.get(0);
+            data.add(
+                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+                    first.getOffsetBefore().getTotalSeconds())
+            );
+            transitions.forEach(t -> {
+              // Whether transition is an overlap vs gap.
+              // In Spark:
+              // if it's a gap, then we use the offset after *on* the instant
+              // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
+              // So, for the transition to UTC, you need to compare to instant + {offset before}
+              // The time math still uses {offset after}
+              if (t.isGap()) {
+                data.add(
+                    new HostColumnVector.StructData(
+                        t.getInstant().getEpochSecond(),
+                        t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
+                        t.getOffsetAfter().getTotalSeconds())
+                );
+              } else {
+                data.add(
+                    new HostColumnVector.StructData(
+                        t.getInstant().getEpochSecond(),
+                        t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
+                        t.getOffsetAfter().getTotalSeconds())
+                );
+              }
+            });
+          }
+          masterTransitions.add(data);
+          zoneIdToTable.put(zoneId.getId(), idx);
+        }
       }
-    }
-  }
-
-  private void close() {
-    synchronized (this) {
-      if (closed) {
-        return;
-      }
-      try (HostColumnVector hcv = getHostFixedTransitions()) {
-        // automatically closed
-        closed = true;
-      }
+      HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
+          new HostColumnVector.BasicType(false, DType.INT64),
+          new HostColumnVector.BasicType(false, DType.INT64),
+          new HostColumnVector.BasicType(false, DType.INT32));
+      HostColumnVector.DataType resultType =
+          new HostColumnVector.ListType(false, childType);
+      fixedTransitions = HostColumnVector.fromLists(resultType,
+          masterTransitions.toArray(new List[0]));
+    } catch (Exception e) {
+      throw new IllegalArgumentException("load time zone DB cache failed!", e);
     }
   }
 
   private HostColumnVector getHostFixedTransitions() {
-    try {
-      return fixedTransitionsFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
-    } catch (InterruptedException | ExecutionException | TimeoutException e) {
-      throw new RuntimeException(e);
-    }
+    return fixedTransitions;
   }
 
   private Map<String, Integer> getZoneIDMap() {
-    try {
-      return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
-    } catch (InterruptedException | ExecutionException | TimeoutException e) {
-      throw new RuntimeException(e);
-    }
+    return zoneIdToTable;
   }
 
   private Table getTransitions() {
