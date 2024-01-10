@@ -20,8 +20,9 @@ namespace spark_rapids_jni {
 
 /**
  *
- * Trims and parses a timestamp string column with time zone suffix to a timestamp column.
- * e.g.: 1991-04-14T02:00:00Asia/Shanghai => 1991-04-13 18:00:00
+ * Trims and parses a timestamp string column with time zone suffix to a
+ * timestamp column. e.g.: 1991-04-14T02:00:00Asia/Shanghai => 1991-04-13
+ * 18:00:00
  *
  * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
  * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L394
@@ -47,7 +48,8 @@ namespace spark_rapids_jni {
  * Spark supports the following zone id forms:
  *   - Z - Zulu time zone UTC+0
  *   - +|-[h]h:[m]m
- *   - A short id, see https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+ *   - A short id, see
+ * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
  *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
  *     and a suffix in the formats:
  *     - +|-h[h]
@@ -63,23 +65,30 @@ namespace spark_rapids_jni {
  *
  *
  * @param input input string column view.
- * @param default_time_zone if input string does not contain a time zone, use this time zone.
- * @param ansi_mode is ansi mode
- * @returns a timestamp column and a bool column. Bool column is empty if ansi mode is false, not
- * empty otherwise.
+ * @param transitions TimezoneDB, the table of transitions contains all
+ * information for timezones
+ * @param tz_indices TimezoneDB index of region-based timezone IDs
+ * @param special_datetime_lit cache of special datetimes
+ * @param default_tz_index the index of default timezone in TimezoneDB, if input
+ * date-like string does not contain a time zone (like: YYYY-MM-DD:hhmmss), use
+ * this time zone.
+ * @param ansi_mode whether enforce ANSI mode or not. If true, exception will be
+ * thrown encountering any invalid inputs.
+ * @returns the pointer of the timestamp result column, which points to nullptr
+ * if there exists invalid inputs and ANSI mode is on.
  */
-std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_with_tz(
-    cudf::strings_column_view const& input,
-    cudf::column_view const& transitions,
-    cudf::strings_column_view const& tz_indices,
-    cudf::strings_column_view const& special_datetime_lit,
-    cudf::size_type default_tz_index,
-    bool ansi_mode);
+std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
+    cudf::strings_column_view const &input,
+    cudf::column_view const &transitions,
+    cudf::strings_column_view const &tz_indices,
+    cudf::strings_column_view const &special_datetime_lit,
+    cudf::size_type default_tz_index, bool ansi_mode);
 
 /**
  *
- * Trims and parses a timestamp string column with time zone suffix to a timestamp column.
- * e.g.: 1991-04-14T02:00:00Asia/Shanghai => 1991-04-13 18:00:00
+ * Trims and parses a timestamp string column with time zone suffix to a
+ * timestamp column. e.g.: 1991-04-14T02:00:00Asia/Shanghai => 1991-04-13
+ * 18:00:00
  *
  * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
  * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L394
@@ -105,7 +114,8 @@ std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_with_tz(
  * Spark supports the following zone id forms:
  *   - Z - Zulu time zone UTC+0
  *   - +|-[h]h:[m]m
- *   - A short id, see https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+ *   - A short id, see
+ * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
  *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
  *     and a suffix in the formats:
  *     - +|-h[h]
@@ -121,17 +131,17 @@ std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_with_tz(
  *
  *
  * @param input input string column view.
+ * @param special_datetime_lit cache of special datetimes
  * @param allow_time_zone whether allow time zone in the timestamp string. e.g.:
  *   1991-04-14T02:00:00Asia/Shanghai is invalid when do not allow time zone.
- * @param allow_special_expressions whether allow epoch, now, today, yesterday, tomorrow strings.
- * @param ansi_mode is ansi mode
- * @returns a timestamp column and a bool column. Bool column is empty if ansi mode is false, not
- * empty otherwise.
+ * @param ansi_mode whether enforce ANSI mode or not. If true, exception will be
+ * thrown encountering any invalid inputs.
+ * @returns the pointer of the timestamp result column, which points to nullptr
+ * if there exists invalid inputs and ANSI mode is on.
  */
-std::pair<std::unique_ptr<cudf::column>, bool> string_to_timestamp_without_time_zone(
-  cudf::strings_column_view const& input,
-  cudf::strings_column_view const& special_datetime_lit,
-  bool allow_time_zone,
-  bool ansi_mode);
+std::unique_ptr<cudf::column> string_to_timestamp_without_tz(
+    cudf::strings_column_view const &input,
+    cudf::strings_column_view const &special_datetime_lit, bool allow_time_zone,
+    bool ansi_mode);
 
-}  // namespace spark_rapids_jni
+} // namespace spark_rapids_jni

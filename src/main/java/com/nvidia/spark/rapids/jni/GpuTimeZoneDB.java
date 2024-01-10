@@ -40,7 +40,7 @@ public class GpuTimeZoneDB {
 
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
-  //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
+  //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32, looseInstant: int64>>
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
   private CompletableFuture<HostColumnVector> zoneIdVectorFuture;
@@ -61,7 +61,7 @@ public class GpuTimeZoneDB {
   static GpuTimeZoneDB getInstance() {
     return instance;
   }
-  
+
   /**
    * Start to cache the database. This should be called on startup of an executor. It should start
    * to cache the data on the CPU in a background thread. It should return immediately and allow the
@@ -181,6 +181,16 @@ public class GpuTimeZoneDB {
       try {
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+        // Build a timezone ID index for the rendering of timezone IDs which may be included in datetime-like strings.
+        // For instance: "2023-11-5T03:04:55.1 Asia/Shanghai" -> This index helps to find the
+        // offset of "Asia/Shanghai" in timezoneDB.
+        //
+        // Currently, we do NOT support all timezone IDs. For unsupported ones, we ought to throw Exception anyway. And
+        // for invalid ones, we replace them with NULL value when ANSI mode is off. Therefore, we need to distinguish the
+        // unsupported ones from invalid ones which means the unsupported Ids need to be collected as well.
+        // To distinguish supported IDs from unsupported ones, we place all unsupported IDs behind supported ones:
+        // 1. Collect the IDs of all supported timezones in the order of masterTransitions.
+        // 2. Append the IDs of all unsupported timezones after the suported ones.
         List<String> zondIdList = new ArrayList<>();
         List<String> unsupportedZoneList = new ArrayList<>();
 
@@ -221,7 +231,7 @@ public class GpuTimeZoneDB {
                 // the exact EpochSecond. After caching these values along with EpochSeconds, we
                 // can easily search out which time zone transition rule we should apply according
                 // to LocalDateTime structs. The searching procedure is same as the binary search with
-                // exact EpochSeconds(convert_timestamp_tz_functor), except using "loose EpochSeconds"
+                // exact EpochSeconds(convert_timestamp_tz_functor), except using "loose instant"
                 // as search index instead of exact EpochSeconds.
                 Function<LocalDateTime, Long> localToLooseEpochSecond = lt ->
                         86400L * (lt.getYear() * 400L + (lt.getMonthValue() - 1) * 31L +
@@ -257,6 +267,7 @@ public class GpuTimeZoneDB {
             }
             masterTransitions.add(data);
             zoneIdToTable.put(zoneId.getId(), idx);
+            // Collect the IDs of all supported timezones in the order of masterTransitions
             zondIdList.add(zoneId.getId());
           }
         }
@@ -270,6 +281,7 @@ public class GpuTimeZoneDB {
         HostColumnVector.DataType resultType =
             new HostColumnVector.ListType(false, childType);
 
+        // Append the IDs of all unsupported timezones after the suported ones.
         zondIdList.addAll(unsupportedZoneList);
 
         try (HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType, masterTransitions.toArray(new List[0]))) {
