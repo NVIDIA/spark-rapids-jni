@@ -118,6 +118,66 @@ auto convert_timestamp_tz(column_view const& input,
   return results;
 }
 
+template <typename timestamp_type>
+struct time_add {
+  using duration_type = typename timestamp_type::duration;
+
+  lists_column_device_view const transitions;
+
+  size_type const tz_index;
+
+  __device__ timestamp_type operator()(timestamp_type const& timestamp, int64_t duration) const
+  {
+    auto const utc_instants = transitions.child().child(0);
+    auto const tz_instants  = transitions.child().child(1);
+    auto const utc_offsets  = transitions.child().child(2);
+
+    auto const epoch_seconds = static_cast<int64_t>(
+      cuda::std::chrono::duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
+    // input_timestamp
+
+    auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
+    auto const list_size      = tz_transitions.size();
+
+    auto const transition_times = cudf::device_span<int64_t const>(
+      tz_instants.data<int64_t>() + tz_transitions.element_offset(0),
+      static_cast<size_t>(list_size));
+
+    auto const it = thrust::upper_bound(
+      thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);
+    auto const idx         = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
+    auto const list_offset = tz_transitions.element_offset(idx - 1);
+    auto const utc_offset  = cuda::std::chrono::duration_cast<duration_type>(
+      cudf::duration_s{static_cast<int64_t>(utc_offsets.element<int32_t>(list_offset))});
+    // offset
+
+    auto const result_epoch_second = timestamp + utc_offset + duration;
+
+    auto const transition_times2 = cudf::device_span<int64_t const>(
+      utc_instants.data<int64_t>() + tz_transitions.element_offset(0),
+      static_cast<size_t>(list_size));
+
+    auto const it = thrust::upper_bound(
+      thrust::seq, transition_times2.begin(), transition_times2.end(), result_epoch_second);
+    auto const idx = static_cast<size_type>(thrust::distance(transition_times2.begin(), it));
+    auto const list_offset = tz_transitions.element_offset(idx - 1);
+    auto const utc_offset2 = cuda::std::chrono::duration_cast<duration_type>(
+      cudf::duration_s{static_cast<int64_t>(utc_offsets.element<int32_t>(list_offset))});
+    auto const upper_bound_epoch = transition_times[idx];
+    auto const upper_bound_utc   = transition_times2[idx];
+
+    bool is_overlap = false;
+    if (upper_bound_epoch + utc_offset2 != upper_bound_utc) { is_overlap = true; }
+
+    if (is_overlap) {
+      auto const possible_offset = upper_bound_utc - upper_bound_epoch;
+      if (possible_offset == utc_offset) { utc_offset2 = utc_offset; }
+    }
+
+    return result_epoch_second - utc_offset2;
+  }
+};
+
 }  // namespace
 
 namespace spark_rapids_jni {
