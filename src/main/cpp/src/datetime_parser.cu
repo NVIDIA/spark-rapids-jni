@@ -651,7 +651,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
   if (ansi_mode && input.null_count() < valid_null_count) { return nullptr; }
 
   result_col->set_null_mask(valid_bitmask, valid_null_count, stream);
-  return std::move(result_col);
+  return result_col;
 }
 
 }  // namespace

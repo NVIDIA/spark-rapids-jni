@@ -58,11 +58,7 @@ namespace spark_rapids_jni {
  *     - +|-hhmmss
  *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
  *
- * Unlike Spark, Spark-Rapids only supports the following time zones:
- *   - Z - Zulu time zone UTC+0
- *   - +|-[h]h:[m]m
- *   - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
- *
+ * Unlike Spark, Spark-Rapids currently does not support DST time zones.
  *
  * @param input input string column view.
  * @param transitions TimezoneDB, the table of transitions contains all
@@ -125,10 +121,7 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
  *     - +|-hhmmss
  *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
  *
- * Unlike Spark, Spark-Rapids only supports the following time zones:
- *   - Z - Zulu time zone UTC+0
- *   - +|-[h]h:[m]m
- *   - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+ * Unlike Spark, Spark-Rapids currently does not support DST time zones.
  *
  *
  * @param input input string column view.
