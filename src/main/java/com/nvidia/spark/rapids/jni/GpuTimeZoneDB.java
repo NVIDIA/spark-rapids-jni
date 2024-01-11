@@ -169,6 +169,7 @@ public class GpuTimeZoneDB {
   private void loadData() {
     try {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+      zoneIdToTable = new HashMap<>();
       for (String tzId : TimeZone.getAvailableIDs()) {
         ZoneId zoneId;
         try {
@@ -184,7 +185,6 @@ public class GpuTimeZoneDB {
         if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
           continue;
         }
-        zoneIdToTable = new HashMap<>();
         if (!zoneIdToTable.containsKey(zoneId.getId())) {
           List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
           int idx = masterTransitions.size();
