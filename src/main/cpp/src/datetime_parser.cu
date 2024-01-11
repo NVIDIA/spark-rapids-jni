@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -126,7 +126,7 @@ __device__ __host__ bool is_valid_digits(int segment, int digits)
 }
 
 /**
- * We have to dintinguish INVALID value with UNSUPPORTED value.
+ * We have to distinguish INVALID value with UNSUPPORTED value.
  * INVALID means the value is invalid in Spark SQL.
  * UNSUPPORTED means the value is valid in Spark SQL but not supported by rapids
  * yet. As for INVALID values, we treat them in the same as Spark SQL. As for
@@ -149,7 +149,7 @@ struct parse_timestamp_string_fn {
 
   __device__ thrust::tuple<cudf::timestamp_us, uint8_t> operator()(const cudf::size_type& idx) const
   {
-    // inherit the nullmask of the input column
+    // inherit the null mask of the input column
     if (!d_strings.is_valid(idx)) {
       return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}}, ParseResult::INVALID);
     }
@@ -221,7 +221,7 @@ struct parse_timestamp_string_fn {
    * This function is purposed to be fully align to Apache Spark's behavior. The
    * function returns the status along with the result: 0 - successfully parsed
    * the timezone offset 1 - not a valid UTC-like timezone representation, maybe
-   * valid regioned-base rep 2 - not a valid timezone representation
+   * valid region-based rep 2 - not a valid timezone representation
    *
    * Valid patterns:
    *   with colon
@@ -267,7 +267,7 @@ struct parse_timestamp_string_fn {
     } else if (sign_char == '-') {
       sign = -1L;
     } else {
-      // if the rep starts with UTC|GMT, it can NOT be regioned-base rep
+      // if the rep starts with UTC|GMT, it can NOT be region-based rep
       return {0, char_offset < 3 ? 1 : 2};
     }
 
@@ -291,7 +291,7 @@ struct parse_timestamp_string_fn {
       // deal with `:`
       if (*(ptr + char_offset) == ':') {
         // 1. (i == 1) one_digit mm with ss is invalid (+11:2:3)
-        // 2. (i == 2) one_dight ss is invalid (+11:22:3)
+        // 2. (i == 2) one_digit ss is invalid (+11:22:3)
         // 3. trailing `:` is invalid (GMT+8:)
         if (i > 0 || len == ++char_offset) return {0, 2};
         has_colon = true;
@@ -336,7 +336,7 @@ struct parse_timestamp_string_fn {
   }
 
   /**
-   * Perform binaryserach to search out the timezone offset based on loose epoch
+   * Perform binary search to search out the timezone offset based on loose epoch
    * instants. Basically, this is the same approach as
    * `convert_timestamp_tz_functor`.
    */
@@ -571,7 +571,7 @@ struct parse_timestamp_string_fn {
  * The common entrance of string_to_timestamp, which combines two paths:
  * with_timezone and without_timezone. This function returns the The
  * transitions, tz_indices and default_tz_index are only for handling inputs
- * with timezone. So, this function distinguish with_timezone callsfrom
+ * with timezone. So, this function distinguish with_timezone calls from
  * without_timezone ones by checking if transitions and tz_indices are nullptr.
  *
  */
@@ -637,7 +637,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
                    [] __device__(uint8_t e) { return e == ParseResult::UNSUPPORTED; });
   if (exception_exists) { CUDF_FAIL("There exists unsupported timestamp schema!"); }
 
-  // build the updated nullmask and compute the null count
+  // build the updated null mask and compute the null count
   auto [valid_bitmask, valid_null_count] = cudf::detail::valid_if(
     valid_view.begin<uint8_t>(),
     valid_view.end<uint8_t>(),
@@ -660,7 +660,7 @@ namespace spark_rapids_jni {
 
 /**
  * Parse string column with time zone to timestamp column,
- * Returns a pair of timestamp column and a bool indicates whether successed.
+ * Returns a pair of timestamp column and a bool indicates whether it successes.
  * If does not have time zone in string, use the default time zone.
  */
 std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
@@ -678,7 +678,7 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
 
 /**
  * Parse string column with time zone to timestamp column,
- * Returns a pair of timestamp column and a bool indicates whether successed.
+ * Returns a pair of timestamp column and a bool indicates whether it successes.
  * Do not use the time zone in string.
  * If allow_time_zone is false and string contains time zone, then the string is
  * invalid.

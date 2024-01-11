@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ namespace spark_rapids_jni {
  * @param transitions TimezoneDB, the table of transitions contains all
  * information for timezones
  * @param tz_indices TimezoneDB index of region-based timezone IDs
- * @param special_datetime_lit cache of special datetimes
+ * @param special_datetime_lit cache of special date times
  * @param default_tz_index the index of default timezone in TimezoneDB, if input
  * date-like string does not contain a time zone (like: YYYY-MM-DD:hhmmss), use
  * this time zone.
@@ -132,7 +132,7 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
  *
  *
  * @param input input string column view.
- * @param special_datetime_lit cache of special datetimes
+ * @param special_datetime_lit cache of special date times
  * @param allow_time_zone whether allow time zone in the timestamp string. e.g.:
  *   1991-04-14T02:00:00Asia/Shanghai is invalid when do not allow time zone.
  * @param ansi_mode whether enforce ANSI mode or not. If true, exception will be

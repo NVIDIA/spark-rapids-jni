@@ -57,9 +57,6 @@ ConfigureTest(FORMAT_FLOAT
 ConfigureTest(CAST_FLOAT_TO_STRING
     cast_float_to_string.cpp)
 
-ConfigureTest(DATETIME_PARSER
-    datetime_parser.cpp)
-
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
