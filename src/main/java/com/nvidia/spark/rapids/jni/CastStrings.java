@@ -167,10 +167,23 @@ public class CastStrings {
    * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
    * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
    * 
-   * Supports the following time zones:
-   * - Z - Zulu time zone UTC+0
-   * - +|-[h]h:[m]m
-   * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   * Spark supports the following zone id forms:
+   *   - Z - Zulu time zone UTC+0
+   *   - +|-[h]h:[m]m
+   *   - A short id, see
+   * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+   *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
+   *     and a suffix in the formats:
+   *     - +|-h[h]
+   *     - +|-hh[:]mm
+   *     - +|-hh:mm:ss
+   *     - +|-hhmmss
+   *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Unlike Spark, Spark-Rapids currently does not support DST time zones.
+   *
+   * Note: Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
+   * Spark31x supports cast special strings while Spark320+ do not supports
    *
    * Example:
    * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
@@ -219,10 +232,23 @@ public class CastStrings {
    * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
    * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
    * 
-   * Supports the following time zones:
-   * - Z - Zulu time zone UTC+0
-   * - +|-[h]h:[m]m
-   * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   * Spark supports the following zone id forms:
+   *   - Z - Zulu time zone UTC+0
+   *   - +|-[h]h:[m]m
+   *   - A short id, see
+   * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+   *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
+   *     and a suffix in the formats:
+   *     - +|-h[h]
+   *     - +|-hh[:]mm
+   *     - +|-hh:mm:ss
+   *     - +|-hhmmss
+   *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Unlike Spark, Spark-Rapids currently does not support DST time zones.
+   *
+   * Note: Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
+   * Spark31x supports cast special strings while Spark320+ do not supports
    *
    * Example:
    * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
