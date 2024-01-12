@@ -35,8 +35,6 @@ import ai.rapids.cudf.*;
 public class GpuTimeZoneDB {
 
   public static final int TIMEOUT_SECS = 300;
-  public static final String[] SPECIAL_TZ_LITERALS = {"epoch", "now", "today", "tomorrow", "yesterday"};
-
 
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
@@ -44,7 +42,6 @@ public class GpuTimeZoneDB {
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
   private CompletableFuture<HostColumnVector> zoneIdVectorFuture;
-  private CompletableFuture<HostColumnVector> specialTzLiteralsFuture;
 
   private boolean closed = false;
 
@@ -52,7 +49,6 @@ public class GpuTimeZoneDB {
     zoneIdToTableFuture = new CompletableFuture<>();
     fixedTransitionsFuture = new CompletableFuture<>();
     zoneIdVectorFuture = new CompletableFuture<>();
-    specialTzLiteralsFuture = new CompletableFuture<>();
   }
 
   private static GpuTimeZoneDB instance = new GpuTimeZoneDB();
@@ -163,7 +159,7 @@ public class GpuTimeZoneDB {
 
   public boolean isLoaded() {
     return zoneIdToTableFuture.isDone() && fixedTransitionsFuture.isDone() &&
-            zoneIdVectorFuture.isDone() && specialTzLiteralsFuture.isDone();
+            zoneIdVectorFuture.isDone();
   }
 
   private void loadData(Executor executor) throws IllegalStateException {
@@ -286,18 +282,14 @@ public class GpuTimeZoneDB {
 
         try (HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType, masterTransitions.toArray(new List[0]))) {
           try (HostColumnVector zoneIdVector = HostColumnVector.fromStrings(zondIdList.toArray(new String[0]))) {
-            try (HostColumnVector specialTzVector = HostColumnVector.fromStrings(SPECIAL_TZ_LITERALS)) {
-              fixedTransitionsFuture.complete(fixedTransitions.incRefCount());
-              zoneIdVectorFuture.complete(zoneIdVector.incRefCount());
-              specialTzLiteralsFuture.complete(specialTzVector.incRefCount());
-            }
+            fixedTransitionsFuture.complete(fixedTransitions.incRefCount());
+            zoneIdVectorFuture.complete(zoneIdVector.incRefCount());
           }
         }
       } catch (Exception e) {
         fixedTransitionsFuture.completeExceptionally(e);
         zoneIdToTableFuture.completeExceptionally(e);
         zoneIdVectorFuture.completeExceptionally(e);
-        specialTzLiteralsFuture.completeExceptionally(e);
         throw e;
       }
     }
@@ -334,15 +326,6 @@ public class GpuTimeZoneDB {
   public ColumnVector getZoneIDVector() {
     try {
       HostColumnVector hcv = zoneIdVectorFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
-      return hcv.copyToDevice();
-    } catch (InterruptedException | ExecutionException | TimeoutException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  public ColumnVector getSpecialTzVector() {
-    try {
-      HostColumnVector hcv = specialTzLiteralsFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
       return hcv.copyToDevice();
     } catch (InterruptedException | ExecutionException | TimeoutException e) {
       throw new RuntimeException(e);

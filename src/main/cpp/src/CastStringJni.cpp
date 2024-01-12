@@ -263,7 +263,6 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
                                                          jlong input_column,
                                                          jlong transitions_handle,
                                                          jlong tz_indices_col,
-                                                         jlong special_dt_lit_col,
                                                          jint tz_default_index,
                                                          jboolean ansi_enabled)
 {
@@ -277,13 +276,10 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
       reinterpret_cast<cudf::table_view const*>(transitions_handle)->column(0);
     auto const& tz_indices_view =
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(tz_indices_col));
-    auto const& special_dt_lit_view =
-      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(special_dt_lit_col));
-
     auto const tz_index = static_cast<cudf::size_type>(tz_default_index);
 
     auto ret_cv = spark_rapids_jni::string_to_timestamp_with_tz(
-      input_view, transitions, tz_indices_view, special_dt_lit_view, tz_index, ansi_enabled);
+      input_view, transitions, tz_indices_view, tz_index, ansi_enabled);
     if (ret_cv) { return cudf::jni::release_as_jlong(ret_cv); }
   }
   CATCH_STD(env, 0);
@@ -298,7 +294,6 @@ JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestampWithoutTimeZone(JNIEnv* env,
                                                                         jclass,
                                                                         jlong input_column,
-                                                                        jlong special_dt_lit_col,
                                                                         jboolean allow_time_zone,
                                                                         jboolean ansi_enabled)
 {
@@ -307,11 +302,9 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestampWithoutTimeZone(JNIEnv* 
     cudf::jni::auto_set_device(env);
     auto const& input_view =
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
-    auto const& special_dt_lit_view =
-      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(special_dt_lit_col));
 
     auto ret_cv = spark_rapids_jni::string_to_timestamp_without_tz(
-      input_view, special_dt_lit_view, allow_time_zone, ansi_enabled);
+      input_view, allow_time_zone, ansi_enabled);
     if (ret_cv) { return cudf::jni::release_as_jlong(ret_cv); }
   }
   CATCH_STD(env, 0);

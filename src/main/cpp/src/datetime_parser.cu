@@ -88,28 +88,6 @@ __device__ __host__ inline bool is_whitespace(const char chr)
 }
 
 /**
- * Whether the given two strings are equal,
- * used to compare special timestamp strings ignoring case:
- *   "epoch", "now", "today", "yesterday", "tomorrow"
- * the expect string should be lower-case a-z chars
- */
-__device__ inline bool equals_ascii_ignore_case(char const* actual_begin,
-                                                char const* actual_end,
-                                                char const* expect_begin,
-                                                char const* expect_end)
-{
-  if (actual_end - actual_begin != expect_end - expect_begin) { return false; }
-
-  while (expect_begin < expect_end) {
-    // the diff between upper case and lower case for a same char is 32
-    if (*actual_begin != *expect_begin && *actual_begin != (*expect_begin - 32)) { return false; }
-    actual_begin++;
-    expect_begin++;
-  }
-  return true;
-}
-
-/**
  * Ported from Spark
  */
 __device__ __host__ bool is_valid_digits(int segment, int digits)
@@ -137,7 +115,6 @@ enum ParseResult { OK = 0, INVALID = 1, UNSUPPORTED = 2 };
 template <bool with_timezone>
 struct parse_timestamp_string_fn {
   column_device_view const d_strings;
-  column_device_view const special_datetime_names;
   size_type default_tz_index;
   bool allow_tz_in_date_str = true;
   // The list column of transitions to figure out the correct offset
@@ -420,16 +397,6 @@ struct parse_timestamp_string_fn {
       --end_ptr;
     }
 
-    // TODO: support special dates [epoch, now, today, yesterday, tomorrow]
-    for (size_type i = 0; i < special_datetime_names.size(); i++) {
-      auto const& ref = special_datetime_names.element<string_view>(i);
-      if (equals_ascii_ignore_case(curr_ptr, end_ptr, ref.data(), ref.data() + ref.size_bytes())) {
-        *parsed_tz_ptr    = ref.data();
-        *parsed_tz_length = ref.size_bytes();
-        return ParseResult::UNSUPPORTED;
-      }
-    }
-
     if (curr_ptr == end_ptr) { return ParseResult::INVALID; }
 
     const char* const bytes      = curr_ptr;
@@ -576,7 +543,6 @@ struct parse_timestamp_string_fn {
  *
  */
 std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& input,
-                                           cudf::strings_column_view const& special_datetime_lit,
                                            bool ansi_mode,
                                            bool allow_tz_in_date_str                   = true,
                                            size_type default_tz_index                  = 1000000000,
@@ -587,9 +553,6 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
   auto const mr     = rmm::mr::get_current_device_resource();
 
   auto d_strings = cudf::column_device_view::create(input.parent(), stream);
-  auto d_special_datetime_lit =
-    cudf::column_device_view::create(special_datetime_lit.parent(), stream);
-
   // column to store the result timestamp
   auto result_col =
     cudf::make_timestamp_column(cudf::data_type{cudf::type_id::TIMESTAMP_MICROSECONDS},
@@ -610,7 +573,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
         thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
                            result_valid_col->mutable_view().begin<uint8_t>())),
       parse_timestamp_string_fn<false>{
-        *d_strings, *d_special_datetime_lit, default_tz_index, allow_tz_in_date_str});
+        *d_strings, default_tz_index, allow_tz_in_date_str});
   } else {
     auto const ft_cdv_ptr    = column_device_view::create(*transitions, stream);
     auto const d_transitions = lists_column_device_view{*ft_cdv_ptr};
@@ -624,7 +587,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
         thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
                            result_valid_col->mutable_view().begin<uint8_t>())),
       parse_timestamp_string_fn<true>{
-        *d_strings, *d_special_datetime_lit, default_tz_index, true, d_transitions, *d_tz_indices});
+        *d_strings, default_tz_index, true, d_transitions, *d_tz_indices});
   }
 
   auto valid_view = result_valid_col->mutable_view();
@@ -667,13 +630,12 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
   cudf::strings_column_view const& input,
   cudf::column_view const& transitions,
   cudf::strings_column_view const& tz_indices,
-  cudf::strings_column_view const& special_datetime_lit,
   cudf::size_type default_tz_index,
   bool ansi_mode)
 {
   if (input.size() == 0) { return nullptr; }
   return to_timestamp(
-    input, special_datetime_lit, ansi_mode, true, default_tz_index, &transitions, &tz_indices);
+    input, ansi_mode, true, default_tz_index, &transitions, &tz_indices);
 }
 
 /**
@@ -685,12 +647,11 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
  */
 std::unique_ptr<cudf::column> string_to_timestamp_without_tz(
   cudf::strings_column_view const& input,
-  cudf::strings_column_view const& special_datetime_lit,
   bool allow_time_zone,
   bool ansi_mode)
 {
   if (input.size() == 0) { return nullptr; }
-  return to_timestamp(input, special_datetime_lit, ansi_mode, allow_time_zone);
+  return to_timestamp(input, ansi_mode, allow_time_zone);
 }
 
 }  // namespace spark_rapids_jni

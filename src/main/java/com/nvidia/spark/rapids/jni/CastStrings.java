@@ -200,10 +200,9 @@ public class CastStrings {
     Integer tzIndex = singleton.getZoneIDMap().get(defaultTimeZone.normalized().toString());
 
     try (Table transitions = singleton.getTransitions();
-         ColumnVector tzIndices = singleton.getZoneIDVector();
-         ColumnVector specialTz = singleton.getSpecialTzVector()) {
+         ColumnVector tzIndices = singleton.getZoneIDVector()) {
       return new ColumnVector(toTimestamp(cv.getNativeView(), transitions.getNativeView(),
-              tzIndices.getNativeView(), specialTz.getNativeView(), tzIndex, ansiEnabled));
+              tzIndices.getNativeView(), tzIndex, ansiEnabled));
     }
   }
 
@@ -246,11 +245,7 @@ public class CastStrings {
     if (!singleton.isLoaded()) {
       GpuTimeZoneDB.cacheDatabase();
     }
-
-    try (ColumnVector specialTz = singleton.getSpecialTzVector()) {
-      return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), specialTz.getNativeView(),
-              allowTimeZone,  ansiEnabled));
-    }
+    return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,  ansiEnabled));
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -265,7 +260,7 @@ public class CastStrings {
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
   private static native long toTimestamp(long input,
-      long transitions, long tzIndices, long specialDate, int tzIndex, boolean ansiEnabled);
-  private static native long toTimestampWithoutTimeZone(long input,
-      long specialDate, boolean allowTimeZone, boolean ansiEnabled);
+      long transitions, long tzIndices, int tzIndex, boolean ansiEnabled);
+  private static native long toTimestampWithoutTimeZone(long input, boolean allowTimeZone,
+      boolean ansiEnabled);
 }

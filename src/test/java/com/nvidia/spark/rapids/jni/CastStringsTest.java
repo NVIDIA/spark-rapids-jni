@@ -436,11 +436,15 @@ public class CastStringsTest {
         CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
       }
     });
+
     // Throw unsupported exception for symbols of special dates
+    // Note: Spark 31x supports "epoch", "now", "today", "yesterday", "tomorrow".
+    // But Spark 32x to Spark 35x do not supports.
+    // Currently JNI do not supports
     for (String date : new String[]{"epoch", "now", "today", "yesterday", "tomorrow"})
-    assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+    assertThrows(IllegalArgumentException.class, () -> {
       try (ColumnVector input = ColumnVector.fromStrings(date)) {
-        CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), true);
       }
     });
 
