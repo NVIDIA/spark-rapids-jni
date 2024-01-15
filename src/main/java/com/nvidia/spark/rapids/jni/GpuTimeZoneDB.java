@@ -158,7 +158,7 @@ public class GpuTimeZoneDB {
   /**
    * close the cache, used when Plugin is closing
    */
-  public static void shutdown() throws InterruptedException {
+  public static void shutdown() {
     synchronized (lock) {
       lock.isShutdownCalledEver = true;
       while (lock.isLoading) {
