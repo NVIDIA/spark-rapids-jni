@@ -164,7 +164,7 @@ struct parse_timestamp_string_fn {
       auto tz_view = string_view(tz_lit_ptr, tz_lit_len);
 
       // Map short TZ ID to region-based timezone if tz_view is a short ID
-      auto const& short_name_col = tz_short_ids->child(0);
+      auto const& short_name_col   = tz_short_ids->child(0);
       auto const& region_based_col = tz_short_ids->child(1);
       for (size_type i = 0; i < tz_short_ids->size(); i++) {
         auto const& curr_short_id = short_name_col.element<string_view>(i);
@@ -405,8 +405,8 @@ struct parse_timestamp_string_fn {
     const char* const bytes      = curr_ptr;
     const size_type bytes_length = end_ptr - curr_ptr;
 
-    // segments stores: [year, month, day, hour, minute, seconds, microseconds, no_use_item, no_use_item]
-    // the two tail items are no use, but here keeps them as Spark does
+    // segments stores: [year, month, day, hour, minute, seconds, microseconds, no_use_item,
+    // no_use_item] the two tail items are no use, but here keeps them as Spark does
     int segments[]             = {1, 1, 1, 0, 0, 0, 0, 0, 0};
     int segments_len           = 9;
     int i                      = 0;
@@ -580,8 +580,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
       thrust::make_zip_iterator(
         thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
                            result_valid_col->mutable_view().begin<uint8_t>())),
-      parse_timestamp_string_fn<false>{
-        *d_strings, default_tz_index, allow_tz_in_date_str});
+      parse_timestamp_string_fn<false>{*d_strings, default_tz_index, allow_tz_in_date_str});
   } else {
     auto const ft_cdv_ptr    = column_device_view::create(*transitions, stream);
     auto const d_transitions = lists_column_device_view{*ft_cdv_ptr};
@@ -655,10 +654,9 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
  * If allow_time_zone is false and string contains time zone, then the string is
  * invalid.
  */
-std::unique_ptr<cudf::column> string_to_timestamp_without_tz(
-  cudf::strings_column_view const& input,
-  bool allow_time_zone,
-  bool ansi_mode)
+std::unique_ptr<cudf::column> string_to_timestamp_without_tz(cudf::strings_column_view const& input,
+                                                             bool allow_time_zone,
+                                                             bool ansi_mode)
 {
   if (input.size() == 0) { return nullptr; }
   return to_timestamp(input, ansi_mode, allow_time_zone);
