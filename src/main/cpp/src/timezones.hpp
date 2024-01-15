@@ -81,6 +81,14 @@ std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
  */
 std::unique_ptr<cudf::column> time_add(
   cudf::column_view const& input,
+  int64_t const& duration,
+  cudf::table_view const& transitions,
+  cudf::size_type tz_index,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> time_add(
+  cudf::column_view const& input,
   cudf::column_view const& intervals,
   cudf::table_view const& transitions,
   cudf::size_type tz_index,

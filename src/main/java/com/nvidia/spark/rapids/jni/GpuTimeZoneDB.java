@@ -29,6 +29,7 @@ import java.util.TimeZone;
 import java.util.concurrent.*;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
@@ -126,6 +127,42 @@ public class GpuTimeZoneDB {
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
     Table transitions = instance.getTransitions();
     ColumnVector result = new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
+        transitions.getNativeView(), tzIndex));
+    transitions.close();
+    return result;
+  }
+
+  public static ColumnVector timeAdd(ColumnVector input, long duration, ZoneId currentTimeZone) {
+    // TODO: Remove this check when all timezones are supported
+    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
+    if (!isSupportedTimeZone(currentTimeZone)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
+          currentTimeZone.toString()));
+    }
+    if (!instance.isLoaded()) {
+      cacheDatabase(); // lazy load the database
+    }
+    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
+    Table transitions = instance.getTransitions();
+    ColumnVector result = new ColumnVector(timeAddCS(input.getNativeView(), duration,
+        transitions.getNativeView(), tzIndex));
+    transitions.close();
+    return result;
+  }
+
+  public static ColumnVector timeAdd(ColumnVector input, ColumnView duration, ZoneId currentTimeZone) {
+    // TODO: Remove this check when all timezones are supported
+    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
+    if (!isSupportedTimeZone(currentTimeZone)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
+          currentTimeZone.toString()));
+    }
+    if (!instance.isLoaded()) {
+      cacheDatabase(); // lazy load the database
+    }
+    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
+    Table transitions = instance.getTransitions();
+    ColumnVector result = new ColumnVector(timeAddCC(input.getNativeView(), duration.getNativeView(),
         transitions.getNativeView(), tzIndex));
     transitions.close();
     return result;
@@ -316,4 +353,8 @@ public class GpuTimeZoneDB {
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
+
+  private static native long timeAddCS(long input, long duration, long transitions, int tzIndex);
+
+  private static native long timeAddCC(long input, long duration, long transitions, int tzIndex);
 }
