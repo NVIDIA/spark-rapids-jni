@@ -383,8 +383,6 @@ struct parse_timestamp_string_fn {
     size_type* parsed_tz_length,
     cudf::string_view const& timestamp_str) const
   {
-    if (timestamp_str.empty()) { return ParseResult::INVALID; }
-
     const char* curr_ptr = timestamp_str.data();
     const char* end_ptr  = curr_ptr + timestamp_str.size_bytes();
 
