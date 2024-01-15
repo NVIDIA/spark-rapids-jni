@@ -402,6 +402,8 @@ struct parse_timestamp_string_fn {
     const char* const bytes      = curr_ptr;
     const size_type bytes_length = end_ptr - curr_ptr;
 
+    // segments stores: [year, month, day, hour, minute, seconds, microseconds, no_use_item, no_use_item]
+    // the two tail items are no use, but here keeps them as Spark does
     int segments[]             = {1, 1, 1, 0, 0, 0, 0, 0, 0};
     int segments_len           = 9;
     int i                      = 0;
@@ -521,7 +523,9 @@ struct parse_timestamp_string_fn {
     segments[0] *= year_sign.value_or(1);
     // above is ported from Spark.
 
-    // set components
+    // copy segments to equivalent kernel timestamp_components
+    // Note: In order to keep above code is equivalent to Spark implementation,
+    //       did not use `timestamp_components` directly to save values.
     ts_comp->year         = segments[0];
     ts_comp->month        = static_cast<int8_t>(segments[1]);
     ts_comp->day          = static_cast<int8_t>(segments[2]);
