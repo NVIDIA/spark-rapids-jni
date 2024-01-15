@@ -123,6 +123,7 @@ struct parse_timestamp_string_fn {
   // looseTzInstant: int64>>.
   thrust::optional<lists_column_device_view const> transitions = thrust::nullopt;
   thrust::optional<column_device_view const> tz_indices        = thrust::nullopt;
+  thrust::optional<column_device_view const> tz_short_ids      = thrust::nullopt;
 
   __device__ thrust::tuple<cudf::timestamp_us, uint8_t> operator()(const cudf::size_type& idx) const
   {
@@ -161,6 +162,19 @@ struct parse_timestamp_string_fn {
       tz_offset = extract_timezone_offset(compute_loose_epoch_s(ts_comp), default_tz_index);
     } else {
       auto tz_view = string_view(tz_lit_ptr, tz_lit_len);
+
+      // Map short TZ ID to region-based timezone if tz_view is a short ID
+      auto const& short_name_col = tz_short_ids->child(0);
+      auto const& region_based_col = tz_short_ids->child(1);
+      for (size_type i = 0; i < tz_short_ids->size(); i++) {
+        auto const& curr_short_id = short_name_col.element<string_view>(i);
+        if (curr_short_id == tz_view) {
+          // find short ID, replace tz_view with mapped region TZ ID
+          tz_view = region_based_col.element<string_view>(i);
+          break;
+        }
+      }
+
       // Firstly, try parsing as utc-like timezone rep
       if (auto [utc_offset, ret_code] = parse_utc_like_tz(tz_view); ret_code == 0) {
         tz_offset = utc_offset;
@@ -192,7 +206,6 @@ struct parse_timestamp_string_fn {
   }
 
   /**
-   * TODO: support CST/PST/AST
    *
    * Parse UTC-like timezone representation such as: UTC+11:22:33, GMT-8:08:01.
    * This function is purposed to be fully align to Apache Spark's behavior. The
@@ -207,8 +220,6 @@ struct parse_timestamp_string_fn {
    *   without colon
    *     hh only    : ^(GMT|UTC)?[+-](\d|0[0-9]|1[0-8])
    *     hh:mm:(ss) : ^(GMT|UTC)?[+-](0[0-9]|1[0-8])([0-5][0-9])?([0-5][0-9])?
-   *   special symbols:
-   *                  ^(Z|CST|PST|AST|...)
    *
    *   additional restriction: 18:00:00 is the upper bound (which means 18:00:01
    * is invalid)
@@ -219,12 +230,6 @@ struct parse_timestamp_string_fn {
     size_type len = tz_lit.size_bytes();
 
     char const* ptr = tz_lit.data();
-
-    // try to parse Z
-    if (*ptr == 'Z') {
-      if (len > 1) return {0, 1};
-      return {0, 0};
-    }
 
     size_t char_offset = 0;
     // skip UTC|GMT if existing
@@ -549,7 +554,8 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
                                            bool allow_tz_in_date_str                   = true,
                                            size_type default_tz_index                  = 1000000000,
                                            cudf::column_view const* transitions        = nullptr,
-                                           cudf::strings_column_view const* tz_indices = nullptr)
+                                           cudf::strings_column_view const* tz_indices = nullptr,
+                                           cudf::column_view const* tz_short_ids       = nullptr)
 {
   auto const stream = cudf::get_default_stream();
   auto const mr     = rmm::mr::get_current_device_resource();
@@ -580,6 +586,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
     auto const ft_cdv_ptr    = column_device_view::create(*transitions, stream);
     auto const d_transitions = lists_column_device_view{*ft_cdv_ptr};
     auto d_tz_indices        = cudf::column_device_view::create(tz_indices->parent(), stream);
+    auto d_tz_short_ids      = column_device_view::create(*tz_short_ids, stream);
 
     thrust::transform(
       rmm::exec_policy(stream),
@@ -589,7 +596,7 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
         thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
                            result_valid_col->mutable_view().begin<uint8_t>())),
       parse_timestamp_string_fn<true>{
-        *d_strings, default_tz_index, true, d_transitions, *d_tz_indices});
+        *d_strings, default_tz_index, true, d_transitions, *d_tz_indices, *d_tz_short_ids});
   }
 
   auto valid_view = result_valid_col->mutable_view();
@@ -633,11 +640,12 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
   cudf::column_view const& transitions,
   cudf::strings_column_view const& tz_indices,
   cudf::size_type default_tz_index,
-  bool ansi_mode)
+  bool ansi_mode,
+  cudf::column_view const& tz_short_ids)
 {
   if (input.size() == 0) { return nullptr; }
   return to_timestamp(
-    input, ansi_mode, true, default_tz_index, &transitions, &tz_indices);
+    input, ansi_mode, true, default_tz_index, &transitions, &tz_indices, &tz_short_ids);
 }
 
 /**

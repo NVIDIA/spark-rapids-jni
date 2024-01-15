@@ -42,6 +42,9 @@ public class GpuTimeZoneDB {
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
   private CompletableFuture<HostColumnVector> zoneIdVectorFuture;
+  // Used to store Java ZoneId.SHORT_IDS Map, e.g.: PST:America/Los_Angeles
+  // Note: also add a entry: Z->UTC
+  private HostColumnVector shortIDs;
 
   private boolean closed = false;
 
@@ -171,10 +174,41 @@ public class GpuTimeZoneDB {
     }
   }
 
+  /**
+   * load ZoneId.SHORT_IDS and append Z->UTC.
+   * The first 3 entries are: Z->UTC, PST->America/Los_Angeles, CTT->Asia/Shanghai
+   */
+  private void loadTimeZoneShortIDs() {
+    HostColumnVector.DataType type = new HostColumnVector.StructType(false,
+    new HostColumnVector.BasicType(false, DType.STRING),
+    new HostColumnVector.BasicType(false, DType.STRING));
+    ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
+    // add Z->UTC
+    data.add(new HostColumnVector.StructData("Z", "UTC"));
+    // add PST CTT
+    for (Map.Entry<String, String> e : ZoneId.SHORT_IDS.entrySet()) {
+      if (e.getKey().equals("PST") || e.getKey().equals("CTT")) {
+        data.add(new HostColumnVector.StructData(e.getKey(), e.getValue()));
+      }
+    }
+    // add others
+    for (Map.Entry<String, String> e : ZoneId.SHORT_IDS.entrySet()) {
+      if (!(e.getKey().equals("PST") || e.getKey().equals("CTT"))) {
+        data.add(new HostColumnVector.StructData(e.getKey(), e.getValue()));
+      }
+    }
+    shortIDs = HostColumnVector.fromStructs(type, data);
+  }
+
+  public ColumnVector getTimeZoneShortIDs() {
+    return shortIDs.copyToDevice();
+  }
+
   @SuppressWarnings("unchecked")
   private void doLoadData() {
     synchronized (this) {
       try {
+        loadTimeZoneShortIDs();
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
         // Build a timezone ID index for the rendering of timezone IDs which may be included in datetime-like strings.

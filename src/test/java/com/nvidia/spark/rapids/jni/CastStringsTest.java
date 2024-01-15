@@ -404,6 +404,9 @@ public class CastStringsTest {
     entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 00:1:20.3   -020103", 1571536943300000L));
     entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1   -8:08:01  ", 1571640105100000L));
     entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1+4:59:59", 1571592825100000L));
+    // short TZ ID: BST->Asia/Dhaka, CTT->Asia/Shanghai
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 CTT", 1699124695100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 BST", 1699124695100000L + 7200L * 1000000L)); // BST is 2 hours later than CTT
 
     int validDataSize = entries.size();
 

@@ -77,7 +77,8 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
   cudf::column_view const& transitions,
   cudf::strings_column_view const& tz_indices,
   cudf::size_type default_tz_index,
-  bool ansi_mode);
+  bool ansi_mode,
+  cudf::column_view const& tz_short_ids);
 
 /**
  *
