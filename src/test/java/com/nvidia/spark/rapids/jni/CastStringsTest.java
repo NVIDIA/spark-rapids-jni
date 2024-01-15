@@ -481,10 +481,11 @@ public class CastStringsTest {
     });
 
     // Return null for non-exist-tz in non-Ansi mode
+    Long[] nullExpected = {null};
     try (
       ColumnVector input = ColumnVector.fromStrings("2000-01-29 1:2:3 non-exist-tz");
+      ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(nullExpected);
       ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), false)) {
-        Long[] expected = {null};
         AssertUtils.assertColumnsAreEqual(expected, actual);
     }
 
