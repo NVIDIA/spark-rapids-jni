@@ -472,5 +472,21 @@ public class CastStringsTest {
         CastStrings.toTimestamp(input, ZoneId.of("UTC"), true);
       }
     });
+
+    // Throw IllegalArgumentException for non-exist-tz in ANSI mode
+    assertThrows(IllegalArgumentException.class, () -> {
+      try (ColumnVector input = ColumnVector.fromStrings("2000-01-29 1:2:3 non-exist-tz")) {
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), true);
+      }
+    });
+
+    // Return null for non-exist-tz in non-Ansi mode
+    try (
+      ColumnVector input = ColumnVector.fromStrings("2000-01-29 1:2:3 non-exist-tz");
+      ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), false)) {
+        Long[] expected = {null};
+        AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+
   }
 }

@@ -190,14 +190,19 @@ public class CastStrings {
    * ts = toTimestamp(input, "UTC", allowSpecialExpressions = true, ansiEnabled =
    * false)
    * ts is: ['2023-01-01 00:00:00', '2023-01-01T00:00:00']
+   *
+   * Example:
+   * input = ["2023-01-01T08:00:00 non-exist-time-zone"]
+   * In ANSI mode: throws IllegalArgumentException
+   * In non-ANSI mode: return null value
    * 
    * @param cv                      The input string column to be converted.
    * @param defaultTimeZone         Use the default time zone if string does not
    *                                contain time zone.
    * @param ansiEnabled             is Ansi mode
    * @return a timestamp column
-   * @throws IllegalArgumentException if cv contains invalid value when
-   *                                  ansiEnabled is true
+   * @throws IllegalArgumentException if cv contains invalid value or the time zone is
+   *                                  non-existed when ansiEnabled is true
    */
   public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
     if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {
