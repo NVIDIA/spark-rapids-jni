@@ -181,6 +181,7 @@ struct time_add_functor {
       thrust::seq, transition_times_tz.begin(), transition_times_tz.end(), result_epoch_seconds);
     auto local_idx =
       static_cast<size_type>(thrust::distance(transition_times_tz.begin(), local_it));
+
     // In GpuTimeZoneDB, we build the transition list with
     // (utcInstant, utcInstant + OffsetBefore, OffsetAfter) if it is a overlap.
     // But in the step 3, we actually need to binary search on the utcInstant + OffsetBefore
@@ -189,6 +190,7 @@ struct time_add_functor {
     // utcInstant + OffsetBefore is larger than the result_epoch_seconds.
     auto const temp_list_offset = tz_transitions.element_offset(local_idx);
     auto const temp_offset = static_cast<int64_t>(utc_offsets.element<int32_t>(temp_list_offset));
+
     // We don't want to check this if the idx is the first or last
     if (local_idx != 0 && transition_times_utc[local_idx] != INT64_MAX &&
         transition_times_utc[local_idx] + temp_offset <= result_epoch_seconds) {

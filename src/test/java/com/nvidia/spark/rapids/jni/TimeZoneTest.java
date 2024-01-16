@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.beans.Transient;
 import java.time.ZoneId;
 import java.util.List;
 
