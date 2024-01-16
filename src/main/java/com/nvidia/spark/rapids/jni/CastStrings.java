@@ -182,8 +182,11 @@ public class CastStrings {
    *
    * Unlike Spark, Spark-Rapids currently does not support DST time zones.
    *
-   * Note: Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
+   * Note:
+   * - Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
    * Spark31x supports cast special strings while Spark320+ do not supports
+   * - Do not support DST time zones, throw ai.rapids.cudf.CudfException
+   *   if contains DST time zones.
    *
    * Example:
    * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
@@ -201,8 +204,9 @@ public class CastStrings {
    *                                contain time zone.
    * @param ansiEnabled             is Ansi mode
    * @return a timestamp column
-   * @throws IllegalArgumentException if cv contains invalid value or the time zone is
-   *                                  non-existed when ansiEnabled is true
+   * @throws IllegalArgumentException if any string in cv has invalid format or the time zone is
+   *                                  non-existed/wrong when ansiEnabled is true
+   * @throws CudfException            if time zone is a DST time zone
    */
   public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
     if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {
@@ -269,8 +273,9 @@ public class CastStrings {
    *                                when do not allow time zone.
    * @param ansiEnabled             is Ansi mode
    * @return a timestamp column
-   * @throws IllegalArgumentException if cv contains invalid value when
-   *                                  ansiEnabled is true
+   * @throws IllegalArgumentException if any string in cv has invalid format or contains time zone
+   *                                  while `allowTimeZone` is false when ANSI is true.
+   *
    */
   public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone, boolean ansiEnabled) {
     GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
