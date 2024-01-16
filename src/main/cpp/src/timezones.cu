@@ -22,6 +22,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
@@ -36,6 +37,7 @@ using column                   = cudf::column;
 using column_device_view       = cudf::column_device_view;
 using column_view              = cudf::column_view;
 using lists_column_device_view = cudf::detail::lists_column_device_view;
+using scalar_i64               = cudf::numeric_scalar<int64_t>;
 using size_type                = cudf::size_type;
 using struct_view              = cudf::struct_view;
 using table_view               = cudf::table_view;
@@ -133,7 +135,7 @@ struct time_add_functor {
   __device__ inline timestamp_type gao(timestamp_type const& timestamp,
                                        int64_t const& duration) const
   {
-    if (duration == 0) { return timestamp; }
+    if (duration == 0L) { return timestamp; }
 
     auto const utc_instants = transitions.child().child(0);
     auto const tz_instants  = transitions.child().child(1);
@@ -157,8 +159,7 @@ struct time_add_functor {
     // step 1: Get offset when converting local timestamp to utc
     auto const utc_it = thrust::upper_bound(
       thrust::seq, transition_times_utc.begin(), transition_times_utc.end(), epoch_seconds_utc);
-    auto const utc_idx =
-      static_cast<size_type>(thrust::distance(transition_times_utc.begin(), utc_it));
+    auto utc_idx = static_cast<size_type>(thrust::distance(transition_times_utc.begin(), utc_it));
     auto const utc_list_offset = tz_transitions.element_offset(utc_idx - 1);
     auto const to_local_offset =
       static_cast<int64_t>(utc_offsets.element<int32_t>(utc_list_offset));
@@ -178,24 +179,29 @@ struct time_add_functor {
 
     auto const local_it = thrust::upper_bound(
       thrust::seq, transition_times_tz.begin(), transition_times_tz.end(), result_epoch_seconds);
-    auto const local_idx =
+    auto local_idx =
       static_cast<size_type>(thrust::distance(transition_times_tz.begin(), local_it));
+    auto const temp_list_offset = tz_transitions.element_offset(local_idx);
+    auto const temp_offset = static_cast<int64_t>(utc_offsets.element<int32_t>(temp_list_offset));
+    if (local_idx != 0 && transition_times_utc[local_idx] != INT64_MAX &&
+        transition_times_utc[local_idx] + temp_offset <= result_epoch_seconds) {
+      local_idx += 1;
+    }
     auto const local_list_offset = tz_transitions.element_offset(local_idx - 1);
     auto to_utc_offset = static_cast<int64_t>(utc_offsets.element<int32_t>(local_list_offset));
-    auto const upper_bound_epoch =
-      static_cast<int64_t>(tz_instants.element<int32_t>(local_list_offset));
-    auto const upper_bound_utc =
-      static_cast<int64_t>(utc_instants.element<int32_t>(local_list_offset));
+    auto const upper_bound_epoch = transition_times_tz[local_idx - 1];
+    auto const upper_bound_utc   = transition_times_utc[local_idx - 1];
 
     auto const early_offset = static_cast<int64_t>(upper_bound_epoch - upper_bound_utc);
 
     bool const is_gap     = (upper_bound_utc + to_utc_offset == upper_bound_epoch);
     bool const is_overlap = !is_gap && upper_bound_utc != INT64_MIN;
     if (is_overlap) {  // overlap
-      auto const overlap_end = static_cast<int64_t>(upper_bound_utc + to_utc_offset);
-      // if (result_epoch_seconds >= upper_bound_epoch && result_epoch_seconds < overlap_end) {
-      if (to_local_offset == early_offset) { to_utc_offset = early_offset; }
-      // }
+      auto const overlap_before = static_cast<int64_t>(upper_bound_utc + to_utc_offset);
+      auto const overlap_after  = static_cast<int64_t>(upper_bound_epoch);
+      if (result_epoch_seconds >= overlap_before && result_epoch_seconds <= overlap_after) {
+        if (to_local_offset == early_offset) { to_utc_offset = early_offset; }
+      }
     }
 
     auto const to_utc_offset_duration = cuda::std::chrono::duration_cast<duration_type>(
@@ -218,7 +224,7 @@ struct time_add_functor {
 
 template <typename timestamp_type>
 auto time_add_with_tz(column_view const& input,
-                      int64_t duration,
+                      scalar_i64 const& duration,
                       table_view const& transitions,
                       size_type tz_index,
                       rmm::cuda_stream_view stream,
@@ -228,6 +234,13 @@ auto time_add_with_tz(column_view const& input,
   auto const ft_cdv_ptr        = column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = lists_column_device_view{*ft_cdv_ptr};
 
+  if (!duration.is_valid()) {
+    // return a column of nulls
+    auto results = cudf::make_timestamp_column(
+      input.type(), input.size(), cudf::mask_state::ALL_NULL, stream, mr);
+    return results;
+  }
+
   auto results = cudf::make_timestamp_column(input.type(),
                                              input.size(),
                                              cudf::detail::copy_bitmask(input, stream, mr),
@@ -235,11 +248,12 @@ auto time_add_with_tz(column_view const& input,
                                              stream,
                                              mr);
 
-  thrust::transform(rmm::exec_policy(stream),
-                    input.begin<timestamp_type>(),
-                    input.end<timestamp_type>(),
-                    results->mutable_view().begin<timestamp_type>(),
-                    time_add_functor<timestamp_type>{fixed_transitions, tz_index, duration});
+  thrust::transform(
+    rmm::exec_policy(stream),
+    input.begin<timestamp_type>(),
+    input.end<timestamp_type>(),
+    results->mutable_view().begin<timestamp_type>(),
+    time_add_functor<timestamp_type>{fixed_transitions, tz_index, duration.value()});
 
   return results;
 }
@@ -256,19 +270,18 @@ auto time_add_with_tz(column_view const& input,
   auto const ft_cdv_ptr        = column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = lists_column_device_view{*ft_cdv_ptr};
 
-  auto results = cudf::make_timestamp_column(input.type(),
-                                             input.size(),
-                                             cudf::detail::copy_bitmask(input, stream, mr),
-                                             input.null_count(),
-                                             stream,
-                                             mr);
+  auto [null_mask, null_count] =
+    cudf::detail::bitmask_and(cudf::table_view{{input, duration}}, stream, mr);
+
+  auto results = cudf::make_timestamp_column(
+    input.type(), input.size(), rmm::device_buffer(null_mask, stream), null_count, stream, mr);
 
   thrust::transform(rmm::exec_policy(stream),
                     input.begin<timestamp_type>(),
                     input.end<timestamp_type>(),
                     duration.begin<int64_t>(),
                     results->mutable_view().begin<timestamp_type>(),
-                    time_add_functor<timestamp_type>{fixed_transitions, tz_index, 0});
+                    time_add_functor<timestamp_type>{fixed_transitions, tz_index, 0L});
 
   return results;
 }
@@ -319,7 +332,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(column_view const& inp
 }
 
 std::unique_ptr<column> time_add(column_view const& input,
-                                 int64_t const& duration,
+                                 scalar_i64 const& duration,
                                  table_view const& transitions,
                                  size_type tz_index,
                                  rmm::cuda_stream_view stream,

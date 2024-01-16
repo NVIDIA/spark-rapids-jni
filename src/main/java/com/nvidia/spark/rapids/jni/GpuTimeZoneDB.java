@@ -30,7 +30,9 @@ import java.util.concurrent.*;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.CudfAccessor;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
 
@@ -132,7 +134,7 @@ public class GpuTimeZoneDB {
     return result;
   }
 
-  public static ColumnVector timeAdd(ColumnVector input, long duration, ZoneId currentTimeZone) {
+  public static ColumnVector timeAdd(ColumnVector input, Scalar duration, ZoneId currentTimeZone) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
     if (!isSupportedTimeZone(currentTimeZone)) {
@@ -144,7 +146,7 @@ public class GpuTimeZoneDB {
     }
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(timeAddCS(input.getNativeView(), duration,
+    ColumnVector result = new ColumnVector(timeAddCS(input.getNativeView(), CudfAccessor.getScalarHandle(duration),
         transitions.getNativeView(), tzIndex));
     transitions.close();
     return result;
@@ -267,6 +269,11 @@ public class GpuTimeZoneDB {
                   );
                 }
               });
+              ZoneOffsetTransition last = transitions.get(transitions.size() - 1);
+              data.add(
+                  new HostColumnVector.StructData(Long.MAX_VALUE, Long.MAX_VALUE,
+                      last.getOffsetAfter().getTotalSeconds())
+              );
             }
             masterTransitions.add(data);
             zoneIdToTable.put(zoneId.getId(), idx);
