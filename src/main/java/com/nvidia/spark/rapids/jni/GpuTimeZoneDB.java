@@ -270,6 +270,7 @@ public class GpuTimeZoneDB {
                 }
               });
               ZoneOffsetTransition last = transitions.get(transitions.size() - 1);
+              // Add Long max and the last offset at the end so binary search always finds a value.
               data.add(
                   new HostColumnVector.StructData(Long.MAX_VALUE, Long.MAX_VALUE,
                       last.getOffsetAfter().getTotalSeconds())

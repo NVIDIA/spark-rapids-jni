@@ -155,6 +155,7 @@ struct time_add_functor {
       static_cast<size_t>(list_size));
 
     // step 1: Binary search on utc to find the correct offset to convert utc to local
+    // Not use convert_timestamp_tz_functor because offset is needed
     auto const utc_it = thrust::upper_bound(
       thrust::seq, transition_times_utc.begin(), transition_times_utc.end(), epoch_seconds_utc);
     auto const utc_idx =
@@ -177,6 +178,7 @@ struct time_add_functor {
         .count());
 
     // step 3: Binary search on local to find the correct offset to convert local to utc
+    // Not use convert_timestamp_tz_functor because idx may need to be adjusted after upper_bound
     auto const local_it = thrust::upper_bound(
       thrust::seq, transition_times_tz.begin(), transition_times_tz.end(), result_epoch_seconds);
     auto local_idx =
@@ -191,8 +193,8 @@ struct time_add_functor {
     auto const temp_list_offset = tz_transitions.element_offset(local_idx);
     auto const temp_offset = static_cast<int64_t>(utc_offsets.element<int32_t>(temp_list_offset));
 
-    // We don't want to check this if the idx is the first or last
-    if (local_idx != 0 && transition_times_utc[local_idx] != INT64_MAX &&
+    // We don't want to check this if the idx is the last because they are just endpoints
+    if (transition_times_utc[local_idx] != INT64_MAX &&
         transition_times_utc[local_idx] + temp_offset <= result_epoch_seconds) {
       local_idx += 1;
     }
