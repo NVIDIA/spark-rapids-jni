@@ -713,7 +713,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        bitmask_type* out_validity)
 {
   // thread per row
-  auto const tid      = cudf::detail::grid_1d::global_thread_id();
+  auto const tid = cudf::detail::grid_1d::global_thread_id();
 
   for (thread_index_type tidx = tid; tidx < in_strings.size();
        tidx += cudf::detail::grid_1d::grid_stride()) {
@@ -790,7 +790,7 @@ __global__ void parse_uri(column_device_view const in_strings,
                           size_type const* const offsets,
                           char* const out_chars)
 {
-  auto const tid      = cudf::detail::grid_1d::global_thread_id();
+  auto const tid = cudf::detail::grid_1d::global_thread_id();
 
   for (thread_index_type tidx = tid; tidx < in_strings.size();
        tidx += cudf::detail::grid_1d::grid_stride()) {
@@ -858,7 +858,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   auto out_chars_bytes = cudf::detail::get_value<size_type>(offsets_view, offset_count - 1, stream);
 
   // create the chars buffer
-  auto d_out_chars  = rmm::device_buffer(out_chars_bytes, stream, mr);
+  auto d_out_chars = rmm::device_buffer(out_chars_bytes, stream, mr);
 
   // copy the characters from the input column to the output column
   parse_uri<<<num_threadblocks, threadblock_size, 0, stream.value()>>>(

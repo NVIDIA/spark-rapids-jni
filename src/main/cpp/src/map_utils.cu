@@ -93,7 +93,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
     cudf::string_scalar("{}"),  // replacement for null rows
     stream,
     rmm::mr::get_current_device_resource());
-  auto const joined_input_scv = cudf::strings_column_view{*joined_input};
+  auto const joined_input_scv        = cudf::strings_column_view{*joined_input};
   auto const joined_input_size_bytes = joined_input_scv.chars_size(stream);
   // TODO: This assertion requires a stream synchronization, may want to remove at some point.
   // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
