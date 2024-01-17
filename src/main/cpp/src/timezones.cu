@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -120,9 +120,8 @@ auto convert_timestamp_tz(column_view const& input,
   return results;
 }
 
-template <typename timestamp_type>
 struct time_add_functor {
-  using duration_type = typename timestamp_type::duration;
+  using duration_type = typename cudf::timestamp_us::duration;
 
   lists_column_device_view const transitions;
 
@@ -130,8 +129,8 @@ struct time_add_functor {
 
   int64_t const duration_scalar;
 
-  __device__ inline timestamp_type plus_with_tz(timestamp_type const& timestamp,
-                                                int64_t const& duration) const
+  __device__ inline cudf::timestamp_us plus_with_tz(cudf::timestamp_us const& timestamp,
+                                                    int64_t const& duration) const
   {
     if (duration == 0L) { return timestamp; }
 
@@ -194,7 +193,7 @@ struct time_add_functor {
     auto const temp_offset = static_cast<int64_t>(utc_offsets.element<int32_t>(temp_list_offset));
 
     // We don't want to check this if the idx is the last because they are just endpoints
-    if (transition_times_utc[local_idx] != INT64_MAX &&
+    if (transition_times_utc[local_idx] != std::numeric_limits<int64_t>::max() &&
         transition_times_utc[local_idx] + temp_offset <= result_epoch_seconds) {
       local_idx += 1;
     }
@@ -206,7 +205,8 @@ struct time_add_functor {
     // step 4: if the result is in the overlap, try to select the original offset if possible
     auto const early_offset = static_cast<int64_t>(upper_bound_epoch - upper_bound_utc);
     bool const is_gap       = (upper_bound_utc + to_utc_offset == upper_bound_epoch);
-    if (!is_gap && upper_bound_utc != INT64_MIN && upper_bound_utc != INT64_MAX) {  // overlap
+    if (!is_gap && upper_bound_utc != std::numeric_limits<int64_t>::min() &&
+        upper_bound_utc != std::numeric_limits<int64_t>::max()) {  // overlap
       // The overlap range is [utcInstant + offsetBefore, utcInstant + offsetAfter]
       auto const overlap_before = static_cast<int64_t>(upper_bound_utc + to_utc_offset);
       if (result_epoch_seconds >= overlap_before && result_epoch_seconds <= upper_bound_epoch) {
@@ -223,19 +223,18 @@ struct time_add_functor {
     return local_timestamp_res - to_utc_offset_duration;
   }
 
-  __device__ timestamp_type operator()(timestamp_type const& timestamp) const
+  __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
   {
     return plus_with_tz(timestamp, duration_scalar);
   }
 
-  __device__ timestamp_type operator()(timestamp_type const& timestamp,
-                                       int64_t const& interval) const
+  __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp,
+                                           int64_t const& interval) const
   {
     return plus_with_tz(timestamp, interval);
   }
 };
 
-template <typename timestamp_type>
 auto time_add_with_tz(column_view const& input,
                       scalar_i64 const& duration,
                       table_view const& transitions,
@@ -261,17 +260,15 @@ auto time_add_with_tz(column_view const& input,
                                              stream,
                                              mr);
 
-  thrust::transform(
-    rmm::exec_policy(stream),
-    input.begin<timestamp_type>(),
-    input.end<timestamp_type>(),
-    results->mutable_view().begin<timestamp_type>(),
-    time_add_functor<timestamp_type>{fixed_transitions, tz_index, duration.value()});
+  thrust::transform(rmm::exec_policy(stream),
+                    input.begin<cudf::timestamp_us>(),
+                    input.end<cudf::timestamp_us>(),
+                    results->mutable_view().begin<cudf::timestamp_us>(),
+                    time_add_functor{fixed_transitions, tz_index, duration.value()});
 
   return results;
 }
 
-template <typename timestamp_type>
 auto time_add_with_tz(column_view const& input,
                       column_view const& duration,
                       table_view const& transitions,
@@ -290,11 +287,11 @@ auto time_add_with_tz(column_view const& input,
     input.type(), input.size(), rmm::device_buffer(null_mask, stream), null_count, stream, mr);
 
   thrust::transform(rmm::exec_policy(stream),
-                    input.begin<timestamp_type>(),
-                    input.end<timestamp_type>(),
+                    input.begin<cudf::timestamp_us>(),
+                    input.end<cudf::timestamp_us>(),
                     duration.begin<int64_t>(),
-                    results->mutable_view().begin<timestamp_type>(),
-                    time_add_functor<timestamp_type>{fixed_transitions, tz_index, 0L});
+                    results->mutable_view().begin<cudf::timestamp_us>(),
+                    time_add_functor{fixed_transitions, tz_index, 0L});
 
   return results;
 }
@@ -351,20 +348,10 @@ std::unique_ptr<column> time_add(column_view const& input,
                                  rmm::cuda_stream_view stream,
                                  rmm::mr::device_memory_resource* mr)
 {
-  auto const type = input.type().id();
-
-  switch (type) {
-    case cudf::type_id::TIMESTAMP_SECONDS:
-      return time_add_with_tz<cudf::timestamp_s>(
-        input, duration, transitions, tz_index, stream, mr);
-    case cudf::type_id::TIMESTAMP_MILLISECONDS:
-      return time_add_with_tz<cudf::timestamp_ms>(
-        input, duration, transitions, tz_index, stream, mr);
-    case cudf::type_id::TIMESTAMP_MICROSECONDS:
-      return time_add_with_tz<cudf::timestamp_us>(
-        input, duration, transitions, tz_index, stream, mr);
-    default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
+  if (input.type().id() != cudf::type_id::TIMESTAMP_MICROSECONDS) {
+    CUDF_FAIL("Unsupported timestamp unit for time add with timezone");
   }
+  return time_add_with_tz(input, duration, transitions, tz_index, stream, mr);
 }
 
 std::unique_ptr<column> time_add(column_view const& input,
@@ -374,20 +361,10 @@ std::unique_ptr<column> time_add(column_view const& input,
                                  rmm::cuda_stream_view stream,
                                  rmm::mr::device_memory_resource* mr)
 {
-  auto const type = input.type().id();
-
-  switch (type) {
-    case cudf::type_id::TIMESTAMP_SECONDS:
-      return time_add_with_tz<cudf::timestamp_s>(
-        input, duration, transitions, tz_index, stream, mr);
-    case cudf::type_id::TIMESTAMP_MILLISECONDS:
-      return time_add_with_tz<cudf::timestamp_ms>(
-        input, duration, transitions, tz_index, stream, mr);
-    case cudf::type_id::TIMESTAMP_MICROSECONDS:
-      return time_add_with_tz<cudf::timestamp_us>(
-        input, duration, transitions, tz_index, stream, mr);
-    default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
+  if (input.type().id() != cudf::type_id::TIMESTAMP_MICROSECONDS) {
+    CUDF_FAIL("Unsupported timestamp unit for time add with timezone");
   }
+  return time_add_with_tz(input, duration, transitions, tz_index, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

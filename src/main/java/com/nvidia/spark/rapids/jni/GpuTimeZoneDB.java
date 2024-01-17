@@ -17,8 +17,11 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.CudfAccessor;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,16 +49,6 @@ import java.util.concurrent.Executors;
  *  - Rebase time zone APIs
  *    fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
  */
-import java.util.concurrent.*;
-
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.ColumnView;
-import ai.rapids.cudf.CudfAccessor;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.Scalar;
-import ai.rapids.cudf.HostColumnVector;
-import ai.rapids.cudf.Table;
-
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
 
@@ -212,12 +205,7 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
+    warnUnsupportedTimeZone(currentTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -227,12 +215,7 @@ public class GpuTimeZoneDB {
   }
   
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(desiredTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          desiredTimeZone.toString()));
-    }
+    warnUnsupportedTimeZone(desiredTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -242,75 +225,32 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector timeAdd(ColumnVector input, Scalar duration, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
+    warnUnsupportedTimeZone(currentTimeZone);
+    cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(timeAddCS(input.getNativeView(), CudfAccessor.getScalarHandle(duration),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(timeAddCS(input.getNativeView(), CudfAccessor.getScalarHandle(duration),
+          transitions.getNativeView(), tzIndex));
+    }
   }
 
   public static ColumnVector timeAdd(ColumnVector input, ColumnView duration, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
+    warnUnsupportedTimeZone(currentTimeZone);
+    cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(timeAddCC(input.getNativeView(), duration.getNativeView(),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(timeAddCC(input.getNativeView(), duration.getNativeView(),
+          transitions.getNativeView(), tzIndex));
+    }
   }
 
-  public static ColumnVector timeAdd(ColumnVector input, Scalar duration, ZoneId currentTimeZone) {
+  private static void warnUnsupportedTimeZone(ZoneId zoneId) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
+    if (!isSupportedTimeZone(zoneId)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s", 
+          zoneId.toString()));
     }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
-    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(timeAddCS(input.getNativeView(), CudfAccessor.getScalarHandle(duration),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
-  }
-
-  public static ColumnVector timeAdd(ColumnVector input, ColumnView duration, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
-    if (!instance.isLoaded()) {
-      cacheDatabase(); // lazy load the database
-    }
-    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    Table transitions = instance.getTransitions();
-    ColumnVector result = new ColumnVector(timeAddCC(input.getNativeView(), duration.getNativeView(),
-        transitions.getNativeView(), tzIndex));
-    transitions.close();
-    return result;
   }
   
   // TODO: Deprecate this API when we support all timezones 
