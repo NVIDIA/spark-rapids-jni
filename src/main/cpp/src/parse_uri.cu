@@ -684,7 +684,7 @@ uri_parts __device__ validate_uri(const char* str, int len)
 
 __device__ string_view find_query_part(string_view part, string_view query)
 {
-  auto const bytes = part.size_bytes();
+  auto const bytes       = part.size_bytes();
   auto const find_length = query.size_bytes() - bytes + 1;
 
   auto q = query.data();
@@ -703,20 +703,18 @@ __device__ string_view find_query_part(string_view part, string_view query)
   }
 
   // if q is at the end of the find_length, no match.
-  if (query.data() + query.size_bytes() <= q || *q != '=') {
-    return string_view{};
-  }
+  if (query.data() + query.size_bytes() <= q || *q != '=') { return string_view{}; }
 
   // skip over the =
   q++;
 
   // rest of string until end or until '&' is query match
   auto const bytes_left = query.size_bytes() - (q - query.data());
-  int match_len = 0;
-  auto start = q;
+  int match_len         = 0;
+  auto start            = q;
   while (*q != '&' && match_len < bytes_left) {
-     ++match_len;
-     ++q;
+    ++match_len;
+    ++q;
   }
 
   return string_view{start, match_len};
@@ -798,7 +796,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
             auto const query = [&]() {
               if (query_match && query_match->size() > 0) {
                 auto const match_idx = row_idx % query_match->size();
-                auto in_match  = query_match->element<string_view>(match_idx);
+                auto in_match        = query_match->element<string_view>(match_idx);
 
                 return find_query_part(in_match, uri.query);
               }
@@ -877,7 +875,9 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
 
   auto offset_count    = strings_count + 1;
   auto const d_strings = column_device_view::create(input.parent(), stream);
-  auto const d_matches = query_match ? column_device_view::create(query_match->parent(), stream) : std::unique_ptr<column_device_view, std::function<void(column_device_view*)>>{};
+  auto const d_matches =
+    query_match ? column_device_view::create(query_match->parent(), stream)
+                : std::unique_ptr<column_device_view, std::function<void(column_device_view*)>>{};
 
   // build offsets column
   auto offsets_column = make_numeric_column(
@@ -959,30 +959,27 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::parse_uri(
-    input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
+  return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
 }
 
-std::unique_ptr<cudf::column> parse_uri_to_query(
-  cudf::strings_column_view const& input,
-  std::string const query_match,
-  rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
+                                                 std::string const query_match,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
 
   // build string_column_view from incoming query_match string
-  auto d_scalar = make_string_scalar(query_match, stream);
-  auto d_string_scalar              = static_cast<cudf::string_scalar*>(d_scalar.release());
+  auto d_scalar        = make_string_scalar(query_match, stream);
+  auto d_string_scalar = static_cast<cudf::string_scalar*>(d_scalar.release());
   auto x = thrust::pair<char const*, size_type>{d_string_scalar->data(), d_string_scalar->size()};
   auto y = std::vector{x};
   auto z = host_span<thrust::pair<char const*, size_type>>(y);
-  auto d_vector = cudf::detail::make_device_uvector_async<thrust::pair<char const*, size_type>>(z, stream, rmm::mr::get_current_device_resource());
+  auto d_vector = cudf::detail::make_device_uvector_async<thrust::pair<char const*, size_type>>(
+    z, stream, rmm::mr::get_current_device_resource());
   auto col = make_strings_column(d_vector, stream, rmm::mr::get_current_device_resource());
 
-  return detail::parse_uri(
-    input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
-
+  return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
 }
 
 }  // namespace spark_rapids_jni

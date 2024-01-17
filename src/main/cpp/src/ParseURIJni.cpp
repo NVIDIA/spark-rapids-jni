@@ -62,10 +62,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQuery(JNI
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWithLiteral(JNIEnv* env,
-                                                                             jclass,
-                                                                             jlong input_column,
-                                                                             jstring query)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWithLiteral(
+  JNIEnv* env, jclass, jlong input_column, jstring query)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, query, "query is null", 0);
@@ -74,7 +72,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     cudf::jni::native_jstring native_query(env, query);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_query(*input, native_query.get()).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_query(*input, native_query.get()).release());
   }
   CATCH_STD(env, 0);
 }
