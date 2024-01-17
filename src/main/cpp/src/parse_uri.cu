@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -700,19 +700,20 @@ uri_parts __device__ validate_uri(const char* str, int len)
  *
  * @param in_strings Input string column
  * @param chunk Chunk of URI to return
+ * @param base_ptr Pointer to the start of the character data in the strings column
  * @param out_lengths Number of characters in each decode URL
  * @param out_offsets Offsets to the start of the chunks
  * @param out_validity Bitmask of validity data, updated in function
  */
 __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        URI_chunks chunk,
+                                       char const* const base_ptr,
                                        size_type* const out_lengths,
                                        size_type* const out_offsets,
                                        bitmask_type* out_validity)
 {
   // thread per row
-  auto const tid      = cudf::detail::grid_1d::global_thread_id();
-  auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
+  auto const tid = cudf::detail::grid_1d::global_thread_id();
 
   for (thread_index_type tidx = tid; tidx < in_strings.size();
        tidx += cudf::detail::grid_1d::grid_stride()) {
@@ -778,17 +779,18 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
  * @brief Parse protocol and copy from the input string column to the output char buffer.
  *
  * @param in_strings Input string column
+ * @param base_ptr Pointer to the start of the character data in the strings column
  * @param src_offsets Offset value of source strings in in_strings
  * @param offsets Offset value of each string associated with `out_chars`
  * @param out_chars Character buffer for the output string column
  */
 __global__ void parse_uri(column_device_view const in_strings,
+                          char const* const base_ptr,
                           size_type const* const src_offsets,
                           size_type const* const offsets,
                           char* const out_chars)
 {
-  auto const tid      = cudf::detail::grid_1d::global_thread_id();
-  auto const base_ptr = in_strings.child(strings_column_view::chars_column_index).data<char>();
+  auto const tid = cudf::detail::grid_1d::global_thread_id();
 
   for (thread_index_type tidx = tid; tidx < in_strings.size();
        tidx += cudf::detail::grid_1d::grid_stride()) {
@@ -840,6 +842,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   parse_uri_char_counter<<<num_threadblocks, threadblock_size, 0, stream.value()>>>(
     *d_strings,
     chunk,
+    input.chars_begin(stream),
     offsets_mutable_view.begin<size_type>(),
     reinterpret_cast<size_type*>(src_offsets.data()),
     reinterpret_cast<bitmask_type*>(null_mask.data()));
@@ -854,23 +857,23 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
   // to the host memory
   auto out_chars_bytes = cudf::detail::get_value<size_type>(offsets_view, offset_count - 1, stream);
 
-  // create the chars column
-  auto chars_column = cudf::strings::detail::create_chars_child_column(out_chars_bytes, stream, mr);
-  auto d_out_chars  = chars_column->mutable_view().data<char>();
+  // create the chars buffer
+  auto d_out_chars = rmm::device_buffer(out_chars_bytes, stream, mr);
 
   // copy the characters from the input column to the output column
   parse_uri<<<num_threadblocks, threadblock_size, 0, stream.value()>>>(
     *d_strings,
+    input.chars_begin(stream),
     reinterpret_cast<size_type*>(src_offsets.data()),
     offsets_column->view().begin<size_type>(),
-    d_out_chars);
+    static_cast<char*>(d_out_chars.data()));
 
   auto null_count =
     cudf::null_count(reinterpret_cast<bitmask_type*>(null_mask.data()), 0, strings_count);
 
   return make_strings_column(strings_count,
                              std::move(offsets_column),
-                             std::move(chars_column),
+                             std::move(d_out_chars),
                              null_count,
                              std::move(null_mask));
 }
