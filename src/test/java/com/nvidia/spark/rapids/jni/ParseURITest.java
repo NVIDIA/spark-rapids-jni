@@ -90,6 +90,35 @@ public class ParseURITest {
     }
   }
 
+  void testQuery(String[] testData, String param) {
+    String[] expectedQueryStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String query = null;
+      try {
+        URI uri = new URI(testData[i]);
+        query = uri.getRawQuery();
+      } catch (URISyntaxException ex) {
+        // leave the query null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the query null if URI is null
+      }
+
+      String[] pairs = query.split("&");
+      for (String pair : pairs) {
+        int idx = pair.indexOf("=");
+        if (pair.substring(0, idx) == param) {
+          expectedQueryStrings[i] = pair.substring(idx + 1);
+          break;
+        }
+      }
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
+      ColumnVector queryResult = ParseURI.parseURIQueryWithLiteral(v0, param)) {
+      AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
+    }
+  }
+
   @Test
   void parseURISparkTest() {
     String[] testData = {

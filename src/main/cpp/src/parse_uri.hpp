@@ -65,4 +65,19 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+/**
+ * @brief Parse query and copy from the input string column to the output char buffer.
+ *
+ * @param input Input string column of URIs to parse.
+ * @param query_match String to match in query.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column.
+ * @return std::unique_ptr<column> String column of queries parsed.
+ */
+std::unique_ptr<cudf::column> parse_uri_to_query(
+  cudf::strings_column_view const& input,
+  std::string const query_match,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni
