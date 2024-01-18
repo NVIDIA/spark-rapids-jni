@@ -35,10 +35,10 @@ using column                   = cudf::column;
 using column_device_view       = cudf::column_device_view;
 using column_view              = cudf::column_view;
 using lists_column_device_view = cudf::detail::lists_column_device_view;
-using scalar_i64               = cudf::numeric_scalar<int64_t>;
-using size_type                = cudf::size_type;
-using struct_view              = cudf::struct_view;
-using table_view               = cudf::table_view;
+// using scalar_i64               = cudf::numeric_scalar<cudf::duration_us>;
+using size_type   = cudf::size_type;
+using struct_view = cudf::struct_view;
+using table_view  = cudf::table_view;
 
 namespace {
 
@@ -127,12 +127,12 @@ struct time_add_functor {
 
   size_type const tz_index;
 
-  int64_t const duration_scalar;
+  cudf::duration_us const duration_scalar;
 
   __device__ inline cudf::timestamp_us plus_with_tz(cudf::timestamp_us const& timestamp,
-                                                    int64_t const& duration) const
+                                                    cudf::duration_us const& duration) const
   {
-    if (duration == 0L) { return timestamp; }
+    if (duration == cudf::duration_us{0}) { return timestamp; }
 
     auto const utc_instants = transitions.child().child(0);
     auto const tz_instants  = transitions.child().child(1);
@@ -166,11 +166,8 @@ struct time_add_functor {
     auto const to_local_offset_duration = cuda::std::chrono::duration_cast<duration_type>(
       cudf::duration_s{static_cast<int64_t>(to_local_offset)});
 
-    auto const duration_typed = cuda::std::chrono::duration_cast<duration_type>(
-      cudf::duration_us{static_cast<int64_t>(duration)});
-
     // step 2: add the duration to the local timestamp
-    auto const local_timestamp_res = timestamp + to_local_offset_duration + duration_typed;
+    auto const local_timestamp_res = timestamp + to_local_offset_duration + duration;
 
     auto const result_epoch_seconds = static_cast<int64_t>(
       cuda::std::chrono::duration_cast<cudf::duration_s>(local_timestamp_res.time_since_epoch())
@@ -229,14 +226,14 @@ struct time_add_functor {
   }
 
   __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp,
-                                           int64_t const& interval) const
+                                           cudf::duration_us const& interval) const
   {
     return plus_with_tz(timestamp, interval);
   }
 };
 
 auto time_add_with_tz(column_view const& input,
-                      scalar_i64 const& duration,
+                      cudf::duration_scalar<cudf::duration_us> const& duration,
                       table_view const& transitions,
                       size_type tz_index,
                       rmm::cuda_stream_view stream,
@@ -289,9 +286,9 @@ auto time_add_with_tz(column_view const& input,
   thrust::transform(rmm::exec_policy(stream),
                     input.begin<cudf::timestamp_us>(),
                     input.end<cudf::timestamp_us>(),
-                    duration.begin<int64_t>(),
+                    duration.begin<cudf::duration_us>(),
                     results->mutable_view().begin<cudf::timestamp_us>(),
-                    time_add_functor{fixed_transitions, tz_index, 0L});
+                    time_add_functor{fixed_transitions, tz_index, cudf::duration_us{0}});
 
   return results;
 }
@@ -342,7 +339,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(column_view const& inp
 }
 
 std::unique_ptr<column> time_add(column_view const& input,
-                                 scalar_i64 const& duration,
+                                 cudf::duration_scalar<cudf::duration_us> const& duration,
                                  table_view const& transitions,
                                  size_type tz_index,
                                  rmm::cuda_stream_view stream,
