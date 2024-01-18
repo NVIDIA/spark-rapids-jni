@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,24 +75,28 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
   }
 
   auto const d_strings  = cudf::column_device_view::create(input, stream);
-  auto const chars_size = input.child(cudf::strings_column_view::chars_column_index).size();
+  auto const input_scv  = cudf::strings_column_view{input};
+  auto const chars_size = input_scv.chars_size(stream);
   auto const output_size =
     2l +                                            // two extra bracket characters '[' and ']'
     static_cast<int64_t>(chars_size) +
     static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
     static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
+  // TODO: This assertion eventually needs to be removed.
+  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
   CUDF_EXPECTS(output_size <= static_cast<int64_t>(std::numeric_limits<cudf::size_type>::max()),
                "The input json column is too large and causes overflow.");
 
   auto const joined_input = cudf::strings::detail::join_strings(
-    cudf::strings_column_view{input},
+    input_scv,
     cudf::string_scalar(","),   // append `,` character between the input rows
     cudf::string_scalar("{}"),  // replacement for null rows
     stream,
     rmm::mr::get_current_device_resource());
-  auto const joined_input_child =
-    joined_input->child(cudf::strings_column_view::chars_column_index);
-  auto const joined_input_size_bytes = joined_input_child.size();
+  auto const joined_input_scv        = cudf::strings_column_view{*joined_input};
+  auto const joined_input_size_bytes = joined_input_scv.chars_size(stream);
+  // TODO: This assertion requires a stream synchronization, may want to remove at some point.
+  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
   CUDF_EXPECTS(joined_input_size_bytes + 2 == output_size, "Incorrect output size computation.");
 
   // We want to concatenate 3 strings: "[" + joined_input + "]".
@@ -100,7 +104,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
   auto output = rmm::device_uvector<char>(joined_input_size_bytes + 2, stream);
   CUDF_CUDA_TRY(cudaMemsetAsync(output.data(), static_cast<int>('['), 1, stream.value()));
   CUDF_CUDA_TRY(cudaMemcpyAsync(output.data() + 1,
-                                joined_input_child.view().data<char>(),
+                                joined_input_scv.chars_begin(stream),
                                 joined_input_size_bytes,
                                 cudaMemcpyDefault,
                                 stream.value()));
