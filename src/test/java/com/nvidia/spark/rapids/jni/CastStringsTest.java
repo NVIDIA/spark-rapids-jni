@@ -440,7 +440,7 @@ public class CastStringsTest {
       }
     });
 
-    // Throw unsupported exception for symbols of special dates
+    // Throw IllegalArgumentException for symbols of special dates
     // Note: Spark 31x supports "epoch", "now", "today", "yesterday", "tomorrow".
     // But Spark 32x to Spark 35x do not supports.
     // Currently JNI do not supports

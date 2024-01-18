@@ -542,11 +542,13 @@ struct parse_timestamp_string_fn {
 };
 
 /**
- * The common entrance of string_to_timestamp, which combines two paths:
- * with_timezone and without_timezone. This function returns the The
- * transitions, tz_indices and default_tz_index are only for handling inputs
- * with timezone. So, this function distinguish with_timezone calls from
- * without_timezone ones by checking if transitions and tz_indices are nullptr.
+ * The common entrance of string_to_timestamp, two paths call this function:
+ * - `string_to_timestamp_with_tz` : with time zone
+ * - `string_to_timestamp_without_tz` : without time zone
+ * The parameters transitions, tz_indices and default_tz_index are only for handling
+ * inputs with timezone.
+ * It's called from `string_to_timestamp_without_tz` if transitions and tz_indices
+ * are nullptr, otherwise called from `string_to_timestamp_with_tz`.
  *
  */
 std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& input,
@@ -630,9 +632,11 @@ std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& inpu
 namespace spark_rapids_jni {
 
 /**
- * Parse string column with time zone to timestamp column,
- * Returns a pair of timestamp column and a bool indicates whether it successes.
- * If does not have time zone in string, use the default time zone.
+ * Parse string column with time zone to timestamp column.
+ * If a string does not have time zone in it, use the default time zone.
+ * Returns nullptr if ANSI mode is true and strings have any invalid value, returns non-null
+ * timestamp column otherwise.
+ *
  */
 std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
   cudf::strings_column_view const& input,
@@ -648,11 +652,10 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
 }
 
 /**
- * Parse string column with time zone to timestamp column,
- * Returns a pair of timestamp column and a bool indicates whether it successes.
- * Do not use the time zone in string.
- * If allow_time_zone is false and string contains time zone, then the string is
- * invalid.
+ * Parse string column without time zone to timestamp column.
+ * Returns nullptr if ANSI mode is true and strings have any invalid value, returns non-null
+ * timestamp column otherwise.
+ *
  */
 std::unique_ptr<cudf::column> string_to_timestamp_without_tz(cudf::strings_column_view const& input,
                                                              bool allow_time_zone,
