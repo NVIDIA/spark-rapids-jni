@@ -24,8 +24,6 @@ import org.junit.jupiter.api.Test;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 
-import java.util.Arrays;
-
 public class ParseURITest {
   void testProtocol(String[] testData) {
     String[] expectedProtocolStrings = new String[testData.length];
@@ -110,26 +108,18 @@ public class ParseURITest {
       if (query != null) {
         String[] pairs = query.split("&");
         for (String pair : pairs) {
-          System.out.println(pair);
           int idx = pair.indexOf("=");
-          if (idx > 0) {
-            System.out.println("comparing '" + pair.substring(0, idx) + "' and '" + param + "'");
-            if (pair.substring(0, idx).equals(param)) {
-              System.out.println("found a match...");
+          if (idx > 0 && pair.substring(0, idx).equals(param)) {
             subquery = pair.substring(idx + 1);
             break;
-            }
           }
         }
       }
       expectedQueryStrings[i] = subquery;
     }
-    System.out.println("Expected Strings:");
-    System.out.println(Arrays.toString(expectedQueryStrings));
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
       ColumnVector queryResult = ParseURI.parseURIQueryWithLiteral(v0, param)) {
-      //throw new IllegalArgumentException(expectedQueryStrings.toString());
       AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
     }
   }
