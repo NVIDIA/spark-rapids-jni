@@ -497,9 +497,10 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
   auto const bytes       = needle.size_bytes();
   auto const find_length = haystack.size_bytes() - bytes + 1;
 
-  auto h = haystack.data();
-  auto n = needle.data();
-  for (size_type idx = 0; idx < find_length; ++idx) {
+  auto h           = haystack.data();
+  auto const end_h = haystack.data() + find_length;
+  auto n           = needle.data();
+  while (h < end_h) {
     bool match = true;
     for (size_type jdx = 0; match && (jdx < bytes); ++jdx) {
       match = (h[jdx] == n[jdx]);
@@ -508,8 +509,13 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
       // we don't care about the matched part, we want the string data after that.
       h += bytes;
       break;
+    } else {
+      // skip to the next param, which is after a &.
+      while (h < end_h && *h != '&') {
+        h++;
+      }
     }
-    ++h;
+    h++;
   }
 
   // if h is past the end of the haystack, no match.
