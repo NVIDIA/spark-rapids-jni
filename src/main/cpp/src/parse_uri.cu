@@ -492,7 +492,48 @@ bool __device__ validate_fragment(string_view fragment)
     }));
 }
 
-uri_parts __device__ validate_uri(const char* str, int len)
+__device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
+{
+  auto const bytes       = needle.size_bytes();
+  auto const find_length = haystack.size_bytes() - bytes + 1;
+
+  auto h = haystack.data();
+  auto n = needle.data();
+  for (size_type idx = 0; idx < find_length; ++idx) {
+    bool match = true;
+    for (size_type jdx = 0; match && (jdx < bytes); ++jdx) {
+      match = (h[jdx] == n[jdx]);
+    }
+    if (match) {
+      // we don't care about the matched part, we want the string data after that.
+      h += bytes;
+      break;
+    }
+    ++h;
+  }
+
+  // if h is past the end of the haystack, no match.
+  if (haystack.data() + haystack.size_bytes() <= h || *h != '=') { return {{}, false}; }
+
+  // skip over the =
+  h++;
+
+  // rest of string until end or until '&' is query match
+  auto const bytes_left = haystack.size_bytes() - (h - haystack.data());
+  int match_len         = 0;
+  auto start            = h;
+  while (*h != '&' && match_len < bytes_left) {
+    ++match_len;
+    ++h;
+  }
+
+  return {{start, match_len}, true};
+}
+
+uri_parts __device__ validate_uri(const char* str,
+                                  int len,
+                                  thrust::optional<column_device_view const> query_match,
+                                  size_type row_idx)
 {
   uri_parts ret;
 
@@ -574,6 +615,20 @@ uri_parts __device__ validate_uri(const char* str, int len)
         ret.valid = 0;
         return ret;
       }
+
+      // maybe limit the query data
+      if (query_match && query_match->size() > 0) {
+        auto const match_idx = row_idx % query_match->size();
+        auto in_match        = query_match->element<string_view>(match_idx);
+
+        auto [query, valid] = find_query_part(ret.query, in_match);
+        if (!valid) {
+          ret.valid = 0;
+          return ret;
+        }
+        ret.query = query;
+      }
+
       ret.valid |= (1 << static_cast<int>(URI_chunks::QUERY));
     }
     auto const path_len = question >= 0 ? question : len;
@@ -682,44 +737,6 @@ uri_parts __device__ validate_uri(const char* str, int len)
   return ret;
 }
 
-__device__ string_view find_query_part(string_view part, string_view query)
-{
-  auto const bytes       = part.size_bytes();
-  auto const find_length = query.size_bytes() - bytes + 1;
-
-  auto q = query.data();
-  auto p = part.data();
-  for (size_type idx = 0; idx < find_length; ++idx) {
-    bool match = true;
-    for (size_type jdx = 0; match && (jdx < bytes); ++jdx) {
-      match = (q[jdx] == p[jdx]);
-    }
-    if (match) {
-      // we don't care about the matched part, we want the string data after that.
-      q += bytes;
-      break;
-    }
-    ++q;
-  }
-
-  // if q is at the end of the find_length, no match.
-  if (query.data() + query.size_bytes() <= q || *q != '=') { return string_view{}; }
-
-  // skip over the =
-  q++;
-
-  // rest of string until end or until '&' is query match
-  auto const bytes_left = query.size_bytes() - (q - query.data());
-  int match_len         = 0;
-  auto start            = q;
-  while (*q != '&' && match_len < bytes_left) {
-    ++match_len;
-    ++q;
-  }
-
-  return string_view{start, match_len};
-}
-
 // A URI is broken into parts or chunks. There are optional chunks and required chunks. A simple URI
 // such as `https://www.nvidia.com` is easy to reason about, but it could also be written as
 // `www.nvidia.com`, which is still valid. On top of that, there are characters which are allowed in
@@ -767,7 +784,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const in_chars      = in_string.data();
     auto const string_length = in_string.size_bytes();
 
-    auto const uri = validate_uri(in_chars, string_length);
+    auto const uri = validate_uri(in_chars, string_length, query_match, row_idx);
     if ((uri.valid & (1 << static_cast<int>(chunk))) == 0) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
@@ -791,21 +808,8 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
           out_offsets[row_idx] = uri.path.data() - base_ptr;
           break;
         case URI_chunks::QUERY:
-          // maybe it is limited
-          {
-            auto const query = [&]() {
-              if (query_match && query_match->size() > 0) {
-                auto const match_idx = row_idx % query_match->size();
-                auto in_match        = query_match->element<string_view>(match_idx);
-
-                return find_query_part(in_match, uri.query);
-              }
-
-              return uri.query;
-            }();
-            out_lengths[row_idx] = query.size_bytes();
-            out_offsets[row_idx] = query.data() - base_ptr;
-          }
+          out_lengths[row_idx] = uri.query.size_bytes();
+          out_offsets[row_idx] = uri.query.data() - base_ptr;
           break;
         case URI_chunks::USERINFO:
           out_lengths[row_idx] = uri.userinfo.size_bytes();
