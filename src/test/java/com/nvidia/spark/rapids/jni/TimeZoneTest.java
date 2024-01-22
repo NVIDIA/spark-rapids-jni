@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.Scalar;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -51,7 +53,7 @@ public class TimeZoneTest {
     transitions = instance.getHostFixedTransitions("Asia/Shanghai");
     assertNotNull(transitions);
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
-    assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
+    assertEquals(shanghai.getRules().getTransitions().size() + 2, transitions.size());
   }
   
   @Test
@@ -238,15 +240,19 @@ public class TimeZoneTest {
       -2177485200000000L,
       -2177481695679933L,
       -2177481944610644L,
-      0L);
-      ColumnVector duration = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+      0L,
+      -2177481944610644L,
+      -2177481944610644L);
+      ColumnVector duration = ColumnVector.durationMicroSecondsFromBoxedLongs(
         56087020233685111L,
         1000000L,
         173001810506226873L,
         1000000L,
         1000000L,
         1000000L,
-        173001810506226873L
+        173001810506226873L,
+        86399999999L,
+        86400000000L
       );
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
           -1867571673227304L,
@@ -255,40 +261,38 @@ public class TimeZoneTest {
           -2177485199000000L,
           -2177481694679933L,
           -2177481943610644L,
-          173001810506226873L);
+          173001810506226873L,
+          -2177395544610645L,
+          -2177395201610644L);
         ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
           ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
 
-  // @Test
-  // void timeAddCSTest() {
-  //   try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-  //         -1262289600000000L,
-  //         -908870400000000L,
-  //         -908869500000000L,
-  //         -888832800000000L,
-  //         -888831900000000L,
-  //         -888825600000000L,
-  //         0L,
-  //         1699542834312000L,
-  //         568008000000000L);
-  //       Scalar duration = Scalar.timestampMicroSecondsFromLong(1800000000L);
-  //       ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
-  //         -1262260800000000L,
-  //         -908838000000000L,
-  //         -908837100000000L,
-  //         -888800400000000L,
-  //         -888799500000000L,
-  //         -888796800000000L,
-  //         28800000000L,
-  //         1699571634312000L,
-  //         568036800000000L);
-  //       ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
-  //         ZoneId.of("Asia/Shanghai"))) {
-  //     assertColumnsAreEqual(expected, actual);
-  //   }
-  // }
+  @Test
+  void timeAddCSTest() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        -57954592249912415L,
+        -2177453143500000L,
+        -43013395848980300L,
+        -2177485200000000L,
+        -2177481695679933L,
+        -2177481944610644L,
+        0L);
+        Scalar duration = Scalar.durationFromLong(DType.DURATION_MICROSECONDS, 1800000000L);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          -57954590449912415L,
+          -2177451343500000L,
+          -43013394048980300L,
+          -2177483400000000L,
+          -2177479895679933L,
+          -2177481934610644L,
+          1800000000L);
+        ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
   
 }
