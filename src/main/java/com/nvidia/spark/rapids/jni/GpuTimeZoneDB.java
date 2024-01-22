@@ -17,18 +17,18 @@
 package com.nvidia.spark.rapids.jni;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.*;
-import java.util.function.Function;
 
 import ai.rapids.cudf.*;
 
@@ -175,26 +175,21 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * load ZoneId.SHORT_IDS and append Z->UTC.
-   * The first 3 entries are: Z->UTC, PST->America/Los_Angeles, CTT->Asia/Shanghai
+   * load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
    */
   private void loadTimeZoneShortIDs() {
     HostColumnVector.DataType type = new HostColumnVector.StructType(false,
     new HostColumnVector.BasicType(false, DType.STRING),
     new HostColumnVector.BasicType(false, DType.STRING));
     ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
-    // add Z->UTC
-    data.add(new HostColumnVector.StructData("Z", "UTC"));
-    // add PST CTT
-    for (Map.Entry<String, String> e : ZoneId.SHORT_IDS.entrySet()) {
-      if (e.getKey().equals("PST") || e.getKey().equals("CTT")) {
-        data.add(new HostColumnVector.StructData(e.getKey(), e.getValue()));
-      }
-    }
-    // add others
-    for (Map.Entry<String, String> e : ZoneId.SHORT_IDS.entrySet()) {
-      if (!(e.getKey().equals("PST") || e.getKey().equals("CTT"))) {
-        data.add(new HostColumnVector.StructData(e.getKey(), e.getValue()));
+    List<String> idList = new ArrayList<>(ZoneId.SHORT_IDS.keySet());
+    idList.add("Z");
+    Collections.sort(idList);
+    for (String id : idList) {
+      if (id.equals("Z")) {
+        data.add(new HostColumnVector.StructData(id, "UTC"));
+      } else {
+        data.add(new HostColumnVector.StructData(id, ZoneId.SHORT_IDS.get(id)));
       }
     }
     shortIDs = HostColumnVector.fromStructs(type, data);
@@ -208,23 +203,26 @@ public class GpuTimeZoneDB {
   private void doLoadData() {
     synchronized (this) {
       try {
+        // load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
         loadTimeZoneShortIDs();
+        
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
         // Build a timezone ID index for the rendering of timezone IDs which may be included in datetime-like strings.
         // For instance: "2023-11-5T03:04:55.1 Asia/Shanghai" -> This index helps to find the
         // offset of "Asia/Shanghai" in timezoneDB.
         //
-        // Currently, we do NOT support all timezone IDs. For unsupported ones, we ought to throw Exception anyway. And
-        // for invalid ones, we replace them with NULL value when ANSI mode is off. Therefore, we need to distinguish the
-        // unsupported ones from invalid ones which means the unsupported Ids need to be collected as well.
-        // To distinguish supported IDs from unsupported ones, we place all unsupported IDs behind supported ones:
-        // 1. Collect the IDs of all supported timezones in the order of masterTransitions.
-        // 2. Append the IDs of all unsupported timezones after the suported ones.
+        // Currently, we do NOT support all timezone IDs. For unsupported time zones, like invalid ones,
+        // we replace them with NULL value when ANSI mode is off when parsing string to timestamp.
+        // This list only contains supported time zones.
         List<String> zondIdList = new ArrayList<>();
         List<String> unsupportedZoneList = new ArrayList<>();
+        
+        // sort the IDs
+        String[] availableIDs = TimeZone.getAvailableIDs();
+        Arrays.sort(availableIDs);
 
-        for (String tzId : TimeZone.getAvailableIDs()) {
+        for (String tzId : availableIDs) {
           ZoneId zoneId;
           try {
             zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
@@ -257,17 +255,6 @@ public class GpuTimeZoneDB {
                       first.getOffsetBefore().getTotalSeconds(), Long.MIN_VALUE)
               );
               transitions.forEach(t -> {
-                // A simple approach to transform LocalDateTime to a value which is proportional to
-                // the exact EpochSecond. After caching these values along with EpochSeconds, we
-                // can easily search out which time zone transition rule we should apply according
-                // to LocalDateTime structs. The searching procedure is same as the binary search with
-                // exact EpochSeconds(convert_timestamp_tz_functor), except using "loose instant"
-                // as search index instead of exact EpochSeconds.
-                Function<LocalDateTime, Long> localToLooseEpochSecond = lt ->
-                        86400L * (lt.getYear() * 400L + (lt.getMonthValue() - 1) * 31L +
-                                lt.getDayOfMonth() - 1) +
-                                3600L * lt.getHour() + 60L * lt.getMinute() + lt.getSecond();
-
                 // Whether transition is an overlap vs gap.
                 // In Spark:
                 // if it's a gap, then we use the offset after *on* the instant
@@ -279,8 +266,7 @@ public class GpuTimeZoneDB {
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds(),
-                          localToLooseEpochSecond.apply(t.getDateTimeAfter())
+                          t.getOffsetAfter().getTotalSeconds()
                       )
                   );
                 } else {
@@ -288,8 +274,7 @@ public class GpuTimeZoneDB {
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds(),
-                          localToLooseEpochSecond.apply(t.getDateTimeBefore())
+                          t.getOffsetAfter().getTotalSeconds()
                       )
                   );
                 }
@@ -310,9 +295,6 @@ public class GpuTimeZoneDB {
             new HostColumnVector.BasicType(false, DType.INT64));
         HostColumnVector.DataType resultType =
             new HostColumnVector.ListType(false, childType);
-
-        // Append the IDs of all unsupported timezones after the suported ones.
-        zondIdList.addAll(unsupportedZoneList);
 
         try (HostColumnVector fixedTransitions = HostColumnVector.fromLists(resultType, masterTransitions.toArray(new List[0]))) {
           try (HostColumnVector zoneIdVector = HostColumnVector.fromStrings(zondIdList.toArray(new String[0]))) {

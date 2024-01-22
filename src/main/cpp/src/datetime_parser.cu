@@ -119,8 +119,7 @@ struct parse_timestamp_string_fn {
   bool allow_tz_in_date_str = true;
   // The list column of transitions to figure out the correct offset
   // to adjust the timestamp. The type of the values in this column is
-  // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32,
-  // looseTzInstant: int64>>.
+  // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
   thrust::optional<lists_column_device_view const> transitions = thrust::nullopt;
   thrust::optional<column_device_view const> tz_indices        = thrust::nullopt;
   thrust::optional<column_device_view const> tz_short_ids      = thrust::nullopt;
@@ -157,43 +156,44 @@ struct parse_timestamp_string_fn {
 
     // path with timezone, in which timezone offset has to be determined before
     // computing unix_timestamp
-    int64_t tz_offset;
+    int64_t utc_offset;
     if (tz_lit_ptr == nullptr) {
-      tz_offset = extract_timezone_offset(compute_loose_epoch_s(ts_comp), default_tz_index);
+      // no tz in the string tailing, use default tz
+      utc_offset = extract_timezone_offset(compute_epoch_s(ts_comp), default_tz_index);
     } else {
       auto tz_view = string_view(tz_lit_ptr, tz_lit_len);
 
-      // Map short TZ ID to region-based timezone if tz_view is a short ID
-      auto const& short_name_col   = tz_short_ids->child(0);
-      auto const& region_based_col = tz_short_ids->child(1);
-      for (size_type i = 0; i < tz_short_ids->size(); i++) {
-        auto const& curr_short_id = short_name_col.element<string_view>(i);
-        if (curr_short_id == tz_view) {
-          // find short ID, replace tz_view with mapped region TZ ID
-          tz_view = region_based_col.element<string_view>(i);
-          break;
-        }
+      // map tz short IDs, has three map types: 
+      //   1:  Z->UTC; 
+      //   2:  short ID->regional based tz
+      //   3:  MST->"-07:00"
+      auto const& short_tz_id_col   = tz_short_ids->child(0);
+      auto const& map_to_tz_col = tz_short_ids->child(1);
+      auto const it = thrust::upper_bound(
+        thrust::seq, short_tz_id_col.begin(), short_tz_id_col.end(), tz_view);
+      if (it != short_tz_id_col.end() && *it == tz_view) {
+        auto short_tz_id_idx = static_cast<size_t>(it - short_tz_id_col.begin());
+        // found a map, replace with mapped tz
+        tz_view = map_to_tz_col.element<string_view>(short_tz_id_idx);
       }
 
       // Firstly, try parsing as utc-like timezone rep
-      if (auto [utc_offset, ret_code] = parse_utc_like_tz(tz_view); ret_code == 0) {
-        tz_offset = utc_offset;
-      } else if (ret_code == 1) {
+      auto [utc_offset, ret_code] = parse_utc_like_tz(tz_view);
+      if (ret_code == ParseUtcLikeTzResult::UTC_LIKE_TZ) {
+        utc_offset = utc_offset;
+      } else if (ret_code == ParseUtcLikeTzResult::NOT_UTC_LIKE_TZ) {
         // Then, try parsing as region-based timezone ID
         auto tz_index = query_index_from_tz_db(tz_view);
-        // tz_index < size(tzDB): found the ID in tzDB
-        // size(tzDB) <= tz_index < size(tzIDs): found the ID but not supported
-        // yet tz_index == size(tzIDs): invalid timezone ID
-        if (tz_index > transitions->size()) {
-          if (tz_index == tz_indices->size())
-            return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}},
-                                      ParseResult::INVALID);
+        if (tz_index < 0) {
+          // invalid tz
           return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}},
-                                    ParseResult::UNSUPPORTED);
+                                    ParseResult::INVALID);
+        } else {
+          // supported tz
+          utc_offset = extract_timezone_offset(compute_epoch_s(ts_comp), tz_index);
         }
-        tz_offset = extract_timezone_offset(compute_loose_epoch_s(ts_comp), tz_index);
       } else {
-        // (ret_code == 2) quick path to mark value invalid
+        // (ret_code == ParseUtcLikeTzResult::INVALID) quick path to mark value invalid
         return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}}, ParseResult::INVALID);
       }
     }
@@ -202,16 +202,20 @@ struct parse_timestamp_string_fn {
     auto const ts_unaligned = compute_epoch_us(ts_comp);
 
     return thrust::make_tuple(
-      cudf::timestamp_us{cudf::duration_us{ts_unaligned - tz_offset * 1000000L}}, ParseResult::OK);
+      cudf::timestamp_us{cudf::duration_us{ts_unaligned - utc_offset * 1000000L}}, ParseResult::OK);
   }
+
+  enum ParseUtcLikeTzResult { 
+    UTC_LIKE_TZ = 0, // successfully parsed the timezone offset
+    NOT_UTC_LIKE_TZ = 1,    // not a valid UTC-like timezone representation, maybe valid region-based
+    INVALID = 2      // not a valid timezone representation
+  };
 
   /**
    *
    * Parse UTC-like timezone representation such as: UTC+11:22:33, GMT-8:08:01.
    * This function is purposed to be fully align to Apache Spark's behavior. The
-   * function returns the status along with the result: 0 - successfully parsed
-   * the timezone offset 1 - not a valid UTC-like timezone representation, maybe
-   * valid region-based rep 2 - not a valid timezone representation
+   * function returns the status along with the ParseUtcLikeTzResult result.
    *
    * Valid patterns:
    *   with colon
@@ -224,7 +228,7 @@ struct parse_timestamp_string_fn {
    *   additional restriction: 18:00:00 is the upper bound (which means 18:00:01
    * is invalid)
    */
-  __device__ inline thrust::pair<int64_t, uint8_t> parse_utc_like_tz(
+  __device__ inline thrust::pair<int64_t, ParseUtcLikeTzResult> parse_utc_like_tz(
     string_view const& tz_lit) const
   {
     size_type len = tz_lit.size_bytes();
@@ -239,7 +243,7 @@ struct parse_timestamp_string_fn {
     }
 
     // return for the pattern UTC|GMT (without exact offset)
-    if (len == char_offset) return {0, 0};
+    if (len == char_offset) return {0, ParseUtcLikeTzResult::UTC_LIKE_TZ};
 
     // parse sign +|-
     char const sign_char = *(ptr + char_offset++);
@@ -250,7 +254,7 @@ struct parse_timestamp_string_fn {
       sign = -1L;
     } else {
       // if the rep starts with UTC|GMT, it can NOT be region-based rep
-      return {0, char_offset < 3 ? 1 : 2};
+      return {0, char_offset < 3 ? ParseUtcLikeTzResult::NOT_UTC_LIKE_TZ : ParseUtcLikeTzResult::INVALID};
     }
 
     // parse hh:mm:ss
@@ -259,14 +263,14 @@ struct parse_timestamp_string_fn {
     for (size_type i = 0; i < 3; i++) {
       // deal with the first digit
       hms[i] = *(ptr + char_offset++) - '0';
-      if (hms[i] < 0 || hms[i] > 9) return {0, 2};
+      if (hms[i] < 0 || hms[i] > 9) return {0, ParseUtcLikeTzResult::INVALID};
 
       // deal with trailing single digit instant:
       //  hh(GMT+8) - valid
       //  mm(GMT+11:2) - must be separated from (h)h by `:`
       //  ss(GMT-11:22:3) - invalid
       if (len == char_offset) {
-        if (i == 2 || (i == 1 && !has_colon)) return {0, 2};
+        if (i == 2 || (i == 1 && !has_colon)) return {0, ParseUtcLikeTzResult::INVALID};
         break;
       }
 
@@ -275,68 +279,68 @@ struct parse_timestamp_string_fn {
         // 1. (i == 1) one_digit mm with ss is invalid (+11:2:3)
         // 2. (i == 2) one_digit ss is invalid (+11:22:3)
         // 3. trailing `:` is invalid (GMT+8:)
-        if (i > 0 || len == ++char_offset) return {0, 2};
+        if (i > 0 || len == ++char_offset) return {0, ParseUtcLikeTzResult::INVALID};
         has_colon = true;
         continue;
       }
 
       // deal with the second digit
       auto digit = *(ptr + char_offset++) - '0';
-      if (digit < 0 || digit > 9) return {0, 2};
+      if (digit < 0 || digit > 9) return {0, ParseUtcLikeTzResult::INVALID};
       hms[i] = hms[i] * 10 + digit;
 
       if (len == char_offset) break;
       // deal with `:`
       if (*(ptr + char_offset) == ':') {
         // trailing `:` is invalid (UTC+11:)
-        if (len == ++char_offset) return {0, 2};
+        if (len == ++char_offset) return {0, ParseUtcLikeTzResult::INVALID};
         has_colon = true;
       }
     }
 
     // the upper bound is 18:00:00 (regardless of sign)
-    if (hms[0] > 18 || hms[1] > 59 || hms[2] > 59) return {0, 2};
-    if (hms[0] == 18 && hms[1] + hms[2] > 0) return {0, 2};
+    if (hms[0] > 18 || hms[1] > 59 || hms[2] > 59) return {0, ParseUtcLikeTzResult::INVALID};
+    if (hms[0] == 18 && hms[1] + hms[2] > 0) return {0, ParseUtcLikeTzResult::INVALID};
 
-    return {sign * (hms[0] * 3600L + hms[1] * 60L + hms[2]), 0};
+    return {sign * (hms[0] * 3600L + hms[1] * 60L + hms[2]), ParseUtcLikeTzResult::UTC_LIKE_TZ};
   }
 
   /**
-   * TODO: replace linear search with more efficient approach (like prefix tree)
+   * tz_indices is sorted, use binary search to find tz index.
    */
   __device__ inline int query_index_from_tz_db(string_view const& tz_lit) const
   {
-    auto predicate = [tz = tz_indices, &tz_lit] __device__(auto const i) {
-      return tz->element<string_view>(i) == tz_lit;
-    };
-    auto ret = thrust::find_if(thrust::seq,
-                               thrust::make_counting_iterator(0),
-                               thrust::make_counting_iterator(tz_indices->size()),
-                               predicate);
-
-    return *ret;
+    auto const it = thrust::upper_bound(thrust::seq,
+                               tz_indices->begin(),
+                               tz_indices->end(),
+                               tz_lit);
+    if (it != tz_indices->end() && *it == tz_lit) {
+      return it - tz_indices->begin();
+    } else {
+      return -1;
+    }
   }
 
   /**
-   * Perform binary search to search out the timezone offset based on loose epoch
+   * Perform binary search to search out the timezone offset based on local epoch
    * instants. Basically, this is the same approach as
    * `convert_timestamp_tz_functor`.
    */
-  __device__ inline int64_t extract_timezone_offset(int64_t loose_epoch_second,
+  __device__ inline int64_t extract_timezone_offset(int64_t local_epoch_second,
                                                     size_type tz_index) const
   {
+    auto const& tz_instants    = transitions->child().child(1);
     auto const& utc_offsets    = transitions->child().child(2);
-    auto const& loose_instants = transitions->child().child(3);
 
     auto const local_transitions = cudf::list_device_view{*transitions, tz_index};
     auto const list_size         = local_transitions.size();
 
     auto const transition_times = cudf::device_span<int64_t const>(
-      loose_instants.data<int64_t>() + local_transitions.element_offset(0),
+      tz_instants.data<int64_t>() + local_transitions.element_offset(0),
       static_cast<size_t>(list_size));
 
     auto const it = thrust::upper_bound(
-      thrust::seq, transition_times.begin(), transition_times.end(), loose_epoch_second);
+      thrust::seq, transition_times.begin(), transition_times.end(), local_epoch_second);
     auto const idx         = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
     auto const list_offset = local_transitions.element_offset(idx - 1);
 
@@ -344,24 +348,9 @@ struct parse_timestamp_string_fn {
   }
 
   /**
-   * The formula to compute loose epoch from local time. The loose epoch is used
-   * to search for the corresponding timezone offset of specific zone ID from
-   * TimezoneDB. The target of loose epoch is to transfer local time to a number
-   * which is proportional to the real timestamp as easily as possible. Loose
-   * epoch, as a computation approach, helps us to align probe(kernel side) to
-   * the TimezoneDB(Java side). Then, we can apply binary search based on loose
-   * epoch instants of TimezoneDB to find out the correct timezone offset.
+   * Leverage STL to convert local time to UTC unix_timestamp(in seconds)
    */
-  __device__ inline int64_t compute_loose_epoch_s(timestamp_components const& ts) const
-  {
-    return (ts.year * 400 + (ts.month - 1) * 31 + ts.day - 1) * 86400L + ts.hour * 3600L +
-           ts.minute * 60L + ts.second;
-  }
-
-  /**
-   * Leverage STL to convert local time to UTC unix_timestamp(in millisecond)
-   */
-  __device__ inline int64_t compute_epoch_us(timestamp_components const& ts) const
+  __device__ inline int64_t compute_epoch_s(timestamp_components const& ts) const
   {
     auto const ymd =  // chrono class handles the leap year calculations for us
       cuda::std::chrono::year_month_day(cuda::std::chrono::year{ts.year},
@@ -369,8 +358,15 @@ struct parse_timestamp_string_fn {
                                         cuda::std::chrono::day{static_cast<uint32_t>(ts.day)});
     auto days = cuda::std::chrono::sys_days(ymd).time_since_epoch().count();
 
-    int64_t timestamp_s = (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
+    return (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
+  }
 
+  /**
+   * Leverage STL to convert local time to UTC unix_timestamp(in milliseconds)
+   */
+  __device__ inline int64_t compute_epoch_us(timestamp_components const& ts) const
+  {
+    int64_t timestamp_s = compute_epoch_s(ts);
     return timestamp_s * 1000000L + ts.microseconds;
   }
 
