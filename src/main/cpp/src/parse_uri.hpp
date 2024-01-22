@@ -66,7 +66,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
- * @brief Parse query and copy from the input string column to the output char buffer.
+ * @brief Parse query and copy from the input string column to the output string column.
  *
  * @param input Input string column of URIs to parse.
  * @param query_match String to match in query.
@@ -76,7 +76,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
  */
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
-  std::string const query_match,
+  std::string const& query_match,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

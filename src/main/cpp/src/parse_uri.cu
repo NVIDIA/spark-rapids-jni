@@ -494,7 +494,7 @@ bool __device__ validate_fragment(string_view fragment)
 
 __device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
 {
-  auto const bytes       = needle.size_bytes();
+  auto const n_bytes       = needle.size_bytes();
   auto const find_length = haystack.size_bytes() - bytes + 1;
 
   auto h           = haystack.data();
@@ -507,7 +507,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
     }
     if (match) {
       // we don't care about the matched part, we want the string data after that.
-      h += bytes;
+      h += n_bytes;
       break;
     } else {
       // skip to the next param, which is after a &.
@@ -627,7 +627,7 @@ uri_parts __device__ validate_uri(const char* str,
         auto const match_idx = row_idx % query_match->size();
         auto in_match        = query_match->element<string_view>(match_idx);
 
-        auto [query, valid] = find_query_part(ret.query, in_match);
+        auto const [query, valid] = find_query_part(ret.query, in_match);
         if (!valid) {
           ret.valid = 0;
           return ret;
@@ -976,7 +976,7 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
 }
 
 std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
-                                                 std::string const query_match,
+                                                 std::string const& query_match,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::mr::device_memory_resource* mr)
 {
