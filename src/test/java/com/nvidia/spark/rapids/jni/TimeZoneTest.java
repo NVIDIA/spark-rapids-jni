@@ -227,5 +227,68 @@ public class TimeZoneTest {
       assertColumnsAreEqual(expected, actual);
     }
   }
+
+  @Test
+  void timeAddCCTest() {
+    // Some edge cases related to overlap transitions
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+      -57954592249912415L,
+      -2177453143500000L,
+      -43013395848980300L,
+      -2177485200000000L,
+      -2177481695679933L,
+      -2177481944610644L,
+      0L);
+      ColumnVector duration = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        56087020233685111L,
+        1000000L,
+        173001810506226873L,
+        1000000L,
+        1000000L,
+        1000000L,
+        173001810506226873L
+      );
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          -1867571673227304L,
+          -2177453142500000L,
+          129988415000246573L,
+          -2177485199000000L,
+          -2177481694679933L,
+          -2177481943610644L,
+          173001810506226873L);
+        ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  // @Test
+  // void timeAddCSTest() {
+  //   try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+  //         -1262289600000000L,
+  //         -908870400000000L,
+  //         -908869500000000L,
+  //         -888832800000000L,
+  //         -888831900000000L,
+  //         -888825600000000L,
+  //         0L,
+  //         1699542834312000L,
+  //         568008000000000L);
+  //       Scalar duration = Scalar.timestampMicroSecondsFromLong(1800000000L);
+  //       ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+  //         -1262260800000000L,
+  //         -908838000000000L,
+  //         -908837100000000L,
+  //         -888800400000000L,
+  //         -888799500000000L,
+  //         -888796800000000L,
+  //         28800000000L,
+  //         1699571634312000L,
+  //         568036800000000L);
+  //       ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
+  //         ZoneId.of("Asia/Shanghai"))) {
+  //     assertColumnsAreEqual(expected, actual);
+  //   }
+  // }
   
 }

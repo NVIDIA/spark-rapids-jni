@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,6 +134,12 @@ struct time_add_functor {
   {
     if (duration == cudf::duration_us{0}) { return timestamp; }
 
+    auto const duration_value =
+      static_cast<int64_t>(cuda::std::chrono::duration_cast<cudf::duration_us>(duration).count());
+    auto const microseconds_per_day = 86400000000ll;
+    auto const duration_days      = (duration_value / microseconds_per_day) * microseconds_per_day;
+    auto const duration_remainder = duration_value - duration_days;
+
     auto const utc_instants = transitions.child().child(0);
     auto const tz_instants  = transitions.child().child(1);
     auto const utc_offsets  = transitions.child().child(2);
@@ -167,7 +173,8 @@ struct time_add_functor {
       cudf::duration_s{static_cast<int64_t>(to_local_offset)});
 
     // step 2: add the duration to the local timestamp
-    auto const local_timestamp_res = timestamp + to_local_offset_duration + duration;
+    auto const local_timestamp_res =
+      timestamp + to_local_offset_duration + cudf::duration_us{duration_days};
 
     auto const result_epoch_seconds = static_cast<int64_t>(
       cuda::std::chrono::duration_cast<cudf::duration_s>(local_timestamp_res.time_since_epoch())
@@ -217,7 +224,7 @@ struct time_add_functor {
       cudf::duration_s{static_cast<int64_t>(to_utc_offset)});
 
     // step 5: subtract the offset to convert local to utc
-    return local_timestamp_res - to_utc_offset_duration;
+    return local_timestamp_res - to_utc_offset_duration + cudf::duration_us{duration_remainder};
   }
 
   __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
