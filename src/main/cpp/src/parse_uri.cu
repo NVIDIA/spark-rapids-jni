@@ -629,7 +629,11 @@ uri_parts __device__ validate_uri(const char* str,
       // passed as param0, the return would simply be 5.
       if (query_match && query_match->size() > 0) {
         auto const match_idx = row_idx % query_match->size();
-        auto in_match        = query_match->element<string_view>(match_idx);
+        if (query_match->is_null(match_idx)) {
+          ret.valid = 0;
+          return ret;
+        }
+        auto in_match = query_match->element<string_view>(match_idx);
 
         auto const [query, valid] = find_query_part(ret.query, in_match);
         if (!valid) {

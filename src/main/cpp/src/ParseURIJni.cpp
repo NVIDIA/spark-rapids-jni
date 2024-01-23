@@ -88,8 +88,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     auto const query = reinterpret_cast<cudf::column_view const*>(query_column);
-    return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::parse_uri_to_query(*input, *query).release());
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_query(*input, *query).release());
   }
   CATCH_STD(env, 0);
 }
