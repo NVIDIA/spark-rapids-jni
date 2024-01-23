@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
 
 public class CastStringsTest {
@@ -407,6 +408,10 @@ public class CastStringsTest {
     // short TZ ID: BST->Asia/Dhaka, CTT->Asia/Shanghai
     entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 CTT", 1699124695100000L));
     entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 BST", 1699124695100000L + 7200L * 1000000L)); // BST is 2 hours later than CTT
+    // short TZ ID: EST: -05:00; HST: -10:00; MST: -07:00
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 EST", 1699124695100000L + 13L * 3600L * 1000000L)); // EST is 8 + 5  hours later than Asia/Shanghai
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 HST", 1699124695100000L + 18L * 3600L * 1000000L)); // HST is 8 + 10 hours later than Asia/Shanghai
+    entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 MST", 1699124695100000L + 15L * 3600L * 1000000L)); // MST is 8 + 7  hours later than Asia/Shanghai
 
     int validDataSize = entries.size();
 
@@ -425,7 +430,6 @@ public class CastStringsTest {
     entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 -180001", null));
     entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 UTC+18:00:10", null));
     entries.add(new AbstractMap.SimpleEntry<>("2000-01-29 10:20:30 GMT-23:5", null));
-
     List<String> inputs = new ArrayList<>();
     List<Long> expects = new ArrayList<>();
     for (Map.Entry<String, Long> entry : entries) {
@@ -434,9 +438,9 @@ public class CastStringsTest {
     }
 
     // Throw unsupported exception for symbols because Europe/London contains DST rules
-    assertThrows(ai.rapids.cudf.CudfException.class, () -> {
+    assertThrows(IllegalArgumentException.class, () -> {
       try (ColumnVector input = ColumnVector.fromStrings("2000-01-29 1:2:3 Europe/London")) {
-        CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
+        CastStrings.toTimestamp(input, ZoneId.of("UTC"), true);
       }
     });
 

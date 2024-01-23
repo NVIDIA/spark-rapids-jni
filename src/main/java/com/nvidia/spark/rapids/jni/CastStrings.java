@@ -266,6 +266,11 @@ public class CastStrings {
    * allowSpecialExpressions = true, ansiEnabled = false)
    * ts is: ['2023-01-01 00:00:00', '2023-01-01T08:00:00']
    * 
+   * Note: this function will never use the time zones in the strings.
+   * allowTimeZone means whether allow time zone in the timestamp string.
+   * If allowTimeZone is true, the time zones are ignored if has.
+   * if allowTimeZone is false, then this function will throw exception if has any time zone in the strings and it's ANSI mode.
+   * 
    * @param cv                      The input string column to be converted.
    * @param allowTimeZone           whether allow time zone in the timestamp
    *                                string. e.g.:

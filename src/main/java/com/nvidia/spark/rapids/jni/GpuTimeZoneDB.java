@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneRules;
@@ -24,11 +25,13 @@ import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.*;
+import java.util.function.Function;
 
 import ai.rapids.cudf.*;
 
@@ -175,21 +178,29 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
+   * load ZoneId.SHORT_IDS and map to time zone index in transition table.
    */
-  private void loadTimeZoneShortIDs() {
+  private void loadTimeZoneShortIDs(Map<String, Integer> zoneIdToTable) {
     HostColumnVector.DataType type = new HostColumnVector.StructType(false,
     new HostColumnVector.BasicType(false, DType.STRING),
-    new HostColumnVector.BasicType(false, DType.STRING));
+    new HostColumnVector.BasicType(false, DType.INT32));
     ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
+    // copy short IDs
     List<String> idList = new ArrayList<>(ZoneId.SHORT_IDS.keySet());
-    idList.add("Z");
+    // sort short IDs
     Collections.sort(idList);
     for (String id : idList) {
-      if (id.equals("Z")) {
-        data.add(new HostColumnVector.StructData(id, "UTC"));
+      String mapTo = ZoneId.SHORT_IDS.get(id);
+      if (mapTo.startsWith("+") || mapTo.startsWith("-")) {
+        // skip: EST: -05:00; HST: -10:00; MST: -07:00
+        // kernel will handle EST, HST, MST
+        // ZoneId.SHORT_IDS is deprecated, so it will not probably change
       } else {
-        data.add(new HostColumnVector.StructData(id, ZoneId.SHORT_IDS.get(id)));
+        Integer index = zoneIdToTable.get(mapTo);
+        // some short IDs are DST, skip unsupported
+        if (index != null) {
+          data.add(new HostColumnVector.StructData(id, index));
+        }
       }
     }
     shortIDs = HostColumnVector.fromStructs(type, data);
@@ -203,9 +214,6 @@ public class GpuTimeZoneDB {
   private void doLoadData() {
     synchronized (this) {
       try {
-        // load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
-        loadTimeZoneShortIDs();
-        
         Map<String, Integer> zoneIdToTable = new HashMap<>();
         List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
         // Build a timezone ID index for the rendering of timezone IDs which may be included in datetime-like strings.
@@ -218,20 +226,40 @@ public class GpuTimeZoneDB {
         List<String> zondIdList = new ArrayList<>();
         List<String> unsupportedZoneList = new ArrayList<>();
         
-        // sort the IDs
-        String[] availableIDs = TimeZone.getAvailableIDs();
-        Arrays.sort(availableIDs);
-
-        for (String tzId : availableIDs) {
+        // collect zone id and sort
+        List<ZoneId> ids = new ArrayList<>();
+        for (String tzId : TimeZone.getAvailableIDs()) {
           ZoneId zoneId;
           try {
             zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
+            ids.add(zoneId);
           } catch (ZoneRulesException e) {
             // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
             // this use is deprecated due to ambiguity reasons (same abbrevation can be used for 
             // multiple time zones). These are not supported by ZoneId.of(...) directly here.
             continue;
           }
+        }
+        Collections.sort(ids, new Comparator<ZoneId>() {
+          @Override
+          public int compare(ZoneId o1, ZoneId o2) {
+            // sort by `getId`
+            return o1.getId().compareTo(o2.getId());
+          }
+        });
+
+        // A simple approach to transform LocalDateTime to a value which is proportional to
+        // the exact EpochSecond. After caching these values along with EpochSeconds, we
+        // can easily search out which time zone transition rule we should apply according
+        // to LocalDateTime structs. The searching procedure is same as the binary search with
+        // exact EpochSeconds(convert_timestamp_tz_functor), except using "loose instant"
+        // as search index instead of exact EpochSeconds.
+        Function<LocalDateTime, Long> localToLooseEpochSecond = lt ->
+                86400L * (lt.getYear() * 400L + (lt.getMonthValue() - 1) * 31L +
+                        lt.getDayOfMonth() - 1) +
+                        3600L * lt.getHour() + 60L * lt.getMinute() + lt.getSecond();
+
+        for (ZoneId zoneId : ids) {
           ZoneRules zoneRules = zoneId.getRules();
           // Filter by non-repeating rules
           if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
@@ -266,7 +294,8 @@ public class GpuTimeZoneDB {
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds()
+                          t.getOffsetAfter().getTotalSeconds(),
+                          localToLooseEpochSecond.apply(t.getDateTimeAfter()) // this column is for rebase local date time
                       )
                   );
                 } else {
@@ -274,7 +303,8 @@ public class GpuTimeZoneDB {
                       new HostColumnVector.StructData(
                           t.getInstant().getEpochSecond(),
                           t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                          t.getOffsetAfter().getTotalSeconds()
+                          t.getOffsetAfter().getTotalSeconds(),
+                          localToLooseEpochSecond.apply(t.getDateTimeBefore()) // this column is for rebase local date time
                       )
                   );
                 }
@@ -287,6 +317,9 @@ public class GpuTimeZoneDB {
           }
         }
         zoneIdToTableFuture.complete(zoneIdToTable);
+
+        // load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
+        loadTimeZoneShortIDs(zoneIdToTable);
 
         HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
             new HostColumnVector.BasicType(false, DType.INT64),
@@ -331,6 +364,10 @@ public class GpuTimeZoneDB {
     }
   }
 
+  /**
+   * get map from time zone to time zone index in transition table. 
+   * @return map from time zone to time zone index in transition table. 
+   */
   public Map<String, Integer> getZoneIDMap() {
     try {
       return zoneIdToTableFuture.get(TIMEOUT_SECS, TimeUnit.SECONDS);
