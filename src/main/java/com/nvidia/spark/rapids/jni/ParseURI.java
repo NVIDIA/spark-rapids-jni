@@ -72,8 +72,22 @@ public class ParseURI {
     return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query));
   }
 
-  private static native long parseProtocol(long jsonColumnHandle);
-  private static native long parseHost(long jsonColumnHandle);
-  private static native long parseQuery(long jsonColumnHandle);
-  private static native long parseQueryWithLiteral(long jsonColumnHandle, String query);
+    /**
+   * Parse query and return a specific parameter for each URI from the incoming column.
+   *
+   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param String The parameter to extract from the query
+   * @return A string column with query data extracted.
+   */
+  public static ColumnVector parseURIQueryWithColumn(ColumnView uriColumn, ColumnView queryColumn) {
+    assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
+    assert queryColumn.getType().equals(DType.STRING) : "Query type must be String";
+    return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView()));
+  }
+
+  private static native long parseProtocol(long inputColumnHandle);
+  private static native long parseHost(long inputColumnHandle);
+  private static native long parseQuery(long inputColumnHandle);
+  private static native long parseQueryWithLiteral(long inputColumnHandle, String query);
+  private static native long parseQueryWithColumn(long inputColumnHandle, long queryColumnHandle);
 }

@@ -395,4 +395,12 @@ TEST_F(ParseURIQueryTests, Queries)
 
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
   }
+  {
+    cudf::test::strings_column_wrapper const query({"param0", "q", "a", "invalid", "test", "query", "fakeparam0", "C"});
+    cudf::test::strings_column_wrapper const expected({"1", "", "b", "param", "", "1", "5", "C"}, {1, 0, 1, 1, 0, 1, 1, 1});
+
+    auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, cudf::strings_column_view{query});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+  }
 }
