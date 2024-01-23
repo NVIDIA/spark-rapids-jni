@@ -287,7 +287,7 @@ public class TimeZoneTest {
           -43013394048980300L,
           -2177483400000000L,
           -2177479895679933L,
-          -2177481934610644L,
+          -2177480144610644L,
           1800000000L);
         ColumnVector actual = GpuTimeZoneDB.timeAdd(input, duration,
           ZoneId.of("Asia/Shanghai"))) {

@@ -205,7 +205,7 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
-    warnUnsupportedTimeZone(currentTimeZone);
+    assertTimeZoneSupported(currentTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -215,7 +215,7 @@ public class GpuTimeZoneDB {
   }
   
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
-    warnUnsupportedTimeZone(desiredTimeZone);
+    assertTimeZoneSupported(desiredTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -225,7 +225,7 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector timeAdd(ColumnVector input, Scalar duration, ZoneId currentTimeZone) {
-    warnUnsupportedTimeZone(currentTimeZone);
+    assertTimeZoneSupported(currentTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -235,7 +235,7 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector timeAdd(ColumnVector input, ColumnView duration, ZoneId currentTimeZone) {
-    warnUnsupportedTimeZone(currentTimeZone);
+    assertTimeZoneSupported(currentTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -244,7 +244,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static void warnUnsupportedTimeZone(ZoneId zoneId) {
+  private static void assertTimeZoneSupported(ZoneId zoneId) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
     if (!isSupportedTimeZone(zoneId)) {

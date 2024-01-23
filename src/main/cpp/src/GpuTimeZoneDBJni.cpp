@@ -60,12 +60,15 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_timeAddCS(JNIEnv* env,
                                                          jint tz_index)
 {
   JNI_NULL_CHECK(env, input_handle, "column is null", 0);
+  JNI_NULL_CHECK(env, duration_handle, "column is null", 0);
   JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
-    auto const duration =
-      reinterpret_cast<cudf::duration_scalar<cudf::duration_us> const*>(duration_handle);
+    // auto const duration = reinterpret_cast<cudf::duration_scalar<cudf::duration_us>
+    // const*>(duration_handle);
+    auto const duration = dynamic_cast<cudf::duration_scalar<cudf::duration_us> const*>(
+      reinterpret_cast<cudf::scalar*>(duration_handle));
     auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
     auto const index       = static_cast<cudf::size_type>(tz_index);
     return cudf::jni::ptr_as_jlong(
