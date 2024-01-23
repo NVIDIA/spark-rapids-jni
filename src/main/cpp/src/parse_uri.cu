@@ -494,17 +494,18 @@ bool __device__ validate_fragment(string_view fragment)
 
 __device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
 {
-  auto const n_bytes       = needle.size_bytes();
-  auto const find_length = haystack.size_bytes() - bytes + 1;
+  auto const n_bytes     = needle.size_bytes();
+  auto const find_length = haystack.size_bytes() - n_bytes + 1;
 
   auto h           = haystack.data();
   auto const end_h = haystack.data() + find_length;
   auto n           = needle.data();
   while (h < end_h) {
     bool match = true;
-    for (size_type jdx = 0; match && (jdx < bytes); ++jdx) {
+    for (size_type jdx = 0; match && (jdx < n_bytes); ++jdx) {
       match = (h[jdx] == n[jdx]);
     }
+    if (match) { match = n_bytes < haystack.size_bytes() && h[n_bytes] == '='; }
     if (match) {
       // we don't care about the matched part, we want the string data after that.
       h += n_bytes;
@@ -622,7 +623,10 @@ uri_parts __device__ validate_uri(const char* str,
         return ret;
       }
 
-      // maybe limit the query data
+      // Maybe limit the query data if a literal or a column is passed as a filter. This alters the
+      // return from the entire query to just a specific parameter. For example, query for the URI
+      // http://www.nvidia.com/page?param0=5&param1=2 is param0=5&param1=2, but if the literal is
+      // passed as param0, the return would simply be 5.
       if (query_match && query_match->size() > 0) {
         auto const match_idx = row_idx % query_match->size();
         auto in_match        = query_match->element<string_view>(match_idx);
@@ -983,14 +987,8 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
   CUDF_FUNC_RANGE();
 
   // build string_column_view from incoming query_match string
-  auto d_scalar        = make_string_scalar(query_match, stream);
-  auto d_string_scalar = static_cast<cudf::string_scalar*>(d_scalar.release());
-  auto x = thrust::pair<char const*, size_type>{d_string_scalar->data(), d_string_scalar->size()};
-  auto y = std::vector{x};
-  auto z = host_span<thrust::pair<char const*, size_type>>(y);
-  auto d_vector = cudf::detail::make_device_uvector_async<thrust::pair<char const*, size_type>>(
-    z, stream, rmm::mr::get_current_device_resource());
-  auto col = make_strings_column(d_vector, stream, rmm::mr::get_current_device_resource());
+  auto d_scalar = make_string_scalar(query_match, stream);
+  auto col      = make_column_from_scalar(*d_scalar, 1);
 
   return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
 }
