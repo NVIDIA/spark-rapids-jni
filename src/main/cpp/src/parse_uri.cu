@@ -19,6 +19,7 @@
 #include <cudf/detail/get_value.cuh>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
@@ -33,6 +34,7 @@
 #include <cuda/functional>
 
 #include <memory>
+#include <optional>
 
 namespace spark_rapids_jni {
 
@@ -490,7 +492,55 @@ bool __device__ validate_fragment(string_view fragment)
     }));
 }
 
-uri_parts __device__ validate_uri(const char* str, int len)
+__device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
+{
+  auto const n_bytes     = needle.size_bytes();
+  auto const find_length = haystack.size_bytes() - n_bytes + 1;
+
+  auto h           = haystack.data();
+  auto const end_h = haystack.data() + find_length;
+  auto n           = needle.data();
+  while (h < end_h) {
+    bool match = true;
+    for (size_type jdx = 0; match && (jdx < n_bytes); ++jdx) {
+      match = (h[jdx] == n[jdx]);
+    }
+    if (match) { match = n_bytes < haystack.size_bytes() && h[n_bytes] == '='; }
+    if (match) {
+      // we don't care about the matched part, we want the string data after that.
+      h += n_bytes;
+      break;
+    } else {
+      // skip to the next param, which is after a &.
+      while (h < end_h && *h != '&') {
+        h++;
+      }
+    }
+    h++;
+  }
+
+  // if h is past the end of the haystack, no match.
+  if (haystack.data() + haystack.size_bytes() <= h || *h != '=') { return {{}, false}; }
+
+  // skip over the =
+  h++;
+
+  // rest of string until end or until '&' is query match
+  auto const bytes_left = haystack.size_bytes() - (h - haystack.data());
+  int match_len         = 0;
+  auto start            = h;
+  while (*h != '&' && match_len < bytes_left) {
+    ++match_len;
+    ++h;
+  }
+
+  return {{start, match_len}, true};
+}
+
+uri_parts __device__ validate_uri(const char* str,
+                                  int len,
+                                  thrust::optional<column_device_view const> query_match,
+                                  size_type row_idx)
 {
   uri_parts ret;
 
@@ -572,6 +622,23 @@ uri_parts __device__ validate_uri(const char* str, int len)
         ret.valid = 0;
         return ret;
       }
+
+      // Maybe limit the query data if a literal or a column is passed as a filter. This alters the
+      // return from the entire query to just a specific parameter. For example, query for the URI
+      // http://www.nvidia.com/page?param0=5&param1=2 is param0=5&param1=2, but if the literal is
+      // passed as param0, the return would simply be 5.
+      if (query_match && query_match->size() > 0) {
+        auto const match_idx = row_idx % query_match->size();
+        auto in_match        = query_match->element<string_view>(match_idx);
+
+        auto const [query, valid] = find_query_part(ret.query, in_match);
+        if (!valid) {
+          ret.valid = 0;
+          return ret;
+        }
+        ret.query = query;
+      }
+
       ret.valid |= (1 << static_cast<int>(URI_chunks::QUERY));
     }
     auto const path_len = question >= 0 ? question : len;
@@ -710,7 +777,8 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
                                        char const* const base_ptr,
                                        size_type* const out_lengths,
                                        size_type* const out_offsets,
-                                       bitmask_type* out_validity)
+                                       bitmask_type* out_validity,
+                                       thrust::optional<column_device_view const> query_match)
 {
   // thread per row
   auto const tid = cudf::detail::grid_1d::global_thread_id();
@@ -727,7 +795,7 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
     auto const in_chars      = in_string.data();
     auto const string_length = in_string.size_bytes();
 
-    auto const uri = validate_uri(in_chars, string_length);
+    auto const uri = validate_uri(in_chars, string_length, query_match, row_idx);
     if ((uri.valid & (1 << static_cast<int>(chunk))) == 0) {
       out_lengths[row_idx] = 0;
       clear_bit(out_validity, row_idx);
@@ -809,6 +877,7 @@ __global__ void parse_uri(column_device_view const in_strings,
 
 std::unique_ptr<column> parse_uri(strings_column_view const& input,
                                   URI_chunks chunk,
+                                  std::optional<strings_column_view const> query_match,
                                   rmm::cuda_stream_view stream,
                                   rmm::mr::device_memory_resource* mr)
 {
@@ -822,6 +891,9 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
 
   auto offset_count    = strings_count + 1;
   auto const d_strings = column_device_view::create(input.parent(), stream);
+  auto const d_matches =
+    query_match ? column_device_view::create(query_match->parent(), stream)
+                : std::unique_ptr<column_device_view, std::function<void(column_device_view*)>>{};
 
   // build offsets column
   auto offsets_column = make_numeric_column(
@@ -845,7 +917,8 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
     input.chars_begin(stream),
     offsets_mutable_view.begin<size_type>(),
     reinterpret_cast<size_type*>(src_offsets.data()),
-    reinterpret_cast<bitmask_type*>(null_mask.data()));
+    reinterpret_cast<bitmask_type*>(null_mask.data()),
+    d_matches ? thrust::optional<column_device_view const>{*d_matches} : thrust::nullopt);
 
   // use scan to transform number of bytes into offsets
   thrust::exclusive_scan(rmm::exec_policy(stream),
@@ -887,7 +960,7 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, stream, mr);
+  return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, std::nullopt, stream, mr);
 }
 
 std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
@@ -895,7 +968,7 @@ std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
                                           rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::parse_uri(input, detail::URI_chunks::HOST, stream, mr);
+  return detail::parse_uri(input, detail::URI_chunks::HOST, std::nullopt, stream, mr);
 }
 
 std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
@@ -903,8 +976,21 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::parse_uri(
-    input, detail::URI_chunks::QUERY, stream, rmm::mr::get_current_device_resource());
+  return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
+}
+
+std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
+                                                 std::string const& query_match,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+
+  // build string_column_view from incoming query_match string
+  auto d_scalar = make_string_scalar(query_match, stream);
+  auto col      = make_column_from_scalar(*d_scalar, 1);
+
+  return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
