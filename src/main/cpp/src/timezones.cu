@@ -380,7 +380,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(column_view const& inp
 }
 
 std::unique_ptr<column> time_add(column_view const& input,
-                                 cudf::duration_scalar<cudf::duration_us> const& duration,
+                                 cudf::scalar const& duration,
                                  table_view const& transitions,
                                  size_type tz_index,
                                  rmm::cuda_stream_view stream,
@@ -389,7 +389,12 @@ std::unique_ptr<column> time_add(column_view const& input,
   if (input.type().id() != cudf::type_id::TIMESTAMP_MICROSECONDS) {
     CUDF_FAIL("Unsupported timestamp unit for time add with timezone");
   }
-  return time_add_with_tz(input, duration, transitions, tz_index, stream, mr);
+  if (duration.type().id() != cudf::type_id::DURATION_MICROSECONDS) {
+    CUDF_FAIL("Unsupported duration unit for time add with timezone");
+  }
+  auto const duration_scalar =
+    dynamic_cast<cudf::duration_scalar<cudf::duration_us> const&>(duration);
+  return time_add_with_tz(input, duration_scalar, transitions, tz_index, stream, mr);
 }
 
 std::unique_ptr<column> time_add(column_view const& input,
