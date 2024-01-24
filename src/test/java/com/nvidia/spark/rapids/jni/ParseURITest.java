@@ -215,7 +215,7 @@ public class ParseURITest {
       "userinfo@www.nvidia.com/path?query=1#Ref",
       "",
       null};
-
+  
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);

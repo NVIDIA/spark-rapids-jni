@@ -629,11 +629,15 @@ uri_parts __device__ validate_uri(const char* str,
       // passed as param0, the return would simply be 5.
       if (query_match && query_match->size() > 0) {
         auto const match_idx = row_idx % query_match->size();
+<<<<<<< HEAD
         if (query_match->is_null(match_idx)) {
           ret.valid = 0;
           return ret;
         }
         auto in_match = query_match->element<string_view>(match_idx);
+=======
+        auto in_match = query_match->element<string_view>(match_idx);
+>>>>>>> upstream/branch-24.02
 
         auto const [query, valid] = find_query_part(ret.query, in_match);
         if (!valid) {
@@ -1005,6 +1009,20 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
   CUDF_FUNC_RANGE();
 
   return detail::parse_uri(input, detail::URI_chunks::QUERY, query_match, stream, mr);
+}
+
+std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
+                                                 std::string const& query_match,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+
+  // build string_column_view from incoming query_match string
+  auto d_scalar = make_string_scalar(query_match, stream);
+  auto col      = make_column_from_scalar(*d_scalar, 1);
+
+  return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
