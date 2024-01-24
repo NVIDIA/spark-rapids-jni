@@ -89,7 +89,7 @@ struct dispatch_format_float_fn {
 
     return cudf::make_strings_column(strings_count,
                                      std::move(offsets),
-                                     std::move(chars),
+                                     std::move(chars->release().data.release()[0]),
                                      floats.null_count(),
                                      cudf::detail::copy_bitmask(floats, stream, mr));
   }
