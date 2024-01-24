@@ -1003,6 +1003,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
+  CUDF_EXPECTS(input.size() == query_match.size(), "Query column must be the same size as input!");
 
   return detail::parse_uri(input, detail::URI_chunks::QUERY, query_match, stream, mr);
 }
