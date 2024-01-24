@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -679,7 +679,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
         out->mutable_view().null_mask(),
         ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
         static_cast<ScalarType*>(valid_count.get())->data(),
-        string_col.chars().begin<char>(),
+        string_col.chars_begin(stream),
         string_col.offsets().begin<size_type>(),
         string_col.null_mask(),
         num_rows);
@@ -690,7 +690,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
         out->mutable_view().null_mask(),
         ansi_mode ? static_cast<ScalarType*>(ansi_count.get())->data() : nullptr,
         static_cast<ScalarType*>(valid_count.get())->data(),
-        string_col.chars().begin<char>(),
+        string_col.chars_begin(stream),
         string_col.offsets().begin<size_type>(),
         string_col.null_mask(),
         num_rows);
@@ -714,7 +714,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
       dest.resize(string_bounds[1] - string_bounds[0]);
 
       cudaMemcpyAsync(dest.data(),
-                      &string_col.chars().data<char const>()[string_bounds[0]],
+                      &string_col.chars_begin(stream)[string_bounds[0]],
                       string_bounds[1] - string_bounds[0],
                       cudaMemcpyDeviceToHost,
                       stream.value());

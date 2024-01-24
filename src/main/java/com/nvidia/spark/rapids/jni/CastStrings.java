@@ -214,10 +214,7 @@ public class CastStrings {
     }
 
     GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
-    if (!singleton.isLoaded()) {
-      GpuTimeZoneDB.cacheDatabase();
-    }
-
+    GpuTimeZoneDB.cacheDatabase();
     Integer tzIndex = singleton.getZoneIDMap().get(defaultTimeZone.normalized().toString());
 
     try (Table transitions = singleton.getTransitions();
@@ -282,10 +279,7 @@ public class CastStrings {
    *
    */
   public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone, boolean ansiEnabled) {
-    GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
-    if (!singleton.isLoaded()) {
-      GpuTimeZoneDB.cacheDatabase();
-    }
+    GpuTimeZoneDB.cacheDatabase();
     return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,  ansiEnabled));
   }
 
