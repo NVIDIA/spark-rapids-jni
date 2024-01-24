@@ -90,6 +90,40 @@ public class ParseURITest {
     }
   }
 
+  void testQuery(String[] testData, String param) {
+    String[] expectedQueryStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String query = null;
+      try {
+        URI uri = new URI(testData[i]);
+        query = uri.getRawQuery();
+      } catch (URISyntaxException ex) {
+        // leave the query null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the query null if URI is null
+      }
+
+      String subquery = null;
+
+      if (query != null) {
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+          int idx = pair.indexOf("=");
+          if (idx > 0 && pair.substring(0, idx).equals(param)) {
+            subquery = pair.substring(idx + 1);
+            break;
+          }
+        }
+      }
+      expectedQueryStrings[i] = subquery;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
+      ColumnVector queryResult = ParseURI.parseURIQueryWithLiteral(v0, param)) {
+      AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
+    }
+  }
+
   @Test
   void parseURISparkTest() {
     String[] testData = {
@@ -150,6 +184,7 @@ public class ParseURITest {
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);
+    testQuery(testData, "query");
   }
 
   @Test
@@ -163,6 +198,7 @@ public class ParseURITest {
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);
+    testQuery(testData, "query");
   }
 
   @Test
@@ -178,6 +214,7 @@ public class ParseURITest {
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);
+    testQuery(testData, "query");
   }
 
   @Test
@@ -206,5 +243,6 @@ public class ParseURITest {
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);
+    testQuery(testData, "query");
   }
 }

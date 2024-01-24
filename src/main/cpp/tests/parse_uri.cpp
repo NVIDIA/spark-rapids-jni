@@ -127,14 +127,15 @@ cudf::test::strings_column_wrapper get_test_data(test_types t)
         "https:// /path/to/file",
       });
     case test_types::QUERY:
-      return cudf::test::strings_column_wrapper({
-        "https://www.nvidia.com/path?param0=1&param2=3&param4=5",
-        "https:// /?params=5&cloth=0&metal=1",
-        "https://[2001:db8::2:1]:443/parms/in/the/uri?a=b",
-        "https://[::1]/?invalid=param&f„⁈.=7",
-        "https://[::1]/?invalid=param&~.=!@&^",
-        "userinfo@www.nvidia.com/path?query=1#Ref",
-      });
+      return cudf::test::strings_column_wrapper(
+        {"https://www.nvidia.com/path?param0=1&param2=3&param4=5",
+         "https:// /?params=5&cloth=0&metal=1&param0=param3",
+         "https://[2001:db8::2:1]:443/parms/in/the/uri?a=b&param0=true",
+         "https://[::1]/?invalid=param&f„⁈.=7&param0=3",
+         "https://[::1]/?invalid=param&param0=f„⁈&~.=!@&^",
+         "userinfo@www.nvidia.com/path?query=1&param0=5#Ref",
+         "https://www.nvidia.com/path?brokenparam0=1&fakeparam0=5&param0=true",
+         "http://nvidia.com?CBA=CBA&C=C"});
     default: CUDF_FAIL("Test type unsupported!"); return cudf::test::strings_column_wrapper();
   }
 }
@@ -362,12 +363,36 @@ TEST_F(ParseURIQueryTests, SparkEdges)
 
 TEST_F(ParseURIQueryTests, Queries)
 {
-  auto const col    = get_test_data(test_types::QUERY);
-  auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col});
+  auto const col = get_test_data(test_types::QUERY);
 
-  cudf::test::strings_column_wrapper const expected(
-    {"param0=1&param2=3&param4=5", "", "a=b", "invalid=param&f„⁈.=7", "", "query=1"},
-    {1, 0, 1, 1, 0, 1});
+  {
+    auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+    cudf::test::strings_column_wrapper const expected({"param0=1&param2=3&param4=5",
+                                                       "",
+                                                       "a=b&param0=true",
+                                                       "invalid=param&f„⁈.=7&param0=3",
+                                                       "",
+                                                       "query=1&param0=5",
+                                                       "brokenparam0=1&fakeparam0=5&param0=true",
+                                                       "CBA=CBA&C=C"},
+                                                      {1, 0, 1, 1, 0, 1, 1, 1});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+  }
+  {
+    auto const result =
+      spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, "param0");
+    cudf::test::strings_column_wrapper const expected({"1", "", "true", "3", "", "5", "true", ""},
+                                                      {1, 0, 1, 1, 0, 1, 1, 0});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+  }
+  {
+    auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, "C");
+    cudf::test::strings_column_wrapper const expected({"", "", "", "", "", "", "", "C"},
+                                                      {0, 0, 0, 0, 0, 0, 0, 1});
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+  }
 }
