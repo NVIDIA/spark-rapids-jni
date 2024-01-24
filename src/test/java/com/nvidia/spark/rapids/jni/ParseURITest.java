@@ -216,10 +216,67 @@ public class ParseURITest {
       "",
       null};
   
+
+      String[] queries = {
+        "a",
+        "h",
+        // commented out until https://github.com/NVIDIA/spark-rapids/issues/10036 is fixed
+        //"object",
+        "object",
+        "a",
+        "h",
+        "a",
+        "f",
+        "g",
+        "a",
+        "a",
+        "f",
+        "g",
+        "a",
+        "a",
+        "b",
+        "a",
+        "",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "a",
+        "q",
+        "b",
+        "a",
+        "query",
+        "a",
+        "primekey_in",
+        "a",
+        "q",
+        "ExpertId",
+        "query",
+        "solutionId",
+        "f",
+        "param",
+        "",
+        "q",
+        "a",
+        "f",
+        "mnid=5080",
+        "f",
+        "a",
+        "param4",
+        "cloth",
+        "a",
+        "invalid",
+        "invalid",
+        "query",
+        "a",
+        "f"};
+
     testProtocol(testData);
     testHost(testData);
     testQuery(testData);
     testQuery(testData, "query");
+    testQuery(testData, queries);
   }
 
   @Test
