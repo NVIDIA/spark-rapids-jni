@@ -185,8 +185,8 @@ public class CastStrings {
    * Note:
    * - Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
    * Spark31x supports cast special strings while Spark320+ do not supports
-   * - Do not support DST time zones, throw ai.rapids.cudf.CudfException
-   *   if contains DST time zones.
+   * - Do not support DST time zones, return null in non-ANSI mode.
+   * TODO: DST support.
    *
    * Example:
    * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
@@ -206,7 +206,6 @@ public class CastStrings {
    * @return a timestamp column
    * @throws IllegalArgumentException if any string in cv has invalid format or the time zone is
    *                                  non-existed/wrong when ansiEnabled is true
-   * @throws CudfException            if time zone is a DST time zone
    */
   public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
     if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {

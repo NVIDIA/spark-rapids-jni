@@ -45,8 +45,7 @@ public class GpuTimeZoneDB {
   private CompletableFuture<Map<String, Integer>> zoneIdToTableFuture;
   private CompletableFuture<HostColumnVector> fixedTransitionsFuture;
   private CompletableFuture<HostColumnVector> zoneIdVectorFuture;
-  // Used to store Java ZoneId.SHORT_IDS Map, e.g.: PST:America/Los_Angeles
-  // Note: also add a entry: Z->UTC
+  // Used to store Java ZoneId.SHORT_IDS Map: PST -> index of America/Los_Angeles in transition table.
   private HostColumnVector shortIDs;
 
   private boolean closed = false;
@@ -179,6 +178,7 @@ public class GpuTimeZoneDB {
 
   /**
    * load ZoneId.SHORT_IDS and map to time zone index in transition table.
+   * Note: ignored EST: -05:00; HST: -10:00; MST: -07:00
    */
   private void loadTimeZoneShortIDs(Map<String, Integer> zoneIdToTable) {
     HostColumnVector.DataType type = new HostColumnVector.StructType(false,
@@ -190,6 +190,7 @@ public class GpuTimeZoneDB {
     // sort short IDs
     Collections.sort(idList);
     for (String id : idList) {
+      assert(id.length() == 3); // short ID lenght is always 3
       String mapTo = ZoneId.SHORT_IDS.get(id);
       if (mapTo.startsWith("+") || mapTo.startsWith("-")) {
         // skip: EST: -05:00; HST: -10:00; MST: -07:00
@@ -200,6 +201,8 @@ public class GpuTimeZoneDB {
         // some short IDs are DST, skip unsupported
         if (index != null) {
           data.add(new HostColumnVector.StructData(id, index));
+        } else {
+          // TODO: index should not be null after DST is supported.
         }
       }
     }
@@ -231,7 +234,7 @@ public class GpuTimeZoneDB {
         for (String tzId : TimeZone.getAvailableIDs()) {
           ZoneId zoneId;
           try {
-            zoneId = ZoneId.of(tzId).normalized(); // we use the normalized form to dedupe
+            zoneId = ZoneId.of(tzId, ZoneId.SHORT_IDS).normalized(); // we use the normalized form to dedupe
             ids.add(zoneId);
           } catch (ZoneRulesException e) {
             // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
@@ -318,7 +321,7 @@ public class GpuTimeZoneDB {
         }
         zoneIdToTableFuture.complete(zoneIdToTable);
 
-        // load ZoneId.SHORT_IDS and append Z->UTC, then sort the IDs.
+        // load ZoneId.SHORT_IDS
         loadTimeZoneShortIDs(zoneIdToTable);
 
         HostColumnVector.DataType childType = new HostColumnVector.StructType(false,

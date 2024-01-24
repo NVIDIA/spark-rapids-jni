@@ -176,21 +176,23 @@ struct parse_timestamp_string_fn {
     } else {
       auto tz_view = string_view(tz_lit_ptr, tz_lit_len);
 
-      // map tz short IDs to time zone index in transitions.
+      // try to map tz short IDs to time zone index in transitions.
       // Here only handle regional base tz map: short ID->regional based tz
       // Note: here do not handle special short IDs: EST: -05:00; HST: -10:00; MST: -07:00
-      auto const short_tz_id_col = tz_short_ids->child(0);
-      auto const map_to_tz_col   = tz_short_ids->child(1);
-      auto string_iter_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0),
-                                                               get_string_fn{short_tz_id_col});
-      auto string_iter_end   = string_iter_begin + short_tz_id_col.size();
-      auto it                = thrust::lower_bound(
-        thrust::seq, string_iter_begin, string_iter_end, tz_view, thrust::less<string_view>());
       int tz_index_for_short_tz = -1;
-      if (it != string_iter_end && *it == tz_view) {
-        // found a map, get the time zone index
-        auto short_id_index   = static_cast<size_type>(it - string_iter_begin);
-        tz_index_for_short_tz = static_cast<int>(map_to_tz_col.element<int32_t>(short_id_index));
+      if (tz_view.length() == 3) {  // short ID length is always 3
+        auto const short_tz_id_col = tz_short_ids->child(0);
+        auto const map_to_tz_col   = tz_short_ids->child(1);
+        auto string_iter_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0),
+                                                                 get_string_fn{short_tz_id_col});
+        auto string_iter_end   = string_iter_begin + short_tz_id_col.size();
+        auto it                = thrust::lower_bound(
+          thrust::seq, string_iter_begin, string_iter_end, tz_view, thrust::less<string_view>());
+        if (it != string_iter_end && *it == tz_view) {
+          // found a map, get the time zone index
+          auto short_id_index   = static_cast<size_type>(it - string_iter_begin);
+          tz_index_for_short_tz = static_cast<int>(map_to_tz_col.element<int32_t>(short_id_index));
+        }
       }
 
       if (tz_index_for_short_tz >= 0) {
