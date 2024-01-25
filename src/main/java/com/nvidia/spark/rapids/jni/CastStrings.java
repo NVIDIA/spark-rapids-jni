@@ -213,13 +213,10 @@ public class CastStrings {
               defaultTimeZone.toString()));
     }
 
-    GpuTimeZoneDB singleton = GpuTimeZoneDB.getInstance();
-    GpuTimeZoneDB.cacheDatabase();
-    Integer tzIndex = singleton.getZoneIDMap().get(defaultTimeZone.normalized().toString());
-
-    try (Table transitions = singleton.getTransitions();
-         ColumnVector tzIndices = singleton.getZoneIDVector();
-         ColumnVector tzShortIDs = singleton.getTimeZoneShortIDs()) {
+    Integer tzIndex = GpuTimeZoneDB.getZoneIDMap().get(defaultTimeZone.normalized().toString());
+    try (Table transitions = GpuTimeZoneDB.getTransitions();
+         ColumnVector tzIndices = GpuTimeZoneDB.getZoneIDVector();
+         ColumnVector tzShortIDs = GpuTimeZoneDB.getTimeZoneShortIDs()) {
       return new ColumnVector(toTimestamp(cv.getNativeView(), transitions.getNativeView(),
               tzIndices.getNativeView(), tzIndex, ansiEnabled, tzShortIDs.getNativeView()));
     }
@@ -279,7 +276,6 @@ public class CastStrings {
    *
    */
   public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone, boolean ansiEnabled) {
-    GpuTimeZoneDB.cacheDatabase();
     return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,  ansiEnabled));
   }
 

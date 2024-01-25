@@ -64,7 +64,13 @@ namespace {
  * Represents local date time in a time zone.
  */
 struct timestamp_components {
-  int32_t year;  // max 6 digits
+  /**
+   * year: Max 6 digits.
+   * Spark stores timestamp into Long in microseconds.
+   * A Long is able to represent a timestamp within [+-]200 thousand years.
+   * Calculated from: Long.MaxValue/MinValue / microseconds_per_year
+  */
+  int32_t year;
   int8_t month;
   int8_t day;
   int8_t hour;

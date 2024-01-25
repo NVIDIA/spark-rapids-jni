@@ -444,32 +444,36 @@ public class GpuTimeZoneDB {
    * get map from time zone to time zone index in transition table. 
    * @return map from time zone to time zone index in transition table. 
    */
-  public Map<String, Integer> getZoneIDMap() {
-    return zoneIdToTable;
+  public static Map<String, Integer> getZoneIDMap() {
+    cacheDatabase();
+    return instance.zoneIdToTable;
   }
 
   /**
    * Get a map from short ID to time zone index in transitions for the short ID mapped time zone
    * @return
    */
-  public ColumnVector getTimeZoneShortIDs() {
-    return shortIDs.copyToDevice();
+  public static ColumnVector getTimeZoneShortIDs() {
+    cacheDatabase();
+    return instance.shortIDs.copyToDevice();
   }
 
   /**
    * Get a time zone list which is corresponding to the transitions
    * @return
    */
-  public ColumnVector getZoneIDVector() {
-    return zoneIdVector.copyToDevice();
+  public static ColumnVector getZoneIDVector() {
+    cacheDatabase();
+    return instance.zoneIdVector.copyToDevice();
   }
 
   /**
    * Transition table
    * @return
    */
-  public Table getTransitions() {
-    try (ColumnVector fixedTransitions = getFixedTransitions()) {
+  public static Table getTransitions() {
+    cacheDatabase();
+    try (ColumnVector fixedTransitions = instance.getFixedTransitions()) {
       return new Table(fixedTransitions);
     }
   }
