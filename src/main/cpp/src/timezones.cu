@@ -170,9 +170,12 @@ struct time_add_functor {
     auto const temp_offset = transition_offsets[local_idx];
 
     // We don't want to check this if the idx is the last because they are just endpoints
+    bool in_overlap = false;
     if (transition_times_utc[local_idx] != std::numeric_limits<int64_t>::max() &&
         transition_times_utc[local_idx] + temp_offset <= result_epoch_seconds) {
       local_idx += 1;
+      // This if only happens when the result is in the overlap
+      in_overlap = true;
     }
     auto to_utc_offset           = transition_offsets[local_idx - 1];
     auto const upper_bound_epoch = transition_times_tz[local_idx - 1];
@@ -183,12 +186,10 @@ struct time_add_functor {
     bool const is_gap       = (upper_bound_utc + to_utc_offset == upper_bound_epoch);
     if (!is_gap && upper_bound_utc != std::numeric_limits<int64_t>::min() &&
         upper_bound_utc != std::numeric_limits<int64_t>::max()) {  // overlap
-      // The overlap range is [utcInstant + offsetBefore, utcInstant + offsetAfter]
-      auto const overlap_before = static_cast<int64_t>(upper_bound_utc + to_utc_offset);
-      if (result_epoch_seconds >= overlap_before && result_epoch_seconds <= upper_bound_epoch) {
-        // By default, to_utc_offset is the offsetAfter, so if the to_local_offset is valid and
-        // need to replace the to_utc_offset, it only happens when it is early_offset
-        if (early_offset == prefered_offset) { to_utc_offset = early_offset; }
+      if (in_overlap) {
+        // By default, to_utc_offset is the offsetAfter, so unless to_utc_offset is equal to
+        // early_offset, we need to use the original offsetBefore as the default offset.
+        if (to_utc_offset != prefered_offset) { to_utc_offset = early_offset; }
       }
     }
 
