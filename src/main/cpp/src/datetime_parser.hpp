@@ -72,13 +72,11 @@ namespace spark_rapids_jni {
  * @returns the pointer of the timestamp result column, which points to nullptr
  * if there exists invalid inputs and ANSI mode is on.
  */
-std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& transitions,
-  cudf::strings_column_view const& tz_indices,
-  cudf::size_type default_tz_index,
-  bool ansi_mode,
-  cudf::column_view const& tz_short_ids);
+std::unique_ptr<cudf::column> string_to_timestamp_with_tz(cudf::strings_column_view const& input,
+                                                          cudf::column_view const& transitions,
+                                                          cudf::column_view const& tz_indices,
+                                                          cudf::size_type default_tz_index,
+                                                          bool ansi_mode);
 
 /**
  *

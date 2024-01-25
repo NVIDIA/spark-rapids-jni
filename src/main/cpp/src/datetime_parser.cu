@@ -140,8 +140,7 @@ struct parse_timestamp_string_fn {
   // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32,
   // looseTzInstant: int64>>.
   thrust::optional<lists_column_device_view const> transitions = thrust::nullopt;
-  thrust::optional<column_device_view const> sorted_tz_names   = thrust::nullopt;
-  thrust::optional<column_device_view const> tz_short_ids      = thrust::nullopt;
+  thrust::optional<column_device_view const> tz_indices        = thrust::nullopt;
 
   __device__ thrust::tuple<cudf::timestamp_us, uint8_t> operator()(const cudf::size_type& idx) const
   {
@@ -181,50 +180,23 @@ struct parse_timestamp_string_fn {
       utc_offset = compute_utc_offset(compute_loose_epoch_s(ts_comp), default_tz_index);
     } else {
       auto tz_view = string_view(tz_lit_ptr, tz_lit_len);
-
-      // try to map tz short IDs to time zone index in transitions.
-      // Here only handle regional base tz map: short ID->regional based tz
-      // Note: here do not handle special short IDs: EST: -05:00; HST: -10:00; MST: -07:00
-      int tz_index_for_short_tz = -1;
-      if (tz_view.length() == 3) {  // short ID length is always 3
-        auto const short_tz_id_col = tz_short_ids->child(0);
-        auto const map_to_tz_col   = tz_short_ids->child(1);
-        auto string_iter_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0),
-                                                                 get_string_fn{short_tz_id_col});
-        auto string_iter_end   = string_iter_begin + short_tz_id_col.size();
-        auto it                = thrust::lower_bound(
-          thrust::seq, string_iter_begin, string_iter_end, tz_view, thrust::less<string_view>());
-        if (it != string_iter_end && *it == tz_view) {
-          // found a map, get the time zone index
-          auto short_id_index   = static_cast<size_type>(it - string_iter_begin);
-          tz_index_for_short_tz = static_cast<int>(map_to_tz_col.element<int32_t>(short_id_index));
-        }
-      }
-
-      if (tz_index_for_short_tz >= 0) {
-        // it's a supported short ID, and found the tz index
-        utc_offset = compute_utc_offset(compute_loose_epoch_s(ts_comp), tz_index_for_short_tz);
-      } else {
-        // Firstly, try parsing as utc-like timezone rep
-        // Note: parse_utc_like_tz handles special short IDs: EST: -05:00; HST: -10:00; MST: -07:00
-        auto [fix_offset, ret_code] = parse_utc_like_tz(tz_view);
-        if (ret_code == ParseUtcLikeTzResult::UTC_LIKE_TZ) {
-          utc_offset = fix_offset;
-        } else if (ret_code == ParseUtcLikeTzResult::NOT_UTC_LIKE_TZ) {
-          // Then, try parsing as region-based timezone ID
-          auto tz_index = query_index_from_tz_db(tz_view);
-          if (tz_index < 0) {
-            // TODO: distinguish unsupported and invalid tz
-            return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}},
-                                      ParseResult::INVALID);
-          } else {
-            // supported tz
-            utc_offset = compute_utc_offset(compute_loose_epoch_s(ts_comp), tz_index);
-          }
-        } else {
-          // (ret_code == ParseUtcLikeTzResult::INVALID) quick path to mark value invalid
+      // Firstly, try parsing as utc-like timezone rep
+      auto [fix_offset, ret_code] = parse_utc_like_tz(tz_view);
+      if (ret_code == ParseUtcLikeTzResult::UTC_LIKE_TZ) {
+        utc_offset = fix_offset;
+      } else if (ret_code == ParseUtcLikeTzResult::NOT_UTC_LIKE_TZ) {
+        // Then, try parsing as region-based timezone ID
+        auto tz_index = query_index_from_tz_db(tz_view);
+        if (tz_index < 0) {
+          // TODO: distinguish unsupported and invalid tz
           return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}}, ParseResult::INVALID);
+        } else {
+          // supported tz
+          utc_offset = compute_utc_offset(compute_loose_epoch_s(ts_comp), tz_index);
         }
+      } else {
+        // (ret_code == ParseUtcLikeTzResult::INVALID) quick path to mark value invalid
+        return thrust::make_tuple(cudf::timestamp_us{cudf::duration_us{0}}, ParseResult::INVALID);
       }
     }
 
@@ -247,12 +219,6 @@ struct parse_timestamp_string_fn {
    * This function is purposed to be fully align to Apache Spark's behavior. The
    * function returns the status along with the ParseUtcLikeTzResult result.
    *
-   * Valid patterns:
-   *   Z: means UTC
-   *   short tz IDs that is UTC like
-   *     EST: -05:00
-   *     HST: -10:00
-   *     MST: -07:00
    *   with colon
    *     hh:mm      : ^(GMT|UTC)?[+-](\d|0[0-9]|1[0-8]):(\d|[0-5][0-9])
    *     hh:mm:ss   : ^(GMT|UTC)?[+-](\d|0[0-9]|1[0-8]):[0-5][0-9]:[0-5][0-9]
@@ -269,23 +235,6 @@ struct parse_timestamp_string_fn {
     size_type len = tz_lit.size_bytes();
 
     char const* ptr = tz_lit.data();
-
-    // Z time zone
-    if (len == 1 && *ptr == 'Z') { return {0, ParseUtcLikeTzResult::UTC_LIKE_TZ}; }
-
-    // handle short tz IDs that is UTC like: EST, HST, MST
-    if (len == 3) {
-      if ((*ptr == 'E' && *(ptr + 1) == 'S' && *(ptr + 2) == 'T')) {
-        // EST: -05:00
-        return {-5L * 3600L, ParseUtcLikeTzResult::UTC_LIKE_TZ};
-      } else if ((*ptr == 'H' && *(ptr + 1) == 'S' && *(ptr + 2) == 'T')) {
-        // HST: -10:00
-        return {-10L * 3600L, ParseUtcLikeTzResult::UTC_LIKE_TZ};
-      } else if ((*ptr == 'M' && *(ptr + 1) == 'S' && *(ptr + 2) == 'T')) {
-        // MST: -07:00
-        return {-7L * 3600L, ParseUtcLikeTzResult::UTC_LIKE_TZ};
-      }
-    }
 
     size_t char_offset = 0;
     // skip UTC|GMT if existing
@@ -363,14 +312,18 @@ struct parse_timestamp_string_fn {
    */
   __device__ inline int query_index_from_tz_db(string_view const& tz_lit) const
   {
-    auto string_iter_begin = thrust::make_transform_iterator(thrust::make_counting_iterator(0),
-                                                             get_string_fn{*sorted_tz_names});
-    auto string_iter_end   = string_iter_begin + sorted_tz_names->size();
-    auto it                = thrust::lower_bound(
+    auto const tz_col                  = tz_indices->child(0);
+    auto const index_in_transition_col = tz_indices->child(1);
+
+    auto string_iter_begin =
+      thrust::make_transform_iterator(thrust::make_counting_iterator(0), get_string_fn{tz_col});
+    auto string_iter_end = string_iter_begin + tz_col.size();
+    auto it              = thrust::lower_bound(
       thrust::seq, string_iter_begin, string_iter_end, tz_lit, thrust::less<string_view>());
     if (it != string_iter_end && *it == tz_lit) {
       // found tz
-      return static_cast<int>(it - string_iter_begin);
+      auto tz_name_index = static_cast<size_type>(it - string_iter_begin);
+      return static_cast<int>(index_in_transition_col.element<int32_t>(tz_name_index));
     } else {
       // not found tz
       return -1;
@@ -602,20 +555,18 @@ struct parse_timestamp_string_fn {
  * The common entrance of string_to_timestamp, two paths call this function:
  * - `string_to_timestamp_with_tz` : with time zone
  * - `string_to_timestamp_without_tz` : without time zone
- * The parameters transitions, sorted_tz_names and default_tz_index are only for handling
+ * The parameters transitions, tz_indices and default_tz_index are only for handling
  * inputs with timezone.
- * It's called from `string_to_timestamp_without_tz` if transitions and sorted_tz_names
+ * It's called from `string_to_timestamp_without_tz` if transitions and tz_indices
  * are nullptr, otherwise called from `string_to_timestamp_with_tz`.
  *
  */
-std::unique_ptr<cudf::column> to_timestamp(
-  cudf::strings_column_view const& input,
-  bool ansi_mode,
-  bool allow_tz_in_date_str                        = true,
-  size_type default_tz_index                       = 1000000000,
-  cudf::column_view const* transitions             = nullptr,
-  cudf::strings_column_view const* sorted_tz_names = nullptr,
-  cudf::column_view const* tz_short_ids            = nullptr)
+std::unique_ptr<cudf::column> to_timestamp(cudf::strings_column_view const& input,
+                                           bool ansi_mode,
+                                           bool allow_tz_in_date_str            = true,
+                                           size_type default_tz_index           = 1000000000,
+                                           cudf::column_view const* transitions = nullptr,
+                                           cudf::column_view const* tz_indices  = nullptr)
 {
   auto const stream = cudf::get_default_stream();
   auto const mr     = rmm::mr::get_current_device_resource();
@@ -632,7 +583,7 @@ std::unique_ptr<cudf::column> to_timestamp(
   auto result_valid_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::UINT8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
 
-  if (transitions == nullptr || sorted_tz_names == nullptr) {
+  if (transitions == nullptr || tz_indices == nullptr) {
     thrust::transform(
       rmm::exec_policy(stream),
       thrust::make_counting_iterator(0),
@@ -644,18 +595,16 @@ std::unique_ptr<cudf::column> to_timestamp(
   } else {
     auto const ft_cdv_ptr    = column_device_view::create(*transitions, stream);
     auto const d_transitions = lists_column_device_view{*ft_cdv_ptr};
-    auto d_sorted_tz_names   = cudf::column_device_view::create(sorted_tz_names->parent(), stream);
-    auto d_tz_short_ids      = column_device_view::create(*tz_short_ids, stream);
+    auto d_tz_indices        = cudf::column_device_view::create(*tz_indices, stream);
 
-    thrust::transform(
-      rmm::exec_policy(stream),
-      thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(input.size()),
-      thrust::make_zip_iterator(
-        thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
-                           result_valid_col->mutable_view().begin<uint8_t>())),
-      parse_timestamp_string_fn<true>{
-        *d_strings, default_tz_index, true, d_transitions, *d_sorted_tz_names, *d_tz_short_ids});
+    thrust::transform(rmm::exec_policy(stream),
+                      thrust::make_counting_iterator(0),
+                      thrust::make_counting_iterator(input.size()),
+                      thrust::make_zip_iterator(
+                        thrust::make_tuple(result_col->mutable_view().begin<cudf::timestamp_us>(),
+                                           result_valid_col->mutable_view().begin<uint8_t>())),
+                      parse_timestamp_string_fn<true>{
+                        *d_strings, default_tz_index, true, d_transitions, *d_tz_indices});
   }
 
   auto valid_view = result_valid_col->mutable_view();
@@ -696,17 +645,14 @@ namespace spark_rapids_jni {
  * timestamp column otherwise.
  *
  */
-std::unique_ptr<cudf::column> string_to_timestamp_with_tz(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& transitions,
-  cudf::strings_column_view const& sorted_tz_names,
-  cudf::size_type default_tz_index,
-  bool ansi_mode,
-  cudf::column_view const& tz_short_ids)
+std::unique_ptr<cudf::column> string_to_timestamp_with_tz(cudf::strings_column_view const& input,
+                                                          cudf::column_view const& transitions,
+                                                          cudf::column_view const& tz_indices,
+                                                          cudf::size_type default_tz_index,
+                                                          bool ansi_mode)
 {
   if (input.size() == 0) { return nullptr; }
-  return to_timestamp(
-    input, ansi_mode, true, default_tz_index, &transitions, &sorted_tz_names, &tz_short_ids);
+  return to_timestamp(input, ansi_mode, true, default_tz_index, &transitions, &tz_indices);
 }
 
 /**

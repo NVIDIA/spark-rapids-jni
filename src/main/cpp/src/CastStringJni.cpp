@@ -264,8 +264,7 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
                                                          jlong transitions_handle,
                                                          jlong tz_indices_col,
                                                          jint tz_default_index,
-                                                         jboolean ansi_enabled,
-                                                         jlong tz_short_ids)
+                                                         jboolean ansi_enabled)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   try {
@@ -275,12 +274,11 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
     auto const transitions =
       reinterpret_cast<cudf::table_view const*>(transitions_handle)->column(0);
-    auto const& tz_indices_view =
-      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(tz_indices_col));
-    auto const tz_index                        = static_cast<cudf::size_type>(tz_default_index);
-    const cudf::column_view* tz_short_ids_view = reinterpret_cast<cudf::column_view*>(tz_short_ids);
-    auto ret_cv                                = spark_rapids_jni::string_to_timestamp_with_tz(
-      input_view, transitions, tz_indices_view, tz_index, ansi_enabled, *tz_short_ids_view);
+    const cudf::column_view* tz_indices_view =
+      reinterpret_cast<cudf::column_view const*>(tz_indices_col);
+    auto const tz_index = static_cast<cudf::size_type>(tz_default_index);
+    auto ret_cv         = spark_rapids_jni::string_to_timestamp_with_tz(
+      input_view, transitions, *tz_indices_view, tz_index, ansi_enabled);
     if (ret_cv) { return cudf::jni::release_as_jlong(ret_cv); }
   }
   CATCH_STD(env, 0);

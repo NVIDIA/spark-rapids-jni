@@ -412,6 +412,10 @@ public class CastStringsTest {
     entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 EST", 1699124695100000L + 13L * 3600L * 1000000L)); // EST is 8 + 5  hours later than Asia/Shanghai
     entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 HST", 1699124695100000L + 18L * 3600L * 1000000L)); // HST is 8 + 10 hours later than Asia/Shanghai
     entries.add(new AbstractMap.SimpleEntry<>("2023-11-5T03:04:55.1 MST", 1699124695100000L + 15L * 3600L * 1000000L)); // MST is 8 + 7  hours later than Asia/Shanghai
+    // test time zones not in notmalized names, e.g,: ZoneId.of("Etc/GMT").normalized.getId = Z; ZoneId.of("Etc/GMT+0").normalized.getId = Z; Etc/GMT+10 -> -10:00
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT", 1571610824100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT+0", 1571610824100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT+10", 1571592825100000L));
 
     int validDataSize = entries.size();
 
@@ -459,8 +463,10 @@ public class CastStringsTest {
     try (
         ColumnVector input = ColumnVector.fromStrings(inputs.toArray(new String[0]));
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expects.toArray(new Long[0]));
-        ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), false)) {
+        ColumnVector actual = CastStrings.toTimestamp(input, ZoneId.of("UTC"), false);
+        ColumnVector actual2 = CastStrings.toTimestamp(input, ZoneId.of("Z"), false)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
+      AssertUtils.assertColumnsAreEqual(expected, actual2);
     }
 
     // Should NOT throw exception because all inputs are valid

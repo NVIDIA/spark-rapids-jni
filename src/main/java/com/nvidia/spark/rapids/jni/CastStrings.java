@@ -210,15 +210,14 @@ public class CastStrings {
   public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
     if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-              defaultTimeZone.toString()));
+              defaultTimeZone.getId()));
     }
 
-    Integer tzIndex = GpuTimeZoneDB.getZoneIDMap().get(defaultTimeZone.normalized().toString());
+    Integer tzIndex = GpuTimeZoneDB.getZoneIDMap().get(defaultTimeZone.getId());
     try (Table transitions = GpuTimeZoneDB.getTransitions();
-         ColumnVector tzIndices = GpuTimeZoneDB.getZoneIDVector();
-         ColumnVector tzShortIDs = GpuTimeZoneDB.getTimeZoneShortIDs()) {
+         ColumnVector tzIndices = GpuTimeZoneDB.getZoneIDVector()) {
       return new ColumnVector(toTimestamp(cv.getNativeView(), transitions.getNativeView(),
-              tzIndices.getNativeView(), tzIndex, ansiEnabled, tzShortIDs.getNativeView()));
+              tzIndices.getNativeView(), tzIndex, ansiEnabled));
     }
   }
 
@@ -291,7 +290,7 @@ public class CastStrings {
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
   private static native long toTimestamp(long input,
-      long transitions, long tzIndices, int tzIndex, boolean ansiEnabled, long tzShortIDs);
+      long transitions, long tzIndices, int tzIndex, boolean ansiEnabled);
   private static native long toTimestampWithoutTimeZone(long input, boolean allowTimeZone,
       boolean ansiEnabled);
 }

@@ -34,8 +34,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -69,12 +71,8 @@ public class GpuTimeZoneDB {
   // zone id to index in `fixedTransitions`
   private Map<String, Integer> zoneIdToTable;
 
-  // Used to store Java ZoneId.SHORT_IDS Map, e.g.: For PST -> America/Los_Angeles
-  // Save: PST -> index of America/Los_Angeles in transition table.
-  private HostColumnVector shortIDs;
-
-  // zone id list
-  private HostColumnVector zoneIdVector;
+  // host column vector<String, Integer> for `zoneIdToTable`, sorted by time zone strings
+  private HostColumnVector zoneIdToTableVec;
 
   // Guarantee singleton instance
   private GpuTimeZoneDB() {
@@ -218,13 +216,9 @@ public class GpuTimeZoneDB {
       fixedTransitions.close();
       fixedTransitions = null;
     }
-    if (shortIDs != null) {
-      shortIDs.close();
-      shortIDs = null;
-    }
-    if (zoneIdVector != null) {
-      zoneIdVector.close();
-      zoneIdVector = null;
+    if (zoneIdToTableVec != null) {
+      zoneIdToTableVec.close();
+      zoneIdToTableVec = null;
     }
   }
 
@@ -284,74 +278,36 @@ public class GpuTimeZoneDB {
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
-  /**
-   * load ZoneId.SHORT_IDS and map to time zone index in transition table.
-   * Note: ignored EST: -05:00; HST: -10:00; MST: -07:00
-   */
-  private void loadTimeZoneShortIDs(Map<String, Integer> zoneIdToTable) {
-    HostColumnVector.DataType type = new HostColumnVector.StructType(false,
-    new HostColumnVector.BasicType(false, DType.STRING),
-    new HostColumnVector.BasicType(false, DType.INT32));
-    ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
-    // copy short IDs
-    List<String> idList = new ArrayList<>(ZoneId.SHORT_IDS.keySet());
-    // sort short IDs
-    Collections.sort(idList);
-    for (String id : idList) {
-      assert(id.length() == 3); // short ID lenght is always 3
-      String mapTo = ZoneId.SHORT_IDS.get(id);
-      if (mapTo.startsWith("+") || mapTo.startsWith("-")) {
-        // skip: EST: -05:00; HST: -10:00; MST: -07:00
-        // kernel will handle EST, HST, MST
-        // ZoneId.SHORT_IDS is deprecated, so it will not probably change
-      } else {
-        Integer index = zoneIdToTable.get(mapTo);
-        // some short IDs are DST, skip unsupported
-        if (index != null) {
-          data.add(new HostColumnVector.StructData(id, index));
-        } else {
-          // TODO: index should not be null after DST is supported.
-        }
-      }
-    }
-    shortIDs = HostColumnVector.fromStructs(type, data);
-  }
-
   @SuppressWarnings("unchecked")
   private void loadData() {
     try {
-      zoneIdToTable = new HashMap<>();
-      List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
-      // Build a timezone ID index for the rendering of timezone IDs which may be included in datetime-like strings.
-      // For instance: "2023-11-5T03:04:55.1 Asia/Shanghai" -> This index helps to find the
-      // offset of "Asia/Shanghai" in timezoneDB.
-      //
-      // Currently, we do NOT support all timezone IDs. For unsupported time zones, like invalid ones,
-      // we replace them with NULL value when ANSI mode is off when parsing string to timestamp.
-      // This list only contains supported time zones.
-      List<String> zondIdList = new ArrayList<>();
+      // Note: ZoneId.normalized will transform fixed offset time zone to standard fixed offset
+      // e.g.: ZoneId.of("Etc/GMT").normalized.getId = Z; ZoneId.of("Etc/GMT+0").normalized.getId = Z
+      // Both Etc/GMT and Etc/GMT+0 have normalized Z.
+      // We use the normalized form to dedupe,
+      // but should record map from TimeZone.getAvailableIDs() Set to normalized Set.
+      // `fixedTransitions` saves transitions for normalized time zones.
+      // Spark uses time zones from TimeZone.getAvailableIDs()
+      // So we have a Map<String, Int> from TimeZone.getAvailableIDs() to index of `fixedTransitions`.
 
-      // collect zone id and sort
-      List<ZoneId> ids = new ArrayList<>();
-      for (String tzId : TimeZone.getAvailableIDs()) {
-        ZoneId zoneId;
-        try {
-          zoneId = ZoneId.of(tzId, ZoneId.SHORT_IDS).normalized(); // we use the normalized form to dedupe
-          ids.add(zoneId);
-        } catch (ZoneRulesException e) {
-          // Sometimes the list of getAvailableIDs() is one of the 3-letter abbreviations, however,
-          // this use is deprecated due to ambiguity reasons (same abbrevation can be used for
-          // multiple time zones). These are not supported by ZoneId.of(...) directly here.
-          continue;
+      // get and sort time zones
+      String[] timeZones = TimeZone.getAvailableIDs();
+      List<String> sortedTimeZones = new ArrayList<>(Arrays.asList(timeZones));
+      // Note: Z is a special normalized time zone from UTC: ZoneId.of("UTC").normalized = Z
+      // TimeZone.getAvailableIDs does not contains Z and ZoneId.SHORT_IDS also does not contain Z
+      // Should add Z to `zoneIdToTable`
+      sortedTimeZones.add("Z");
+      Collections.sort(sortedTimeZones);
+
+      // Note: Spark uses ZoneId.SHORT_IDS
+      // `TimeZone.getAvailableIDs` contains all keys in `ZoneId.SHORT_IDS`
+      // So do not need extra work for ZoneId.SHORT_IDS, here just check this assumption
+      for (String tz : ZoneId.SHORT_IDS.keySet()) {
+        if (!sortedTimeZones.contains(tz)) {
+          throw new IllegalStateException(
+              String.format("Can not find short Id %s in time zones %s", tz, sortedTimeZones));
         }
       }
-      Collections.sort(ids, new Comparator<ZoneId>() {
-        @Override
-        public int compare(ZoneId o1, ZoneId o2) {
-          // sort by `getId`
-          return o1.getId().compareTo(o2.getId());
-        }
-      });
 
       // A simple approach to transform LocalDateTime to a value which is proportional to
       // the exact EpochSecond. After caching these values along with EpochSeconds, we
@@ -364,65 +320,29 @@ public class GpuTimeZoneDB {
                       lt.getDayOfMonth() - 1) +
                       3600L * lt.getHour() + 60L * lt.getMinute() + lt.getSecond();
 
-      for (ZoneId zoneId : ids) {
-        ZoneRules zoneRules = zoneId.getRules();
+      List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+
+      // map: normalizedTimeZone -> index in fixedTransitions
+      Map<String, Integer> mapForNormalizedTimeZone = new HashMap<>();
+      // go though all time zones and save by normalized time zone
+      List<String> sortedSupportedTimeZones = new ArrayList<>();
+      for (String timeZone : sortedTimeZones) {
+        ZoneId normalizedZoneId = ZoneId.of(timeZone, ZoneId.SHORT_IDS).normalized();
+        String normalizedTimeZone = normalizedZoneId.getId();
+        ZoneRules zoneRules = normalizedZoneId.getRules();
         // Filter by non-repeating rules
         if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
           continue;
         }
-        if (!zoneIdToTable.containsKey(zoneId.getId())) {
-          List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
+        sortedSupportedTimeZones.add(timeZone);
+        if (!mapForNormalizedTimeZone.containsKey(normalizedTimeZone)) { // dedup
+          List<HostColumnVector.StructData> data = getTransitionData(localToLooseEpochSecond, zoneRules);
+          // add transition data for time zone
           int idx = masterTransitions.size();
-          List<HostColumnVector.StructData> data = new ArrayList<>();
-          if (zoneRules.isFixedOffset()) {
-            data.add(
-                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                    zoneRules.getOffset(Instant.now()).getTotalSeconds(), Long.MIN_VALUE)
-            );
-          } else {
-            // Capture the first official offset (before any transition) using Long min
-            ZoneOffsetTransition first = transitions.get(0);
-            data.add(
-                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                    first.getOffsetBefore().getTotalSeconds(), Long.MIN_VALUE)
-            );
-            transitions.forEach(t -> {
-              // Whether transition is an overlap vs gap.
-              // In Spark:
-              // if it's a gap, then we use the offset after *on* the instant
-              // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
-              // So, for the transition to UTC, you need to compare to instant + {offset before} 
-              // The time math still uses {offset after}
-              if (t.isGap()) {
-                data.add(
-                    new HostColumnVector.StructData(
-                        t.getInstant().getEpochSecond(),
-                        t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                        t.getOffsetAfter().getTotalSeconds(),
-                        localToLooseEpochSecond.apply(t.getDateTimeAfter()) // this column is for rebase local date time
-                    )
-                );
-              } else {
-                data.add(
-                    new HostColumnVector.StructData(
-                        t.getInstant().getEpochSecond(),
-                        t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                        t.getOffsetAfter().getTotalSeconds(),
-                        localToLooseEpochSecond.apply(t.getDateTimeBefore()) // this column is for rebase local date time
-                    )
-                );
-              }
-            });
-          }
+          mapForNormalizedTimeZone.put(normalizedTimeZone, idx);
           masterTransitions.add(data);
-          zoneIdToTable.put(zoneId.getId(), idx);
-          // Collect the IDs of all supported timezones in the order of masterTransitions
-          zondIdList.add(zoneId.getId());
         }
       }
-
-      // load ZoneId.SHORT_IDS
-      loadTimeZoneShortIDs(zoneIdToTable);
 
       HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
           new HostColumnVector.BasicType(false, DType.INT64),
@@ -432,12 +352,99 @@ public class GpuTimeZoneDB {
       HostColumnVector.DataType resultType =
           new HostColumnVector.ListType(false, childType);
 
+      // generate all transitions for all time zones
       fixedTransitions = HostColumnVector.fromLists(resultType, masterTransitions.toArray(new List[0]));
-      zoneIdVector = HostColumnVector.fromStrings(zondIdList.toArray(new String[0]));
+
+      // generate `zoneIdToTable`, key should be time zone not normalized time zone
+      zoneIdToTable = new HashMap<>();
+      for (String timeZone : sortedSupportedTimeZones) {
+        // map from time zone to normalized
+        String normalized = ZoneId.of(timeZone, ZoneId.SHORT_IDS).normalized().getId();
+        Integer index = mapForNormalizedTimeZone.get(normalized);
+        if (index != null) {
+          zoneIdToTable.put(timeZone, index);
+        } else {
+          throw new IllegalStateException("Could not find index for normalized time zone " + normalized);
+        }
+      }
+      // generate host vector
+      zoneIdToTableVec = generateZoneIdToTableVec(sortedSupportedTimeZones, zoneIdToTable);
+    } catch (IllegalStateException e) {
+      throw e;
     } catch (Exception e) {
       throw new IllegalStateException("load time zone DB cache failed!", e);
     }
+  }
 
+  // generate transition data for a time zone
+  private List<HostColumnVector.StructData> getTransitionData(Function<LocalDateTime, Long> localToLooseEpochSecond,
+      ZoneRules zoneRules) {
+    List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
+    List<HostColumnVector.StructData> data = new ArrayList<>();
+    if (zoneRules.isFixedOffset()) {
+      data.add(
+          new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+              zoneRules.getOffset(Instant.now()).getTotalSeconds(), Long.MIN_VALUE)
+      );
+    } else {
+      // Capture the first official offset (before any transition) using Long min
+      ZoneOffsetTransition first = transitions.get(0);
+      data.add(
+          new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+              first.getOffsetBefore().getTotalSeconds(), Long.MIN_VALUE)
+      );
+      transitions.forEach(t -> {
+        // Whether transition is an overlap vs gap.
+        // In Spark:
+        // if it's a gap, then we use the offset after *on* the instant
+        // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
+        // So, for the transition to UTC, you need to compare to instant + {offset before} 
+        // The time math still uses {offset after}
+        if (t.isGap()) {
+          data.add(
+              new HostColumnVector.StructData(
+                  t.getInstant().getEpochSecond(),
+                  t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
+                  t.getOffsetAfter().getTotalSeconds(),
+                  localToLooseEpochSecond.apply(t.getDateTimeAfter()) // this column is for rebase local date time
+              )
+          );
+        } else {
+          data.add(
+              new HostColumnVector.StructData(
+                  t.getInstant().getEpochSecond(),
+                  t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
+                  t.getOffsetAfter().getTotalSeconds(),
+                  localToLooseEpochSecond.apply(t.getDateTimeBefore()) // this column is for rebase local date time
+              )
+          );
+        }
+      });
+    }
+    return data;
+  }
+
+  /**
+   * Generate map from time zone to index in transition table.
+   * regular time zone map to normalized time zone, then get from 
+   * @param sortedSupportedTimeZones is sorted and supported time zones
+   * @param zoneIdToTableMap is a map from non-normalized time zone to index in transition table
+   */
+  private static HostColumnVector generateZoneIdToTableVec(List<String> sortedSupportedTimeZones, Map<String, Integer> zoneIdToTableMap) {
+    HostColumnVector.DataType type = new HostColumnVector.StructType(false,
+    new HostColumnVector.BasicType(false, DType.STRING),
+    new HostColumnVector.BasicType(false, DType.INT32));
+    ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
+
+    for (String timeZone : sortedSupportedTimeZones) {
+      Integer mapTo = zoneIdToTableMap.get(timeZone);
+      if (mapTo != null) {
+        data.add(new HostColumnVector.StructData(timeZone, mapTo));
+      } else {
+        throw new IllegalStateException("Could not find index for time zone " + timeZone);
+      }
+    }
+    return HostColumnVector.fromStructs(type, data);
   }
 
   /**
@@ -450,21 +457,12 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Get a map from short ID to time zone index in transitions for the short ID mapped time zone
-   * @return
-   */
-  public static ColumnVector getTimeZoneShortIDs() {
-    cacheDatabase();
-    return instance.shortIDs.copyToDevice();
-  }
-
-  /**
-   * Get a time zone list which is corresponding to the transitions
+   * Get vector from time zone to index in transition table
    * @return
    */
   public static ColumnVector getZoneIDVector() {
     cacheDatabase();
-    return instance.zoneIdVector.copyToDevice();
+    return instance.zoneIdToTableVec.copyToDevice();
   }
 
   /**
@@ -493,7 +491,7 @@ public class GpuTimeZoneDB {
    * @return list of fixed transitions
    */
   List getHostFixedTransitions(String zoneId) {
-    zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
+    zoneId = ZoneId.of(zoneId, ZoneId.SHORT_IDS).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = getZoneIDMap().get(zoneId);
     if (idx == null) {
       return null;
