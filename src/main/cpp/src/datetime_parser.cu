@@ -69,7 +69,7 @@ struct timestamp_components {
    * Spark stores timestamp into Long in microseconds.
    * A Long is able to represent a timestamp within [+-]200 thousand years.
    * Calculated from: Long.MaxValue/MinValue / microseconds_per_year
-  */
+   */
   int32_t year;
   int8_t month;
   int8_t day;
