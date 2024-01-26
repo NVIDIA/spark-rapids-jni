@@ -66,9 +66,12 @@ public class GpuTimeZoneDB {
   // structs. The type of this column vector is:
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32, looseInstant: int64>>
   // use this reference to indicate if time zone cache is initialized.
+  // `fixedTransitions` saves transitions for deduplicated time zones, diferent time zones
+  // may map to one normalized time zone.
   private HostColumnVector fixedTransitions;
 
-  // zone id to index in `fixedTransitions`
+  // time zone to index in `fixedTransitions`
+  // The key of `zoneIdToTable` is the time zone names before dedup.
   private Map<String, Integer> zoneIdToTable;
 
   // host column vector<String, Integer> for `zoneIdToTable`, sorted by time zone strings
@@ -487,11 +490,10 @@ public class GpuTimeZoneDB {
    * fixed transitions for a particular zoneId. 
    *
    * It has default visibility so the test can access it.
-   * @param zoneId
+   * @param zoneId the time zones from TimeZone.getAvailableIDs without `ZoneId.normalized`
    * @return list of fixed transitions
    */
   List getHostFixedTransitions(String zoneId) {
-    zoneId = ZoneId.of(zoneId, ZoneId.SHORT_IDS).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = getZoneIDMap().get(zoneId);
     if (idx == null) {
       return null;

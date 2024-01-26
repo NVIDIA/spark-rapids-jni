@@ -415,7 +415,7 @@ public class CastStringsTest {
     // test time zones not in notmalized names, e.g,: ZoneId.of("Etc/GMT").normalized.getId = Z; ZoneId.of("Etc/GMT+0").normalized.getId = Z; Etc/GMT+10 -> -10:00
     entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT", 1571610824100000L));
     entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT+0", 1571610824100000L));
-    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT+10", 1571592825100000L));
+    entries.add(new AbstractMap.SimpleEntry<>("2019-10-20 22:33:44.1 Etc/GMT+10", 1571646824100000L));
 
     int validDataSize = entries.size();
 

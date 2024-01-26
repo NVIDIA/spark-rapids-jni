@@ -22,6 +22,7 @@ import java.util.List;
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import ai.rapids.cudf.ColumnVector;
 
@@ -45,12 +46,18 @@ public class TimeZoneTest {
   void databaseLoadedTest() {
     // Check for a few timezones
     GpuTimeZoneDB instance = GpuTimeZoneDB.getInstance();
+
+    // UTC+8 is not in `TimeZone.getAvailableIDs`, so return null
+    // UTC+8 can be handle by kernel directly
     List transitions = instance.getHostFixedTransitions("UTC+8");
-    assertNotNull(transitions);
+    assertNull(transitions);
+
     assertEquals(1, transitions.size());
     transitions = instance.getHostFixedTransitions("Asia/Shanghai");
     assertNotNull(transitions);
+
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
+    // inserted a min transition place holder, so it's n + 1
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
   }
   
