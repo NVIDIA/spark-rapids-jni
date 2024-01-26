@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,9 +61,9 @@ namespace spark_rapids_jni {
  * Unlike Spark, Spark-Rapids currently does not support DST time zones.
  *
  * @param input input string column view.
- * @param transitions TimezoneDB, the table of transitions contains all
- * information for timezones
- * @param tz_indices TimezoneDB index of region-based timezone IDs
+ * @param transitions refer to TimezoneDB, the table of transitions contains all
+ * information for timezones.
+ * @param tz_indices refer to TimezoneDB, map from time zone to TimezoneDB transition index.
  * @param default_tz_index the index of default timezone in TimezoneDB, if input
  * date-like string does not contain a time zone (like: YYYY-MM-DD:hhmmss), use
  * this time zone.
@@ -75,8 +75,8 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> string_to_timestamp_with_tz(cudf::strings_column_view const& input,
                                                           cudf::column_view const& transitions,
                                                           cudf::column_view const& tz_indices,
-                                                          cudf::size_type default_tz_index,
-                                                          bool ansi_mode);
+                                                          cudf::size_type const default_tz_index,
+                                                          bool const ansi_mode);
 
 /**
  *
@@ -130,7 +130,7 @@ std::unique_ptr<cudf::column> string_to_timestamp_with_tz(cudf::strings_column_v
  * if there exists invalid inputs and ANSI mode is on.
  */
 std::unique_ptr<cudf::column> string_to_timestamp_without_tz(cudf::strings_column_view const& input,
-                                                             bool allow_time_zone,
-                                                             bool ansi_mode);
+                                                             bool const allow_time_zone,
+                                                             bool const ansi_mode);
 
 }  // namespace spark_rapids_jni
