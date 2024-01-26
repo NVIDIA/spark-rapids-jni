@@ -214,8 +214,11 @@ public class ParseURITest {
       "https://[::1]/?invalid=param&~.=!@&^",
       "userinfo@www.nvidia.com/path?query=1#Ref",
       "",
-      null};
-  
+      null,
+      "https://www.nvidia.com/?cat=12",
+      "www.nvidia.com/vote.php?pid=50",
+      "https://www.nvidia.com/vote.php?=50",
+    };
 
       String[] queries = {
         "a",
@@ -270,7 +273,11 @@ public class ParseURITest {
         "invalid",
         "query",
         "a",
-        "f"};
+        "f",
+        "query",
+        "query",
+        ""
+      };
 
     testProtocol(testData);
     testHost(testData);
