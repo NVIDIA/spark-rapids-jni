@@ -123,7 +123,7 @@ enum ParseResult { OK = 0, INVALID = 1, UNSUPPORTED = 2 };
 template <bool with_timezone>
 struct parse_timestamp_string_fn {
   // below three are required:
-  cudf::column_device_view const& d_strings;
+  cudf::column_device_view const d_strings;
   cudf::size_type const default_tz_index;
   bool const allow_tz_in_date_str;
 

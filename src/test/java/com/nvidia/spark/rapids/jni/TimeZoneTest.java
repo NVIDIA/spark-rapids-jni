@@ -52,7 +52,6 @@ public class TimeZoneTest {
     List transitions = instance.getHostFixedTransitions("UTC+8");
     assertNull(transitions);
 
-    assertEquals(1, transitions.size());
     transitions = instance.getHostFixedTransitions("Asia/Shanghai");
     assertNotNull(transitions);
 
