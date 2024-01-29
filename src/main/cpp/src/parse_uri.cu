@@ -503,8 +503,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
   bool match       = false;
   while (h < end_h) {
     match = false;  // initialize to false to prevent empty query key
-    for (size_type jdx = 0; (jdx == 0 || match) && (jdx < n_bytes) && (jdx < haystack.size_bytes());
-         ++jdx) {
+    for (size_type jdx = 0; (jdx == 0 || match) && (jdx < n_bytes); ++jdx) {
       match = (h[jdx] == n[jdx]);
     }
     if (match) { match = n_bytes < haystack.size_bytes() && h[n_bytes] == '='; }
