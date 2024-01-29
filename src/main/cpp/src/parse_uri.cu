@@ -494,48 +494,45 @@ bool __device__ validate_fragment(string_view fragment)
 
 __device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
 {
-  auto const n_bytes     = needle.size_bytes();
-  auto const find_length = haystack.size_bytes() - n_bytes;
+  auto const n_bytes = needle.size_bytes();
+  auto h             = haystack.data();
+  auto h_end         = h + haystack.size_bytes();
+  auto n             = needle.data();
 
-  auto h           = haystack.data();
-  auto const end_h = haystack.data() + find_length;
-  auto n           = needle.data();
-  bool match       = false;
-  while (h < end_h) {
+  bool match = false;
+  // stop matching early after it can no longer contain the string we are searching for
+  while (h + n_bytes < h_end) {
     match = false;  // initialize to false to prevent empty query key
-    for (size_type jdx = 0; (jdx == 0 || match) && (jdx < n_bytes); ++jdx) {
+    for (size_type jdx = 0; jdx < n_bytes; ++jdx) {
       match = (h[jdx] == n[jdx]);
+      if (!match) { break; }
     }
-    if (match) { match = n_bytes < haystack.size_bytes() && h[n_bytes] == '='; }
-    if (match) {
+
+    if (match && h[n_bytes] == '=') {
       // we don't care about the matched part, we want the string data after that.
       h += n_bytes;
-      break;
-    } else {
-      // skip to the next param, which is after a &.
-      while (h < end_h && *h != '&') {
+      // skip over the =
+      h++;
+
+      // rest of string until end or until '&' is query match
+      int match_len = 0;
+      auto start    = h;
+      while (h < h_end && *h != '&') {
+        match_len++;
         h++;
       }
+
+      return {{start, match_len}, true};
     }
-    h++;
+
+    // not match, skip to the next param if possible, which is after a &.
+    while (h + n_bytes < h_end && *h != '&') {
+      h++;
+    }
+    h++;  // skip over the &
   }
 
-  // if not match or no value, return nothing
-  if (!match || *h != '=') { return {{}, false}; }
-
-  // skip over the =
-  h++;
-
-  // rest of string until end or until '&' is query match
-  auto const bytes_left = haystack.size_bytes() - (h - haystack.data());
-  int match_len         = 0;
-  auto start            = h;
-  while (*h != '&' && match_len < bytes_left) {
-    ++match_len;
-    ++h;
-  }
-
-  return {{start, match_len}, true};
+  return {{}, false};
 }
 
 uri_parts __device__ validate_uri(const char* str,
