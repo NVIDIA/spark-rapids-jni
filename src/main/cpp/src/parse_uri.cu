@@ -503,11 +503,11 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
   while (h + n_bytes < h_end) {
     bool match_needle = false;  // initialize to false to prevent empty query key
     for (size_type jdx = 0; jdx < n_bytes; ++jdx) {
-      match = (h[jdx] == n[jdx]);
-      if (!match) { break; }
+      match_needle = (h[jdx] == n[jdx]);
+      if (!match_needle) { break; }
     }
 
-    if (match && h[n_bytes] == '=') {
+    if (match_needle && h[n_bytes] == '=') {
       // we don't care about the matched part, we want the string data after that.
       h += n_bytes;
       // skip over the =
