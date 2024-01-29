@@ -495,7 +495,7 @@ bool __device__ validate_fragment(string_view fragment)
 __device__ std::pair<string_view, bool> find_query_part(string_view haystack, string_view needle)
 {
   auto const n_bytes     = needle.size_bytes();
-  auto const find_length = haystack.size_bytes() - n_bytes + 1;
+  auto const find_length = haystack.size_bytes() - n_bytes;
 
   auto h           = haystack.data();
   auto const end_h = haystack.data() + find_length;
@@ -503,7 +503,8 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
   bool match       = false;
   while (h < end_h) {
     match = false;  // initialize to false to prevent empty query key
-    for (size_type jdx = 0; (jdx == 0 || match) && (jdx < n_bytes); ++jdx) {
+    for (size_type jdx = 0; (jdx == 0 || match) && (jdx < n_bytes) && (jdx < haystack.size_bytes());
+         ++jdx) {
       match = (h[jdx] == n[jdx]);
     }
     if (match) { match = n_bytes < haystack.size_bytes() && h[n_bytes] == '='; }
