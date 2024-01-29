@@ -499,10 +499,9 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
   auto const h_end   = h + haystack.size_bytes();
   auto n             = needle.data();
 
-  bool match = false;
   // stop matching early after it can no longer contain the string we are searching for
   while (h + n_bytes < h_end) {
-    match = false;  // initialize to false to prevent empty query key
+    bool match_needle = false;  // initialize to false to prevent empty query key
     for (size_type jdx = 0; jdx < n_bytes; ++jdx) {
       match = (h[jdx] == n[jdx]);
       if (!match) { break; }
