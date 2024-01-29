@@ -496,7 +496,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
 {
   auto const n_bytes = needle.size_bytes();
   auto h             = haystack.data();
-  auto h_end         = h + haystack.size_bytes();
+  auto const h_end   = h + haystack.size_bytes();
   auto n             = needle.data();
 
   bool match = false;
