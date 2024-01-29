@@ -508,10 +508,8 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
     }
 
     if (match_needle && h[n_bytes] == '=') {
-      // we don't care about the matched part, we want the string data after that.
-      h += n_bytes;
-      // skip over the =
-      h++;
+      // we don't care about the matched part, we want the string data after '='
+      h += n_bytes + 1;
 
       // rest of string until end or until '&' is query match
       int match_len = 0;
@@ -528,7 +526,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
     while (h + n_bytes < h_end && *h != '&') {
       h++;
     }
-    h++;  // skip over the &
+    h++;  // skip over the & if has, or point to h_end +1
   }
 
   return {{}, false};
