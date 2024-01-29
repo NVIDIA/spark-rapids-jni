@@ -191,7 +191,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
 
     return make_strings_column(input.size(),
                                std::move(offsets),
-                               std::move(chars),
+                               std::move(chars->release().data.release()[0]),
                                input.null_count(),
                                cudf::detail::copy_bitmask(input, stream, mr));
   }
