@@ -501,7 +501,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
 
   // stop matching early after it can no longer contain the string we are searching for
   while (h + n_bytes < h_end) {
-    bool match_needle = false;  // initialize to false to prevent empty query key
+    bool match_needle = true;
     for (size_type jdx = 0; jdx < n_bytes; ++jdx) {
       match_needle = (h[jdx] == n[jdx]);
       if (!match_needle) { break; }

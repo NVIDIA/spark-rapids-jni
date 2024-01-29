@@ -143,7 +143,7 @@ public class ParseURITest {
         String[] pairs = query.split("&");
         for (String pair : pairs) {
           int idx = pair.indexOf("=");
-          if (idx > 0 && pair.substring(0, idx).equals(params[i])) {
+          if (idx >= 0 && pair.substring(0, idx).equals(params[i])) {
             subquery = pair.substring(idx + 1);
             break;
           }
@@ -218,6 +218,7 @@ public class ParseURITest {
       "https://www.nvidia.com/?cat=12",
       "www.nvidia.com/vote.php?pid=50",
       "https://www.nvidia.com/vote.php?=50",
+      "https://www.nvidia.com/vote.php?query=50"
     };
 
       String[] queries = {
@@ -276,6 +277,7 @@ public class ParseURITest {
         "f",
         "query",
         "query",
+        "",
         ""
       };
 
