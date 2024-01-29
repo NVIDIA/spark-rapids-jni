@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -400,8 +400,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
   rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
-
-  bool supports_get_mem_info() const noexcept override { return resource->supports_get_mem_info(); }
 
   bool supports_streams() const noexcept override { return resource->supports_streams(); }
 
@@ -1799,11 +1797,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       std::unique_lock<std::mutex> lock(state_mutex);
       dealloc_core(false, lock);
     }
-  }
-
-  std::pair<size_t, size_t> do_get_mem_info(rmm::cuda_stream_view stream) const override
-  {
-    return resource->get_mem_info(stream);
   }
 };
 
