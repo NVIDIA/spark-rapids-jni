@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 23.12.00
+  VERSION 24.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -94,11 +94,8 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
-# find libcu++
-include(${rapids-cmake-dir}/cpm/libcudacxx.cmake)
-
-# find thrust/cub
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thrust.cmake)
+# find CCCL
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # JNI
 find_package(JNI REQUIRED)
@@ -164,6 +161,8 @@ add_library(
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/cast_decimal_to_string.cu
+  src/format_float.cu
+  src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
@@ -172,7 +171,6 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
-  src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu

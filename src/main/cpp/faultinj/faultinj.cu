@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,9 @@
 #include <spdlog/spdlog.h>
 #include <sys/inotify.h>
 #include <sys/time.h>
+
+// Format enums for logging
+auto format_as(CUpti_CallbackDomain domain) { return fmt::underlying(domain); }
 
 namespace {
 
@@ -392,7 +395,7 @@ void readFaultInjectorConfig(void)
     std::srand(seed);
 
     const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
-    spdlog::info("changed log level to {}", logLevelEnum);
+    spdlog::info("changed log level to {}", logLevel);
     spdlog::set_level(logLevelEnum);
     traceConfig(globalControl.configRoot);
 

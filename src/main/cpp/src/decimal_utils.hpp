@@ -30,6 +30,7 @@ std::unique_ptr<cudf::table> multiply_decimal128(
   cudf::column_view const& a,
   cudf::column_view const& b,
   int32_t product_scale,
+  bool const cast_interim_result,
   rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 std::unique_ptr<cudf::table> divide_decimal128(

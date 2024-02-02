@@ -520,7 +520,7 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
   return cudf::make_strings_column(
     num_rows,
     std::move(offsets),
-    std::move(chars),
+    std::move(chars->release().data.release()[0]),
     profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{},
     null_count);
 }
