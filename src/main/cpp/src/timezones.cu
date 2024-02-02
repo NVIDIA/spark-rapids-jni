@@ -80,7 +80,7 @@ struct convert_timestamp_tz_functor {
       (to_utc ? tz_instants : utc_instants).data<int64_t>() + tz_transitions.element_offset(0),
       static_cast<size_t>(list_size));
 
-    auto const it = thrust::upper_bound(
+    auto const it = thrust::lower_bound(
       thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);
     auto const idx         = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
     auto const list_offset = tz_transitions.element_offset(idx - 1);
@@ -156,7 +156,7 @@ struct time_add_functor {
       cuda::std::chrono::duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
 
     // Binary search on local to find the correct offset to convert local to utc
-    auto const local_it = thrust::upper_bound(
+    auto const local_it = thrust::lower_bound(
       thrust::seq, transition_times_tz.begin(), transition_times_tz.end(), result_epoch_seconds);
     auto local_idx =
       static_cast<size_type>(thrust::distance(transition_times_tz.begin(), local_it));
