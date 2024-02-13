@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
+
+import java.time.ZoneId;
 
 /** Utility class for casting between string columns and native type columns */
 public class CastStrings {
@@ -152,6 +154,130 @@ public class CastStrings {
     return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
   }
 
+  /**
+   * Trims and parses a timestamp string column with time zone suffix to a
+   * timestamp column.
+   * Use the default time zone if string does not contain time zone.
+   *
+   * Supports the following formats:
+   * `[+-]yyyy*`
+   * `[+-]yyyy*-[m]m`
+   * `[+-]yyyy*-[m]m-[d]d`
+   * `[+-]yyyy*-[m]m-[d]d `
+   * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * 
+   * Spark supports the following zone id forms:
+   *   - Z - Zulu time zone UTC+0
+   *   - +|-[h]h:[m]m
+   *   - A short id, see
+   * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+   *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
+   *     and a suffix in the formats:
+   *     - +|-h[h]
+   *     - +|-hh[:]mm
+   *     - +|-hh:mm:ss
+   *     - +|-hhmmss
+   *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Unlike Spark, Spark-Rapids currently does not support DST time zones.
+   *
+   * Note:
+   * - Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
+   * Spark31x supports cast special strings while Spark320+ do not supports
+   * - Do not support DST time zones, return null in non-ANSI mode.
+   * TODO: DST support.
+   *
+   * Example:
+   * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
+   * ts = toTimestamp(input, "UTC", allowSpecialExpressions = true, ansiEnabled =
+   * false)
+   * ts is: ['2023-01-01 00:00:00', '2023-01-01T00:00:00']
+   *
+   * Example:
+   * input = ["2023-01-01T08:00:00 non-exist-time-zone"]
+   * In ANSI mode: throws IllegalArgumentException
+   * In non-ANSI mode: return null value
+   * 
+   * @param cv                      The input string column to be converted.
+   * @param defaultTimeZone         Use the default time zone if string does not
+   *                                contain time zone.
+   * @param ansiEnabled             is Ansi mode
+   * @return a timestamp column
+   * @throws IllegalArgumentException if any string in cv has invalid format or the time zone is
+   *                                  non-existed/wrong when ansiEnabled is true
+   */
+  public static ColumnVector toTimestamp(ColumnView cv, ZoneId defaultTimeZone, boolean ansiEnabled) {
+    if (!GpuTimeZoneDB.isSupportedTimeZone(defaultTimeZone)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
+              defaultTimeZone.getId()));
+    }
+
+    Integer tzIndex = GpuTimeZoneDB.getZoneIDMap().get(defaultTimeZone.getId());
+    try (Table transitions = GpuTimeZoneDB.getTransitions();
+         ColumnVector tzIndices = GpuTimeZoneDB.getZoneIDVector()) {
+      return new ColumnVector(toTimestamp(cv.getNativeView(), transitions.getNativeView(),
+              tzIndices.getNativeView(), tzIndex, ansiEnabled));
+    }
+  }
+
+  /**
+   * Trims and parses a timestamp string column with time zone suffix to a
+   * timestamp column.
+   * Do not use the time zones in timestamp strings.
+   *
+   * Supports the following formats:
+   * `[+-]yyyy*`
+   * `[+-]yyyy*-[m]m`
+   * `[+-]yyyy*-[m]m-[d]d`
+   * `[+-]yyyy*-[m]m-[d]d `
+   * `[+-]yyyy*-[m]m-[d]d [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * `[+-]yyyy*-[m]m-[d]dT[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * 
+   * Spark supports the following zone id forms:
+   *   - Z - Zulu time zone UTC+0
+   *   - +|-[h]h:[m]m
+   *   - A short id, see
+   * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+   *   - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
+   *     and a suffix in the formats:
+   *     - +|-h[h]
+   *     - +|-hh[:]mm
+   *     - +|-hh:mm:ss
+   *     - +|-hhmmss
+   *  - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * Unlike Spark, Spark-Rapids currently does not support DST time zones.
+   *
+   * Note: Do not support cast special strings(epoch now today yesterday tomorrow) to timestamp.
+   * Spark31x supports cast special strings while Spark320+ do not supports
+   *
+   * Example:
+   * input = [" 2023", "2023-01-01T08:00:00Asia/Shanghai "]
+   * ts = toTimestampWithoutTimeZone(input, allowTimeZone = true,
+   * allowSpecialExpressions = true, ansiEnabled = false)
+   * ts is: ['2023-01-01 00:00:00', '2023-01-01T08:00:00']
+   * 
+   * Note: this function will never use the time zones in the strings.
+   * allowTimeZone means whether allow time zone in the timestamp string.
+   * If allowTimeZone is true, the time zones are ignored if has.
+   * if allowTimeZone is false, then this function will throw exception if has any time zone in the strings and it's ANSI mode.
+   * 
+   * @param cv                      The input string column to be converted.
+   * @param allowTimeZone           whether allow time zone in the timestamp
+   *                                string. e.g.:
+   *                                1991-04-14T02:00:00Asia/Shanghai is invalid
+   *                                when do not allow time zone.
+   * @param ansiEnabled             is Ansi mode
+   * @return a timestamp column
+   * @throws IllegalArgumentException if any string in cv has invalid format or contains time zone
+   *                                  while `allowTimeZone` is false when ANSI is true.
+   *
+   */
+  public static ColumnVector toTimestampWithoutTimeZone(ColumnView cv, boolean allowTimeZone, boolean ansiEnabled) {
+    return new ColumnVector(toTimestampWithoutTimeZone(cv.getNativeView(), allowTimeZone,  ansiEnabled));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -163,4 +289,8 @@ public class CastStrings {
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
+  private static native long toTimestamp(long input,
+      long transitions, long tzIndices, int tzIndex, boolean ansiEnabled);
+  private static native long toTimestampWithoutTimeZone(long input, boolean allowTimeZone,
+      boolean ansiEnabled);
 }

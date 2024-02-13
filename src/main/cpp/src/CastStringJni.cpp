@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@
 #include <cudf/unary.hpp>
 
 #include "cudf_jni_apis.hpp"
+#include "datetime_parser.hpp"
 #include "dtype_utils.hpp"
 #include "jni_utils.hpp"
 
@@ -254,5 +255,58 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
     return jni::release_as_jlong(result);
   }
   CATCH_CAST_EXCEPTION(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestamp(JNIEnv* env,
+                                                         jclass,
+                                                         jlong input_column,
+                                                         jlong transitions_handle,
+                                                         jlong tz_indices_col,
+                                                         jint tz_default_index,
+                                                         jboolean ansi_enabled)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const& input_view =
+      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
+    auto const transitions =
+      reinterpret_cast<cudf::table_view const*>(transitions_handle)->column(0);
+    const cudf::column_view* tz_indices_view =
+      reinterpret_cast<cudf::column_view const*>(tz_indices_col);
+    auto const tz_index = static_cast<cudf::size_type>(tz_default_index);
+    auto ret_cv         = spark_rapids_jni::string_to_timestamp_with_tz(
+      input_view, transitions, *tz_indices_view, tz_index, ansi_enabled);
+    if (ret_cv) { return cudf::jni::release_as_jlong(ret_cv); }
+  }
+  CATCH_STD(env, 0);
+
+  // sucess is false, throw exception.
+  // Note: do not need to release ret_cv, because it's nullptr when success is
+  // false.
+  JNI_THROW_NEW(env, "java/lang/IllegalArgumentException", "Parse failed on Ansi mode", 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toTimestampWithoutTimeZone(
+  JNIEnv* env, jclass, jlong input_column, jboolean allow_time_zone, jboolean ansi_enabled)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_view =
+      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
+
+    auto ret_cv =
+      spark_rapids_jni::string_to_timestamp_without_tz(input_view, allow_time_zone, ansi_enabled);
+    if (ret_cv) { return cudf::jni::release_as_jlong(ret_cv); }
+  }
+  CATCH_STD(env, 0);
+
+  // sucess is false, throw exception.
+  // Note: do not need to release ret_cv, because it's nullptr when success is
+  // false.
+  JNI_THROW_NEW(env, "java/lang/IllegalArgumentException", "Parse failed on Ansi mode", 0);
 }
 }
