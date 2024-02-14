@@ -15,6 +15,8 @@
  */
 package com.nvidia.spark.rapids.jni;
 
+import com.nvidia.spark.rapids.jni.RmmSpark.OomInjectionType;
+
 import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
@@ -26,7 +28,15 @@ public class SparkResourceAdaptor
     NativeDepsLoader.loadNativeDeps();
   }
 
+  /**
+   * How long does the SparkResourceAdaptor pool thread states as a watchdog to break up potential
+   * deadlocks.
+   */
+  private static final long pollingPeriod = Long.getLong(
+      "ai.rapids.cudf.spark.rmmWatchdogPollingPeriod", 100);
+
   private long handle = 0;
+  private Thread watchDog;
 
   /**
    * Create a new tracking resource adaptor.
@@ -46,6 +56,17 @@ public class SparkResourceAdaptor
   public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped,
       String logLoc) {
     super(wrapped);
+    watchDog = new Thread(() -> {
+      try {
+        while (handle > 0) {
+          checkAndBreakDeadlocks();
+          Thread.sleep(pollingPeriod);
+        }
+      } catch (InterruptedException e) {
+        // We are going to exit, so ignore the exception
+        Thread.currentThread().interrupt();
+      }
+    }, "SparkResourceAdaptor WatchDog");
     // Do a little normalization before setting up logging...
     if ("stderr".equalsIgnoreCase(logLoc)) {
       logLoc = "stderr";
@@ -53,6 +74,8 @@ public class SparkResourceAdaptor
       logLoc = "stdout";
     }
     handle = createNewAdaptor(wrapped.getHandle(), logLoc);
+    watchDog.setDaemon(true);
+    watchDog.start();
   }
 
   @Override
@@ -75,12 +98,14 @@ public class SparkResourceAdaptor
   }
 
   /**
-   * Associate a thread with a given task id.
+   * Start a dedicated task thread. There can be more than one thread for a task. It is also
+   * possible for this thread to be in a thread pool. It is just that there is no way if this
+   * thread blocks that it will transitively block any other active tasks.
    * @param threadId the thread ID to use (not java thread id)
    * @param taskId the task ID this thread is associated with.
    */
-  public void associateThreadWithTask(long threadId, long taskId) {
-    associateThreadWithTask(getHandle(), threadId, taskId);
+  public void startDedicatedTaskThread(long threadId, long taskId) {
+    startDedicatedTaskThread(getHandle(), threadId, taskId);
   }
 
   public void startRetryBlock(long threadId) {
@@ -91,20 +116,38 @@ public class SparkResourceAdaptor
     endRetryBlock(getHandle(), threadId);
   }
 
+  public void checkAndBreakDeadlocks() {
+    checkAndBreakDeadlocks(getHandle());
+  }
+
   /**
-   * Associate a thread with shuffle.
-   * @param threadId the thread ID to associate (not java thread id).
+   * A thread in a shared thread pool has picked up some work for a set of tasks.
+   * @param isForShuffle true if this is for shuffle, else false. Shuffle allows
+   *                     for multiple task ids to be active at once, and also has
+   *                     the highest priority to run. Other pool threads will have
+   *                     a priority based off of the tasks they are working for.
+   * @param threadId the thread that will be doing the work.
+   * @param taskIds the ids of the tasks that it will be working on.
    */
-  public void associateThreadWithShuffle(long threadId) {
-    associateThreadWithShuffle(getHandle(), threadId);
+  public void poolThreadWorkingOnTasks(boolean isForShuffle, long threadId, long[] taskIds) {
+    if (taskIds.length > 0) {
+      poolThreadWorkingOnTasks(getHandle(), isForShuffle, threadId, taskIds);
+    }
+  }
+
+  public void poolThreadFinishedForTasks(long threadId, long[] taskIds) {
+    if (taskIds.length > 0) {
+      poolThreadFinishedForTasks(getHandle(), threadId, taskIds);
+    }
   }
 
   /**
    * Remove the given thread ID from any association.
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle (not java thread id).
+   * @param taskId the task that is being removed. If the task id is -1, then any/all tasks are removed.
    */
-  public void removeThreadAssociation(long threadId) {
-    removeThreadAssociation(getHandle(), threadId);
+  public void removeThreadAssociation(long threadId, long taskId) {
+    removeThreadAssociation(getHandle(), threadId, taskId);
   }
 
   /**
@@ -117,41 +160,63 @@ public class SparkResourceAdaptor
   }
 
   /**
-   * Indicate that the given thread could block on shuffle.
-   * @param threadId the id of the thread that could block (not java thread id).
+   * A dedicated task thread is going to submit work to a pool.
+   * @param threadId the ID of the thread that will submit the work.
    */
-  public void threadCouldBlockOnShuffle(long threadId) {
-    threadCouldBlockOnShuffle(getHandle(), threadId);
+  public void submittingToPool(long threadId) {
+    submittingToPool(getHandle(), threadId);
   }
 
   /**
-   * Indicate that the given thread can no longer block on shuffle.
-   * @param threadId the ID of the thread that o longer can block on shuffle (not java thread id).
+   * A dedicated task thread is going to wait on work in a pool to complete.
+   * @param threadId the ID of the thread that will submit the work.
    */
-  public void threadDoneWithShuffle(long threadId) {
-    threadDoneWithShuffle(getHandle(), threadId);
+  public void waitingOnPool(long threadId) {
+    waitingOnPool(getHandle(), threadId);
   }
 
   /**
-   * Force the thread with the given ID to throw a RetryOOM on their next allocation attempt.
+   * A dedicated task thread is done waiting on a pool. This could be because of submitting
+   * something to the pool or waiting on a result from the pool.
+   * @param threadId the ID of the thread that is done.
+   */
+  public void doneWaitingOnPool(long threadId) {
+    doneWaitingOnPool(getHandle(), threadId);
+  }
+
+  /**
+   * Force the thread with the given ID to throw a GpuRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the RetryOOM should be thrown
+   * @param numOOMs the number of times the GpuRetryOOM should be thrown
+   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
-  public void forceRetryOOM(long threadId, int numOOMs) {
-    forceRetryOOM(getHandle(), threadId, numOOMs);
+  public void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oomMode, skipCount);
+    forceRetryOOM(getHandle(), threadId, numOOMs, oomMode, skipCount);
+  }
+
+  private void validateOOMInjectionParams(int numOOMs, int oomMode, int skipCount) {
+    assert numOOMs >= 0 : "non-negative numOoms expected: actual=" + numOOMs;
+    assert skipCount >= 0 : "non-negative skipCount expected: actual=" + skipCount;
+    assert oomMode >= 0 && oomMode < OomInjectionType.values().length:
+      "non-negative oomMode<" + OomInjectionType.values().length + " expected: actual=" + oomMode;
   }
 
   /**
-   * Force the thread with the given ID to throw a SplitAndRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the SplitAndRetryOOM should be thrown
+   * @param numOOMs the number of times the GpuSplitAndRetryOOM should be thrown
+   * @param oomMode ordinal of the corresponding RmmSpark.OomInjectionType
+   * @param skipCount the number of times a matching allocation is skipped before injecting the first OOM
    */
-  public void forceSplitAndRetryOOM(long threadId, int numOOMs) {
-    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs);
+  public void forceSplitAndRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
+    validateOOMInjectionParams(numOOMs, oomMode, skipCount);
+    forceSplitAndRetryOOM(getHandle(), threadId, numOOMs, oomMode, skipCount);
   }
 
   /**
-   * Force the thread with the given ID to throw a SplitAndRetryOOM on their next allocation attempt.
+   * Force the thread with the given ID to throw a GpuSplitAndRetryOOM on their next allocation attempt.
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numTimes the number of times the CudfException should be thrown
    */
@@ -186,6 +251,49 @@ public class SparkResourceAdaptor
     return getAndResetComputeTimeLostToRetry(getHandle(), taskId);
   }
 
+
+  /**
+   * Called before doing an allocation on the CPU. This could throw an injected exception to help
+   * with testing.
+   * @param amount the amount of memory being requested
+   * @param blocking is this for a blocking allocate or a non-blocking one.
+   */
+  public boolean preCpuAlloc(long amount, boolean blocking) {
+    return preCpuAlloc(getHandle(), amount, blocking);
+  }
+
+  /**
+   * The allocation that was going to be done succeeded.
+   * @param ptr a pointer to the memory that was allocated.
+   * @param amount the amount of memory that was allocated.
+   * @param blocking is this for a blocking allocate or a non-blocking one.
+   * @param wasRecursive the result of calling preCpuAlloc.
+   */
+  public void postCpuAllocSuccess(long ptr, long amount, boolean blocking, boolean wasRecursive) {
+    postCpuAllocSuccess(getHandle(), ptr, amount, blocking, wasRecursive);
+  }
+
+  /**
+   * The allocation failed, and spilling didn't save it.
+   * @param wasOom was the failure caused by an OOM or something else.
+   * @param blocking is this for a blocking allocate or a non-blocking one.
+   * @param wasRecursive the result of calling preCpuAlloc
+   * @return true if the allocation should be retried else false if the state machine
+   * thinks that a retry would not help.
+   */
+  public boolean postCpuAllocFailed(boolean wasOom, boolean blocking, boolean wasRecursive) {
+    return postCpuAllocFailed(getHandle(), wasOom, blocking, wasRecursive);
+  }
+
+  /**
+   * Some CPU memory was freed.
+   * @param ptr a pointer to the memory being deallocated.
+   * @param amount the amount that was made available.
+   */
+  public void cpuDeallocate(long ptr, long amount) {
+    cpuDeallocate(getHandle(), ptr, amount);
+  }
+
   /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
@@ -194,14 +302,16 @@ public class SparkResourceAdaptor
 
   private native static long createNewAdaptor(long wrappedHandle, String logLoc);
   private native static void releaseAdaptor(long handle);
-  private static native void associateThreadWithTask(long handle, long threadId, long taskId);
-  private static native void associateThreadWithShuffle(long handle, long threadId);
-  private static native void removeThreadAssociation(long handle, long threadId);
+  private static native void startDedicatedTaskThread(long handle, long threadId, long taskId);
+  private static native void poolThreadWorkingOnTasks(long handle, boolean isForShuffle, long threadId, long[] taskIds);
+  private static native void poolThreadFinishedForTasks(long handle, long threadId, long[] taskIds);
+  private static native void removeThreadAssociation(long handle, long threadId, long taskId);
   private static native void taskDone(long handle, long taskId);
-  private static native void threadCouldBlockOnShuffle(long handle, long threadId);
-  private static native void threadDoneWithShuffle(long handle, long threadId);
-  private static native void forceRetryOOM(long handle, long threadId, int numOOMs);
-  private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs);
+  private static native void submittingToPool(long handle, long threadId);
+  private static native void waitingOnPool(long handle, long threadId);
+  private static native void doneWaitingOnPool(long handle, long threadId);
+  private static native void forceRetryOOM(long handle, long threadId, int numOOMs, int oomMode, int skipCount);
+  private static native void forceSplitAndRetryOOM(long handle, long threadId, int numOOMs, int oomMode, int skipCount);
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
   private static native int getStateOf(long handle, long threadId);
@@ -211,4 +321,11 @@ public class SparkResourceAdaptor
   private static native long getAndResetComputeTimeLostToRetry(long handle, long taskId);
   private static native void startRetryBlock(long handle, long threadId);
   private static native void endRetryBlock(long handle, long threadId);
+  private static native void checkAndBreakDeadlocks(long handle);
+  private static native boolean preCpuAlloc(long handle, long amount, boolean blocking);
+  private static native void postCpuAllocSuccess(long handle, long ptr, long amount,
+                                                 boolean blocking, boolean wasRecursive);
+  private static native boolean postCpuAllocFailed(long handle, boolean wasOom,
+                                                   boolean blocking, boolean wasRecursive);
+  private static native void cpuDeallocate(long handle, long ptr, long amount);
 }

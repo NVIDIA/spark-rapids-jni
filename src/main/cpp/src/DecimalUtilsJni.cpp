@@ -19,8 +19,13 @@
 
 extern "C" {
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_multiply128(
-  JNIEnv* env, jclass, jlong j_view_a, jlong j_view_b, jint j_product_scale)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_DecimalUtils_multiply128(JNIEnv* env,
+                                                          jclass,
+                                                          jlong j_view_a,
+                                                          jlong j_view_b,
+                                                          jint j_product_scale,
+                                                          bool cast_interim_result)
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
@@ -30,7 +35,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_multi
     auto view_b = reinterpret_cast<cudf::column_view const*>(j_view_b);
     auto scale  = static_cast<int>(j_product_scale);
     return cudf::jni::convert_table_for_return(
-      env, cudf::jni::multiply_decimal128(*view_a, *view_b, scale));
+      env, cudf::jni::multiply_decimal128(*view_a, *view_b, scale, cast_interim_result));
   }
   CATCH_STD(env, 0);
 }

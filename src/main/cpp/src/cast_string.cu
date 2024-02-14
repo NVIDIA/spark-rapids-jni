@@ -624,7 +624,7 @@ void validate_ansi_column(column_view const& col,
     dest.resize(string_bounds[1] - string_bounds[0]);
 
     cudaMemcpyAsync(dest.data(),
-                    &source_col.chars().data<char const>()[string_bounds[0]],
+                    &source_col.chars_begin(stream)[string_bounds[0]],
                     string_bounds[1] - string_bounds[0],
                     cudaMemcpyDeviceToHost,
                     stream.value());
@@ -667,7 +667,7 @@ struct string_to_integer_impl {
     detail::string_to_integer_kernel<<<blocks, threads, 0, stream.value()>>>(
       data.data(),
       null_mask.data(),
-      string_col.chars().data<char const>(),
+      string_col.chars_begin(stream),
       string_col.offsets().data<size_type>(),
       string_col.null_mask(),
       string_col.size(),
@@ -736,7 +736,7 @@ struct string_to_decimal_impl {
     detail::string_to_decimal_kernel<<<blocks, threads, 0, stream.value()>>>(
       data.data(),
       null_mask.data(),
-      string_col.chars().data<char const>(),
+      string_col.chars_begin(stream),
       string_col.offsets().data<size_type>(),
       string_col.null_mask(),
       string_col.size(),

@@ -28,6 +28,17 @@ There are two types of branches in this repository:
   is held here. `main` will change with new releases, but otherwise it should not change with
   every pull request merged, making it a more stable branch.
 
+## Git Submodules
+
+This repository uses Git submodules. After cloning this repository or moving to a new commit
+in this repository you will need to ensure the submodules are initialized and updated to the
+expected submodule commits. This can be done by executing the following command at the top of
+the repository:
+
+```commandline
+git submodule update --init --recursive
+```
+
 ## Building From Source
 
 [Maven](https://maven.apache.org) is used for most aspects of the build. For example, the
@@ -149,7 +160,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-23.12/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-24.02/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
