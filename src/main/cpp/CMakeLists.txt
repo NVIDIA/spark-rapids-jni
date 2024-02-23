@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include(../../../thirdparty/cudf/fetch_rapids.cmake)
+include(../../../thirdparty/cudf/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
