@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#include <row_conversion.hpp>
-
 #include <benchmarks/common/generate_input.hpp>
 
-#include <nvbench/nvbench.cuh>
+#include <cudf_test/column_utilities.hpp>
 
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf_test/column_utilities.hpp>
+
+#include <nvbench/nvbench.cuh>
+#include <row_conversion.hpp>
 
 void fixed_width(nvbench::state& state)
 {
