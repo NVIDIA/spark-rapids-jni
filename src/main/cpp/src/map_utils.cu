@@ -53,7 +53,6 @@
 
 //
 #include <cub/device/device_radix_sort.cuh>
-
 #include <cuda/functional>
 
 namespace spark_rapids_jni {

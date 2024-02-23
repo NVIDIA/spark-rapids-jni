@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+#include "map_utils.hpp"
+
 #include <cudf_jni_apis.hpp>
 #include <dtype_utils.hpp>
-
-#include "map_utils.hpp"
 
 extern "C" {
 

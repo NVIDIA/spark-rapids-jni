@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,10 @@
  */
 
 #include "bloom_filter.hpp"
-#include "utilities.hpp"
-
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
 #include "jni_utils.hpp"
+#include "utilities.hpp"
 
 extern "C" {
 
