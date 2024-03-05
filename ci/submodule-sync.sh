@@ -22,7 +22,7 @@
 
 set -ex
 
-OWNER=${OWNER:-"NVTIMLIU"}
+OWNER=${OWNER:-"NVIDIA"}
 REPO=${REPO:-"spark-rapids-jni"}
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 REPO_LOC="github.com/${OWNER}/${REPO}.git"
@@ -50,13 +50,7 @@ else
 fi
 
 # sync up cudf from remote
-if [ -n "$CUDF_TAG" ]; then
-  pushd thirdparty/cudf
-  git checkout tags/$CUDF_TAG
-  popd
-else
-  git submodule update --remote --merge
-fi
+git submodule update --remote --merge
 cudf_sha=$(git -C thirdparty/cudf rev-parse HEAD)
 if [[ "${cudf_sha}" == "${cudf_prev_sha}" ]]; then
   echo "Submodule is up to date."
@@ -65,18 +59,14 @@ fi
 
 echo "Try update cudf submodule to ${cudf_sha}..."
 git add .
-if [ -n "$CUDF_TAG" ]; then
-  git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${CUDF_TAG}"
-else
-  git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
-fi
+git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
 sha=$(git rev-parse HEAD)
 
 echo "Test against ${cudf_sha}..."
 
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 set +e
-echo ${MVN} verify ${MVN_MIRROR} \
+${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
