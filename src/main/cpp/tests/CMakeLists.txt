@@ -74,3 +74,6 @@ ConfigureTest(UTILITIES
 
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
+
+ConfigureTest(GET_JSON_OBJECT
+    json_parser_tests.cpp)
