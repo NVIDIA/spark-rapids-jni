@@ -574,11 +574,8 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
     substring_fn{unified_json_buff, extract_ranges}, num_extract, stream, mr);
-  return cudf::make_strings_column(num_extract,
-                                   std::move(offsets),
-                                   chars.release(),
-                                   0,
-                                   rmm::device_buffer{});
+  return cudf::make_strings_column(
+    num_extract, std::move(offsets), chars.release(), 0, rmm::device_buffer{});
 }
 
 // Compute the offsets for the final lists of Struct<String,String>.
