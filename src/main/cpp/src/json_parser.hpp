@@ -1168,11 +1168,10 @@ class json_parser {
    * get current number text.
    * if current token is not number, return pair(nullptr, -1)
    */
-  CUDF_HOST_DEVICE thrust::pair<char const *, cudf::size_type> get_current_number_text()
+  CUDF_HOST_DEVICE thrust::pair<char const*, cudf::size_type> get_current_number_text()
   {
     if (curr_token != json_token::VALUE_NUMBER_FLOAT &&
-        curr_token != json_token::VALUE_NUMBER_INT)
-    {
+        curr_token != json_token::VALUE_NUMBER_INT) {
       return thrust::make_pair(nullptr, -1);
     }
 

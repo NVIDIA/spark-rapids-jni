@@ -786,8 +786,10 @@ TEST_F(JsonParserTests, TryCopyRawTextOther)
   assert_start_with(buf, buf_size, "");
 }
 
-void assert_ptr_len(char const *actaul_ptr,
-                    cudf::size_type actual_len, char *expected_ptr, cudf::size_type expected_len)
+void assert_ptr_len(char const* actaul_ptr,
+                    cudf::size_type actual_len,
+                    char* expected_ptr,
+                    cudf::size_type expected_len)
 {
   assert(expected_ptr == actaul_ptr);
   assert(expected_len == actual_len);
@@ -796,7 +798,7 @@ void assert_ptr_len(char const *actaul_ptr,
 TEST_F(JsonParserTests, GetNumberText)
 {
   std::string json = "[-12.45e056,123456789]  ";
-  auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
   // avoid unused-but-set-variable compile warnning
   parser.reset();
 

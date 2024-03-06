@@ -80,7 +80,7 @@ class json_generator {
 
   /**
    * get buffer for the current top generator
-  */
+   */
   thrust::pair<char const*, cudf::size_type> get_buffer()
   {
     // delete_generator after get_buffer is used.
@@ -95,9 +95,8 @@ class json_generator {
 
   /**
    * write a char
-  */
-  void write_char(char c) {
-  }
+   */
+  void write_char(char c) {}
 
   /**
    * Get text from JSON parser and then write the text
@@ -105,8 +104,9 @@ class json_generator {
    * JSON parser should do unescape to remove '\' and JSON parser
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
-  */
-  void write_raw(json_parser<max_json_nesting_depth>& parser) {
+   */
+  void write_raw(json_parser<max_json_nesting_depth>& parser)
+  {
     // impl will like:
     // parser.write_current_text(g);
     // def parser.write_text {
@@ -118,10 +118,8 @@ class json_generator {
 
   /**
    * Because nested generator, should record the max length.
-  */
-  cudf::size_type get_max_len() {
-    return 0;
-  }
+   */
+  cudf::size_type get_max_len() { return 0; }
 
  private:
   // records generator start pointers

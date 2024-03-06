@@ -60,6 +60,9 @@ ConfigureTest(CAST_FLOAT_TO_STRING
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
+ConfigureTest(GET_JSON_OBJECT
+    json_parser_tests.cpp)
+
 ConfigureTest(HASH
     hash.cpp)
 
@@ -75,5 +78,3 @@ ConfigureTest(UTILITIES
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
 
-ConfigureTest(GET_JSON_OBJECT
-    json_parser_tests.cpp)
