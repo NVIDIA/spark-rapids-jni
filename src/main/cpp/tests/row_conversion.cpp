@@ -22,7 +22,6 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/lists/lists_column_view.hpp>
-#include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
 
 #include <row_conversion.hpp>
