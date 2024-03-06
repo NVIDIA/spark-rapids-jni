@@ -171,6 +171,7 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
+  src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
