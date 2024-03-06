@@ -785,3 +785,42 @@ TEST_F(JsonParserTests, TryCopyRawTextOther)
   assert(!parser.try_copy_raw_text(buf));
   assert_start_with(buf, buf_size, "");
 }
+
+void assert_ptr_len(char const *actaul_ptr,
+                    cudf::size_type actual_len, char *expected_ptr, cudf::size_type expected_len)
+{
+  assert(expected_ptr == actaul_ptr);
+  assert(expected_len == actual_len);
+}
+
+TEST_F(JsonParserTests, GetNumberText)
+{
+  std::string json = "[-12.45e056,123456789]  ";
+  auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  // avoid unused-but-set-variable compile warnning
+  parser.reset();
+
+  assert(json_token::INIT == parser.get_current_token());
+  auto [ptr1, len1] = parser.get_current_number_text();
+  assert_ptr_len(ptr1, len1, nullptr, -1);
+
+  assert(json_token::START_ARRAY == parser.next_token());
+  auto [ptr2, len2] = parser.get_current_number_text();
+  assert_ptr_len(ptr2, len2, nullptr, -1);
+
+  assert(json_token::VALUE_NUMBER_FLOAT == parser.next_token());
+  auto [ptr3, len3] = parser.get_current_number_text();
+  assert_ptr_len(ptr3, len3, json.data() + 1, 10);
+
+  assert(json_token::VALUE_NUMBER_INT == parser.next_token());
+  auto [ptr4, len4] = parser.get_current_number_text();
+  assert_ptr_len(ptr4, len4, json.data() + 21, 9);
+
+  assert(json_token::END_ARRAY == parser.next_token());
+  auto [ptr5, len5] = parser.get_current_number_text();
+  assert_ptr_len(ptr5, len5, nullptr, -1);
+
+  assert(json_token::SUCCESS == parser.next_token());
+  auto [ptr6, len6] = parser.get_current_number_text();
+  assert_ptr_len(ptr6, len6, nullptr, -1);
+}

@@ -18,6 +18,8 @@
 #include <cudf/strings/detail/utf8.hpp>
 #include <cudf/types.hpp>
 
+#include <thrust/pair.h>
+
 namespace spark_rapids_jni {
 
 /**
@@ -1160,6 +1162,21 @@ class json_parser {
     stack_size      = 0;
     token_start_pos = json_start_pos;
     token_str_len   = 0;
+  }
+
+  /**
+   * get current number text.
+   * if current token is not number, return pair(nullptr, -1)
+   */
+  CUDF_HOST_DEVICE thrust::pair<char const *, cudf::size_type> get_current_number_text()
+  {
+    if (curr_token != json_token::VALUE_NUMBER_FLOAT &&
+        curr_token != json_token::VALUE_NUMBER_INT)
+    {
+      return thrust::make_pair(nullptr, -1);
+    }
+
+    return thrust::make_pair(token_start_pos, token_str_len);
   }
 
  private:
