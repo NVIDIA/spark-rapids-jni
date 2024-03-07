@@ -29,7 +29,7 @@ echo_build_properties() {
   libcudf_path=$3
   shift 3
   echo version=$version
-  echo user=$USER
+  echo user=$(whoami)
   echo revision=$(cd "$git_path" && git rev-parse HEAD)
   echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
