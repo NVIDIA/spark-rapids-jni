@@ -27,7 +27,7 @@ echo_build_properties() {
   git_path=$2
   shift 2
   echo version=$version
-  echo user=$USER
+  echo user=$(whoami)
   echo revision=$(cd "$git_path" && git rev-parse HEAD)
   echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
