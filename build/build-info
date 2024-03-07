@@ -34,7 +34,7 @@ echo_build_properties() {
   echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo url=$(cd "$git_path" && git config --get remote.origin.url)
-  echo gpu_architectures=$(cuobjdump "$libcudf_path" 2>/dev/null | grep 'arch = ' | awk -F_ '{print $2}' | sort -n -u | tr '\n' ';')
+  echo gpu_architectures=$(cuobjdump "$libcudf_path" 2>/dev/null | awk -F_ '/arch =/ {print $2}' | sort -n -u | tr '\n' ';')
   for arg in "$@"; do
     echo $arg
   done
