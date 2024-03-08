@@ -312,7 +312,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
       col.size(),
       rmm::device_buffer{0, stream, mr},  // no data
       cudf::detail::create_null_mask(col.size(), cudf::mask_state::ALL_NULL, stream, mr),
-      col.size());  // null count
+      col.size());                        // null count
   }
 
   // compute output sizes
