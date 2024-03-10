@@ -401,8 +401,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
 
-  bool supports_streams() const noexcept override { return resource->supports_streams(); }
-
   /**
    * Update the internal state so that a specific thread is dedicated to a task.
    * This may be called multiple times for a given thread and if the thread is already
