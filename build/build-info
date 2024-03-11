@@ -35,10 +35,15 @@ echo_build_properties() {
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo url=$(cd "$git_path" && git config --get remote.origin.url)
   echo gpu_architectures=$(
-    cuobjdump libcudf.a | \
-    awk '
-      match($0, /arch = sm_([0-9]+)/, tmp) { arch[tmp[1]]=1 } 
-      END { for (a in arch) s = s ";" a; printf substr(s, 2) }
+    cuobjdump "$libcudf_path" | gawk '
+      match($0, /arch = sm_([0-9]+)/, tmp) { arch[tmp[1]]=tmp[1] }
+      END {
+     	asort(arch) 
+      	for (i in arch) {
+	  s = s ";" arch[i]
+        }
+	printf substr(s, 2) 
+      }
     '
   )
   for arg in "$@"; do
