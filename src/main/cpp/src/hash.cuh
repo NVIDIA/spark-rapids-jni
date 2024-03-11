@@ -25,6 +25,32 @@
 
 namespace spark_rapids_jni {
 
+constexpr int64_t DEFAULT_XXHASH64_SEED = 42;
+
+/**
+ * Normalization of floating point NaNs, passthrough for all other values.
+ */
+template <typename T>
+T __device__ inline normalize_nans(T const& key)
+{
+  if constexpr (cudf::is_floating_point<T>()) {
+    if (std::isnan(key)) { return std::numeric_limits<T>::quiet_NaN(); }
+  }
+  return key;
+}
+
+/**
+ * Normalization of floating point NaNs and zeros, passthrough for all other values.
+ */
+template <typename T>
+T __device__ inline normalize_nans_and_zeros(T const& key)
+{
+  if constexpr (cudf::is_floating_point<T>()) {
+    if (key == T{0.0}) { return T{0.0}; }
+  }
+  return normalize_nans(key);
+}
+
 /**
  * @brief Converts a cudf decimal128 value to a java bigdecimal value.
  *
@@ -88,6 +114,22 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
 std::unique_ptr<cudf::column> murmur_hash3_32(
   cudf::table_view const& input,
   uint32_t seed                       = 0,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Computes the xxhash64 hash value of each row in the input set of columns.
+ *
+ * @param input The table of columns to hash
+ * @param seed Optional seed value to use for the hash function
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> xxhash64(
+  cudf::table_view const& input,
+  int64_t seed                        = DEFAULT_XXHASH64_SEED,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

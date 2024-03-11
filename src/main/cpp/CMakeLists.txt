@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022-2023, NVIDIA CORPORATION.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include(../../../thirdparty/cudf/fetch_rapids.cmake)
+include(../../../thirdparty/cudf/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 23.08.00
+  VERSION 24.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -43,6 +43,7 @@ option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream"
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" OFF)
 option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
+option(BUILD_FAULTINJ "Configure CMake to build fault injection" ON)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
@@ -50,6 +51,7 @@ message(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
+message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build fault injection: ${BUILD_FAULTINJ}")
 
 set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
 set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
@@ -57,6 +59,7 @@ set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
+set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -91,11 +94,8 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
-# find libcu++
-include(${rapids-cmake-dir}/cpm/libcudacxx.cmake)
-
-# find thrust/cub
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thrust.cmake)
+# find CCCL
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # JNI
 find_package(JNI REQUIRED)
@@ -146,21 +146,35 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/BloomFilterJni.cpp
   src/CastStringJni.cpp
+  src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
+  src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
+  src/HistogramJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
+  src/ParseURIJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
+  src/bloom_filter.cu
   src/cast_decimal_to_string.cu
+  src/format_float.cu
+  src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
+  src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
+  src/parse_uri.cu
   src/row_conversion.cu
+  src/timezones.cu
+  src/utilities.cu
+  src/xxhash64.cu
   src/zorder.cu
 )
 
@@ -273,4 +287,6 @@ if(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-add_subdirectory(faultinj)
+if(SPARK_RAPIDS_JNI_BUILD_FAULTINJ)
+  add_subdirectory(faultinj)
+endif()

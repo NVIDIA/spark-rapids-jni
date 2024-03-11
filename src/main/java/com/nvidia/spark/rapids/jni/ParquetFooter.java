@@ -103,8 +103,12 @@ public class ParquetFooter implements AutoCloseable {
    * footer file. This will include the MAGIC PAR1 at the beginning and end and also the
    * length of the footer just before the PAR1 at the end.
    */
+  public HostMemoryBuffer serializeThriftFile(HostMemoryAllocator hostMemoryAllocator) {
+    return serializeThriftFile(nativeHandle, hostMemoryAllocator);
+  }
+
   public HostMemoryBuffer serializeThriftFile() {
-    return serializeThriftFile(nativeHandle);
+    return serializeThriftFile(DefaultHostMemoryAllocator.get());
   }
 
   /**
@@ -232,5 +236,6 @@ public class ParquetFooter implements AutoCloseable {
 
   private static native int getNumColumns(long nativeHandle);
 
-  private static native HostMemoryBuffer serializeThriftFile(long nativeHandle);
+  private static native HostMemoryBuffer serializeThriftFile(long nativeHandle,
+    HostMemoryAllocator hostMemoryAllocator);
 }

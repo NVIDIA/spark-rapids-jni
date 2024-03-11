@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ target_compile_options(
 )
 
 target_link_libraries(
-  spark_rapids_jni_datagen PUBLIC cudf::cudf 
+  spark_rapids_jni_datagen PUBLIC cudf::cudf
 )
 
 target_include_directories(
@@ -56,7 +56,7 @@ function(ConfigureBench CMAKE_BENCH_NAME)
                    CUDA_STANDARD_REQUIRED ON
         )
     target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main spark_rapids_jni_datagen ${CUDF_BENCHMARK_COMMON}
-                                              cudf::cudf spark_rapids_jni Threads::Threads)
+                                              cudf::cudf spark_rapids_jni Threads::Threads cudf::cudftestutil)
     install(
         TARGETS ${CMAKE_BENCH_NAME}
         COMPONENT testing
@@ -74,3 +74,9 @@ ConfigureBench(ROW_CONVERSION_BENCH
 
 ConfigureBench(STRING_TO_FLOAT_BENCH
   cast_string_to_float.cpp)
+
+ConfigureBench(BLOOM_FILTER_BENCH
+  bloom_filter.cu)
+
+ConfigureBench(PARSE_URI_BENCH
+  parse_uri.cpp)

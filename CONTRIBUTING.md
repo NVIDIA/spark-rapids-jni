@@ -28,6 +28,17 @@ There are two types of branches in this repository:
   is held here. `main` will change with new releases, but otherwise it should not change with
   every pull request merged, making it a more stable branch.
 
+## Git Submodules
+
+This repository uses Git submodules. After cloning this repository or moving to a new commit
+in this repository you will need to ensure the submodules are initialized and updated to the
+expected submodule commits. This can be done by executing the following command at the top of
+the repository:
+
+```commandline
+git submodule update --init --recursive
+```
+
 ## Building From Source
 
 [Maven](https://maven.apache.org) is used for most aspects of the build. For example, the
@@ -71,18 +82,19 @@ settings. If an explicit reconfigure of libcudf is needed (e.g.: when changing c
 The following build properties can be set on the Maven command-line (e.g.: `-DCPP_PARALLEL_LEVEL=4`)
 to control aspects of the build:
 
-|Property Name                       |Description                            | Default |
-|------------------------------------|---------------------------------------|---------|
-|`CPP_PARALLEL_LEVEL`                |Parallelism of the C++ builds          | 10      |
-|`GPU_ARCHS`                         |CUDA architectures to target           | RAPIDS  |
-|`CUDF_USE_PER_THREAD_DEFAULT_STREAM`|CUDA per-thread default stream         | ON      |
-|`RMM_LOGGING_LEVEL`                 |RMM logging control                    | OFF     |
-|`USE_GDS`                           |Compile with GPU Direct Storage support| OFF     |
-|`BUILD_TESTS`                       |Compile tests                          | OFF     |
-|`BUILD_BENCHMARKS`                  |Compile benchmarks                     | OFF     |
-|`libcudf.build.configure`           |Force libcudf build to configure       | false   |
-|`libcudf.clean.skip`                |Whether to skip cleaning libcudf build | true    |
-|`submodule.check.skip`              |Whether to skip checking git submodules| false   |
+| Property Name                        | Description                             | Default |
+|--------------------------------------|-----------------------------------------|---------|
+| `CPP_PARALLEL_LEVEL`                 | Parallelism of the C++ builds           | 10      |
+| `GPU_ARCHS`                          | CUDA architectures to target            | RAPIDS  |
+| `CUDF_USE_PER_THREAD_DEFAULT_STREAM` | CUDA per-thread default stream          | ON      |
+| `RMM_LOGGING_LEVEL`                  | RMM logging control                     | OFF     |
+| `USE_GDS`                            | Compile with GPU Direct Storage support | OFF     |
+| `BUILD_TESTS`                        | Compile tests                           | OFF     |
+| `BUILD_BENCHMARKS`                   | Compile benchmarks                      | OFF     |
+| `BUILD_FAULTINJ`                     | Compile fault injection                 | ON      |
+| `libcudf.build.configure`            | Force libcudf build to configure        | false   |
+| `libcudf.clean.skip`                 | Whether to skip cleaning libcudf build  | true    |
+| `submodule.check.skip`               | Whether to skip checking git submodules | false   |
 
 
 ### Local testing of cross-repo contributions cudf, spark-rapids-jni, and spark-rapids
@@ -148,7 +160,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-23.08/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-24.04/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
@@ -224,6 +236,73 @@ in errors finding libraries. The script `build/run-in-docker` was created to hel
 situation. A test can be run directly using this script or the script can be run without any
 arguments to get into an interactive shell inside the container.
 ```build/run-in-docker target/cmake-build/gtests/ROW_CONVERSION```
+
+#### Testing with Compute Sanitizer
+[Compute Sanitizer](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html) is a
+functional correctness checking suite included in the CUDA toolkit. The RAPIDS Accelerator JNI
+supports leveraging the Compute Sanitizer in memcheck mode in the unit tests to help catch any kernels
+that may be doing something incorrectly. To run the unit tests with the Compute Sanitizer, append the
+`-DUSE_SANITIZER=ON` to the build command. e.g.
+```
+>  ./build/build-in-docker clean package -DUSE_SANITIZER=ON
+```
+
+The Compute Sanitizer will output its report into one or multiple log files named as
+`sanitizer_for_pid_<pid number>.log` under the current workspace root path.
+
+Please note not all the unit tests can run with Compute Sanitizer. For example, `RmmTest#testEventHandler`,
+a problematic test, intentionally tries an illegal allocation because of a too big size as part of the
+test, but Compute Sanitizer will still report the errors and fail the whole build process.
+`UnsafeMemoryAccessorTest` is for host memory only, so there is no need to run it with
+Compute Sanitizer either.
+
+If you think your tests are not suitable for Compute Sanitizer, please add the JUnit5 tag (`@Tag("noSanitizer")`)
+to the tests or the test class.
+```
+@Tag("noSanitizer")
+class ExceptionCaseTest { ... }
+
+# or for a single test
+class NormalCaseTest {
+
+  @Tag("noSanitizer")
+  public void testOneErrorCase(){ ... }
+}
+```
+
+### Debugging
+You can add debug symbols selectively to C++ files in spark-rapids-jni by modifying the appropriate
+`CMakeLists.txt` files. You will need to add a specific flag depending on what kind of code you are
+debugging. For CUDA code, you need to add the `-G` flag to add device debug symbols:
+
+```cmake
+set_source_files_properties(src/row_conversion.cu PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For C++ code, you will need to add the `-g` flag to add host debug symbols.
+
+```cmake
+set_source_files_properties(row_conversion.cpp PROPERTIES COMPILE_OPTIONS "-G")
+```
+
+For debugging C++ tests, you need to add both device debug symbols to the CUDA kernel files involved
+in testing (in `src/main/cpp/CMakeLists.txt`) **and** host debug symbols to the CPP files used for
+testing (in `src/main/cpp/tests/CMakeLists.txt`).
+
+You can then use `cuda-gdb` to debug the gtest (NOTE: For Docker, run an interactive shell first and
+then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
+
+```bash
+./build/run-in-docker
+bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
+```
+
+You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
+as well to debug within Visual Studio Code.
+
+To debug libcudf code, please see [Debugging cuDF](thirdparty/cudf/CONTRIBUTING.md#debugging-cudf)
+in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
+
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
 To build these benchmarks requires the `-DBUILD_BENCHMARKS` build option. Once built, the benchmarks
@@ -255,15 +334,36 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues
 and ask for clarifications!
 
 ### Code Formatting
-RAPIDS Accelerator for Apache Spark follows the same coding style guidelines as the Apache Spark
-project.  For IntelliJ IDEA users, an
-[example code style settings file](docs/dev/idea-code-style-settings.xml) is available in the
-`docs/dev/` directory.
 
 #### Java
 
-This project follows the
+This Java code in this project (`src/main/java`) follows the
 [Oracle Java code conventions](http://www.oracle.com/technetwork/java/codeconvtoc-136057.html).
+
+
+#### C++
+
+The C++ code in this project (`src/main/cpp`) follows the
+[coding style from `rapidsai/cudf` repository](https://github.com/rapidsai/cudf/blob/main/cpp/doxygen/developer_guide/DEVELOPER_GUIDE.md#code-and-documentation-style-and-formatting).
+
+We also provide a precommit-hook to format code using cudf's C++ `clang-format` style.
+To use precommit-hook, install it on your system such as using `conda` or `pip`:
+```
+conda install -c conda-forge pre-commit
+```
+```
+pip install pre-commit
+```
+
+Then, run pre-commit hooks before committing your code. This wil reformat the stagged files:
+```
+pre-commit run
+```
+
+And for reformatting all files:
+```
+pre-commit run --all-files
+```
 
 ### Sign your work
 

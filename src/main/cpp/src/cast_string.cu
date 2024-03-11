@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 
 #include "cast_string.hpp"
 
-#include <rmm/device_scalar.hpp>
-#include <rmm/exec_policy.hpp>
-
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/detail/null_mask.hpp>
@@ -26,9 +23,11 @@
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/null_mask.hpp>
 
-#include <cub/warp/warp_reduce.cuh>
+#include <rmm/device_scalar.hpp>
+#include <rmm/exec_policy.hpp>
 
 #include <cooperative_groups.h>
+#include <cub/warp/warp_reduce.cuh>
 
 using namespace cudf;
 
@@ -159,7 +158,7 @@ template <typename T>
 void __global__ string_to_integer_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
-                                         offset_type const* offsets,
+                                         size_type const* offsets,
                                          bitmask_type const* incoming_null_mask,
                                          size_type num_rows,
                                          bool ansi_mode,
@@ -392,7 +391,7 @@ template <typename T>
 __global__ void string_to_decimal_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
-                                         offset_type const* offsets,
+                                         size_type const* offsets,
                                          bitmask_type const* incoming_null_mask,
                                          size_type num_rows,
                                          int32_t scale,
@@ -612,10 +611,10 @@ void validate_ansi_column(column_view const& col,
                                              thrust::make_counting_iterator(col.size()),
                                              row_valid_fn{col.null_mask(), source_col.null_mask()});
 
-    offset_type string_bounds[2];
+    size_type string_bounds[2];
     cudaMemcpyAsync(&string_bounds,
-                    &source_col.offsets().data<offset_type>()[*first_error],
-                    sizeof(offset_type) * 2,
+                    &source_col.offsets().data<size_type>()[*first_error],
+                    sizeof(size_type) * 2,
                     cudaMemcpyDeviceToHost,
                     stream.value());
     stream.synchronize();
@@ -624,7 +623,7 @@ void validate_ansi_column(column_view const& col,
     dest.resize(string_bounds[1] - string_bounds[0]);
 
     cudaMemcpyAsync(dest.data(),
-                    &source_col.chars().data<char const>()[string_bounds[0]],
+                    &source_col.chars_begin(stream)[string_bounds[0]],
                     string_bounds[1] - string_bounds[0],
                     cudaMemcpyDeviceToHost,
                     stream.value());
@@ -667,8 +666,8 @@ struct string_to_integer_impl {
     detail::string_to_integer_kernel<<<blocks, threads, 0, stream.value()>>>(
       data.data(),
       null_mask.data(),
-      string_col.chars().data<char const>(),
-      string_col.offsets().data<offset_type>(),
+      string_col.chars_begin(stream),
+      string_col.offsets().data<size_type>(),
       string_col.null_mask(),
       string_col.size(),
       ansi_mode,
@@ -736,8 +735,8 @@ struct string_to_decimal_impl {
     detail::string_to_decimal_kernel<<<blocks, threads, 0, stream.value()>>>(
       data.data(),
       null_mask.data(),
-      string_col.chars().data<char const>(),
-      string_col.offsets().data<offset_type>(),
+      string_col.chars_begin(stream),
+      string_col.offsets().data<size_type>(),
       string_col.null_mask(),
       string_col.size(),
       dtype.scale(),

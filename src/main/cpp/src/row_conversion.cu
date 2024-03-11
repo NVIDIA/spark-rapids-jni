@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-#include <cooperative_groups.h>
+#include "row_conversion.hpp"
+
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/sequence.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -31,26 +33,20 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/traits.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
+
+#include <cooperative_groups.h>
+#include <cuda/barrier>
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/scan.h>
-#include <type_traits>
-
-#include "row_conversion.hpp"
-
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
-#define ASYNC_MEMCPY_SUPPORTED
-#endif
-
-#if !defined(__CUDA_ARCH__) || defined(ASYNC_MEMCPY_SUPPORTED)
-#include <cuda/barrier>
-#endif  // #if !defined(__CUDA_ARCH__) || defined(ASYNC_MEMCPY_SUPPORTED)
 
 #include <algorithm>
 #include <cstdarg>
@@ -60,6 +56,7 @@
 #include <limits>
 #include <optional>
 #include <tuple>
+#include <type_traits>
 
 namespace {
 
@@ -82,14 +79,8 @@ constexpr auto NUM_WARPS_IN_BLOCK = 32;
 
 using namespace cudf;
 using detail::make_device_uvector_async;
+using detail::make_device_uvector_sync;
 using rmm::device_uvector;
-
-#ifdef ASYNC_MEMCPY_SUPPORTED
-using cuda::aligned_size_t;
-#else
-template <std::size_t>
-using aligned_size_t = size_t;  // Local stub for cuda::aligned_size_t.
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
 namespace spark_rapids_jni {
 namespace detail {
@@ -181,9 +172,9 @@ struct tile_info {
  *
  */
 struct row_batch {
-  size_type num_bytes;                      // number of bytes in this batch
-  size_type row_count;                      // number of rows in the batch
-  device_uvector<offset_type> row_offsets;  // offsets column of output cudf column
+  size_type num_bytes;                    // number of bytes in this batch
+  size_type row_count;                    // number of rows in the batch
+  device_uvector<size_type> row_offsets;  // offsets column of output cudf column
 };
 
 /**
@@ -207,7 +198,7 @@ struct batch_data {
  * @return pair of device vector of size_types of the row sizes of the table and a device vector of
  * offsets into the string column
  */
-std::pair<rmm::device_uvector<size_type>, rmm::device_uvector<strings_column_view::offset_iterator>>
+std::pair<rmm::device_uvector<size_type>, rmm::device_uvector<cudf::detail::input_offsetalator>>
 build_string_row_offsets(table_view const& tbl,
                          size_type fixed_width_and_validity_size,
                          rmm::cuda_stream_view stream)
@@ -217,21 +208,21 @@ build_string_row_offsets(table_view const& tbl,
   thrust::uninitialized_fill(rmm::exec_policy(stream), d_row_sizes.begin(), d_row_sizes.end(), 0);
 
   auto d_offsets_iterators = [&]() {
-    std::vector<strings_column_view::offset_iterator> offsets_iterators;
-    auto offsets_iter = thrust::make_transform_iterator(
-      tbl.begin(), [](auto const& col) -> strings_column_view::offset_iterator {
-        if (!is_fixed_width(col.type())) {
-          CUDF_EXPECTS(col.type().id() == type_id::STRING, "only string columns are supported!");
-          return strings_column_view(col).offsets_begin();
-        } else {
-          return nullptr;
-        }
+    std::vector<cudf::detail::input_offsetalator> offsets_iterators;
+    auto itr = thrust::make_transform_iterator(
+      tbl.begin(), [](auto const& col) -> cudf::detail::input_offsetalator {
+        return cudf::detail::offsetalator_factory::make_input_iterator(
+          strings_column_view(col).offsets(), col.offset());
       });
-    std::copy_if(offsets_iter,
-                 offsets_iter + tbl.num_columns(),
-                 std::back_inserter(offsets_iterators),
-                 [](auto const& offset_ptr) { return offset_ptr != nullptr; });
-    return make_device_uvector_async(
+    auto stencil = thrust::make_transform_iterator(
+      tbl.begin(), [](auto const& col) -> bool { return !is_fixed_width(col.type()); });
+    thrust::copy_if(thrust::host,
+                    itr,
+                    itr + tbl.num_columns(),
+                    stencil,
+                    std::back_inserter(offsets_iterators),
+                    thrust::identity<bool>{});
+    return make_device_uvector_sync(
       offsets_iterators, stream, rmm::mr::get_current_device_resource());
   }();
 
@@ -256,10 +247,11 @@ build_string_row_offsets(table_view const& tbl,
                     d_row_sizes.begin(),
                     d_row_sizes.end(),
                     d_row_sizes.begin(),
-                    [fixed_width_and_validity_size] __device__(auto row_size) {
-                      return util::round_up_unsafe(fixed_width_and_validity_size + row_size,
-                                                   JCUDF_ROW_ALIGNMENT);
-                    });
+                    cuda::proclaim_return_type<size_type>(
+                      [fixed_width_and_validity_size] __device__(auto row_size) {
+                        return util::round_up_unsafe(fixed_width_and_validity_size + row_size,
+                                                     JCUDF_ROW_ALIGNMENT);
+                      }));
 
   return {std::move(d_row_sizes), std::move(d_offsets_iterators)};
 }
@@ -311,14 +303,14 @@ struct fixed_width_row_offset_functor {
  * @param output_nm array of pointers to the output null masks
  * @param input_data pointing to the incoming row data
  */
-__global__ void copy_from_rows_fixed_width_optimized(const size_type num_rows,
-                                                     const size_type num_columns,
-                                                     const size_type row_size,
-                                                     const size_type* input_offset_in_row,
-                                                     const size_type* num_bytes,
-                                                     int8_t** output_data,
-                                                     bitmask_type** output_nm,
-                                                     const int8_t* input_data)
+CUDF_KERNEL void copy_from_rows_fixed_width_optimized(const size_type num_rows,
+                                                      const size_type num_columns,
+                                                      const size_type row_size,
+                                                      const size_type* input_offset_in_row,
+                                                      const size_type* num_bytes,
+                                                      int8_t** output_data,
+                                                      bitmask_type** output_nm,
+                                                      const int8_t* input_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -430,15 +422,15 @@ __global__ void copy_from_rows_fixed_width_optimized(const size_type num_rows,
   }
 }
 
-__global__ void copy_to_rows_fixed_width_optimized(const size_type start_row,
-                                                   const size_type num_rows,
-                                                   const size_type num_columns,
-                                                   const size_type row_size,
-                                                   const size_type* output_offset_in_row,
-                                                   const size_type* num_bytes,
-                                                   const int8_t** input_data,
-                                                   const bitmask_type** input_nm,
-                                                   int8_t* output_data)
+CUDF_KERNEL void copy_to_rows_fixed_width_optimized(const size_type start_row,
+                                                    const size_type num_rows,
+                                                    const size_type num_columns,
+                                                    const size_type row_size,
+                                                    const size_type* output_offset_in_row,
+                                                    const size_type* num_bytes,
+                                                    const int8_t** input_data,
+                                                    const bitmask_type** input_nm,
+                                                    int8_t* output_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -562,12 +554,6 @@ __global__ void copy_to_rows_fixed_width_optimized(const size_type start_row,
   }
 }
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
-#define MEMCPY(dst, src, size, barrier) cuda::memcpy_async(dst, src, size, barrier)
-#else
-#define MEMCPY(dst, src, size, barrier) memcpy(dst, src, size)
-#endif  // ASYNC_MEMCPY_SUPPORTED
-
 /**
  * @brief copy data from cudf columns into JCUDF format, which is row-based
  *
@@ -585,16 +571,16 @@ __global__ void copy_to_rows_fixed_width_optimized(const size_type start_row,
  *
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_to_rows(const size_type num_rows,
-                             const size_type num_columns,
-                             const size_type shmem_used_per_tile,
-                             device_span<const tile_info> tile_infos,
-                             const int8_t** input_data,
-                             const size_type* col_sizes,
-                             const size_type* col_offsets,
-                             RowOffsetFunctor row_offsets,
-                             size_type const* batch_row_boundaries,
-                             int8_t** output_data)
+CUDF_KERNEL void copy_to_rows(const size_type num_rows,
+                              const size_type num_columns,
+                              const size_type shmem_used_per_tile,
+                              device_span<const tile_info> tile_infos,
+                              const int8_t** input_data,
+                              const size_type* col_sizes,
+                              const size_type* col_offsets,
+                              RowOffsetFunctor row_offsets,
+                              size_type const* batch_row_boundaries,
+                              int8_t** output_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -608,11 +594,9 @@ __global__ void copy_to_rows(const size_type num_rows,
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
   extern __shared__ int8_t shared_data[];
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   __shared__ cuda::barrier<cuda::thread_scope_block> tile_barrier;
   if (group.thread_rank() == 0) { init(&tile_barrier, group.size()); }
   group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
   auto const tile                   = tile_infos[blockIdx.x];
   auto const num_tile_cols          = tile.num_cols();
@@ -695,21 +679,11 @@ __global__ void copy_to_rows(const size_type num_rows,
     auto const src = &shared_data[tile_row_size * copy_row];
     auto const dst = tile_output_buffer + row_offsets(copy_row + tile.start_row, row_batch_start) +
                      starting_column_offset;
-#ifdef ASYNC_MEMCPY_SUPPORTED
     cuda::memcpy_async(warp, dst, src, tile_row_size, tile_barrier);
-#else
-    for (int b = warp.thread_rank(); b < tile_row_size; b += warp.size()) {
-      dst[b] = src[b];
-    }
-#endif
   }
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // wait on the last copies to complete
   tile_barrier.arrive_and_wait();
-#else
-  group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 }
 
 /**
@@ -728,15 +702,15 @@ __global__ void copy_to_rows(const size_type num_rows,
  *
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_validity_to_rows(const size_type num_rows,
-                                      const size_type num_columns,
-                                      const size_type shmem_used_per_tile,
-                                      RowOffsetFunctor row_offsets,
-                                      size_type const* batch_row_boundaries,
-                                      int8_t** output_data,
-                                      const size_type validity_offset,
-                                      device_span<const tile_info> tile_infos,
-                                      const bitmask_type** input_nm)
+CUDF_KERNEL void copy_validity_to_rows(const size_type num_rows,
+                                       const size_type num_columns,
+                                       const size_type shmem_used_per_tile,
+                                       RowOffsetFunctor row_offsets,
+                                       size_type const* batch_row_boundaries,
+                                       int8_t** output_data,
+                                       const size_type validity_offset,
+                                       device_span<const tile_info> tile_infos,
+                                       const bitmask_type** input_nm)
 {
   extern __shared__ int8_t shared_data[];
 
@@ -745,12 +719,10 @@ __global__ void copy_validity_to_rows(const size_type num_rows,
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // Initialize cuda barriers for each tile.
   __shared__ cuda::barrier<cuda::thread_scope_block> shared_tile_barrier;
   if (group.thread_rank() == 0) { init(&shared_tile_barrier, group.size()); }
   group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
   auto tile                = tile_infos[blockIdx.x];
   auto const num_tile_cols = tile.num_cols();
@@ -815,21 +787,11 @@ __global__ void copy_validity_to_rows(const size_type num_rows,
        relative_row += warp.meta_group_size()) {
     auto const src = &shared_data[validity_data_row_length * relative_row];
     auto const dst = output_data_base + row_offsets(relative_row + tile.start_row, row_batch_start);
-#ifdef ASYNC_MEMCPY_SUPPORTED
     cuda::memcpy_async(warp, dst, src, row_bytes, shared_tile_barrier);
-#else
-    for (int b = warp.thread_rank(); b < row_bytes; b += warp.size()) {
-      dst[b] = src[b];
-    }
-#endif
   }
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // wait for tile of data to arrive
   shared_tile_barrier.arrive_and_wait();
-#else
-  group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 }
 
 /**
@@ -848,15 +810,15 @@ __global__ void copy_validity_to_rows(const size_type num_rows,
  *
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_strings_to_rows(size_type const num_rows,
-                                     size_type const num_variable_columns,
-                                     int8_t const** variable_input_data,
-                                     size_type const* variable_col_output_offsets,
-                                     size_type const** variable_col_offsets,
-                                     size_type fixed_width_row_size,
-                                     RowOffsetFunctor row_offsets,
-                                     size_type const batch_row_offset,
-                                     int8_t* output_data)
+CUDF_KERNEL void copy_strings_to_rows(size_type const num_rows,
+                                      size_type const num_variable_columns,
+                                      int8_t const** variable_input_data,
+                                      size_type const* variable_col_output_offsets,
+                                      cudf::detail::input_offsetalator* variable_col_offsets,
+                                      size_type fixed_width_row_size,
+                                      RowOffsetFunctor row_offsets,
+                                      size_type const batch_row_offset,
+                                      int8_t* output_data)
 {
   // Each block will take a group of rows controlled by NUM_STRING_ROWS_PER_BLOCK_TO_ROWS. Each warp
   // will copy a row at a time. The base thread will first go through column data and fill out
@@ -864,9 +826,7 @@ __global__ void copy_strings_to_rows(size_type const num_rows,
   // memcpy of the string data.
   auto const my_block = cooperative_groups::this_thread_block();
   auto const warp     = cooperative_groups::tiled_partition<cudf::detail::warp_size>(my_block);
-#ifdef ASYNC_MEMCPY_SUPPORTED
   cuda::barrier<cuda::thread_scope_block> block_barrier;
-#endif
 
   auto const start_row =
     blockIdx.x * NUM_STRING_ROWS_PER_BLOCK_TO_ROWS + warp.meta_group_rank() + batch_row_offset;
@@ -889,13 +849,7 @@ __global__ void copy_strings_to_rows(size_type const num_rows,
       auto string_output_dest = &output_data[base_row_offset + offset];
       auto string_output_src  = &variable_input_data[col][string_start_offset];
       warp.sync();
-#ifdef ASYNC_MEMCPY_SUPPORTED
       cuda::memcpy_async(warp, string_output_dest, string_output_src, string_length, block_barrier);
-#else
-      for (int c = warp.thread_rank(); c < string_length; c += warp.size()) {
-        string_output_dest[c] = string_output_src[c];
-      }
-#endif
       offset += string_length;
     }
   }
@@ -917,16 +871,16 @@ __global__ void copy_strings_to_rows(size_type const num_rows,
  *
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_from_rows(const size_type num_rows,
-                               const size_type num_columns,
-                               const size_type shmem_used_per_tile,
-                               RowOffsetFunctor row_offsets,
-                               size_type const* batch_row_boundaries,
-                               int8_t** output_data,
-                               const size_type* col_sizes,
-                               const size_type* col_offsets,
-                               device_span<const tile_info> tile_infos,
-                               const int8_t* input_data)
+CUDF_KERNEL void copy_from_rows(const size_type num_rows,
+                                const size_type num_columns,
+                                const size_type shmem_used_per_tile,
+                                RowOffsetFunctor row_offsets,
+                                size_type const* batch_row_boundaries,
+                                int8_t** output_data,
+                                const size_type* col_sizes,
+                                const size_type* col_offsets,
+                                device_span<const tile_info> tile_infos,
+                                const int8_t* input_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -943,12 +897,10 @@ __global__ void copy_from_rows(const size_type num_rows,
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
   extern __shared__ int8_t shared[];
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // Initialize cuda barriers for each tile.
   __shared__ cuda::barrier<cuda::thread_scope_block> tile_barrier;
   if (group.thread_rank() == 0) { init(&tile_barrier, group.size()); }
   group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
   {
     auto const fetch_tile           = tile_infos[blockIdx.x];
@@ -966,13 +918,7 @@ __global__ void copy_from_rows(const size_type num_rows,
       auto dst           = &shared[shared_offset];
       auto src = &input_data[row_offsets(absolute_row, row_batch_start) + starting_col_offset];
       // copy the data
-#ifdef ASYNC_MEMCPY_SUPPORTED
       cuda::memcpy_async(warp, dst, src, fetch_tile_row_size, tile_barrier);
-#else
-      for (int b = warp.thread_rank(); b < fetch_tile_row_size; b += warp.size()) {
-        dst[b] = src[b];
-      }
-#endif
     }
   }
 
@@ -982,12 +928,8 @@ __global__ void copy_from_rows(const size_type num_rows,
     auto const cols_in_tile  = tile.num_cols();
     auto const tile_row_size = tile.get_shared_row_size(col_offsets, col_sizes);
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
     // ensure our data is ready
     tile_barrier.arrive_and_wait();
-#else
-    group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
     // Now we copy from shared memory to final destination. The data is laid out in rows in shared
     // memory, so the reads for a column will be "vertical". Because of this and the different sizes
@@ -1010,17 +952,13 @@ __global__ void copy_from_rows(const size_type num_rows,
         int8_t* shmem_src = &shared[shared_memory_offset];
         int8_t* dst       = &output_data[absolute_col][absolute_row * column_size];
 
-        MEMCPY(dst, shmem_src, column_size, tile_barrier);
+        cuda::memcpy_async(dst, shmem_src, column_size, tile_barrier);
       }
     }
   }
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // wait on the last copies to complete
   tile_barrier.arrive_and_wait();
-#else
-  group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 }
 
 /**
@@ -1039,15 +977,15 @@ __global__ void copy_from_rows(const size_type num_rows,
  *
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_validity_from_rows(const size_type num_rows,
-                                        const size_type num_columns,
-                                        const size_type shmem_used_per_tile,
-                                        RowOffsetFunctor row_offsets,
-                                        size_type const* batch_row_boundaries,
-                                        bitmask_type** output_nm,
-                                        const size_type validity_offset,
-                                        device_span<const tile_info> tile_infos,
-                                        const int8_t* input_data)
+CUDF_KERNEL void copy_validity_from_rows(const size_type num_rows,
+                                         const size_type num_columns,
+                                         const size_type shmem_used_per_tile,
+                                         RowOffsetFunctor row_offsets,
+                                         size_type const* batch_row_boundaries,
+                                         bitmask_type** output_nm,
+                                         const size_type validity_offset,
+                                         device_span<const tile_info> tile_infos,
+                                         const int8_t* input_data)
 {
   extern __shared__ int8_t shared[];
 
@@ -1070,12 +1008,10 @@ __global__ void copy_validity_from_rows(const size_type num_rows,
   auto const group = cooperative_groups::this_thread_block();
   auto const warp  = cooperative_groups::tiled_partition<cudf::detail::warp_size>(group);
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // Initialize cuda barriers for each tile.
   __shared__ cuda::barrier<cuda::thread_scope_block> shared_tile_barrier;
   if (group.thread_rank() == 0) { init(&shared_tile_barrier, group.size()); }
   group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 
   auto const tile           = tile_infos[blockIdx.x];
   auto const tile_start_col = tile.start_col;
@@ -1140,22 +1076,12 @@ __global__ void copy_validity_from_rows(const size_type num_rows,
     auto const src =
       reinterpret_cast<bitmask_type*>(&shared[validity_data_col_length * relative_col]);
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
     cuda::memcpy_async(
-      warp, dst, src, aligned_size_t<4>(validity_data_col_length), shared_tile_barrier);
-#else
-    for (int b = warp.thread_rank(); b < col_words; b += warp.size()) {
-      dst[b] = src[b];
-    }
-#endif
+      warp, dst, src, cuda::aligned_size_t<4>(validity_data_col_length), shared_tile_barrier);
   }
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
   // wait for tile of data to arrive
   shared_tile_barrier.arrive_and_wait();
-#else
-  group.sync();
-#endif  // ASYNC_MEMCPY_SUPPORTED
 }
 
 /**
@@ -1172,23 +1098,21 @@ __global__ void copy_validity_from_rows(const size_type num_rows,
  * @param num_string_columns number of string columns in the table
  */
 template <typename RowOffsetFunctor>
-__global__ void copy_strings_from_rows(RowOffsetFunctor row_offsets,
-                                       int32_t** string_row_offsets,
-                                       int32_t** string_lengths,
-                                       size_type** string_column_offsets,
-                                       char** string_col_data,
-                                       int8_t const* row_data,
-                                       size_type const num_rows,
-                                       size_type const num_string_columns)
+CUDF_KERNEL void copy_strings_from_rows(RowOffsetFunctor row_offsets,
+                                        int32_t** string_row_offsets,
+                                        int32_t** string_lengths,
+                                        size_type** string_column_offsets,
+                                        char** string_col_data,
+                                        int8_t const* row_data,
+                                        size_type const num_rows,
+                                        size_type const num_string_columns)
 {
   // Each warp takes a tile, which is a single column and up to ROWS_PER_BLOCK rows. A tile will not
   // wrap around the bottom of the table. The warp will copy the strings for each row in the tile.
   // Traversing in row-major order to coalesce the offsets and size reads.
   auto my_block = cooperative_groups::this_thread_block();
   auto warp     = cooperative_groups::tiled_partition<cudf::detail::warp_size>(my_block);
-#ifdef ASYNC_MEMCPY_SUPPORTED
   cuda::barrier<cuda::thread_scope_block> block_barrier;
-#endif
 
   // workaround for not being able to take a reference to a constexpr host variable
   auto const ROWS_PER_BLOCK = NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS;
@@ -1209,13 +1133,7 @@ __global__ void copy_strings_from_rows(RowOffsetFunctor row_offsets,
       auto const src = &row_data[row_offsets(row, 0) + str_row_off[row]];
       auto dst       = &str_col_data[str_col_off[row]];
 
-#ifdef ASYNC_MEMCPY_SUPPORTED
       cuda::memcpy_async(warp, dst, src, str_len[row], block_barrier);
-#else
-      for (int c = warp.thread_rank(); c < str_len[row]; c += warp.size()) {
-        dst[c] = src[c];
-      }
-#endif
     }
   }
 }
@@ -1262,8 +1180,8 @@ static int calc_fixed_width_kernel_dims(const size_type num_columns,
   CUDF_EXPECTS(block_size != 0, "Row size is too large to fit in shared memory");
 
   // The maximum number of blocks supported in the x dimension is 2 ^ 31 - 1
-  // but in practice haveing too many can cause some overhead that I don't totally
-  // understand. Playing around with this haveing as little as 600 blocks appears
+  // but in practice having too many can cause some overhead that I don't totally
+  // understand. Playing around with this having as little as 600 blocks appears
   // to be able to saturate memory on V100, so this is an order of magnitude higher
   // to try and future proof this a bit.
   int const num_blocks = std::clamp((num_rows + block_size - 1) / block_size, 1, 10240);
@@ -1556,6 +1474,7 @@ batch_data build_batches(size_type num_rows,
   batch_row_boundaries.push_back(0);
   size_type last_row_end = 0;
   device_uvector<uint64_t> cumulative_row_sizes(num_rows, stream);
+
   thrust::inclusive_scan(
     rmm::exec_policy(stream), row_sizes, row_sizes + num_rows, cumulative_row_sizes.begin());
 
@@ -1572,9 +1491,10 @@ batch_data build_batches(size_type num_rows,
   while (last_row_end < num_rows) {
     auto offset_row_sizes = thrust::make_transform_iterator(
       cumulative_row_sizes.begin(),
-      [last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
-        return i - cumulative_row_sizes[last_row_end];
-      });
+      cuda::proclaim_return_type<uint64_t>(
+        [last_row_end, cumulative_row_sizes = cumulative_row_sizes.data()] __device__(auto i) {
+          return i - cumulative_row_sizes[last_row_end];
+        }));
     auto search_start = offset_row_sizes + last_row_end;
     auto search_end   = offset_row_sizes + num_rows;
 
@@ -1647,12 +1567,13 @@ int compute_tile_counts(device_span<size_type const> const& batch_row_boundaries
     iter,
     iter + num_batches,
     num_tiles.begin(),
-    [desired_tile_height,
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(auto batch_index) -> size_type {
-      return util::div_rounding_up_unsafe(
-        batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
-        desired_tile_height);
-    });
+    cuda::proclaim_return_type<size_type>(
+      [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
+        auto batch_index) -> size_type {
+        return util::div_rounding_up_unsafe(
+          batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
+          desired_tile_height);
+      }));
   return thrust::reduce(rmm::exec_policy(stream), num_tiles.begin(), num_tiles.end());
 }
 
@@ -1685,21 +1606,24 @@ size_type build_tiles(
     iter,
     iter + num_batches,
     num_tiles.begin(),
-    [desired_tile_height,
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(auto batch_index) -> size_type {
-      return util::div_rounding_up_unsafe(
-        batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
-        desired_tile_height);
-    });
+    cuda::proclaim_return_type<size_type>(
+      [desired_tile_height, batch_row_boundaries = batch_row_boundaries.data()] __device__(
+        auto batch_index) -> size_type {
+        return util::div_rounding_up_unsafe(
+          batch_row_boundaries[batch_index + 1] - batch_row_boundaries[batch_index],
+          desired_tile_height);
+      }));
 
   size_type const total_tiles =
     thrust::reduce(rmm::exec_policy(stream), num_tiles.begin(), num_tiles.end());
 
   device_uvector<size_type> tile_starts(num_batches + 1, stream);
   auto tile_iter = cudf::detail::make_counting_transform_iterator(
-    0, [num_tiles = num_tiles.data(), num_batches] __device__(auto i) {
-      return (i < num_batches) ? num_tiles[i] : 0;
-    });
+    0,
+    cuda::proclaim_return_type<size_type>(
+      [num_tiles = num_tiles.data(), num_batches] __device__(auto i) {
+        return (i < num_batches) ? num_tiles[i] : 0;
+      }));
   thrust::exclusive_scan(rmm::exec_policy(stream),
                          tile_iter,
                          tile_iter + num_batches + 1,
@@ -1710,31 +1634,33 @@ size_type build_tiles(
     iter,
     iter + total_tiles,
     tiles.begin(),
-    [                     =,
-     tile_starts          = tile_starts.data(),
-     batch_row_boundaries = batch_row_boundaries.data()] __device__(size_type tile_index) {
-      // what batch this tile falls in
-      auto const batch_index_iter =
-        thrust::upper_bound(thrust::seq, tile_starts, tile_starts + num_batches, tile_index);
-      auto const batch_index = std::distance(tile_starts, batch_index_iter) - 1;
-      // local index within the tile
-      int const local_tile_index = tile_index - tile_starts[batch_index];
-      // the start row for this batch.
-      int const batch_row_start = batch_row_boundaries[batch_index];
-      // the start row for this tile
-      int const tile_row_start = batch_row_start + (local_tile_index * desired_tile_height);
-      // the end row for this tile
-      int const max_row = std::min(total_number_of_rows - 1,
-                                   batch_index + 1 > num_batches
-                                     ? std::numeric_limits<size_type>::max()
-                                     : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
-      int const tile_row_end =
-        std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
+    cuda::proclaim_return_type<tile_info>(
+      [                     =,
+       tile_starts          = tile_starts.data(),
+       batch_row_boundaries = batch_row_boundaries.data()] __device__(size_type tile_index) {
+        // what batch this tile falls in
+        auto const batch_index_iter =
+          thrust::upper_bound(thrust::seq, tile_starts, tile_starts + num_batches, tile_index);
+        auto const batch_index = std::distance(tile_starts, batch_index_iter) - 1;
+        // local index within the tile
+        int const local_tile_index = tile_index - tile_starts[batch_index];
+        // the start row for this batch.
+        int const batch_row_start = batch_row_boundaries[batch_index];
+        // the start row for this tile
+        int const tile_row_start = batch_row_start + (local_tile_index * desired_tile_height);
+        // the end row for this tile
+        int const max_row =
+          std::min(total_number_of_rows - 1,
+                   batch_index + 1 > num_batches
+                     ? std::numeric_limits<size_type>::max()
+                     : static_cast<int>(batch_row_boundaries[batch_index + 1]) - 1);
+        int const tile_row_end =
+          std::min(batch_row_start + ((local_tile_index + 1) * desired_tile_height) - 1, max_row);
 
-      // stuff the tile
-      return tile_info{
-        column_start, tile_row_start, column_end, tile_row_end, static_cast<int>(batch_index)};
-    });
+        // stuff the tile
+        return tile_info{
+          column_start, tile_row_start, column_end, tile_row_end, static_cast<int>(batch_index)};
+      }));
 
   return total_tiles;
 }
@@ -1830,7 +1756,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   batch_data& batch_info,
   offsetFunctor offset_functor,
   column_info_s const& column_info,
-  std::optional<rmm::device_uvector<strings_column_view::offset_iterator>> variable_width_offsets,
+  std::optional<rmm::device_uvector<cudf::detail::input_offsetalator>> variable_width_offsets,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
@@ -1983,11 +1909,9 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
     CUDF_EXPECTS(!variable_width_table.is_empty(), "No variable-width columns when expected!");
     CUDF_EXPECTS(variable_width_offsets.has_value(), "No variable width offset data!");
 
-    auto const variable_data_begin =
-      thrust::make_transform_iterator(variable_width_table.begin(), [](auto const& c) {
-        strings_column_view const scv{c};
-        return is_compound(c.type()) ? scv.chars().template data<int8_t>() : nullptr;
-      });
+    auto const variable_data_begin = thrust::make_transform_iterator(
+      variable_width_table.begin(),
+      [](auto const& c) { return is_compound(c.type()) ? c.template data<int8_t>() : nullptr; });
     std::vector<int8_t const*> variable_width_input_data(
       variable_data_begin, variable_data_begin + variable_width_table.num_columns());
 
@@ -2336,7 +2260,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(num_batches),
                     gpu_batch_row_boundaries.begin(),
-                    [num_rows] __device__(auto i) { return i == 0 ? 0 : num_rows; });
+                    cuda::proclaim_return_type<size_type>(
+                      [num_rows] __device__(auto i) { return i == 0 ? 0 : num_rows; }));
 
   int info_count = 0;
   detail::determine_tiles(column_info.column_sizes,
@@ -2448,9 +2373,10 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     std::vector<char*> string_data_col_ptrs;
     for (auto& col_string_lengths : string_lengths) {
       device_uvector<size_type> output_string_offsets(num_rows + 1, stream, mr);
-      auto tmp = [num_rows, col_string_lengths] __device__(auto const& i) {
-        return i < num_rows ? col_string_lengths[i] : 0;
-      };
+      auto tmp = cuda::proclaim_return_type<int32_t>(
+        [num_rows, col_string_lengths] __device__(auto const& i) {
+          return i < num_rows ? col_string_lengths[i] : 0;
+        });
       auto bounded_iter = cudf::detail::make_counting_transform_iterator(0, tmp);
       thrust::exclusive_scan(rmm::exec_policy(stream),
                              bounded_iter,
@@ -2493,12 +2419,14 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     for (int i = 0; i < static_cast<int>(schema.size()); ++i) {
       if (schema[i].id() == type_id::STRING) {
         // stuff real string column
-        auto string_data  = string_row_offset_columns[string_idx].release()->release();
-        output_columns[i] = make_strings_column(num_rows,
-                                                std::move(string_col_offsets[string_idx]),
-                                                std::move(string_data_cols[string_idx]),
-                                                std::move(*string_data.null_mask.release()),
-                                                0);
+        auto string_data = string_row_offset_columns[string_idx].release()->release();
+        output_columns[i] =
+          make_strings_column(num_rows,
+                              std::make_unique<cudf::column>(
+                                std::move(string_col_offsets[string_idx]), rmm::device_buffer{}, 0),
+                              string_data_cols[string_idx].release(),
+                              0,
+                              std::move(*string_data.null_mask.release()));
         // Null count set to 0, temporarily. Will be fixed up before return.
         string_idx++;
       }

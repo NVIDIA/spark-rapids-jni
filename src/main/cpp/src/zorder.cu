@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/functional>
 #include <thrust/for_each.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -253,18 +254,20 @@ std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(0) + num_rows,
     output_dv_ptr->begin<int64_t>(),
-    [num_bits_per_entry, num_columns, input = *input_dv] __device__(cudf::size_type row_index) {
-      uint_backed_array<uint64_t> row(num_bits_per_entry);
-      for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
-        auto const column   = input.column(column_index);
-        uint32_t const data = column.is_valid(row_index) ? column.data<uint32_t>()[row_index] : 0;
-        row.set(column_index, data);
-      }
+    cuda::proclaim_return_type<int64_t>(
+      [num_bits_per_entry, num_columns, input = *input_dv] __device__(cudf::size_type row_index) {
+        uint_backed_array<uint64_t> row(num_bits_per_entry);
+        for (cudf::size_type column_index = 0; column_index < num_columns; column_index++) {
+          auto const column   = input.column(column_index);
+          uint32_t const data = column.is_valid(row_index) ? column.data<uint32_t>()[row_index] : 0;
+          row.set(column_index, data);
+        }
 
-      auto const transposed_index = hilbert_transposed_index(row, num_bits_per_entry, num_columns);
-      return static_cast<int64_t>(
-        to_hilbert_index(transposed_index, num_bits_per_entry, num_columns));
-    });
+        auto const transposed_index =
+          hilbert_transposed_index(row, num_bits_per_entry, num_columns);
+        return static_cast<int64_t>(
+          to_hilbert_index(transposed_index, num_bits_per_entry, num_columns));
+      }));
 
   return output_data_col;
 }

@@ -14,19 +14,12 @@
  * limitations under the License.
  */
 
-package com.nvidia.spark.rapids.jni;
+#include <cudf/column/column_view.hpp>
 
-/**
- * A special version of an out of memory error that indicates we ran out of memory, but should
- * roll back to a point when all memory for the task is spillable and then retry the operation
- * with the input data split to make it ideally use less GPU memory overall.
- */
-public class SplitAndRetryOOM extends GpuOOM {
-  public SplitAndRetryOOM() {
-    super();
-  }
+namespace spark_rapids_jni {
 
-  public SplitAndRetryOOM(String message) {
-    super(message);
-  }
-}
+std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const& input);
+
+std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const& input);
+
+}  // namespace spark_rapids_jni

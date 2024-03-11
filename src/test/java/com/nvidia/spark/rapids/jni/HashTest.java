@@ -261,4 +261,131 @@ public class HashTest {
       assertColumnsAreEqual(nestedExpected, nestedResult);
     }
   }
+
+  @Test
+  void testXXHash64Strings() {
+    try (ColumnVector v0 = ColumnVector.fromStrings(
+           "a", "B\nc",  "dE\"\u0100\t\u0101 \ud720\ud721\\Fg2\'",
+           "A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+           "in the MD5 hash function. This string needed to be longer.A 60 character string to " +
+           "test MD5's message padding algorithm",
+           "hiJ\ud720\ud721\ud720\ud721", null);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-8582455328737087284L, 2221214721321197934L, 5798966295358745941L, -4834097201550955483L, -3782648123388245694L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64Ints() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedInts(0, 100, null, null, Integer.MIN_VALUE, null);
+         ColumnVector v1 = ColumnVector.fromBoxedInts(0, null, -100, null, null, Integer.MAX_VALUE);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v0, v1});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(1151812168208346021L, -7987742665087449293L, 8990748234399402673L, Hash.DEFAULT_XXHASH64_SEED, 2073849959933241805L, 1508894993788531228L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+  
+  @Test
+  void testXXHash64Doubles() {
+    try (ColumnVector v = ColumnVector.fromBoxedDoubles(
+          0.0, null, 100.0, -100.0, Double.MIN_NORMAL, Double.MAX_VALUE,
+          POSITIVE_DOUBLE_NAN_UPPER_RANGE, POSITIVE_DOUBLE_NAN_LOWER_RANGE,
+          NEGATIVE_DOUBLE_NAN_UPPER_RANGE, NEGATIVE_DOUBLE_NAN_LOWER_RANGE,
+          Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, Hash.DEFAULT_XXHASH64_SEED, -7996023612001835843L, 5695175288042369293L, 6181148431538304986L, -4222314252576420879L, -3127944061524951246L, -3127944061524951246L, -3127944061524951246L, -3127944061524951246L, 5810986238603807492L, 5326262080505358431L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+    
+  @Test
+  void testXXHash64Timestamps() {
+    // The hash values were derived from Apache Spark in a manner similar to the one documented at
+    // https://github.com/rapidsai/cudf/blob/aa7ca46dcd9e/cpp/tests/hashing/hash_test.cpp#L281-L307
+    try (ColumnVector v = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        0L, null, 100L, -100L, 0x123456789abcdefL, null, -0x123456789abcdefL);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, Hash.DEFAULT_XXHASH64_SEED, 8713583529807266080L, 5675770457807661948L, 1941233597257011502L, Hash.DEFAULT_XXHASH64_SEED, -1318946533059658749L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+  
+  @Test
+  void testXXHash64Decimal64() {
+    // The hash values were derived from Apache Spark in a manner similar to the one documented at
+    // https://github.com/rapidsai/cudf/blob/aa7ca46dcd9e/cpp/tests/hashing/hash_test.cpp#L281-L307
+    try (ColumnVector v = ColumnVector.decimalFromLongs(-7,
+        0L, 100L, -100L, 0x123456789abcdefL, -0x123456789abcdefL);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, 8713583529807266080L, 5675770457807661948L, 1941233597257011502L, -1318946533059658749L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+    
+  @Test
+  void testXXHash64Decimal32() {
+    // The hash values were derived from Apache Spark in a manner similar to the one documented at
+    // https://github.com/rapidsai/cudf/blob/aa7ca46dcd9e/cpp/tests/hashing/hash_test.cpp#L281-L307
+    try (ColumnVector v = ColumnVector.decimalFromInts(-3,
+        0, 100, -100, 0x12345678, -0x12345678);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(-5252525462095825812L, 8713583529807266080L, 5675770457807661948L, -7728554078125612835L, 3142315292375031143L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64Dates() {
+    // The hash values were derived from Apache Spark in a manner similar to the one documented at
+    // https://github.com/rapidsai/cudf/blob/aa7ca46dcd9e/cpp/tests/hashing/hash_test.cpp#L281-L307
+    try (ColumnVector v = ColumnVector.timestampDaysFromBoxedInts(
+        0, null, 100, -100, 0x12345678, null, -0x12345678);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(3614696996920510707L, Hash.DEFAULT_XXHASH64_SEED, -7987742665087449293L, 8990748234399402673L, 6954428822481665164L, Hash.DEFAULT_XXHASH64_SEED, -4294222333805341278L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64Floats() {
+    try (ColumnVector v = ColumnVector.fromBoxedFloats(
+          0f, 100f, -100f, Float.MIN_NORMAL, Float.MAX_VALUE, null,
+          POSITIVE_FLOAT_NAN_LOWER_RANGE, POSITIVE_FLOAT_NAN_UPPER_RANGE,
+          NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE,
+          Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(3614696996920510707L, -8232251799677946044L, -6625719127870404449L, -6699704595004115126L, -1065250890878313112L, Hash.DEFAULT_XXHASH64_SEED, 2692338816207849720L, 2692338816207849720L, 2692338816207849720L, 2692338816207849720L, -5940311692336719973L, -7580553461823983095L)){
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64Bools() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedBooleans(null, true, false, true, null, false);
+         ColumnVector v1 = ColumnVector.fromBoxedBooleans(null, true, false, null, false, true);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{v0, v1});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(Hash.DEFAULT_XXHASH64_SEED, 9083826852238114423L, 1151812168208346021L, -6698625589789238999L, 3614696996920510707L, 7945966957015589024L)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+  
+  @Test
+  void testXXHash64Mixed() {
+    try (ColumnVector strings = ColumnVector.fromStrings(
+          "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721",
+          "A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+          "in the MD5 hash function. This string needed to be longer.",
+          null, null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(
+          0.0, 100.0, -100.0, POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(
+          0f, 100f, -100f, NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(true, false, null, false, true, null);
+         ColumnVector result = Hash.xxhash64(new ColumnVector[]{strings, integers, doubles, floats, bools});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(7451748878409563026L, 6024043102550151964L, 3380664624738534402L, 8444697026100086329L, -5888679192448042852L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
 }
