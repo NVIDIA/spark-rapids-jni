@@ -22,8 +22,9 @@
 #   git_path - The path to the repository
 #   libcudf_path - The path to the libcudf library
 set -e
-
+set -o pipefail
 echo_build_properties() {
+
   version=$1
   git_path=$2
   libcudf_path=$3
@@ -34,18 +35,22 @@ echo_build_properties() {
   echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo url=$(cd "$git_path" && git config --get remote.origin.url)
-  echo gpu_architectures=$(
+  gpu_architectures=$(
     cuobjdump "$libcudf_path" | gawk '
-      match($0, /arch = sm_([0-9]+)/, tmp) { arch[tmp[1]]=tmp[1] }
+      match($0, /arch = sm_([0-9]+)/, tmp) {
+        arch[tmp[1]]=tmp[1]
+      }
+
       END {
-     	asort(arch) 
-      	for (i in arch) {
-	  s = s ";" arch[i]
+        asort(arch)
+        for (i in arch) {
+          s = s ";" arch[i]
         }
-	printf substr(s, 2) 
+        printf substr(s, 2)
       }
     '
   )
+  echo "gpu_architectures=$gpu_architectures"
   for arg in "$@"; do
     echo $arg
   done
