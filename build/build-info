@@ -44,7 +44,7 @@ echo_build_properties() {
       END {
         n = asorti(arch)
         if (n == 0) {
-          print "ERROR: No fatbin ELF / PTX code sections found"
+          print "ERROR: No fatbin ELF / PTX code sections found" > "/dev/stderr"
           exit(1)
         }
         s = arch[1]
