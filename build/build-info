@@ -38,17 +38,17 @@ echo_build_properties() {
   gpu_architectures=$(
     cuobjdump "$libcudf_path" | gawk '
       match($0, /arch = sm_([0-9]+)/, tmp) {
-        arch[tmp[1]]=tmp[1]
+        arch[tmp[1]] = 1
       }
 
       END {
-        n=asort(arch)
+        n = asorti(arch)
         if (n == 0) {
           print "ERROR: No fatbin ELF / PTX code sections found"
           exit(1)
         }
         s = arch[1]
-        for (i = 2; i<=n; i++) {
+        for (i = 2; i <= n; i++) {
           s = s ";" arch[i]
         }
         printf s
