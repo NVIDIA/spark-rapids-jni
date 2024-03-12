@@ -53,31 +53,15 @@ namespace detail {
  */
 enum class write_style { raw_style, quoted_style, flatten_style };
 
-/**
- * path instruction type
- */
-enum class path_instruction_type { subscript, wildcard, key, index, named };
-
-/**
- * path instruction
- */
-struct path_instruction {
-  CUDF_HOST_DEVICE inline path_instruction(path_instruction_type _type) : type(_type) {}
-
-  path_instruction_type type;
-
-  // used when type is named type
-  cudf::string_view name;
-
-  // used when type is index
-  int index{-1};
-};
-
-// TODO parse JSON path
 thrust::optional<rmm::device_uvector<path_instruction>> parse_path(
-  cudf::string_scalar const& json_path)
+  cudf::string_scalar const& json_path, rmm::cuda_stream_view stream)
 {
-  return thrust::nullopt;
+  std::string h_json_path = json_path.to_string();
+  JsonPathParser parser;
+  auto instructions = parser.parse(h_json_path);
+  if (!instructions) { return thrust::nullopt; }
+  return thrust::make_optional(cudf::detail::make_device_uvector_sync(
+    *instructions, stream, rmm::mr::get_current_device_resource()));
 }
 
 /**
@@ -303,7 +287,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
   if (col.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
   // parse the json_path into a command buffer
-  auto path_commands_optional = parse_path(json_path);
+  auto path_commands_optional = parse_path(json_path, stream);
 
   // if the json path is empty, return a string column containing all nulls
   if (!path_commands_optional.has_value()) {

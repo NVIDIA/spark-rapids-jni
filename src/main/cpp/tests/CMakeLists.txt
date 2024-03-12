@@ -69,9 +69,6 @@ ConfigureTest(GET_JSON_OBJECT
 ConfigureTest(ROW_CONVERSION
     row_conversion.cpp)
 
-ConfigureTest(GET_JSON_OBJECT
-    json_parser_tests.cpp)
-
 ConfigureTest(HASH
     hash.cpp)
 
