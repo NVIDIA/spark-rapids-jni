@@ -296,7 +296,6 @@ __launch_bounds__(block_size) CUDF_KERNEL
 
 std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
                                               cudf::string_scalar const& json_path,
-                                              spark_rapids_jni::json_parser_options options,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
@@ -304,6 +303,8 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
 
   // parse the json_path into a command buffer
   auto path_commands_optional = parse_path(json_path);
+
+  auto options = json_parser_options{};
 
   // if the json path is empty, return a string column containing all nulls
   if (!path_commands_optional.has_value()) {
@@ -382,13 +383,12 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
 
 std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
                                               cudf::string_scalar const& json_path,
-                                              spark_rapids_jni::json_parser_options options,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
   // TODO: main logic
   // return cudf::make_empty_column(cudf::type_to_id<cudf::size_type>());
-  return detail::get_json_object(col, json_path, options, stream, mr);
+  return detail::get_json_object(col, json_path, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
