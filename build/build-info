@@ -51,7 +51,7 @@ echo_build_properties() {
         for (i = 2; i <= n; i++) {
           s = s ";" arch[i]
         }
-        printf s
+        print s
       }
     '
   )
