@@ -65,11 +65,7 @@ fi
 
 echo "Try update cudf submodule to ${cudf_sha}..."
 git add .
-if [ -n "$CUDF_TAG" ]; then
-  git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${CUDF_TAG}"
-else
-  git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
-fi
+git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${CUDF_TAG:-$cudf_sha}"
 sha=$(git rev-parse HEAD)
 
 echo "Test against ${cudf_sha}..."
