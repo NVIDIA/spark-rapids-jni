@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,8 +49,14 @@ else
   git merge origin/${REF}
 fi
 
-# sync up cudf from remote
-git submodule update --remote --merge
+# sync up cudf from remote, checkout to cudf release tag if CUDF_TAG is set
+if [ -n "$CUDF_TAG" ]; then
+  pushd thirdparty/cudf
+  git checkout tags/$CUDF_TAG
+  popd
+else
+  git submodule update --remote --merge
+fi
 cudf_sha=$(git -C thirdparty/cudf rev-parse HEAD)
 if [[ "${cudf_sha}" == "${cudf_prev_sha}" ]]; then
   echo "Submodule is up to date."
@@ -59,7 +65,7 @@ fi
 
 echo "Try update cudf submodule to ${cudf_sha}..."
 git add .
-git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
+git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${CUDF_TAG:-$cudf_sha}"
 sha=$(git rev-parse HEAD)
 
 echo "Test against ${cudf_sha}..."
