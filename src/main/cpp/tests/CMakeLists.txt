@@ -60,6 +60,9 @@ ConfigureTest(CAST_FLOAT_TO_STRING
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
+ConfigureTest(JSON_PATH_PARSER
+    json_path_parser.cpp)
+
 ConfigureTest(GET_JSON_OBJECT
     json_parser_tests.cpp)
 
