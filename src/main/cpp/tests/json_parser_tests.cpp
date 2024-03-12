@@ -547,28 +547,30 @@ TEST_F(JsonParserTests, NormalTest)
   test_is_valid();
 }
 
-template <int max_json_depth = 128>
-std::unique_ptr<json_parser<max_json_depth>> get_parser(std::string const& json_str,
-                                                        bool single_quote,
-                                                        bool control_char,
-                                                        bool allow_tailing = true,
-                                                        int max_string_len = 20000000,
-                                                        int max_num_len    = 1000)
+constexpr int json_depth_for_test = 128;
+template <int max_json_depth = json_depth_for_test>
+json_parser<max_json_depth> get_parser(json_parser_options& options,
+                                       std::string const& json_str,
+                                       bool single_quote,
+                                       bool control_char,
+                                       bool allow_tailing = true,
+                                       int max_string_len = 20000000,
+                                       int max_num_len    = 1000)
 {
-  json_parser_options options;
   options.set_allow_single_quotes(single_quote);
   options.set_allow_unescaped_control_chars(control_char);
   options.set_allow_tailing_sub_string(allow_tailing);
   options.set_max_string_len(max_string_len);
   options.set_max_num_len(max_num_len);
-  return std::make_unique<json_parser<max_json_depth>>(options, json_str.data(), json_str.size());
+  return json_parser<max_json_depth>(options, json_str.data(), json_str.size());
 }
 
 TEST_F(JsonParserTests, SkipChildrenForObject)
 {
   // test skip for the first {
   std::string json = " { 'k1' : 'v1' , 'k2' : { 'k3' : { 'k4' : 'v5' }  }  } ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
   // can not skip for INIT token
   ASSERT_FALSE(parser.try_skip_children());
   ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
@@ -591,7 +593,8 @@ TEST_F(JsonParserTests, SkipChildrenForArray)
 {
   // skip for [
   std::string json = " [ [ [ [ 1, 2, 3 ] ] ] ] ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
   ASSERT_FALSE(parser.try_skip_children());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
@@ -601,16 +604,13 @@ TEST_F(JsonParserTests, SkipChildrenForArray)
   ASSERT_EQ(json_token::SUCCESS, parser.next_token());
   // can not skip for SUCCESS token
   ASSERT_FALSE(parser.try_skip_children());
-
-  parser.reset();
-  // can not skip for INIT token
-  ASSERT_FALSE(parser.try_skip_children());
 }
 
 TEST_F(JsonParserTests, SkipChildrenInvalid)
 {
   std::string json = " invalid ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
   parser.next_token();
   ASSERT_EQ(json_token::ERROR, parser.get_current_token());
   // can not skip for ERROR token
@@ -634,7 +634,8 @@ TEST_F(JsonParserTests, CopyRawStringText)
   char buf[buf_size];
 
   std::string json = " {  'key123'  :  'value123' } ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
   clear_buff(buf, buf_size);
@@ -663,7 +664,8 @@ TEST_F(JsonParserTests, CopyRawNumberText)
   char buf[buf_size];
 
   std::string json = " [  -12345 ,  -1.23e-000123 , true , false , null  ] ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   clear_buff(buf, buf_size);
@@ -712,7 +714,8 @@ TEST_F(JsonParserTests, CopyRawTextInvalid)
   char buf[buf_size];
 
   std::string json = " invalid ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   clear_buff(buf, buf_size);
@@ -731,10 +734,8 @@ TEST_F(JsonParserTests, CopyRawTextEscape)
   char buf[buf_size];
   // test escape: \", \', \\, \/, \b, \f, \n, \r, \t
   std::string json = "   '\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'   ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
-
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
   ASSERT_EQ(10, parser.copy_raw_text(buf));
@@ -747,8 +748,9 @@ TEST_F(JsonParserTests, CopyRawTextUnicode)
   // Array(-28, -72, -83, -27, -101, -67)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
-  auto json   = "   '\\u4e2d\\u56FD'   ";  // Represents 中国
-  auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  std::string json = "   '\\u4e2d\\u56FD'   ";  // Represents 中国
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -760,8 +762,9 @@ TEST_F(JsonParserTests, CopyRawTextOther)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
-  auto json   = "   '中国'   ";
-  auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  std::string json = "   '中国'   ";
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -781,7 +784,8 @@ void assert_ptr_len(char const* actaul_ptr,
 TEST_F(JsonParserTests, GetNumberText)
 {
   std::string json = "[-12.45e056,123456789]  ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
@@ -823,7 +827,8 @@ TEST_F(JsonParserTests, GetFloatParts)
 {
   // int part is 123, fraction part is 0345, exp part is -05678
   std::string json = "[-123.0345e-05678]  ";
-  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
@@ -844,4 +849,100 @@ TEST_F(JsonParserTests, GetFloatParts)
                      thrust::get<4>(parts),
                      thrust::get<5>(parts),
                      thrust::get<6>(parts));
+}
+
+void assert_field_names(std::string json,
+                        std::vector<std::optional<std::string>> expected_field_names)
+{
+  json_parser_options options;
+  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  size_t i    = 0;
+  while (true) {
+    auto t = parser.next_token();
+    if (json_token::SUCCESS == t) {
+      break;
+    } else if (json_token::ERROR == t) {
+      ASSERT_TRUE(false);
+    } else {
+      auto opt = expected_field_names[i];
+      if (opt.has_value()) {
+        auto str = opt.value();
+        ASSERT_TRUE(
+          parser.match_current_field_name(str.data(), static_cast<cudf::size_type>(str.size())));
+      } else {
+        ASSERT_TRUE(parser.match_current_field_name(nullptr, 0));
+      }
+    }
+    i++;
+  }
+}
+
+TEST_F(JsonParserTests, MatchFieldNameTest)
+{
+  std::string json;
+
+  json = "          123      ";
+  // field names:   NULL
+  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt});
+
+  json = "          {         } ";
+  // field names:   NULL     NULL
+  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt, std::nullopt});
+
+  json = "          [        ]     ";
+  // field names:   NULL     NULL
+  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt, std::nullopt});
+
+  json = "            {     'k'  :  [     1 ,    2 ,     3      ]     }        ";
+  // field names:      NULL  k      k   NULL    NULL   NULL     k     NULL
+  assert_field_names(
+    json,
+    std::vector<std::optional<std::string>>{
+      std::nullopt, "k", "k", std::nullopt, std::nullopt, std::nullopt, "k", std::nullopt});
+
+  json = "            [     1 ,    {      'k' :  'v'   }    ,  {      }      ]    ";
+  // field names:     NULL   NULL   NULL   k     k    NULL     NULL   NULL  NULL
+  assert_field_names(json,
+                     std::vector<std::optional<std::string>>{std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             "k",
+                                                             "k",
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt});
+
+  json = "             {     'k' : [    1  ,  [   1,    2,    3     ] ,     3      ]      }     ";
+  // field names:      NULL   k    k    NULL  NULL NULL NULL  NULL  NULL   NULL    k      NULL
+  assert_field_names(json,
+                     std::vector<std::optional<std::string>>{std::nullopt,
+                                                             "k",
+                                                             "k",
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             "k",
+                                                             std::nullopt});
+
+  json = "             {    'k1' : {  'k2' : {   'k3': {   'k4':  4    }    }    }     }       ";
+  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2   k1   NULL
+  assert_field_names(json,
+                     std::vector<std::optional<std::string>>{std::nullopt,
+                                                             "k1",
+                                                             "k1",
+                                                             "k2",
+                                                             "k2",
+                                                             "k3",
+                                                             "k3",
+                                                             "k4",
+                                                             "k4",
+                                                             "k3",
+                                                             "k2",
+                                                             "k1",
+                                                             std::nullopt});
 }
