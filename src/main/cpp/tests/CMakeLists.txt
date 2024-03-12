@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022-2023, NVIDIA CORPORATION.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -62,6 +62,12 @@ ConfigureTest(DATETIME_REBASE
 
 ConfigureTest(JSON_PATH_PARSER
     json_path_parser.cpp)
+
+ConfigureTest(GET_JSON_OBJECT
+    json_parser_tests.cpp)
+
+ConfigureTest(ROW_CONVERSION
+    row_conversion.cpp)
 
 ConfigureTest(GET_JSON_OBJECT
     json_parser_tests.cpp)

@@ -104,7 +104,8 @@ void test_basic(bool allow_single_quote, bool allow_control_char)
                   json_token::SUCCESS}),
     std::make_pair(
       // test string
-      std::string{"\"美国,中国\\u12f3\\u113E---abc---\\\", \\/, \\\\, \\b, \\f, \\n, \\r, \\t\""},
+      std::string{"\"美国,中国\\u12f3\\u113E---abc---\\\", \\/, \\\\, \\b, "
+                  "\\f, \\n, \\r, \\t\""},
       std::vector{json_token::VALUE_STRING, json_token::SUCCESS}),
     std::make_pair(
       // test empty object
@@ -324,7 +325,7 @@ void test_basic(bool allow_single_quote, bool allow_control_char)
     std::string json_str                    = cases[i].first;
     std::vector<json_token> expected_tokens = cases[i].second;
     std::vector<json_token> actual_tokens = parse(json_str, allow_single_quote, allow_control_char);
-    assert(actual_tokens == expected_tokens);
+    ASSERT_EQ(actual_tokens, expected_tokens);
   }
 }
 
@@ -332,8 +333,8 @@ void test_len_limitation()
 {
   std::vector<std::string> v;
   v.push_back("  '123456'        ");
-  v.push_back(
-    "  'k\n\\'\\\"56'  ");  // do not count escape char '\', actual has 6 chars: k \n ' " 5 6
+  v.push_back("  'k\n\\'\\\"56'  ");  // do not count escape char '\', actual
+                                      // has 6 chars: k \n ' " 5 6
   v.push_back("  123456          ");
   v.push_back("  -1.23e-456      ");
 
@@ -345,38 +346,36 @@ void test_len_limitation()
                                                   true,  // allow_tailing
                                                   5,     // max_string_len
                                                   5);    // max_num_len
-    assert(actual_tokens == error_token);
+    // exceed num/str length limits
+    ASSERT_EQ(actual_tokens, error_token);
   }
 
   v.clear();
   v.push_back("   '12345'           ");
-  v.push_back(
-    "   'k\n\\'\\\"5'     ");  // do not count escape char '\', actual has 5 chars: k \n ' " 5
+  v.push_back("   'k\n\\'\\\"5'     ");  // do not count escape char '\',
+                                         // has 5 chars: k \n ' " 5
   auto expect_str_ret = std::vector<json_token>{json_token::VALUE_STRING, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  //  bool single_quote,
+                                                  true,  // bool single_quote,
                                                   true,  // control_char
                                                   true,  // allow_tailing
                                                   5,     // max_string_len
                                                   5);    // max_num_len
-    assert(actual_tokens == expect_str_ret);
+    ASSERT_EQ(actual_tokens, expect_str_ret);
   }
 
   v.clear();
   v.push_back("    12345            ");
   v.push_back("    -1.23e-45        ");
-  auto expect_num_ret = std::vector<json_token>{json_token::VALUE_NUMBER_INT, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,   //  bool single_quote,
+                                                  true,   // bool single_quote,
                                                   false,  // control_char
                                                   true,   // allow_tailing
                                                   5,      // max_string_len
                                                   5);     // max_num_len
-    assert(actual_tokens[0] == json_token::VALUE_NUMBER_INT ||
-           actual_tokens[0] == json_token::VALUE_NUMBER_FLOAT);
-    assert(actual_tokens[1] == json_token::SUCCESS);
+    ASSERT_EQ(actual_tokens[1], json_token::SUCCESS);
   }
 }
 
@@ -386,14 +385,15 @@ void test_single_double_quote()
   // allow \'  \" " in single quote
   v.push_back("'    \\\'     \\\"      \"          '");
   // allow \'  \"  ' in double quote
-  v.push_back("\"   \\\' \\\"   '    \'      \"");  // C++ allow \' to represent ' in string
+  v.push_back("\"   \\\' \\\"   '    \'      \"");  // C++ allow \' to represent
+                                                    // ' in string
   auto expect_ret = std::vector<json_token>{json_token::VALUE_STRING, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
                                                   true,  //  bool single_quote,
                                                   false  // control_char
     );
-    assert(actual_tokens == expect_ret);
+    ASSERT_EQ(actual_tokens, expect_ret);
   }
 
   v.clear();
@@ -404,7 +404,8 @@ void test_single_double_quote()
                                                   false,  //  bool single_quote,
                                                   true    // control_char
     );
-    assert(actual_tokens == expect_ret);
+
+    ASSERT_EQ(actual_tokens, expect_ret);
   }
 
   v.clear();
@@ -415,7 +416,7 @@ void test_single_double_quote()
                                                   false,  //  bool single_quote,
                                                   true    // control_char
     );
-    assert(actual_tokens == expect_ret);
+    ASSERT_EQ(actual_tokens, expect_ret);
   }
 
   v.clear();
@@ -426,7 +427,7 @@ void test_single_double_quote()
                                                   false,  //  bool single_quote,
                                                   true    // control_char
     );
-    assert(actual_tokens == expect_ret);
+    ASSERT_EQ(actual_tokens, expect_ret);
   }
 }
 
@@ -441,7 +442,7 @@ void test_max_nested_len()
                                                      true,  //  bool single_quote,
                                                      true   // control_char
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::SUCCESS);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
 
   v.clear();
@@ -453,7 +454,7 @@ void test_max_nested_len()
                                                      true,  //  bool single_quote,
                                                      false  // control_char
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::ERROR);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
 }
 
@@ -467,7 +468,7 @@ void test_control_char()
                                                      true,  //  bool single_quote,
                                                      true   // control_char
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::SUCCESS);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
 
   for (std::size_t i = 0; i < v.size(); ++i) {
@@ -476,14 +477,15 @@ void test_control_char()
                                                      true,  //  bool single_quote,
                                                      false  // control_char
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::ERROR);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
 }
 
 void test_allow_tailing_useless_chars()
 {
   std::vector<std::string> v;
-  v.push_back("  0xxxx        ");  // 0 is valid JSON, tailing xxxx is ignored when allow tailing
+  v.push_back("  0xxxx        ");  // 0 is valid JSON, tailing xxxx is ignored
+                                   // when allow tailing
   v.push_back("  {}xxxx  ");       // tailing xxxx is ignored
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
@@ -491,7 +493,8 @@ void test_allow_tailing_useless_chars()
                                                   true,  // control_char
                                                   true   // allow_tailing is true
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::SUCCESS);
+    ASSERT_TRUE(actual_tokens.size() > 0);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
@@ -499,13 +502,13 @@ void test_allow_tailing_useless_chars()
                                                   true,  // control_char
                                                   false  // allow_tailing is false
     );
-    assert(actual_tokens[actual_tokens.size() - 1] == json_token::ERROR);
+    ASSERT_TRUE(actual_tokens.size() > 0);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
 
   v.clear();
-  v.push_back("    12345            ");
-  v.push_back("    -1.23e-45        ");
-  auto expect_num_ret = std::vector<json_token>{json_token::VALUE_NUMBER_INT, json_token::SUCCESS};
+  v.push_back("    12345xxxxxx            ");
+  v.push_back("    -1.23e-45xxxxx   ");
   for (std::size_t i = 0; i < v.size(); ++i) {
     std::vector<json_token> actual_tokens = parse(v[i],
                                                   true,   //  bool single_quote,
@@ -513,9 +516,8 @@ void test_allow_tailing_useless_chars()
                                                   true,   // allow_tailing
                                                   5,      // max_string_len
                                                   5);     // max_num_len
-    assert(actual_tokens[0] == json_token::VALUE_NUMBER_INT ||
-           actual_tokens[0] == json_token::VALUE_NUMBER_FLOAT);
-    assert(actual_tokens[1] == json_token::SUCCESS);
+    ASSERT_TRUE(actual_tokens.size() > 0);
+    ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
 }
 
@@ -524,11 +526,11 @@ void test_is_valid()
   std::string json_str = " {    \"k\"   :     [1,2,3]}   ";
   json_parser_options options;
   json_parser<10> parser1(options, json_str.data(), json_str.size());
-  assert(parser1.is_valid());
+  ASSERT_TRUE(parser1.is_valid());
 
   json_str = " {[1,2,    ";
   json_parser<10> parser2(options, json_str.data(), json_str.size());
-  assert(!parser2.is_valid());
+  ASSERT_FALSE(parser2.is_valid());
 }
 
 TEST_F(JsonParserTests, NormalTest)
@@ -546,7 +548,7 @@ TEST_F(JsonParserTests, NormalTest)
 }
 
 template <int max_json_depth = 128>
-std::unique_ptr<json_parser<max_json_depth>> get_parser(std::string json_str,
+std::unique_ptr<json_parser<max_json_depth>> get_parser(std::string const& json_str,
                                                         bool single_quote,
                                                         bool control_char,
                                                         bool allow_tailing = true,
@@ -568,21 +570,21 @@ TEST_F(JsonParserTests, SkipChildrenForObject)
   std::string json = " { 'k1' : 'v1' , 'k2' : { 'k3' : { 'k4' : 'v5' }  }  } ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
   // can not skip for INIT token
-  assert(!parser.try_skip_children());
-  assert(json_token::START_OBJECT == parser.next_token());
+  ASSERT_FALSE(parser.try_skip_children());
+  ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
   // test skip for tokens: {
-  assert(parser.try_skip_children());
-  assert(json_token::END_OBJECT == parser.get_current_token());
-  assert(json_token::SUCCESS == parser.next_token());
+  ASSERT_TRUE(parser.try_skip_children());
+  ASSERT_EQ(json_token::END_OBJECT, parser.get_current_token());
+  ASSERT_EQ(json_token::SUCCESS, parser.next_token());
   // can not skip for SUCCESS token
-  assert(!parser.try_skip_children());
+  ASSERT_FALSE(parser.try_skip_children());
 
   // test skip for tokens: not [ {
   parser.reset();
-  assert(json_token::START_OBJECT == parser.next_token());
-  assert(json_token::FIELD_NAME == parser.next_token());
-  assert(parser.try_skip_children());
-  assert(json_token::FIELD_NAME == parser.get_current_token());
+  ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
+  ASSERT_EQ(json_token::FIELD_NAME, parser.next_token());
+  ASSERT_TRUE(parser.try_skip_children());
+  ASSERT_EQ(json_token::FIELD_NAME, parser.get_current_token());
 }
 
 TEST_F(JsonParserTests, SkipChildrenForArray)
@@ -590,19 +592,19 @@ TEST_F(JsonParserTests, SkipChildrenForArray)
   // skip for [
   std::string json = " [ [ [ [ 1, 2, 3 ] ] ] ] ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  assert(!parser.try_skip_children());
-  assert(json_token::START_ARRAY == parser.next_token());
-  assert(json_token::START_ARRAY == parser.next_token());
-  assert(parser.try_skip_children());
-  assert(json_token::END_ARRAY == parser.get_current_token());
-  assert(json_token::END_ARRAY == parser.next_token());
-  assert(json_token::SUCCESS == parser.next_token());
+  ASSERT_FALSE(parser.try_skip_children());
+  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
+  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
+  ASSERT_TRUE(parser.try_skip_children());
+  ASSERT_EQ(json_token::END_ARRAY, parser.get_current_token());
+  ASSERT_EQ(json_token::END_ARRAY, parser.next_token());
+  ASSERT_EQ(json_token::SUCCESS, parser.next_token());
   // can not skip for SUCCESS token
-  assert(!parser.try_skip_children());
+  ASSERT_FALSE(parser.try_skip_children());
 
   parser.reset();
   // can not skip for INIT token
-  assert(!parser.try_skip_children());
+  ASSERT_FALSE(parser.try_skip_children());
 }
 
 TEST_F(JsonParserTests, SkipChildrenInvalid)
@@ -610,9 +612,9 @@ TEST_F(JsonParserTests, SkipChildrenInvalid)
   std::string json = " invalid ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
   parser.next_token();
-  assert(json_token::ERROR == parser.get_current_token());
+  ASSERT_EQ(json_token::ERROR, parser.get_current_token());
   // can not skip for ERROR token
-  assert(!parser.try_skip_children());
+  ASSERT_FALSE(parser.try_skip_children());
 }
 
 void clear_buff(char buf[], std::size_t size) { memset(buf, 0, size); }
@@ -620,170 +622,151 @@ void clear_buff(char buf[], std::size_t size) { memset(buf, 0, size); }
 void assert_start_with(char* buf, std::size_t buf_size, const std::string& prefix)
 {
   std::string str(buf, buf_size);
-  assert(0 == str.find(prefix));
+  ASSERT_EQ(0, str.find(prefix));
   for (std::size_t i = prefix.size(); i < str.size(); i++) {
-    assert('\0' == str[i]);
+    ASSERT_EQ('\0', str[i]);
   }
 }
 
-TEST_F(JsonParserTests, TryCopyRawStringText)
+TEST_F(JsonParserTests, CopyRawStringText)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
 
   std::string json = " {  'key123'  :  'value123' } ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
+  ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
   clear_buff(buf, buf_size);
-  // current token is INIT
-  assert(!parser.try_copy_raw_text(buf));
-  assert_start_with(buf, buf_size, "");
-
-  assert(json_token::START_OBJECT == parser.next_token());
-  clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(1, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "{");
 
-  assert(json_token::FIELD_NAME == parser.next_token());
+  ASSERT_EQ(json_token::FIELD_NAME, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(6, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "key123");
 
-  assert(json_token::VALUE_STRING == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(8, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "value123");
 
-  assert(json_token::END_OBJECT == parser.next_token());
+  ASSERT_EQ(json_token::END_OBJECT, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(1, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "}");
-
-  assert(json_token::SUCCESS == parser.next_token());
-  clear_buff(buf, buf_size);
-  // current token is SUCCESS
-  assert(!parser.try_copy_raw_text(buf));
-  assert_start_with(buf, buf_size, "");
 }
 
-TEST_F(JsonParserTests, TryCopyRawNumberText)
+TEST_F(JsonParserTests, CopyRawNumberText)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
 
   std::string json = " [  -12345 ,  -1.23e-000123 , true , false , null  ] ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
-  assert(json_token::END_OBJECT == parser.next_token());
+  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(1, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "[");
 
-  assert(json_token::VALUE_NUMBER_INT == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_NUMBER_INT, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(6, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "-12345");
 
-  assert(json_token::VALUE_NUMBER_FLOAT == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_NUMBER_FLOAT, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(13, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "-1.23e-000123");
 
-  assert(json_token::VALUE_TRUE == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_TRUE, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(4, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "true");
 
-  assert(json_token::VALUE_FALSE == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_FALSE, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(5, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "false");
 
-  assert(json_token::VALUE_NULL == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_NULL, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(4, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "null");
 
-  assert(json_token::END_OBJECT == parser.next_token());
+  ASSERT_EQ(json_token::END_ARRAY, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
+  ASSERT_EQ(1, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "]");
 
-  assert(json_token::SUCCESS == parser.next_token());
+  ASSERT_EQ(json_token::SUCCESS, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(!parser.try_copy_raw_text(buf));
+  ASSERT_EQ(0, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "");
 }
 
-TEST_F(JsonParserTests, TryCopyRawTextInvalid)
+TEST_F(JsonParserTests, CopyRawTextInvalid)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
 
   std::string json = " invalid ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
-  assert(json_token::INIT == parser.get_current_token());
+  ASSERT_EQ(json_token::INIT, parser.get_current_token());
   clear_buff(buf, buf_size);
-  assert(!parser.try_copy_raw_text(buf));
+  ASSERT_EQ(0, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "");
 
-  assert(json_token::ERROR == parser.next_token());
+  ASSERT_EQ(json_token::ERROR, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(!parser.try_copy_raw_text(buf));
+  ASSERT_EQ(0, parser.copy_raw_text(buf));
   assert_start_with(buf, buf_size, "");
 }
 
-TEST_F(JsonParserTests, TryCopyRawTextEscape)
+TEST_F(JsonParserTests, CopyRawTextEscape)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   // test escape: \", \', \\, \/, \b, \f, \n, \r, \t
-  std::string json = "   '\\\"\\'\\\\\\/\\b\\f\\n\\r\\t'   ";
+  std::string json = "   '\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'   ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
   // avoid unused-but-set-variable compile warnning
   parser.reset();
 
-  assert(json_token::VALUE_STRING == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(parser.try_copy_raw_text(buf));
-  assert_start_with(buf, buf_size, "\"\'\\/\b\f\n\r\t");
+  ASSERT_EQ(10, parser.copy_raw_text(buf));
+  assert_start_with(buf, buf_size, "\"\'\\/\b\f\n\r\t\b");
 }
 
-TEST_F(JsonParserTests, TryCopyRawTextUnicode)
+TEST_F(JsonParserTests, CopyRawTextUnicode)
 {
+  // "中国".getBytes(StandardCharsets.UTF_8) is:
+  // Array(-28, -72, -83, -27, -101, -67)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   auto json   = "   '\\u4e2d\\u56FD'   ";  // Represents 中国
   auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
-  assert(json_token::ERROR == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(!parser.try_copy_raw_text(buf));
-  assert_start_with(buf, buf_size, "");
+  ASSERT_EQ(6, parser.copy_raw_text(buf));
+  assert_start_with(buf, buf_size, "中国");
 }
 
-TEST_F(JsonParserTests, TryCopyRawTextOther)
+TEST_F(JsonParserTests, CopyRawTextOther)
 {
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   auto json   = "   '中国'   ";
   auto parser = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
-  assert(json_token::ERROR == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
-  assert(!parser.try_copy_raw_text(buf));
-  assert_start_with(buf, buf_size, "");
+  ASSERT_EQ(6, parser.copy_raw_text(buf));
+  assert_start_with(buf, buf_size, "中国");
 }
 
 void assert_ptr_len(char const* actaul_ptr,
@@ -791,38 +774,74 @@ void assert_ptr_len(char const* actaul_ptr,
                     char* expected_ptr,
                     cudf::size_type expected_len)
 {
-  assert(expected_ptr == actaul_ptr);
-  assert(expected_len == actual_len);
+  ASSERT_EQ(expected_ptr, actaul_ptr);
+  ASSERT_EQ(expected_len, actual_len);
 }
 
 TEST_F(JsonParserTests, GetNumberText)
 {
   std::string json = "[-12.45e056,123456789]  ";
   auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
-  // avoid unused-but-set-variable compile warnning
-  parser.reset();
 
-  assert(json_token::INIT == parser.get_current_token());
+  ASSERT_EQ(json_token::INIT, parser.get_current_token());
+  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
+
+  ASSERT_EQ(json_token::VALUE_NUMBER_FLOAT, parser.next_token());
   auto [ptr1, len1] = parser.get_current_number_text();
-  assert_ptr_len(ptr1, len1, nullptr, -1);
+  assert_ptr_len(ptr1, len1, json.data() + 1, 10);
 
-  assert(json_token::START_ARRAY == parser.next_token());
+  ASSERT_EQ(json_token::VALUE_NUMBER_INT, parser.next_token());
   auto [ptr2, len2] = parser.get_current_number_text();
-  assert_ptr_len(ptr2, len2, nullptr, -1);
+  assert_ptr_len(ptr2, len2, json.data() + 12, 9);
+}
 
-  assert(json_token::VALUE_NUMBER_FLOAT == parser.next_token());
-  auto [ptr3, len3] = parser.get_current_number_text();
-  assert_ptr_len(ptr3, len3, json.data() + 1, 10);
+void assert_float_parts(bool float_sign,
+                        char const* float_integer_pos,
+                        int float_integer_len,
+                        char const* float_fraction_pos,
+                        int float_fraction_len,
+                        char const* float_exp_pos,
+                        int float_exp_len,
+                        bool actual_float_sign,
+                        char const* actual_float_integer_pos,
+                        int actual_float_integer_len,
+                        char const* actual_float_fraction_pos,
+                        int actual_float_fraction_len,
+                        char const* actual_float_exp_pos,
+                        int actual_float_exp_len)
+{
+  ASSERT_EQ(float_sign, actual_float_sign);
+  ASSERT_EQ(float_integer_pos, actual_float_integer_pos);
+  ASSERT_EQ(float_integer_len, actual_float_integer_len);
+  ASSERT_EQ(float_fraction_pos, actual_float_fraction_pos);
+  ASSERT_EQ(float_fraction_len, actual_float_fraction_len);
+  ASSERT_EQ(float_exp_pos, actual_float_exp_pos);
+  ASSERT_EQ(float_exp_len, actual_float_exp_len);
+}
 
-  assert(json_token::VALUE_NUMBER_INT == parser.next_token());
-  auto [ptr4, len4] = parser.get_current_number_text();
-  assert_ptr_len(ptr4, len4, json.data() + 21, 9);
+TEST_F(JsonParserTests, GetFloatParts)
+{
+  // int part is 123, fraction part is 0345, exp part is -05678
+  std::string json = "[-123.0345e-05678]  ";
+  auto parser      = *get_parser(json, /*single_quote*/ true, /*control_char*/ true);
 
-  assert(json_token::END_ARRAY == parser.next_token());
-  auto [ptr5, len5] = parser.get_current_number_text();
-  assert_ptr_len(ptr5, len5, nullptr, -1);
+  ASSERT_EQ(json_token::INIT, parser.get_current_token());
+  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
 
-  assert(json_token::SUCCESS == parser.next_token());
-  auto [ptr6, len6] = parser.get_current_number_text();
-  assert_ptr_len(ptr6, len6, nullptr, -1);
+  ASSERT_EQ(json_token::VALUE_NUMBER_FLOAT, parser.next_token());
+  auto parts = parser.get_current_float_parts();
+  assert_float_parts(false,
+                     json.data() + 2,
+                     3,
+                     json.data() + 6,
+                     4,
+                     json.data() + 11,
+                     6,
+                     thrust::get<0>(parts),
+                     thrust::get<1>(parts),
+                     thrust::get<2>(parts),
+                     thrust::get<3>(parts),
+                     thrust::get<4>(parts),
+                     thrust::get<5>(parts),
+                     thrust::get<6>(parts));
 }

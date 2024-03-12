@@ -476,6 +476,7 @@
                   <arg value="${project.basedir}/build/build-info"/>
                   <arg value="${project.version}"/>
                   <arg value="${cudf.path}"/>
+                  <arg value="${libcudf.build.path}/libcudf.a"/>
                 </exec>
                 <exec executable="bash"
                       output="${project.build.directory}/extra-resources/spark-rapids-jni-version-info.properties"
@@ -483,6 +484,7 @@
                   <arg value="${project.basedir}/build/build-info"/>
                   <arg value="${project.version}"/>
                   <arg value="${project.basedir}"/>
+                  <arg value="${native.build.path}/libcudf.so"/>
                 </exec>
               </target>
             </configuration>
