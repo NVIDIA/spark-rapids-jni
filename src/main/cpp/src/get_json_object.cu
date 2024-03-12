@@ -80,9 +80,9 @@ thrust::optional<rmm::device_uvector<path_instruction>> parse_path(
   return thrust::nullopt;
 }
 
+enum class item { OBJECT, ARRAY, EMPTY };
 /**
- * TODO: JSON generator
- *
+ * JSON generator
  */
 template <int max_json_nesting_depth = curr_max_json_nesting_depth>
 class json_generator {
@@ -110,19 +110,33 @@ class json_generator {
     output_len += child_generator.get_output_len();
   }
 
+  CUDF_HOST_DEVICE inline size_t get_output_len() const { return output_len; }
+
+  CUDF_HOST_DEVICE inline char* get_output_start_position() const { return output; }
+
+  CUDF_HOST_DEVICE inline char* get_current_output_position() const
+  {
+    return output + get_output_len();
+  }
+
+  CUDF_HOST_DEVICE void write_output(const char* str, size_t len)
+  {
+    if (output != nullptr) {
+      std::memcpy(output + output_len, str, len);
+      output_len = output_len + len;
+    }
+  }
+
   CUDF_HOST_DEVICE void write_start_array()
   {
-    // TODO
+    initialize_new_context(item::ARRAY);
+    add_start_array();
   }
 
   CUDF_HOST_DEVICE void write_end_array()
   {
-    // TODO
-  }
-
-  CUDF_HOST_DEVICE void copy_current_structure(json_parser<max_json_nesting_depth>& parser)
-  {
-    // TODO
+    add_end_array();
+    pop_curr_context();
   }
 
   /**
@@ -134,17 +148,151 @@ class json_generator {
    */
   CUDF_HOST_DEVICE void write_raw(json_parser<max_json_nesting_depth>& parser)
   {
-    if (output) {
-      auto copied = parser.write_unescaped_text(output + output_len);
+    if (output != nullptr) {
+      auto copied = parser.write_unescaped_text(get_current_output_position());
       output_len += copied;
     }
   }
 
-  CUDF_HOST_DEVICE inline size_t get_output_len() const { return output_len; }
+  CUDF_HOST_DEVICE void write_raw_value(json_parser<max_json_nesting_depth>& parser)
+  {
+    // check if current is a list and add comma if not first member
+    if (!is_context_stack_empty() && is_array_context() && !is_first_member()) { add_comma(); }
+    // increment count
+    register_member();
+    // write to output
+    write_raw(parser);
+  }
+
+  CUDF_HOST_DEVICE void write_escaped_text(json_parser<max_json_nesting_depth>& parser)
+  {
+    if (output != nullptr) {
+      auto copied = parser.write_escaped_text(get_current_output_position());
+      output_len += copied;
+    }
+  }
+
+  CUDF_HOST_DEVICE void copy_current_structure(json_parser<max_json_nesting_depth>& parser)
+  {
+    json_token token = json_token::INIT;
+    do {
+      token = parser.next_token();
+      consume_token(token);
+    } while (token != json_token::ERROR && token != json_token::SUCCESS);
+  }
+
+  CUDF_HOST_DEVICE void consume_token(json_token next_token,
+                                      json_parser<max_json_nesting_depth>& parser)
+  {
+    if (next_token == json_token::INIT || next_token == json_token::SUCCESS) { return; }
+    if (next_token != json_token::FIELD_NAME && next_token != json_token::END_OBJECT &&
+        next_token != json_token::END_ARRAY) {
+      consume_value_token(next_token, parser);
+      return;
+    }
+    // if object context
+    if (!is_context_stack_empty()) {
+      // OBJECT Context
+      if (is_object_context()) {
+        if (next_token == json_token::FIELD_NAME) {
+          if (!is_first_member()) { add_comma(); }
+          write_output("\"key\"", 5);
+          // add :
+          write_output(":", 1);
+        } else if (next_token == json_token::END_OBJECT) {
+          // add }
+          add_end_object();
+          pop_curr_context();
+        }
+      }
+      // ARRAY Context
+      else {
+        if (next_token == json_token::END_ARRAY) {
+          // add ]
+          add_end_array();
+          pop_curr_context();
+        }
+      }
+    } else {
+      CUDF_FAIL("ERROR:consume_token:INVALID ORDER OF TOKENS");
+    }
+    return;
+  }
+
+  CUDF_HOST_DEVICE void consume_value_token(json_token next_token,
+                                            json_parser<max_json_nesting_depth>& parser)
+  {
+    // check if current is a list and add comma if not first member
+    if (!is_context_stack_empty() && is_array_context() && !is_first_member()) { add_comma(); }
+    // make true
+    register_member();
+
+    switch (next_token) {
+      case json_token::START_OBJECT:
+        initialize_new_context(item::OBJECT);
+        add_start_object();
+        break;
+      case json_token::START_ARRAY:
+        initialize_new_context(item::ARRAY);
+        add_start_array();
+        break;
+      case json_token::VALUE_TRUE: add_true(); break;
+      case json_token::VALUE_FALSE: add_false(); break;
+      case json_token::VALUE_NULL: add_null(); break;
+      case json_token::VALUE_NUMBER_INT: write_output("1", 1); break;
+      case json_token::VALUE_NUMBER_FLOAT: write_output("1.0", 3); break;
+      case json_token::VALUE_STRING: write_escaped_text(parser); break;
+      default: CUDF_FAIL("ERROR:consume_value_token:INVALID ORDER OF TOKENS"); break;
+    }
+  }
 
  private:
+  bool has_members[max_json_nesting_depth] = {false};
+  item type[max_json_nesting_depth]        = {item::EMPTY};
+  int current                              = -1;
+
   char const* const output;
   size_t output_len;
+
+  CUDF_HOST_DEVICE inline bool is_context_stack_empty() { return current == -1; }
+
+  CUDF_HOST_DEVICE inline bool is_object_context() { return type[current] == item::OBJECT; }
+
+  CUDF_HOST_DEVICE inline bool is_array_context() { return type[current] == item::ARRAY; }
+
+  CUDF_HOST_DEVICE inline void pop_curr_context()
+  {
+    has_members[current] = false;
+    type[current]        = item::EMPTY;
+    current--;
+  }
+
+  CUDF_HOST_DEVICE inline bool is_first_member() { return has_members[current] == false; }
+
+  CUDF_HOST_DEVICE inline void register_member() { has_members[current] = true; }
+
+  CUDF_HOST_DEVICE inline void initialize_new_context(item _item)
+  {
+    current++;
+    type[current]        = _item;
+    has_members[current] = false;
+  }
+
+  CUDF_HOST_DEVICE void add_start_array() { write_output("[", 1); }
+
+  CUDF_HOST_DEVICE void add_end_array() { write_output("]", 1); }
+
+  CUDF_HOST_DEVICE void add_start_object() { write_output("{", 1); }
+
+  CUDF_HOST_DEVICE void add_end_object() { write_output("}", 1); }
+
+  CUDF_HOST_DEVICE void add_true() { write_output("true", 4); }
+
+  CUDF_HOST_DEVICE void add_false() { write_output("false", 4); }
+
+  CUDF_HOST_DEVICE void add_null() { write_output("null", 4); }
+
+  CUDF_HOST_DEVICE void add_comma() { write_output(",", 1); }
 };
 
 /**
@@ -312,7 +460,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
       col.size(),
       rmm::device_buffer{0, stream, mr},  // no data
       cudf::detail::create_null_mask(col.size(), cudf::mask_state::ALL_NULL, stream, mr),
-      col.size());  // null count
+      col.size());                        // null count
   }
 
   // compute output sizes
