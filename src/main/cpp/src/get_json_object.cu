@@ -135,7 +135,7 @@ class json_generator {
   CUDF_HOST_DEVICE void write_raw(json_parser<max_json_nesting_depth>& parser)
   {
     if (output) {
-      auto copied = parser.try_copy_raw_text(output + output_len);
+      auto copied = parser.write_unescaped_text(output + output_len);
       output_len += copied;
     }
   }
@@ -312,7 +312,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
       col.size(),
       rmm::device_buffer{0, stream, mr},  // no data
       cudf::detail::create_null_mask(col.size(), cudf::mask_state::ALL_NULL, stream, mr),
-      col.size());                        // null count
+      col.size());  // null count
   }
 
   // compute output sizes
