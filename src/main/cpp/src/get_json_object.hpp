@@ -20,6 +20,7 @@
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <memory>
+#include <vector>
 
 namespace spark_rapids_jni {
 
@@ -30,8 +31,9 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& col,
-  cudf::string_scalar const& json_path,
-  spark_rapids_jni::json_parser_options options,
+  std::vector<int32_t> const& path_types,
+  std::vector<std::string> const& path_names,
+  std::vector<int64_t> const& path_indexes,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

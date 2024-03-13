@@ -74,10 +74,37 @@ struct path_instruction {
 };
 
 // TODO parse JSON path
-thrust::optional<rmm::device_uvector<path_instruction>> parse_path(
-  cudf::string_scalar const& json_path)
+rmm::device_uvector<path_instruction> parse_path(std::vector<int32_t> const& path_types,
+                                                 std::vector<std::string> const& path_names,
+                                                 std::vector<int64_t> const& path_indexes,
+                                                 rmm::cuda_stream_view stream)
 {
-  return thrust::nullopt;
+  std::vector<path_instruction> path_instructions;
+  for (size_t i = 0; i < path_types.size(); i++) {
+    switch (path_types[i]) {
+      case 0:  // subscript
+        path_instructions.push_back(path_instruction(path_instruction_type::subscript));
+        break;
+      case 1:  // wildcard
+        path_instructions.push_back(path_instruction(path_instruction_type::wildcard));
+        break;
+      case 2:  // key
+        path_instructions.push_back(path_instruction(path_instruction_type::key));
+        break;
+      case 3:  // index
+        path_instructions.push_back(path_instruction(path_instruction_type::index));
+        path_instructions.back().index = path_indexes[i];
+        break;
+      case 4:  // named
+        path_instructions.push_back(path_instruction(path_instruction_type::named));
+        path_instructions.back().name =
+          cudf::string_view(path_names[i].c_str(), path_names[i].size());
+        break;
+      default: throw std::runtime_error("Invalid path type");
+    }
+  }
+  return cudf::detail::make_device_uvector_sync(
+    path_instructions, stream, rmm::mr::get_current_device_resource());
 }
 
 /**
@@ -295,26 +322,28 @@ __launch_bounds__(block_size) CUDF_KERNEL
 }
 
 std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
-                                              cudf::string_scalar const& json_path,
+                                              std::vector<int32_t> const& path_types,
+                                              std::vector<std::string> const& path_names,
+                                              std::vector<int64_t> const& path_indexes,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
   if (col.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
   // parse the json_path into a command buffer
-  auto path_commands_optional = parse_path(json_path);
+  auto path_commands = parse_path(path_types, path_names, path_indexes, stream);
 
   auto options = json_parser_options{};
 
-  // if the json path is empty, return a string column containing all nulls
-  if (!path_commands_optional.has_value()) {
-    return std::make_unique<cudf::column>(
-      cudf::data_type{cudf::type_id::STRING},
-      col.size(),
-      rmm::device_buffer{0, stream, mr},  // no data
-      cudf::detail::create_null_mask(col.size(), cudf::mask_state::ALL_NULL, stream, mr),
-      col.size());                        // null count
-  }
+  // // if the json path is empty, return a string column containing all nulls
+  // if (!path_commands_optional.has_value()) {
+  //   return std::make_unique<cudf::column>(
+  //     cudf::data_type{cudf::type_id::STRING},
+  //     col.size(),
+  //     rmm::device_buffer{0, stream, mr},  // no data
+  //     cudf::detail::create_null_mask(col.size(), cudf::mask_state::ALL_NULL, stream, mr),
+  //     col.size());                        // null count
+  // }
 
   // compute output sizes
   auto sizes = rmm::device_uvector<cudf::size_type>(
@@ -326,16 +355,15 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
   auto cdv = cudf::column_device_view::create(col.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *cdv,
-      path_commands_optional.value().data(),
-      path_commands_optional.value().size(),
-      sizes.data(),
-      d_offsets,
-      thrust::nullopt,
-      thrust::nullopt,
-      thrust::nullopt,
-      options);
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*cdv,
+                                                                         path_commands.data(),
+                                                                         path_commands.size(),
+                                                                         sizes.data(),
+                                                                         d_offsets,
+                                                                         thrust::nullopt,
+                                                                         thrust::nullopt,
+                                                                         thrust::nullopt,
+                                                                         options);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -356,8 +384,8 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *cdv,
-      path_commands_optional.value().data(),
-      path_commands_optional.value().size(),
+      path_commands.data(),
+      path_commands.size(),
       sizes.data(),
       d_offsets,
       chars.data(),
@@ -382,13 +410,15 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
 }  // namespace detail
 
 std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
-                                              cudf::string_scalar const& json_path,
+                                              std::vector<int32_t> const& path_types,
+                                              std::vector<std::string> const& path_names,
+                                              std::vector<int64_t> const& path_indexes,
                                               rmm::cuda_stream_view stream,
                                               rmm::mr::device_memory_resource* mr)
 {
   // TODO: main logic
   // return cudf::make_empty_column(cudf::type_to_id<cudf::size_type>());
-  return detail::get_json_object(col, json_path, stream, mr);
+  return detail::get_json_object(col, path_types, path_names, path_indexes, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

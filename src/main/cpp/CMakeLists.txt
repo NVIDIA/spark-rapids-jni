@@ -153,6 +153,7 @@ add_library(
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
+  src/JSONUtilsJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
