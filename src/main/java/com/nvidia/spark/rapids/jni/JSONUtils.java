@@ -23,13 +23,10 @@ public class JSONUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static ColumnVector getJsonObject(ColumnVector input, int[] path_ins_types, String[] path_ins_names,
-  long[] path_ins_indexes) {
+  public static ColumnVector getJsonObject(ColumnVector input, Table path_instructions) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    assert(path_ins_types.length == path_ins_names.length) : "path_ins_types and path_ins_names must have the same size";
-    assert(path_ins_types.length == path_ins_indexes.length) : "path_ins_types and path_ins_indexes must have the same size";
-    return new ColumnVector(getJsonObject(input.getNativeView(), path_ins_types, path_ins_names, path_ins_indexes));
+    return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions.getNativeView()));
   }
 
-  private static native long getJsonObject(long input, int[] path_ins_types, String[] path_ins_names, long[] path_ins_indexes);
+  private static native long getJsonObject(long input, long path_instructions);
 }
