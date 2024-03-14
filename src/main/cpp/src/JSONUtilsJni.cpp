@@ -22,34 +22,20 @@
 #include <vector>
 
 extern "C" {
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
-                                                         jclass,
-                                                         jlong input_column,
-                                                         jintArray path_ins_types,
-                                                         jobjectArray path_ins_names,
-                                                         jlongArray path_ins_indexes)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(
+  JNIEnv* env, jclass, jlong input_column, jlong instructions_table)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  JNI_NULL_CHECK(env, path_ins_types, "path_ins_types is null", 0);
-  JNI_NULL_CHECK(env, path_ins_names, "path_ins_names is null", 0);
-  JNI_NULL_CHECK(env, path_ins_indexes, "path_ins_indexes is null", 0);
-
+  JNI_NULL_CHECK(env, instructions_table, "path_ins_types is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const n_column_view = reinterpret_cast<cudf::column_view const*>(input_column);
-    auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
+    cudf::column_view* n_column_view = reinterpret_cast<cudf::column_view*>(input_column);
+    cudf::strings_column_view n_strings_col_view(*n_column_view);
 
-    cudf::jni::native_jintArray path_ins_types_n(env, path_ins_types);
-    cudf::jni::native_jstringArray path_ins_names_n(env, path_ins_names);
-    cudf::jni::native_jlongArray path_ins_indexes_n(env, path_ins_indexes);
+    auto const instructions = reinterpret_cast<cudf::table_view const*>(instructions_table);
 
-    auto const path_ins_types_v = std::vector<int32_t>(path_ins_types_n.begin(), path_ins_types_n.end());
-
-    auto const path_ins_indexes_v = std::vector<int64_t>(path_ins_indexes_n.begin(), path_ins_indexes_n.end());
-
-    return cudf::jni::release_as_jlong(spark_rapids_jni::get_json_object(
-      n_strings_col_view, path_ins_types_v, path_ins_names_n.as_cpp_vector(), path_ins_indexes_v));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::get_json_object(n_strings_col_view, *instructions));
   }
   CATCH_STD(env, 0);
 }

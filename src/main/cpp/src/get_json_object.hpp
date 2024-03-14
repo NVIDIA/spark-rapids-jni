@@ -31,9 +31,7 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& col,
-  std::vector<int32_t> const& path_types,
-  std::vector<std::string> const& path_names,
-  std::vector<int64_t> const& path_indexes,
+  cudf::table_view const& instructions,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
