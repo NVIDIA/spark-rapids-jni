@@ -31,5 +31,5 @@ public class JSONUtils {
     return new ColumnVector(getJsonObject(input.getNativeView(), path_ins_types, path_ins_names, path_ins_indexes));
   }
 
-  private static native Long getJsonObject(long input, int[] path_ins_types, String[] path_ins_names, long[] path_ins_indexes);
+  private static native long getJsonObject(long input, int[] path_ins_types, String[] path_ins_names, long[] path_ins_indexes);
 }

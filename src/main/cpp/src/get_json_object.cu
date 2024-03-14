@@ -356,8 +356,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*cdv,
-                                                                         path_commands.data(),
-                                                                         path_commands.size(),
+device_span{path_commands.data(), path_commands.size()},
                                                                          sizes.data(),
                                                                          d_offsets,
                                                                          thrust::nullopt,

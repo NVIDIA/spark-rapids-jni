@@ -37,19 +37,16 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
 
   try {
     cudf::jni::auto_set_device(env);
-    cudf::column_view* n_column_view = reinterpret_cast<cudf::column_view*>(input_column);
-    cudf::strings_column_view n_strings_col_view(*n_column_view);
+    auto const n_column_view = reinterpret_cast<cudf::column_view const*>(input_column);
+    auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
 
     cudf::jni::native_jintArray path_ins_types_n(env, path_ins_types);
     cudf::jni::native_jstringArray path_ins_names_n(env, path_ins_names);
     cudf::jni::native_jlongArray path_ins_indexes_n(env, path_ins_indexes);
 
-    std::vector<int32_t> path_ins_types_v = std::vector<int32_t>(path_ins_types_n.size());
-    env->GetIntArrayRegion(path_ins_types, 0, path_ins_types_n.size(), path_ins_types_v.data());
+    auto const path_ins_types_v = std::vector<int32_t>(path_ins_types_n.begin(), path_ins_types_n.end());
 
-    std::vector<int64_t> path_ins_indexes_v = std::vector<int64_t>(path_ins_indexes_n.size());
-    env->GetLongArrayRegion(
-      path_ins_indexes, 0, path_ins_indexes_n.size(), path_ins_indexes_v.data());
+    auto const path_ins_indexes_v = std::vector<int64_t>(path_ins_indexes_n.begin(), path_ins_indexes_n.end());
 
     return cudf::jni::release_as_jlong(spark_rapids_jni::get_json_object(
       n_strings_col_view, path_ins_types_v, path_ins_names_n.as_cpp_vector(), path_ins_indexes_v));
