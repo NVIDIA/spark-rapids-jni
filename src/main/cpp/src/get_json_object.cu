@@ -76,7 +76,7 @@ struct path_instruction {
   int64_t index{-1};
 };
 
-rmm::device_uvector<path_instruction> construct_path_commands(cudf::table_view instructions,
+rmm::device_uvector<path_instruction> construct_path_commands(cudf::table_view const& instructions,
                                                               rmm::cuda_stream_view stream,
                                                               rmm::mr::device_memory_resource* mr)
 {
@@ -87,8 +87,8 @@ rmm::device_uvector<path_instruction> construct_path_commands(cudf::table_view i
   auto const s_ins_types = cudf::strings_column_view(ins_types);
   auto const s_ins_names = cudf::strings_column_view(ins_names);
 
-  auto const d_ins_types   = cudf::column_device_view::create(s_ins_types.parent(), stream);
-  auto const d_ins_names   = cudf::column_device_view::create(s_ins_names.parent(), stream);
+  auto const d_ins_types   = cudf::column_device_view::create(ins_types, stream);
+  auto const d_ins_names   = cudf::column_device_view::create(ins_names, stream);
   auto const d_ins_indexes = cudf::column_device_view::create(ins_indexes, stream);
 
   rmm::device_uvector<path_instruction> path_commands(instructions.num_rows(), stream, mr);

@@ -29,8 +29,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
   JNI_NULL_CHECK(env, instructions_table, "path_ins_types is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    cudf::column_view* n_column_view = reinterpret_cast<cudf::column_view*>(input_column);
-    cudf::strings_column_view n_strings_col_view(*n_column_view);
+    auto const n_column_view = reinterpret_cast<cudf::column_view const*>(input_column);
+    auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
 
     auto const instructions = reinterpret_cast<cudf::table_view const*>(instructions_table);
 
