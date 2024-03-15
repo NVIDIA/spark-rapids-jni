@@ -84,9 +84,6 @@ rmm::device_uvector<path_instruction> construct_path_commands(cudf::table_view c
   auto const ins_names   = instructions.column(1);
   auto const ins_indexes = instructions.column(2);
 
-  auto const s_ins_types = cudf::strings_column_view(ins_types);
-  auto const s_ins_names = cudf::strings_column_view(ins_names);
-
   auto const d_ins_types   = cudf::column_device_view::create(ins_types, stream);
   auto const d_ins_names   = cudf::column_device_view::create(ins_names, stream);
   auto const d_ins_indexes = cudf::column_device_view::create(ins_indexes, stream);
