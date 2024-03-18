@@ -23,10 +23,31 @@ public class JSONUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static ColumnVector getJsonObject(ColumnVector input, Table path_instructions) {
-    assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions.getNativeView()));
+  public enum PathInstructionType {
+    SUBSCRIPT,
+    WILDCARD,
+    KEY,
+    INDEX,
+    NAMED
   }
 
-  private static native long getJsonObject(long input, long path_instructions);
+  public static class PathInstructionJni {
+    // type: Int, name: String, index: Long
+    private final int type;
+    private final String name;
+    private final long index;
+
+    public PathInstructionJni(PathInstructionType type, String name, long index) {
+      this.type = type.ordinal();
+      this.name = name;
+      this.index = index;
+    }
+  }
+
+  public static ColumnVector getJsonObject(ColumnVector input, int size, PathInstructionJni[] path_instructions) {
+    assert(input.getType().equals(DType.STRING)) : "column must be a String";
+    return new ColumnVector(getJsonObject(input.getNativeView(), size, path_instructions));
+  }
+
+  private static native long getJsonObject(long input, int size, PathInstructionJni[] path_instructions);
 }

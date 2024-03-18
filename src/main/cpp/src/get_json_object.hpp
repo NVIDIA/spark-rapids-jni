@@ -20,9 +20,15 @@
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace spark_rapids_jni {
+
+/**
+ * path instruction type
+ */
+enum class path_instruction_type { subscript, wildcard, key, index, named };
 
 /**
  * Extracts json object from a json string based on json path specified, and
@@ -31,7 +37,7 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& col,
-  cudf::table_view const& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

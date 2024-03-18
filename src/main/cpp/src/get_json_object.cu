@@ -57,11 +57,6 @@ namespace detail {
 enum class write_style { raw_style, quoted_style, flatten_style };
 
 /**
- * path instruction type
- */
-enum class path_instruction_type { subscript, wildcard, key, index, named };
-
-/**
  * path instruction
  */
 struct path_instruction {
@@ -76,46 +71,51 @@ struct path_instruction {
   int64_t index{-1};
 };
 
-rmm::device_uvector<path_instruction> construct_path_commands(cudf::table_view const& instructions,
-                                                              rmm::cuda_stream_view stream,
-                                                              rmm::mr::device_memory_resource* mr)
+rmm::device_uvector<path_instruction> construct_path_commands(
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
 {
-  auto const ins_types   = instructions.column(0);
-  auto const ins_names   = instructions.column(1);
-  auto const ins_indexes = instructions.column(2);
+  // get a string buffer to store all the names and convert to device
+  std::string all_names;
+  for (auto const& inst : instructions) {
+    all_names += std::get<1>(inst);
+  }
+  cudf::string_scalar all_names_scalar(all_names);
+  int name_pos = 0;
 
-  auto const d_ins_types   = cudf::column_device_view::create(ins_types, stream);
-  auto const d_ins_names   = cudf::column_device_view::create(ins_names, stream);
-  auto const d_ins_indexes = cudf::column_device_view::create(ins_indexes, stream);
-
-  rmm::device_uvector<path_instruction> path_commands(instructions.num_rows(), stream, mr);
-
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator(0),
-                    thrust::make_counting_iterator(instructions.num_rows()),
-                    path_commands.begin(),
-                    [d_types   = *d_ins_types,
-                     d_names   = *d_ins_names,
-                     d_indexes = *d_ins_indexes] __device__(auto idx) {
-                      path_instruction instruction(path_instruction_type::named);
-                      auto const type_str = d_types.element<cudf::string_view>(idx);
-                      if (type_str.data() == "subscript") {
-                        instruction.type = path_instruction_type::subscript;
-                      } else if (type_str.data() == "wildcard") {
-                        instruction.type = path_instruction_type::wildcard;
-                      } else if (type_str.data() == "key") {
-                        instruction.type = path_instruction_type::key;
-                      } else if (type_str.data() == "index") {
-                        instruction.type  = path_instruction_type::index;
-                        instruction.index = d_indexes.element<int64_t>(idx);
-                      } else if (type_str.data() == "named") {
-                        instruction.type = path_instruction_type::named;
-                        instruction.name = d_names.element<cudf::string_view>(idx);
-                      }
-                      return instruction;
-                    });
-
-  return path_commands;
+  // construct the path commands
+  std::vector<path_instruction> path_commands;
+  for (auto const& inst : instructions) {
+    auto const& [type, name, index] = inst;
+    switch (type) {
+      case path_instruction_type::subscript:
+        path_commands.emplace_back(path_instruction{path_instruction_type::subscript});
+        break;
+      case path_instruction_type::wildcard:
+        path_commands.emplace_back(path_instruction{path_instruction_type::wildcard});
+        break;
+      case path_instruction_type::key:
+        path_commands.emplace_back(path_instruction{path_instruction_type::key});
+        path_commands.back().name =
+          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+        name_pos += name.size();
+        break;
+      case path_instruction_type::index:
+        path_commands.emplace_back(path_instruction{path_instruction_type::index});
+        path_commands.back().index = index;
+        break;
+      case path_instruction_type::named:
+        path_commands.emplace_back(path_instruction{path_instruction_type::named});
+        path_commands.back().name =
+          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+        name_pos += name.size();
+        break;
+      default: CUDF_FAIL("Invalid path instruction type");
+    }
+  }
+  // convert to uvector
+  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
 }
 
 /**
@@ -324,10 +324,11 @@ __launch_bounds__(block_size) CUDF_KERNEL
   }
 }
 
-std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
-                                              cudf::table_view const& instructions,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr)
+std::unique_ptr<cudf::column> get_json_object(
+  cudf::strings_column_view const& col,
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
 {
   if (col.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
@@ -399,10 +400,11 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
 
 }  // namespace detail
 
-std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& col,
-                                              cudf::table_view const& instructions,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr)
+std::unique_ptr<cudf::column> get_json_object(
+  cudf::strings_column_view const& col,
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr)
 {
   // TODO: main logic
   return detail::get_json_object(col, instructions, stream, mr);
