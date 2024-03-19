@@ -73,15 +73,10 @@ struct path_instruction {
 
 rmm::device_uvector<path_instruction> construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  cudf::string_scalar const& all_names_scalar,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  // get a string buffer to store all the names and convert to device
-  std::string all_names;
-  for (auto const& inst : instructions) {
-    all_names += std::get<1>(inst);
-  }
-  cudf::string_scalar all_names_scalar(all_names);
   int name_pos = 0;
 
   // construct the path commands
@@ -332,8 +327,14 @@ std::unique_ptr<cudf::column> get_json_object(
 {
   if (col.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
+  // get a string buffer to store all the names and convert to device
+  std::string all_names;
+  for (auto const& inst : instructions) {
+    all_names += std::get<1>(inst);
+  }
+  cudf::string_scalar all_names_scalar(all_names);
   // parse the json_path into a command buffer
-  auto path_commands = construct_path_commands(instructions, stream, mr);
+  auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, mr);
 
   auto options = json_parser_options{};
 
