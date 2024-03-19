@@ -1,16 +1,18 @@
-# =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
 #
-# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
-# in compliance with the License. You may obtain a copy of the License at
+# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-# is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
-# or implied. See the License for the specific language governing permissions and limitations under
-# the License.
-# =============================================================================
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 string(TOLOWER "${CUDF_DEPENDENCY_PIN_MODE}" CUDF_DEPENDENCY_PIN_MODE)
 if(NOT (CUDF_DEPENDENCY_PIN_MODE STREQUAL pinned OR
@@ -33,8 +35,10 @@ if(CUDF_DEPENDENCY_PIN_MODE STREQUAL pinned)
   string(STRIP rapids-cmake-sha "${rapids-cmake-sha}")
   string(REPLACE "\n" "" rapids-cmake-sha "${rapids-cmake-sha}")
   set(rapids-cmake-sha "${rapids-cmake-sha}" CACHE STRING "rapids-cmake sha to use" FORCE)
+  message(STATUS "Pinning rapids-cmake SHA1 [${rapids-cmake-sha}]")
+else()
+  set(rapids-cmake-fetch-via-git "ON" CACHE STRING "Make sure rapids-cmake is cloned so we can get SHA value" FORCE)
 endif()
-message(STATUS "Pinning rapids-cmake SHA1 [${rapids-cmake-sha}]")
 
 # We need to use a project() call hook, since rapids-cmake cpm_init()
 # can't be called from a `-C` CMake file

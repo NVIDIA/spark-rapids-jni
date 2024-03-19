@@ -1,37 +1,22 @@
 {
-  "packages" : {
-    "jitify" : {
-      "version" : "2.0.0",
-      "git_url" : "https://github.com/rapidsai/jitify.git",
-      "git_tag" : "047df5e87d84834f8f4225898476145741acfa80",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
+  "packages" : 
+  {
+    "Arrow" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "740889f413af9b1ae1d81eb1e5a4a9fb4ce9cf97",
+      "git_url" : "https://github.com/apache/arrow.git",
+      "version" : "14.0.2"
     },
-    "nvcomp" : {
-      "version" : "3.0.5",
-      
-      
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "git_tag" : "v2.2.0",
-      "git_url" : "https://github.com/NVIDIA/nvcomp.git",
-      "proprietary_binary" : {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-major}.x.tgz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-major}.x.tgz"
-      },
-      "trailing_place_holder" : "true"
-      
-      
-      
-    },
-    "CCCL" : {
-      "version" : "2.2.0",
-      "git_url" : "https://github.com/NVIDIA/cccl.git",
+    "CCCL" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
       "git_tag" : "36f379f29660761fe033a1306ca9dab6a88cb65c",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "patches" : [
+      "git_url" : "https://github.com/NVIDIA/cccl.git",
+      "patches" : 
+      [
         {
           "file" : "cccl/bug_fixes.diff",
           "fixed_in" : "2.3",
@@ -63,89 +48,63 @@
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "trailing_place_holder" : "true"
-      
+      "version" : "2.2.0"
     },
-    "rmm" : {
-      "version" : "24.04",
-      "git_url" : "https://github.com/rapidsai/rmm.git",
-      "git_tag" : "beb6c36d3cc1aa655f5f311113ed033dca8c23fb",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
-    },
-    "fmt" : {
-      "version" : "10.1.1",
-      "git_url" : "https://github.com/fmtlib/fmt.git",
-      "git_tag" : "f5e54359df4c26b6230fc61d38aa294581393084",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
-    },
-    "spdlog" : {
-      "version" : "1.12.0",
-      "git_url" : "https://github.com/gabime/spdlog.git",
-      "git_tag" : "7e635fca68d014934b4af8a1cf874f63989352b7",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "patches" : [
-        {
-          "file" : "spdlog/nvcc_constexpr_fix.diff",
-          "fixed_in" : "1.13",
-          "issue" : "Fix constexpr mismatch between spdlog and fmt [https://github.com/gabime/spdlog/issues/2856]"
-        }
-      ],
-      "trailing_place_holder" : "true"
-      
-    },
-    "Arrow" : {
-      "version" : "14.0.1",
-      "git_url" : "https://github.com/apache/arrow.git",
-      "git_tag" : "ba537483618196f50c67a90a473039e4d5dc35e0",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
-    },
-    "dlpack" : {
-      "version" : "0.5",
-      "git_url" : "https://github.com/dmlc/dlpack.git",
-      "git_tag" : "ddeb264880a1fa7e7be238ab3901a810324fbe5f",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
-    },
-    "cuco" : {
-      "version" : "0.0.1",
-      "git_url" : "https://github.com/NVIDIA/cuCollections.git",
-      "git_tag" : "f823d30d6b08a60383266db25821074dbdbe5822",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "patches" : [
-        {
-          "file" : "cuco/hide_kernels.diff",
-          "fixed_in" : "",
-          "issue" : "CUCO Mark all kernels with hidden visibility [https://github.com/NVIDIA/cuCollections/pull/422]"
-        }
-      ],
-      "trailing_place_holder" : "true"
-      
-    },
-    "GTest" : {
-      "version" : "1.13.0",
-      "git_url" : "https://github.com/google/googletest.git",
+    "GTest" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
       "git_tag" : "b796f7d44681514f58a683a3a71ff17c94edb0c1",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
+      "git_url" : "https://github.com/google/googletest.git",
+      "version" : "1.13.0"
     },
-    "KvikIO" : {
-      "version" : "24.04",
+    "KvikIO" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "30b1dc1aa9dc8694fc7babb81e33664c56a9b2ff",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "git_tag" : "047ec3e89044459f62dff5b171a1f92fce94f193",
-      "git_shallow" : "false",
-      "always_download" : "true",
-      "trailing_place_holder" : "true"
+      "version" : "24.04.0"
     },
-    "trailing_place_holder" : {}
+    "NVTX3" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "version" : "3.1.0"
+    },
+    "cuco" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "56c53beb6fb0cafd265b7fcc3df78ae487811b22",
+      "git_url" : "https://github.com/NVIDIA/cuCollections.git",
+      "version" : "0.0.1"
+    },
+    "dlpack" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "365b823cedb281cd0240ca601aba9b78771f91a3",
+      "git_url" : "https://github.com/dmlc/dlpack.git",
+      "version" : "0.8"
+    },
+    "jitify" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "047df5e87d84834f8f4225898476145741acfa80",
+      "git_url" : "https://github.com/rapidsai/jitify.git",
+      "version" : "2.0.0"
+    },
+    "rmm" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "2c161dad4aa732e7a6901ab512aa9a0fac85afc4",
+      "git_url" : "https://github.com/rapidsai/rmm.git",
+      "version" : "24.04.0"
+    }
   }
 }
