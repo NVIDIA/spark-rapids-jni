@@ -1121,6 +1121,6 @@ TEST_F(JsonParserTests, WriteEscapedContralChars)
     ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
     clear_buff(buf, buf_size);
     parser.write_escaped_text(buf);
-   assert_start_with(buf, buf_size, cases[i].second);
+    assert_start_with(buf, buf_size, cases[i].second);
   }
 }
