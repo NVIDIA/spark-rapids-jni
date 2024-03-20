@@ -336,6 +336,8 @@ std::unique_ptr<cudf::column> get_json_object(
   // parse the json_path into a command buffer
   auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, mr);
 
+  auto options = json_parser_options{};
+
   // compute output sizes
   auto sizes = rmm::device_uvector<cudf::size_type>(
     col.size(), stream, rmm::mr::get_current_device_resource());
