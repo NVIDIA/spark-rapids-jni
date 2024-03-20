@@ -16,9 +16,11 @@
 #pragma once
 
 #include <cudf/strings/detail/utf8.hpp>
+#include <cudf/strings/string_view.hpp>
 #include <cudf/types.hpp>
 
 #include <thrust/pair.h>
+#include <thrust/tuple.h>
 
 namespace spark_rapids_jni {
 
@@ -26,157 +28,59 @@ namespace spark_rapids_jni {
  * write style when writing out JSON string
  */
 enum class write_style {
-  // e.g.: '\\r' is a string with 2 chars '\' '\r', writes 1 char '\r'
+  // e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
   unescaped,
 
-  // e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '\''
+  // * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"'
+  // '"'
   escaped
 };
 
-// deep depth will consume more memory, we can tuning this in future.
-// we ever run into a limit of 254, here use a little value 200.
+// allow single quotes to represent strings in JSON
+// e.g.: {'k': 'v'} is valid when it's true
+constexpr bool curr_allow_single_quotes = true;
+
+// Whether allow unescaped control characters in JSON Strings.
+// Unescaped control characters are ASCII characters with value less than 32,
+// including tab and line feed characters. ASCII values range is [0, 32)
+// e.g.: ["\n"] is valid, here \n is one char
+// If true, JSON is not conventional format.
+// e.g., how to represent carriage return and newline characters:
+//   if true, allow "\n\r" two control characters without escape directly
+//   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
+constexpr bool curr_allow_unescaped_control_chars = true;
+
+// deep JSON nesting depth will consume more memory, we can tuning this in
+// future. we ever run into a limit of 254, here use a little value 200.
 constexpr int curr_max_json_nesting_depth = 200;
 
+// Define the maximum JSON String length, counts utf8 bytes.
+// By default, maximum JSON String length is negative one, means no
+// limitation. e.g.: The length of String "\\n" is 1, JSON parser does not
+// count escape characters.
+constexpr int curr_max_string_utf8_bytes = 20000000;
+
+//
 /**
- * @brief Settings for `json_parser_options()`.
+ * Define the maximum JSON number length. Negative or zero means no
+ * limitation.
+ *
+ * By default, maximum JSON number length is negative one, means no
+ * limitation.
+ *
+ * e.g.: The length of number -123.45e-67 is 7. if maximum JSON number length
+ * is 6, then this number is a invalid number.
  */
-class json_parser_options {
-  // allow single quotes to represent strings in JSON
-  bool allow_single_quotes = false;
+constexpr int curr_max_num_len = 1000;
 
-  // Whether allow unescaped control characters in JSON Strings.
-  bool allow_unescaped_control_chars = false;
-
-  // Define the maximum JSON String length, counts utf8 bytes.
-  int max_string_utf8_bytes = -1;
-
-  // Define the maximum JSON number length.
-  int max_num_len = -1;
-
-  // Whether allow tailing useless sub-string
-  bool allow_tailing_sub_string = false;
-
- public:
-  /**
-   * @brief Default constructor.
-   */
-  explicit json_parser_options() = default;
-
-  /**
-   * @brief Returns true/false depending on whether single-quotes for
-   * representing strings are allowed.
-   *
-   * @return true if single-quotes are allowed, false otherwise.
-   */
-  [[nodiscard]] CUDF_HOST_DEVICE inline bool get_allow_single_quotes() const
-  {
-    return allow_single_quotes;
-  }
-
-  /**
-   * @brief Returns true/false depending on whether unescaped characters for
-   * representing strings are allowed.
-   *
-   * Unescaped control characters are ASCII characters with value less than 32,
-   * including tab and line feed characters.
-   *
-   * If true, JSON is not conventional format.
-   * e.g., how to represent carriage return and newline characters:
-   *   if true, allow "\n\r" two control characters without escape directly
-   *   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-   *
-   * @return true if unescaped characters are allowed, false otherwise.
-   */
-  [[nodiscard]] CUDF_HOST_DEVICE inline bool get_allow_unescaped_control_chars() const
-  {
-    return allow_unescaped_control_chars;
-  }
-
-  /**
-   * @brief Returns maximum JSON String length, negative or zero means no
-   * limitation.
-   *
-   * By default, maximum JSON String length is negative one, means no
-   * limitation. e.g.: The length of String "\\n" is 1, JSON parser does not
-   * count escape characters.
-   *
-   * @return integer value of allowed maximum JSON String length, counts utf8
-   * bytes
-   */
-  [[nodiscard]] CUDF_HOST_DEVICE int get_max_string_len() const { return max_string_utf8_bytes; }
-
-  /**
-   * @brief Returns maximum JSON number length, negative or zero means no
-   * limitation.
-   *
-   * By default, maximum JSON number length is negative one, means no
-   * limitation.
-   *
-   * e.g.: The length of number -123.45e-67 is 7. if maximum JSON number length
-   * is 6, then this number is a invalid number.
-   *
-   * @return integer value of allowed maximum JSON number length
-   */
-  [[nodiscard]] CUDF_HOST_DEVICE int get_max_num_len() const { return max_num_len; }
-
-  /**
-   * @brief Returns whether allow tailing useless sub-string in JSON.
-   *
-   * If true, e.g., the following invalid JSON is allowed, because prefix {'k' :
-   * 'v'} is valid.
-   *   {'k' : 'v'}_extra_tail_sub_string
-   *
-   * @return true if alow tailing useless sub-string, false otherwise.
-   */
-  [[nodiscard]] CUDF_HOST_DEVICE bool get_allow_tailing_sub_string() const
-  {
-    return allow_tailing_sub_string;
-  }
-
-  /**
-   * @brief Set whether single-quotes for strings are allowed.
-   *
-   * @param _allow_single_quotes bool indicating desired behavior.
-   */
-  void set_allow_single_quotes(bool _allow_single_quotes)
-  {
-    allow_single_quotes = _allow_single_quotes;
-  }
-
-  /**
-   * @brief Set whether alow unescaped control characters.
-   *
-   * @param _allow_unescaped_control_chars bool indicating desired behavior.
-   */
-  void set_allow_unescaped_control_chars(bool _allow_unescaped_control_chars)
-  {
-    allow_unescaped_control_chars = _allow_unescaped_control_chars;
-  }
-
-  /**
-   * @brief Set maximum JSON String length, counts utf8 bytes.
-   *
-   * @param _max_string_len integer indicating desired behavior.
-   */
-  void set_max_string_len(int _max_string_len) { max_string_utf8_bytes = _max_string_len; }
-
-  /**
-   * @brief Set maximum JSON number length.
-   *
-   * @param _max_num_len integer indicating desired behavior.
-   */
-  void set_max_num_len(int _max_num_len) { max_num_len = _max_num_len; }
-
-  /**
-   * @brief Set whether allow tailing useless sub-string.
-   *
-   * @param _allow_tailing_sub_string bool indicating desired behavior.
-   */
-  void set_allow_tailing_sub_string(bool _allow_tailing_sub_string)
-  {
-    allow_tailing_sub_string = _allow_tailing_sub_string;
-  }
-};
+/**
+ * whether allow tailing useless sub-string in JSON.
+ *
+ * If true, e.g., the following invalid JSON is allowed, because prefix {'k' :
+ * 'v'} is valid.
+ *   {'k' : 'v'}_extra_tail_sub_string
+ */
+constexpr bool curr_allow_tailing_sub_string = true;
 
 /**
  * JSON token enum
@@ -269,14 +173,17 @@ enum class json_token {
  * range: [0, 32)
  *
  */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
+template <bool allow_single_quotes           = curr_allow_single_quotes,
+          bool allow_unescaped_control_chars = curr_allow_unescaped_control_chars,
+          int max_json_nesting_depth         = curr_max_json_nesting_depth,
+          int max_string_utf8_bytes          = curr_max_string_utf8_bytes,
+          int max_num_len                    = curr_max_num_len,
+          bool allow_tailing_sub_string      = curr_allow_tailing_sub_string>
 class json_parser {
  public:
-  CUDF_HOST_DEVICE inline json_parser(json_parser_options const& _options,
-                                      char const* const _json_start_pos,
+  CUDF_HOST_DEVICE inline json_parser(char const* const _json_start_pos,
                                       cudf::size_type const _json_len)
-    : options(_options),
-      json_start_pos(_json_start_pos),
+    : json_start_pos(_json_start_pos),
       json_end_pos(_json_start_pos + _json_len),
       curr_pos(_json_start_pos)
   {
@@ -418,7 +325,7 @@ class json_parser {
       case '"': parse_double_quoted_string(); break;
 
       case '\'':
-        if (options.get_allow_single_quotes()) {
+        if (allow_single_quotes) {
           parse_single_quoted_string();
         } else {
           curr_token = json_token::ERROR;
@@ -480,10 +387,13 @@ class json_parser {
    * try parse ' or " quoted string
    *
    * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON string
-   * @param to_match_str_pos expected match str position, nullptr means do not match
+   * @param str_pos str start position for parsing, should be a position in JSON
+   * string
+   * @param to_match_str_pos expected match str position, nullptr means do not
+   * match
    * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do not copy
+   * @param copy_destination copy unescaped str to destination, nullptr means do
+   * not copy
    * @return whether passed successfully and the end position of parsed str
    *
    */
@@ -495,7 +405,7 @@ class json_parser {
     write_style w_style)
   {
     if (!eof(str_pos)) {
-      if (options.get_allow_single_quotes() && *str_pos == '\'') {
+      if (allow_single_quotes && *str_pos == '\'') {
         return try_parse_single_quoted_string(
           str_pos, to_match_str_pos, to_match_str_end, copy_destination, w_style);
       } else {
@@ -511,10 +421,13 @@ class json_parser {
    * try parse ' quoted string
    *
    * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON string
-   * @param to_match_str_pos expected match str position, nullptr means do not match
+   * @param str_pos str start position for parsing, should be a position in JSON
+   * string
+   * @param to_match_str_pos expected match str position, nullptr means do not
+   * match
    * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do not copy
+   * @param copy_destination copy unescaped str to destination, nullptr means do
+   * not copy
    *
    */
   CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_single_quoted_string(
@@ -524,23 +437,26 @@ class json_parser {
     char* copy_destination,
     write_style w_style)
   {
-    return try_parse_quoted_string(
-      str_pos,
-      '\'',
-      to_match_str_pos,  // match str pos, nullptr means do not match
-      to_match_str_end,  // match str end
-      copy_destination,  // copy destination while parsing, nullptr means do not copy
-      w_style);
+    return try_parse_quoted_string(str_pos,
+                                   '\'',
+                                   to_match_str_pos,  // match str pos, nullptr means do not match
+                                   to_match_str_end,  // match str end
+                                   copy_destination,  // copy destination while parsing, nullptr
+                                                      // means do not copy
+                                   w_style);
   }
 
   /**
    * try parse " quoted string.
    *
    * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON string
-   * @param to_match_str_pos expected match str position, nullptr means do not match
+   * @param str_pos str start position for parsing, should be a position in JSON
+   * string
+   * @param to_match_str_pos expected match str position, nullptr means do not
+   * match
    * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do not copy
+   * @param copy_destination copy unescaped str to destination, nullptr means do
+   * not copy
    *
    */
   CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_double_quoted_string(
@@ -550,13 +466,13 @@ class json_parser {
     char* copy_destination,
     write_style w_style)
   {
-    return try_parse_quoted_string(
-      str_pos,
-      '\"',
-      to_match_str_pos,  // match str pos, nullptr means do not match
-      to_match_str_end,  // match str end
-      copy_destination,  // copy destination while parsing, nullptr means do not copy
-      w_style);
+    return try_parse_quoted_string(str_pos,
+                                   '\"',
+                                   to_match_str_pos,  // match str pos, nullptr means do not match
+                                   to_match_str_end,  // match str end
+                                   copy_destination,  // copy destination while parsing, nullptr
+                                                      // means do not copy
+                                   w_style);
   }
 
   /**
@@ -574,12 +490,11 @@ class json_parser {
    * escape control char ( ASCII code value [0, 32) )
    * e.g.: \0  (ASCII code 0) will be escaped to 6 chars: \u0000
    * e.g.: \10 (ASCII code 0) will be escaped to 2 chars: \n
-   * @param char to be escaped
+   * @param char to be escaped, c should in range [0, 31)
    * @param[out] escape output
    */
   CUDF_HOST_DEVICE inline int escape_char(unsigned char c, char* output)
   {
-    assert(c < 32);
     switch (c) {
       case 8:
         output[0] = '\\';
@@ -622,20 +537,17 @@ class json_parser {
   }
 
   /**
-   * utility for parsing string, this function does not update the parser internal
-   * try parse quoted string using passed `quote_char`
-   * `quote_char` can be ' or "
-   * For UTF-8 encoding:
-   *   Single byte char: The most significant bit of the byte is always 0
-   *   Two-byte characters: The leading bits of the first byte are 110,
-   *     and the leading bits of the second byte are 10.
-   *   Three-byte characters: The leading bits of the first byte are 1110,
-   *     and the leading bits of the second and third bytes are 10.
-   *   Four-byte characters: The leading bits of the first byte are 11110,
-   *     and the leading bits of the second, third, and fourth bytes are 10.
-   * Because JSON structural chars([ ] { } , :), string quote char(" ') and
-   * Escape char \ are all Ascii(The leading bit is 0), so it's safe that do
-   * not convert byte array to UTF-8 char.
+   * utility for parsing string, this function does not update the parser
+   * internal try parse quoted string using passed `quote_char` `quote_char` can
+   * be ' or " For UTF-8 encoding: Single byte char: The most significant bit of
+   * the byte is always 0 Two-byte characters: The leading bits of the first
+   * byte are 110, and the leading bits of the second byte are 10. Three-byte
+   * characters: The leading bits of the first byte are 1110, and the leading
+   * bits of the second and third bytes are 10. Four-byte characters: The
+   * leading bits of the first byte are 11110, and the leading bits of the
+   * second, third, and fourth bytes are 10. Because JSON structural chars([ ] {
+   * } , :), string quote char(" ') and Escape char \ are all Ascii(The leading
+   * bit is 0), so it's safe that do not convert byte array to UTF-8 char.
    *
    * When quote is " and allow_unescaped_control_chars is false, grammar is:
    *
@@ -666,11 +578,14 @@ class json_parser {
    *   Allow [0-32) control Ascii chars directly without escape
    * When allow_single_quotes is true:
    *   These strings are allowed: '\'' , '\"' , '"' , "\"" , "\'" , "'"
-   * @param str_pos str start position for parsing, should be a position in JSON string
+   * @param str_pos str start position for parsing, should be a position in JSON
+   * string
    * @param quote_char expected quote char
-   * @param to_match_str_pos expected match str position, nullptr means do not match
+   * @param to_match_str_pos expected match str position, nullptr means do not
+   * match
    * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do not copy
+   * @param copy_destination copy unescaped str to destination, nullptr means do
+   * not copy
    */
   CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_quoted_string(
     char const* str_pos,
@@ -680,13 +595,14 @@ class json_parser {
     char* copy_destination,
     write_style w_style)
   {
+    // update state
     string_token_utf8_bytes       = 0;
     bytes_diff_for_escape_writing = 0;
 
     // write the first " if write style is escaped
-    if (nullptr != copy_destination && write_style::escaped == w_style) {
-      *copy_destination++ = '"';
+    if (write_style::escaped == w_style) {
       bytes_diff_for_escape_writing++;
+      if (nullptr != copy_destination) { *copy_destination++ = '"'; }
     }
 
     // skip left quote char
@@ -710,21 +626,21 @@ class json_parser {
         }
 
         // write the end " if write style is escaped
-        if (nullptr != copy_destination && write_style::escaped == w_style) {
-          *copy_destination++ = '"';
+        if (write_style::escaped == w_style) {
           bytes_diff_for_escape_writing++;
+          if (nullptr != copy_destination) { *copy_destination++ = '"'; }
         }
 
         return std::make_pair(true, str_pos);
-      } else if (v >= 0 && v < 32 && options.get_allow_unescaped_control_chars()) {
+      } else if (v >= 0 && v < 32 && allow_unescaped_control_chars) {
         // path 2: unescaped control char
 
-        // copy if enabled
+        // copy if enabled, unescape mode, write 1 char
         if (copy_destination != nullptr && write_style::unescaped == w_style) {
           *copy_destination++ = *str_pos;
         }
 
-        // copy if enabled
+        // copy if enabled, escape mode, write more chars
         if (copy_destination != nullptr && write_style::escaped == w_style) {
           int escape_chars = escape_char(*str_pos, copy_destination);
           copy_destination += escape_chars;
@@ -748,24 +664,29 @@ class json_parser {
         }
       } else {
         // path 4: safe code point
-        if (!try_skip_safe_code_point(str_pos, c)) {
-          return std::make_pair(false, nullptr);
-        } else {
-          if (copy_destination != nullptr) { *copy_destination++ = c; }
-          // check match if enabled
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) {
-            return std::make_pair(false, nullptr);
-          }
 
-          string_token_utf8_bytes++;
+        if ('\"' == c && copy_destination != nullptr && write_style::escaped == w_style) {
+          // e.g.: 'A"' string, escape to "A\\"" 4 chars
+          *copy_destination++ = '\\';
+          bytes_diff_for_escape_writing++;
         }
+
+        if (!try_skip_safe_code_point(str_pos, c)) { return std::make_pair(false, nullptr); }
+        if (copy_destination != nullptr) { *copy_destination++ = c; }
+        // check match if enabled
+        if (!try_match_char(to_match_str_pos, to_match_str_end, c)) {
+          return std::make_pair(false, nullptr);
+        }
+        string_token_utf8_bytes++;
       }
     }
 
     return std::make_pair(false, nullptr);
   }
 
-  bool try_match_char(char const*& char_pos, char const* const char_end_pos, char c)
+  CUDF_HOST_DEVICE inline bool try_match_char(char const*& char_pos,
+                                              char const* const char_end_pos,
+                                              char c)
   {
     if (nullptr != char_pos) {
       if (char_pos < char_end_pos && *char_pos == c) {
@@ -785,7 +706,7 @@ class json_parser {
    * @return positive escaped ASCII value if success, -1 otherwise
    */
   CUDF_HOST_DEVICE inline bool try_skip_escape_part(char const*& str_pos,
-                                                    char const* to_match_str_pos,
+                                                    char const*& to_match_str_pos,
                                                     char const* const to_match_str_end,
                                                     char*& copy_dest,
                                                     write_style w_style)
@@ -809,7 +730,7 @@ class json_parser {
           return true;
         case '\'':
           // only allow escape ' when `allow_single_quotes`
-          if (options.get_allow_single_quotes()) {
+          if (allow_single_quotes) {
             // for both unescaped/escaped writes a single char '
             if (nullptr != copy_dest) { *copy_dest++ = c; }
             if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
@@ -845,7 +766,7 @@ class json_parser {
             *copy_dest++ = 'b';
             bytes_diff_for_escape_writing++;
           }
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, '\b')) { return false; }
           string_token_utf8_bytes++;
           str_pos++;
           return true;
@@ -856,7 +777,7 @@ class json_parser {
             *copy_dest++ = 'f';
             bytes_diff_for_escape_writing++;
           }
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, '\f')) { return false; }
           string_token_utf8_bytes++;
           str_pos++;
           return true;
@@ -867,7 +788,7 @@ class json_parser {
             *copy_dest++ = 'n';
             bytes_diff_for_escape_writing++;
           }
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, '\n')) { return false; }
           string_token_utf8_bytes++;
           str_pos++;
           return true;
@@ -878,7 +799,7 @@ class json_parser {
             *copy_dest++ = 'r';
             bytes_diff_for_escape_writing++;
           }
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, '\r')) { return false; }
           string_token_utf8_bytes++;
           str_pos++;
           return true;
@@ -889,17 +810,17 @@ class json_parser {
             *copy_dest++ = 't';
             bytes_diff_for_escape_writing++;
           }
-          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, '\t')) { return false; }
           string_token_utf8_bytes++;
           str_pos++;
           return true;
-        // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
+        // path 1 done: \", \', \\, \/, \b, \f, \n, \r, \t
         case 'u':
           // path 2: \u HEX HEX HEX HEX
           str_pos++;
 
-          // for both unescaped/escaped writes corresponding utf8 bytes, no need to pass in write
-          // style
+          // for both unescaped/escaped writes corresponding utf8 bytes, no need
+          // to pass in write style
           return try_skip_unicode(str_pos, to_match_str_pos, to_match_str_end, copy_dest);
         default:
           // path 3: invalid
@@ -965,7 +886,7 @@ class json_parser {
    * in pattern: '\\' 'u' HEX HEX HEX HEX
    */
   CUDF_HOST_DEVICE inline bool try_skip_unicode(char const*& str_pos,
-                                                char const* to_match_str_pos,
+                                                char const*& to_match_str_pos,
                                                 char const* const to_match_str_end,
                                                 char*& copy_dest)
   {
@@ -991,11 +912,11 @@ class json_parser {
 
       if (nullptr != to_match_str_pos) {
         for (cudf::size_type i = 0; i < bytes; i++) {
-          if (!(to_match_str_pos + i < to_match_str_end && to_match_str_pos[i] == buff[i])) {
+          if (!(to_match_str_pos < to_match_str_end && *to_match_str_pos == buff[i])) {
             return false;
           }
+          to_match_str_pos++;
         }
-        to_match_str_pos += bytes;
       }
 
       return true;
@@ -1084,9 +1005,9 @@ class json_parser {
     int sum_len = float_integer_len + float_fraction_len + exp_digit_len;
     return
       // disabled num len check
-      options.get_max_num_len() <= 0 ||
+      max_num_len <= 0 ||
       // enabled num len check
-      (options.get_max_num_len() > 0 && sum_len <= options.get_max_num_len());
+      (max_num_len > 0 && sum_len <= max_num_len);
   }
 
   /**
@@ -1096,9 +1017,9 @@ class json_parser {
   {
     return
       // disabled str len check
-      options.get_max_string_len() <= 0 ||
+      max_string_utf8_bytes <= 0 ||
       // enabled str len check
-      (options.get_max_string_len() > 0 && string_token_utf8_bytes <= options.get_max_string_len());
+      (max_string_utf8_bytes > 0 && string_token_utf8_bytes <= max_string_utf8_bytes);
   }
 
   /**
@@ -1280,13 +1201,12 @@ class json_parser {
   /**
    * continute parsing the next token and update current token
    * Note: only parse one token at a time
+   * @param[out] has_comma_before_token has comma before next token
+   * @param[out] has_colon_before_token has colon before next token
    */
-  CUDF_HOST_DEVICE inline json_token parse_next_token()
+  CUDF_HOST_DEVICE inline json_token parse_next_token(bool& has_comma_before_token,
+                                                      bool& has_colon_before_token)
   {
-    // SUCCESS or ERROR means parsing is completed,
-    // should not call this function again.
-    assert(curr_token != json_token::SUCCESS && curr_token != json_token::ERROR);
-
     skip_whitespaces(curr_pos);
     if (!eof(curr_pos)) {
       char c = *curr_pos;
@@ -1298,7 +1218,7 @@ class json_parser {
           current_token_start_pos = curr_pos;
           parse_first_token_in_value();
         } else {
-          if (options.get_allow_tailing_sub_string()) {
+          if (allow_tailing_sub_string) {
             // previous token is not INIT, means already get a token; stack is
             // empty; Successfully parsed. Note: ignore the tailing sub-string
             curr_token = json_token::SUCCESS;
@@ -1328,6 +1248,7 @@ class json_parser {
             }
           } else if (curr_token == json_token::FIELD_NAME) {
             if (c == ':') {
+              has_colon_before_token = true;
               // skip ':' and parse value in key:value pair
               curr_pos++;
               skip_whitespaces(curr_pos);
@@ -1345,6 +1266,7 @@ class json_parser {
               curr_token = json_token::END_OBJECT;
               pop_curr_context();
             } else if (c == ',') {
+              has_comma_before_token = true;
               // parse next key:value pair
               curr_pos++;
               skip_whitespaces(curr_pos);
@@ -1371,6 +1293,7 @@ class json_parser {
             }
           } else {
             if (c == ',') {
+              has_comma_before_token = true;
               // skip ',' and parse the next value
               curr_pos++;
               skip_whitespaces(curr_pos);
@@ -1413,7 +1336,9 @@ class json_parser {
     // save current token
     previous_token = curr_token;
     // parse next token
-    return parse_next_token();
+    bool has_comma_before_token;  // no-initialization because of do not care here
+    bool has_colon_before_token;  // no-initialization because of do not care here
+    return parse_next_token(has_comma_before_token, has_colon_before_token);
   }
 
   /**
@@ -1461,9 +1386,11 @@ class json_parser {
     }
   }
 
+  CUDF_HOST_DEVICE cudf::size_type compute_unescaped_len() { return write_unescaped_text(nullptr); }
+
   /**
    * unescape current token text, then write to destination
-   * e.g.: '\\r' is a string with 2 chars '\' '\r', writes 1 char '\r'
+   * e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
    * e.g.: "\u4e2d\u56FD" are code points for Chinese chars "中国",
    *   writes 6 utf8 bytes: -28  -72 -83 -27 -101 -67
    * For number, write verbatim without normalization
@@ -1478,30 +1405,50 @@ class json_parser {
           current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
         return string_token_utf8_bytes;
       case json_token::VALUE_NUMBER_INT:
+        // TODO normalization if needed: https://github.com/NVIDIA/spark-rapids/issues/10218
+        // leverage function: `get_current_float_parts`
+        if (nullptr != destination) {
+          for (cudf::size_type i = 0; i < number_token_len; ++i) {
+            *destination++ = *(current_token_start_pos + i);
+          }
+        }
+        return number_token_len;
       case json_token::VALUE_NUMBER_FLOAT:
-        // number can be copied from JSON string directly
-        for (cudf::size_type i = 0; i < number_token_len; ++i) {
-          *destination++ = *(current_token_start_pos + i);
+        // TODO normalization: https://github.com/NVIDIA/spark-rapids/issues/10218
+        // 0.03E-2 => 0.3E-5; infinity;
+        // 200.000 => 200.0, 351.980 => 351.98, 12345678900000000000.0 => 1.23456789E19
+        // 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003 => 3.0E-4
+        // leverage function: `get_current_float_parts`
+        if (nullptr != destination) {
+          for (cudf::size_type i = 0; i < number_token_len; ++i) {
+            *destination++ = *(current_token_start_pos + i);
+          }
         }
         return number_token_len;
       case json_token::VALUE_TRUE:
-        *destination++ = 't';
-        *destination++ = 'r';
-        *destination++ = 'u';
-        *destination++ = 'e';
+        if (nullptr != destination) {
+          *destination++ = 't';
+          *destination++ = 'r';
+          *destination++ = 'u';
+          *destination++ = 'e';
+        }
         return 4;
       case json_token::VALUE_FALSE:
-        *destination++ = 'f';
-        *destination++ = 'a';
-        *destination++ = 'l';
-        *destination++ = 's';
-        *destination++ = 'e';
+        if (nullptr != destination) {
+          *destination++ = 'f';
+          *destination++ = 'a';
+          *destination++ = 'l';
+          *destination++ = 's';
+          *destination++ = 'e';
+        }
         return 5;
       case json_token::VALUE_NULL:
-        *destination++ = 'n';
-        *destination++ = 'u';
-        *destination++ = 'l';
-        *destination++ = 'l';
+        if (nullptr != destination) {
+          *destination++ = 'n';
+          *destination++ = 'u';
+          *destination++ = 'l';
+          *destination++ = 'l';
+        }
         return 4;
       case json_token::FIELD_NAME:
         // can not copy from JSON directly due to escaped chars
@@ -1509,10 +1456,18 @@ class json_parser {
         try_parse_string(
           current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
         return string_token_utf8_bytes;
-      case json_token::START_ARRAY: *destination++ = '['; return 1;
-      case json_token::END_ARRAY: *destination++ = ']'; return 1;
-      case json_token::START_OBJECT: *destination++ = '{'; return 1;
-      case json_token::END_OBJECT: *destination++ = '}'; return 1;
+      case json_token::START_ARRAY:
+        if (nullptr != destination) { *destination++ = '['; }
+        return 1;
+      case json_token::END_ARRAY:
+        if (nullptr != destination) { *destination++ = ']'; }
+        return 1;
+      case json_token::START_OBJECT:
+        if (nullptr != destination) { *destination++ = '{'; }
+        return 1;
+      case json_token::END_OBJECT:
+        if (nullptr != destination) { *destination++ = '}'; }
+        return 1;
       // for the following tokens, return false
       case json_token::SUCCESS:
       case json_token::ERROR:
@@ -1521,9 +1476,10 @@ class json_parser {
     return 0;
   }
 
+  CUDF_HOST_DEVICE cudf::size_type compute_escaped_len() { return write_escaped_text(nullptr); }
   /**
    * escape current token text, then write to destination
-   * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '\''
+   * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '"'
    * e.g.: "\u4e2d\u56FD" are code points for Chinese chars "中国",
    *   writes 8 utf8 bytes: '"' -28  -72 -83 -27 -101 -67 '"'
    * For number, write verbatim without normalization
@@ -1536,32 +1492,40 @@ class json_parser {
         // rewind the pos; parse again with copy
         try_parse_string(
           current_token_start_pos, nullptr, nullptr, destination, write_style::escaped);
-        return string_token_utf8_bytes + bytes_diff_for_escape_writing++;
+        return string_token_utf8_bytes + bytes_diff_for_escape_writing;
       case json_token::VALUE_NUMBER_INT:
       case json_token::VALUE_NUMBER_FLOAT:
         // number can be copied from JSON string directly
-        for (cudf::size_type i = 0; i < number_token_len; ++i) {
-          *destination++ = *(current_token_start_pos + i);
+        if (nullptr != destination) {
+          for (cudf::size_type i = 0; i < number_token_len; ++i) {
+            *destination++ = *(current_token_start_pos + i);
+          }
         }
         return number_token_len;
       case json_token::VALUE_TRUE:
-        *destination++ = 't';
-        *destination++ = 'r';
-        *destination++ = 'u';
-        *destination++ = 'e';
+        if (nullptr != destination) {
+          *destination++ = 't';
+          *destination++ = 'r';
+          *destination++ = 'u';
+          *destination++ = 'e';
+        }
         return 4;
       case json_token::VALUE_FALSE:
-        *destination++ = 'f';
-        *destination++ = 'a';
-        *destination++ = 'l';
-        *destination++ = 's';
-        *destination++ = 'e';
+        if (nullptr != destination) {
+          *destination++ = 'f';
+          *destination++ = 'a';
+          *destination++ = 'l';
+          *destination++ = 's';
+          *destination++ = 'e';
+        }
         return 5;
       case json_token::VALUE_NULL:
-        *destination++ = 'n';
-        *destination++ = 'u';
-        *destination++ = 'l';
-        *destination++ = 'l';
+        if (nullptr != destination) {
+          *destination++ = 'n';
+          *destination++ = 'u';
+          *destination++ = 'l';
+          *destination++ = 'l';
+        }
         return 4;
       case json_token::FIELD_NAME:
         // can not copy from JSON directly due to escaped chars
@@ -1569,10 +1533,18 @@ class json_parser {
         try_parse_string(
           current_token_start_pos, nullptr, nullptr, destination, write_style::escaped);
         return string_token_utf8_bytes + bytes_diff_for_escape_writing;
-      case json_token::START_ARRAY: *destination++ = '['; return 1;
-      case json_token::END_ARRAY: *destination++ = ']'; return 1;
-      case json_token::START_OBJECT: *destination++ = '{'; return 1;
-      case json_token::END_OBJECT: *destination++ = '}'; return 1;
+      case json_token::START_ARRAY:
+        if (nullptr != destination) { *destination++ = '['; }
+        return 1;
+      case json_token::END_ARRAY:
+        if (nullptr != destination) { *destination++ = ']'; }
+        return 1;
+      case json_token::START_OBJECT:
+        if (nullptr != destination) { *destination++ = '{'; }
+        return 1;
+      case json_token::END_OBJECT:
+        if (nullptr != destination) { *destination++ = '}'; }
+        return 1;
       // for the following tokens, return false
       case json_token::SUCCESS:
       case json_token::ERROR:
@@ -1588,27 +1560,17 @@ class json_parser {
   {
     curr_pos               = json_start_pos;
     curr_token             = json_token::INIT;
+    previous_token         = json_token::INIT;
     stack_size             = 0;
     curr_field_name_offset = -1;
   }
 
   /**
-   * get current text for VALUE_NUMBER_INT token or VALUE_NUMBER_FLOAT token
-   */
-  CUDF_HOST_DEVICE thrust::pair<char const*, cudf::size_type> get_current_number_text()
-  {
-    assert(json_token::VALUE_NUMBER_FLOAT == curr_token ||
-           json_token::VALUE_NUMBER_INT == curr_token);
-    return thrust::make_pair(current_token_start_pos, number_token_len);
-  }
-
-  /**
-   * get float parts
+   * get float parts, current token should be VALUE_NUMBER_FLOAT.
    */
   CUDF_HOST_DEVICE thrust::tuple<bool, char const*, int, char const*, int, char const*, int>
   get_current_float_parts()
   {
-    assert(json_token::VALUE_NUMBER_FLOAT == curr_token);
     return thrust::make_tuple(float_sign,
                               float_integer_pos,
                               float_integer_len,
@@ -1616,6 +1578,14 @@ class json_parser {
                               float_fraction_len,
                               float_exp_pos,
                               float_exp_len);
+  }
+
+  /**
+   * match current field name
+   */
+  CUDF_HOST_DEVICE bool match_current_field_name(cudf::string_view name)
+  {
+    return match_current_field_name(name.data(), name.size_bytes());
   }
 
   /**
@@ -1658,8 +1628,93 @@ class json_parser {
     }
   }
 
+  /**
+   * copy current structure to destination.
+   * return false if meets JSON format error,
+   * reurn true otherwise.
+   * @param[out] copy_to
+   */
+  CUDF_HOST_DEVICE thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
+  {
+    switch (curr_token) {
+      case json_token::INIT:
+      case json_token::ERROR:
+      case json_token::SUCCESS:
+      case json_token::FIELD_NAME:
+      case json_token::END_ARRAY:
+      case json_token::END_OBJECT: return thrust::make_pair(false, 0);
+      case json_token::VALUE_NUMBER_INT:
+      case json_token::VALUE_NUMBER_FLOAT:
+      case json_token::VALUE_STRING:
+      case json_token::VALUE_TRUE:
+      case json_token::VALUE_FALSE:
+      case json_token::VALUE_NULL:
+        // copy terminal token
+        if (nullptr != copy_to) {
+          size_t copy_len = write_escaped_text(copy_to);
+          return thrust::make_pair(true, copy_len);
+        } else {
+          size_t copy_len = compute_escaped_len();
+          return thrust::make_pair(true, copy_len);
+        }
+      case json_token::START_ARRAY:
+      case json_token::START_OBJECT:
+        // stack size increased by 1 when meet start object/array
+        // copy until meet matched end object/array
+        size_t sum_copy_len   = 0;
+        int backup_stack_size = stack_size;
+
+        // copy start object/array
+        if (nullptr != copy_to) {
+          int len = write_escaped_text(copy_to);
+          sum_copy_len += len;
+          copy_to += len;
+        } else {
+          sum_copy_len += compute_unescaped_len();
+        }
+
+        while (true) {
+          bool has_comma_before_token = false;
+          bool has_colon_before_token = false;
+
+          // parse and get has_comma_before_token, has_colon_before_token
+          parse_next_token(has_comma_before_token, has_colon_before_token);
+
+          // check the JSON format
+          if (curr_token == json_token::ERROR) { return thrust::make_pair(false, 0); }
+
+          // write out the token
+          if (nullptr != copy_to) {
+            if (has_comma_before_token) {
+              sum_copy_len++;
+              *copy_to++ = ',';
+            }
+            if (has_colon_before_token) {
+              sum_copy_len++;
+              *copy_to++ = ':';
+            }
+            int len = write_escaped_text(copy_to);
+            sum_copy_len += len;
+            copy_to += len;
+          } else {
+            if (has_comma_before_token) { sum_copy_len++; }
+            if (has_colon_before_token) { sum_copy_len++; }
+            sum_copy_len += compute_escaped_len();
+          }
+
+          if (backup_stack_size - 1 == stack_size) {
+            // indicate meet the matched end object/array
+            return thrust::make_pair(true, sum_copy_len);
+          }
+        }
+        return thrust::make_pair(false, 0);
+    }
+
+    // never happen
+    return thrust::make_pair(false, 0);
+  }
+
  private:
-  json_parser_options const& options;
   char const* const json_start_pos;
   char const* const json_end_pos;
   char const* curr_pos;
@@ -1671,25 +1726,27 @@ class json_parser {
   // When encounter EOF and this stack is non-empty, means non-closed JSON
   // object/array, then parsing will fail.
   bool context_stack[max_json_nesting_depth];
-  // saves field names for start object/array token, end object token and end array token
-  // has the same field names with corresponding start object token and  start array token
+  // saves field names for start object/array token, end object token and end
+  // array token has the same field names with corresponding start object token
+  // and  start array token
   cudf::size_type field_name_offset_stack[max_json_nesting_depth];
-  // current field name: last reached field name or poped field name when encounter ]/}
-  // using offset in JSON str instead of `char *` to save memory,
-  // here assume `char *` using 8 bytes
+  // current field name: last reached field name or poped field name when meet
+  // ]/} using offset in JSON str instead of `char *` to save memory, here
+  // assume `char *` using 8 bytes, size_type using 4 bytes.
   cudf::size_type curr_field_name_offset = -1;
   int stack_size                         = 0;
 
   // save current token start pos, used by coping current row text
   char const* current_token_start_pos;
-  // used to copy int/float string verbatim, note: int/float have no escape chars
+  // used to copy int/float string verbatim, note: int/float have no escape
+  // chars
   cudf::size_type number_token_len;
 
   // The following variables record number token informations.
   // if current token is int/float, use the following variables to save
   // float parts e.g.: -123.000456E-000789, sign is false; integer part is 123;
-  // fraction part is 000456; exp part is -000789. The following parts is used by
-  // normalization, e.g.: 0.001 => 1E-3
+  // fraction part is 000456; exp part is -000789. The following parts is used
+  // by normalization, e.g.: 0.001 => 1E-3
   bool float_sign;
   char const* float_integer_pos;
   int float_integer_len;

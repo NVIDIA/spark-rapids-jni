@@ -51,26 +51,6 @@ namespace spark_rapids_jni {
 namespace detail {
 // namespace {
 
-/**
- * write JSON style
- */
-enum class write_style { raw_style, quoted_style, flatten_style };
-
-/**
- * path instruction
- */
-struct path_instruction {
-  CUDF_HOST_DEVICE inline path_instruction(path_instruction_type _type) : type(_type) {}
-
-  path_instruction_type type;
-
-  // used when type is named type
-  cudf::string_view name;
-
-  // used when type is index
-  int64_t index{-1};
-};
-
 rmm::device_uvector<path_instruction> construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   cudf::string_scalar const& all_names_scalar,
@@ -113,105 +93,34 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
 }
 
-/**
- * TODO: JSON generator
- *
- */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
-class json_generator {
- public:
-  CUDF_HOST_DEVICE json_generator(char* _output, size_t _output_len)
-    : output(_output), output_len(_output_len)
-  {
-  }
-  CUDF_HOST_DEVICE json_generator() : output(nullptr), output_len(0) {}
-
-  // create a nested child generator based on this parent generator
-  // child generator is a view
-  CUDF_HOST_DEVICE json_generator new_child_generator()
-  {
-    if (nullptr == output) {
-      return json_generator();
-    } else {
-      return json_generator(output + output_len, 0);
-    }
-  }
-
-  CUDF_HOST_DEVICE json_generator finish_child_generator(json_generator const& child_generator)
-  {
-    // logically delete child generator
-    output_len += child_generator.get_output_len();
-  }
-
-  CUDF_HOST_DEVICE void write_start_array()
-  {
-    // TODO
-  }
-
-  CUDF_HOST_DEVICE void write_end_array()
-  {
-    // TODO
-  }
-
-  CUDF_HOST_DEVICE void copy_current_structure(json_parser<max_json_nesting_depth>& parser)
-  {
-    // TODO
-  }
-
-  /**
-   * Get current text from JSON parser and then write the text
-   * Note: Because JSON strings contains '\' to do escape,
-   * JSON parser should do unescape to remove '\' and JSON parser
-   * then can not return a pointer and length pair (char *, len),
-   * For number token, JSON parser can return a pair (char *, len)
-   */
-  CUDF_HOST_DEVICE void write_raw(json_parser<max_json_nesting_depth>& parser)
-  {
-    if (output) {
-      auto copied = parser.write_unescaped_text(output + output_len);
-      output_len += copied;
-    }
-  }
-
-  CUDF_HOST_DEVICE inline size_t get_output_len() const { return output_len; }
-
- private:
-  char const* const output;
-  size_t output_len;
-};
-
-/**
- * @brief Result of calling a parse function.
- *
- * The primary use of this is to distinguish between "success" and
- * "success but no data" return cases.  For example, if you are reading the
- * values of an array you might call a parse function in a while loop. You
- * would want to continue doing this until you either encounter an error
- * (parse_result::ERROR) or you get nothing back (parse_result::EMPTY)
- */
-enum class parse_result {
-  ERROR,          // failure
-  SUCCESS,        // success
-  MISSING_FIELD,  // success, but the field is missing
-  EMPTY,          // success, but no data
-};
+__device__ bool evaluate_path(json_parser<>& p,
+                              json_generator<>& g,
+                              write_style style,
+                              path_instruction const* path_ptr,
+                              int path_size)
+{
+  return path_evaluator::evaluate_path(p, g, style, path_ptr, path_size);
+}
 
 /**
  * @brief Parse a single json string using the provided command buffer
  *
- * @param j_state The incoming json string and associated parser
- * @param commands The command buffer to be applied to the string. Always ends
- * with a path_operator_type::END
- * @param output Buffer user to store the results of the query
+ * @param j_parser The incoming json string and associated parser
+ * @param path_ptr The command buffer to be applied to the string.
+ * @param path_size Command buffer size
+ * @param output Buffer used to store the results of the query
  * @returns A result code indicating success/fail/empty.
  */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
-__device__ parse_result parse_json_path(json_parser<max_json_nesting_depth>& j_parser,
-                                        cudf::device_span<path_instruction const> path_commands,
-                                        json_generator<max_json_nesting_depth>& output)
+__device__ inline bool parse_json_path(json_parser<>& j_parser,
+                                       path_instruction const* path_ptr,
+                                       size_t path_size,
+                                       json_generator<>& output)
 {
-  // TODO
-  return parse_result::SUCCESS;
+  j_parser.next_token();
+  // JSON validation check
+  if (json_token::ERROR == j_parser.get_current_token()) { return false; }
+
+  return evaluate_path(j_parser, output, write_style::raw_style, path_ptr, path_size);
 }
 
 /**
@@ -229,19 +138,36 @@ __device__ parse_result parse_json_path(json_parser<max_json_nesting_depth>& j_p
  * @param options Options controlling behavior
  * @returns A pair containing the result code the output buffer.
  */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
-__device__ thrust::pair<parse_result, json_generator<max_json_nesting_depth>>
-get_json_object_single(char const* input,
-                       cudf::size_type input_len,
-                       cudf::device_span<path_instruction const> path_commands,
-                       char* out_buf,
-                       size_t out_buf_size,
-                       json_parser_options options)
+__device__ thrust::pair<bool, json_generator<>> get_json_object_single(
+  char const* input,
+  cudf::size_type input_len,
+  path_instruction const* path_commands_ptr,
+  int path_commands_size,
+  char* out_buf,
+  size_t out_buf_size)
 {
-  json_parser j_parser(options, input, input_len);
-  json_generator generator(out_buf, out_buf_size);
-  auto const result = parse_json_path(j_parser, path_commands, generator);
-  return {result, generator};
+  if (!out_buf) {
+    // First step: preprocess sizes
+    json_parser j_parser(input, input_len);
+    json_generator generator(out_buf);
+    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
+
+    if (!success) {
+      // generator may contain trash output, e.g.: generator writes some output,
+      // then JSON format is invalid, the previous output becomes trash.
+      // set output as zero to tell second step
+      generator.set_output_len_zero();
+    }
+    return {success, generator};
+  } else {
+    // Second step: writes output
+    // if output buf size is zero, pass in nullptr to avoid generator writing trash output
+    char* actual_output = (0 == out_buf_size) ? nullptr : out_buf;
+    json_parser j_parser(input, input_len);
+    json_generator generator(actual_output);
+    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
+    return {success, generator};
+  }
 }
 
 /**
@@ -263,13 +189,13 @@ get_json_object_single(char const* input,
 template <int block_size>
 __launch_bounds__(block_size) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
-                              cudf::device_span<path_instruction const> path_commands,
+                              path_instruction const* path_commands_ptr,
+                              int path_commands_size,
                               cudf::size_type* d_sizes,
                               cudf::detail::input_offsetalator output_offsets,
                               thrust::optional<char*> out_buf,
                               thrust::optional<cudf::bitmask_type*> out_validity,
-                              thrust::optional<cudf::size_type*> out_valid_count,
-                              json_parser_options options)
+                              thrust::optional<cudf::size_type*> out_valid_count)
 {
   auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::thread_index_type{blockDim.x} * cudf::thread_index_type{gridDim.x};
@@ -287,10 +213,10 @@ __launch_bounds__(block_size) CUDF_KERNEL
         out_buf.has_value() ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
-      auto [result, out] =
-        get_json_object_single(str.data(), str.size_bytes(), path_commands, dst, dst_size, options);
+      auto [result, out] = get_json_object_single(
+        str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
       output_size = out.get_output_len();
-      if (result == parse_result::SUCCESS) { is_valid = true; }
+      if (result) { is_valid = true; }
     }
 
     // filled in only during the precompute step. during the compute step, the
@@ -336,8 +262,6 @@ std::unique_ptr<cudf::column> get_json_object(
   // parse the json_path into a command buffer
   auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, mr);
 
-  auto options = json_parser_options{};
-
   // compute output sizes
   auto sizes = rmm::device_uvector<cudf::size_type>(
     col.size(), stream, rmm::mr::get_current_device_resource());
@@ -348,15 +272,14 @@ std::unique_ptr<cudf::column> get_json_object(
   auto cdv = cudf::column_device_view::create(col.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *cdv,
-      cudf::device_span<path_instruction const>{path_commands.data(), path_commands.size()},
-      sizes.data(),
-      d_offsets,
-      thrust::nullopt,
-      thrust::nullopt,
-      thrust::nullopt,
-      options);
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*cdv,
+                                                                         path_commands.data(),
+                                                                         path_commands.size(),
+                                                                         sizes.data(),
+                                                                         d_offsets,
+                                                                         thrust::nullopt,
+                                                                         thrust::nullopt,
+                                                                         thrust::nullopt);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -377,13 +300,13 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *cdv,
-      cudf::device_span<path_instruction const>{path_commands.data(), path_commands.size()},
+      path_commands.data(),
+      path_commands.size(),
       sizes.data(),
       d_offsets,
       chars.data(),
       static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data(),
-      options);
+      d_valid_count.data());
 
   auto result = make_strings_column(col.size(),
                                     std::move(offsets),
@@ -407,7 +330,6 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  // TODO: main logic
   return detail::get_json_object(col, instructions, stream, mr);
 }
 

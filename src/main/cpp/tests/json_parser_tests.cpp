@@ -20,24 +20,23 @@
 
 struct JsonParserTests : public cudf::test::BaseFixture {};
 using spark_rapids_jni::json_parser;
-using spark_rapids_jni::json_parser_options;
 using spark_rapids_jni::json_token;
 
-template <int max_json_depth = 128>
-std::vector<json_token> parse(std::string json_str,
-                              bool single_quote,
-                              bool control_char,
-                              bool allow_tailing = true,
-                              int max_string_len = 20000000,
-                              int max_num_len    = 1000)
+template <bool allow_single_quotes           = spark_rapids_jni::curr_allow_single_quotes,
+          bool allow_unescaped_control_chars = spark_rapids_jni::curr_allow_unescaped_control_chars,
+          int max_json_nesting_depth         = spark_rapids_jni::curr_max_json_nesting_depth,
+          int max_string_utf8_bytes          = spark_rapids_jni::curr_max_string_utf8_bytes,
+          int max_num_len                    = spark_rapids_jni::curr_max_num_len,
+          bool allow_tailing_sub_string      = spark_rapids_jni::curr_allow_tailing_sub_string>
+std::vector<json_token> parse(std::string json_str)
 {
-  json_parser_options options;
-  options.set_allow_single_quotes(single_quote);
-  options.set_allow_unescaped_control_chars(control_char);
-  options.set_allow_tailing_sub_string(allow_tailing);
-  options.set_max_string_len(max_string_len);
-  options.set_max_num_len(max_num_len);
-  json_parser<max_json_depth> parser(options, json_str.data(), json_str.size());
+  json_parser<allow_single_quotes,
+              allow_unescaped_control_chars,
+              max_json_nesting_depth,
+              max_string_utf8_bytes,
+              max_num_len,
+              allow_tailing_sub_string>
+    parser(json_str.data(), json_str.size());
   std::vector<json_token> tokens;
   json_token token = parser.next_token();
   tokens.push_back(token);
@@ -48,7 +47,8 @@ std::vector<json_token> parse(std::string json_str,
   return tokens;
 }
 
-void test_basic(bool allow_single_quote, bool allow_control_char)
+template <bool allow_single_quote, bool allow_control_char>
+void test_basic()
 {
   std::vector<std::pair<std::string, std::vector<json_token>>> cases = {
     std::make_pair(
@@ -324,7 +324,7 @@ void test_basic(bool allow_single_quote, bool allow_control_char)
   for (std::size_t i = 0; i < cases.size(); ++i) {
     std::string json_str                    = cases[i].first;
     std::vector<json_token> expected_tokens = cases[i].second;
-    std::vector<json_token> actual_tokens = parse(json_str, allow_single_quote, allow_control_char);
+    std::vector<json_token> actual_tokens = parse<allow_single_quote, allow_control_char>(json_str);
     ASSERT_EQ(actual_tokens, expected_tokens);
   }
 }
@@ -340,12 +340,19 @@ void test_len_limitation()
 
   auto error_token = std::vector<json_token>{json_token::ERROR};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  //  bool single_quote,
-                                                  true,  // control_char
-                                                  true,  // allow_tailing
-                                                  5,     // max_string_len
-                                                  5);    // max_num_len
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      true,
+      // max json nesting depth
+      spark_rapids_jni::curr_max_json_nesting_depth,
+      // max_string_len
+      5,
+      // max_num_len
+      5,
+      // allow_tailing
+      true>(v[i]);
     // exceed num/str length limits
     ASSERT_EQ(actual_tokens, error_token);
   }
@@ -356,12 +363,19 @@ void test_len_limitation()
                                          // has 5 chars: k \n ' " 5
   auto expect_str_ret = std::vector<json_token>{json_token::VALUE_STRING, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  // bool single_quote,
-                                                  true,  // control_char
-                                                  true,  // allow_tailing
-                                                  5,     // max_string_len
-                                                  5);    // max_num_len
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      true,
+      // max json nesting depth
+      spark_rapids_jni::curr_max_json_nesting_depth,
+      // max_string_len
+      5,
+      // max_num_len
+      5,
+      // allow_tailing
+      true>(v[i]);
     ASSERT_EQ(actual_tokens, expect_str_ret);
   }
 
@@ -369,12 +383,19 @@ void test_len_limitation()
   v.push_back("    12345            ");
   v.push_back("    -1.23e-45        ");
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,   // bool single_quote,
-                                                  false,  // control_char
-                                                  true,   // allow_tailing
-                                                  5,      // max_string_len
-                                                  5);     // max_num_len
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      false,
+      // max json nesting depth
+      spark_rapids_jni::curr_max_json_nesting_depth,
+      // max_string_len
+      5,
+      // max_num_len
+      5,
+      // allow_tailing
+      true>(v[i]);
     ASSERT_EQ(actual_tokens[1], json_token::SUCCESS);
   }
 }
@@ -389,10 +410,11 @@ void test_single_double_quote()
                                                     // ' in string
   auto expect_ret = std::vector<json_token>{json_token::VALUE_STRING, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  //  bool single_quote,
-                                                  false  // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      false>(v[i]);
     ASSERT_EQ(actual_tokens, expect_ret);
   }
 
@@ -400,10 +422,11 @@ void test_single_double_quote()
   v.push_back("\"     \\'      \"");  // not allow \' when single_quote is disabled
   expect_ret = std::vector<json_token>{json_token::ERROR};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  false,  //  bool single_quote,
-                                                  true    // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      false,
+      // control_char
+      true>(v[i]);
 
     ASSERT_EQ(actual_tokens, expect_ret);
   }
@@ -412,10 +435,11 @@ void test_single_double_quote()
   v.push_back("\"     '   \\\"      \"");  // allow ' \" in double quote
   expect_ret = std::vector<json_token>{json_token::VALUE_STRING, json_token::SUCCESS};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  false,  //  bool single_quote,
-                                                  true    // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      false,
+      // control_char
+      true>(v[i]);
     ASSERT_EQ(actual_tokens, expect_ret);
   }
 
@@ -423,10 +447,11 @@ void test_single_double_quote()
   v.push_back("      'str'      ");  // ' is not allowed to quote string
   expect_ret = std::vector<json_token>{json_token::ERROR};
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  false,  //  bool single_quote,
-                                                  true    // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      false,
+      // control_char
+      true>(v[i]);
     ASSERT_EQ(actual_tokens, expect_ret);
   }
 }
@@ -438,10 +463,13 @@ void test_max_nested_len()
   v.push_back("{'k1':{'k2':{'k3':{'k4':{'k5': 5}}}}}");
   for (std::size_t i = 0; i < v.size(); ++i) {
     // set max nested len template value as 5
-    std::vector<json_token> actual_tokens = parse<5>(v[i],
-                                                     true,  //  bool single_quote,
-                                                     true   // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      true,
+      // max json nesting depth
+      5>(v[i]);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
 
@@ -450,10 +478,13 @@ void test_max_nested_len()
   v.push_back("{'k1':{'k2':{'k3':{'k4':{'k5': {'k6': 6}}}}}}");
   for (std::size_t i = 0; i < v.size(); ++i) {
     // set max nested len template value as 5
-    std::vector<json_token> actual_tokens = parse<5>(v[i],
-                                                     true,  //  bool single_quote,
-                                                     false  // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      false,
+      // max json nesting depth
+      5>(v[i]);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
 }
@@ -464,19 +495,17 @@ void test_control_char()
   v.push_back("'   \t   \n   \b '");  // \t \n \b are control chars
   for (std::size_t i = 0; i < v.size(); ++i) {
     // set max nested len template value as 5
-    std::vector<json_token> actual_tokens = parse<5>(v[i],
-                                                     true,  //  bool single_quote,
-                                                     true   // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<>(v[i]);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
 
   for (std::size_t i = 0; i < v.size(); ++i) {
     // set max nested len template value as 5
-    std::vector<json_token> actual_tokens = parse<5>(v[i],
-                                                     true,  //  bool single_quote,
-                                                     false  // control_char
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      false>(v[i]);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
 }
@@ -488,20 +517,24 @@ void test_allow_tailing_useless_chars()
                                    // when allow tailing
   v.push_back("  {}xxxx  ");       // tailing xxxx is ignored
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  //  bool single_quote,
-                                                  true,  // control_char
-                                                  true   // allow_tailing is true
-    );
+    std::vector<json_token> actual_tokens = parse<>(v[i]);
     ASSERT_TRUE(actual_tokens.size() > 0);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,  //  bool single_quote,
-                                                  true,  // control_char
-                                                  false  // allow_tailing is false
-    );
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      true,
+      // max json nesting depth
+      spark_rapids_jni::curr_max_json_nesting_depth,
+      // max_string_len
+      spark_rapids_jni::curr_max_string_utf8_bytes,
+      // max_num_len
+      spark_rapids_jni::curr_max_num_len,
+      // allow_tailing
+      false>(v[i]);
     ASSERT_TRUE(actual_tokens.size() > 0);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::ERROR);
   }
@@ -510,12 +543,19 @@ void test_allow_tailing_useless_chars()
   v.push_back("    12345xxxxxx            ");
   v.push_back("    -1.23e-45xxxxx   ");
   for (std::size_t i = 0; i < v.size(); ++i) {
-    std::vector<json_token> actual_tokens = parse(v[i],
-                                                  true,   //  bool single_quote,
-                                                  false,  // control_char
-                                                  true,   // allow_tailing
-                                                  5,      // max_string_len
-                                                  5);     // max_num_len
+    std::vector<json_token> actual_tokens = parse<
+      //  bool single_quote,
+      true,
+      // control_char
+      false,
+      // max json nesting depth
+      spark_rapids_jni::curr_max_json_nesting_depth,
+      // max_string_len
+      5,
+      // max_num_len
+      5,
+      // allow_tailing
+      true>(v[i]);
     ASSERT_TRUE(actual_tokens.size() > 0);
     ASSERT_EQ(actual_tokens[actual_tokens.size() - 1], json_token::SUCCESS);
   }
@@ -524,21 +564,20 @@ void test_allow_tailing_useless_chars()
 void test_is_valid()
 {
   std::string json_str = " {    \"k\"   :     [1,2,3]}   ";
-  json_parser_options options;
-  json_parser<10> parser1(options, json_str.data(), json_str.size());
+  json_parser parser1(json_str.data(), json_str.size());
   ASSERT_TRUE(parser1.is_valid());
 
   json_str = " {[1,2,    ";
-  json_parser<10> parser2(options, json_str.data(), json_str.size());
+  json_parser parser2(json_str.data(), json_str.size());
   ASSERT_FALSE(parser2.is_valid());
 }
 
 TEST_F(JsonParserTests, NormalTest)
 {
-  test_basic(/*single_quote*/ true, /*control_char*/ true);
-  test_basic(/*single_quote*/ true, /*control_char*/ false);
-  test_basic(/*single_quote*/ false, /*control_char*/ true);
-  test_basic(/*single_quote*/ false, /*control_char*/ false);
+  test_basic</*single_quote*/ true, /*control_char*/ true>();
+  test_basic</*single_quote*/ true, /*control_char*/ false>();
+  test_basic</*single_quote*/ false, /*control_char*/ true>();
+  test_basic</*single_quote*/ false, /*control_char*/ false>();
   test_len_limitation();
   test_single_double_quote();
   test_max_nested_len();
@@ -547,30 +586,33 @@ TEST_F(JsonParserTests, NormalTest)
   test_is_valid();
 }
 
-constexpr int json_depth_for_test = 128;
-template <int max_json_depth = json_depth_for_test>
-json_parser<max_json_depth> get_parser(json_parser_options& options,
-                                       std::string const& json_str,
-                                       bool single_quote,
-                                       bool control_char,
-                                       bool allow_tailing = true,
-                                       int max_string_len = 20000000,
-                                       int max_num_len    = 1000)
+template <bool allow_single_quotes           = spark_rapids_jni::curr_allow_single_quotes,
+          bool allow_unescaped_control_chars = spark_rapids_jni::curr_allow_unescaped_control_chars,
+          int max_json_nesting_depth         = spark_rapids_jni::curr_max_json_nesting_depth,
+          int max_string_utf8_bytes          = spark_rapids_jni::curr_max_string_utf8_bytes,
+          int max_num_len                    = spark_rapids_jni::curr_max_num_len,
+          bool allow_tailing_sub_string      = spark_rapids_jni::curr_allow_tailing_sub_string>
+json_parser<allow_single_quotes,
+            allow_unescaped_control_chars,
+            max_json_nesting_depth,
+            max_string_utf8_bytes,
+            max_num_len,
+            allow_tailing_sub_string>
+get_parser(std::string const& json_str)
 {
-  options.set_allow_single_quotes(single_quote);
-  options.set_allow_unescaped_control_chars(control_char);
-  options.set_allow_tailing_sub_string(allow_tailing);
-  options.set_max_string_len(max_string_len);
-  options.set_max_num_len(max_num_len);
-  return json_parser<max_json_depth>(options, json_str.data(), json_str.size());
+  return json_parser<allow_single_quotes,
+                     allow_unescaped_control_chars,
+                     max_json_nesting_depth,
+                     max_string_utf8_bytes,
+                     max_num_len,
+                     allow_tailing_sub_string>(json_str.data(), json_str.size());
 }
 
 TEST_F(JsonParserTests, SkipChildrenForObject)
 {
   // test skip for the first {
   std::string json = " { 'k1' : 'v1' , 'k2' : { 'k3' : { 'k4' : 'v5' }  }  } ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   // can not skip for INIT token
   ASSERT_FALSE(parser.try_skip_children());
   ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
@@ -593,8 +635,7 @@ TEST_F(JsonParserTests, SkipChildrenForArray)
 {
   // skip for [
   std::string json = " [ [ [ [ 1, 2, 3 ] ] ] ] ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   ASSERT_FALSE(parser.try_skip_children());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
@@ -609,8 +650,7 @@ TEST_F(JsonParserTests, SkipChildrenForArray)
 TEST_F(JsonParserTests, SkipChildrenInvalid)
 {
   std::string json = " invalid ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   parser.next_token();
   ASSERT_EQ(json_token::ERROR, parser.get_current_token());
   // can not skip for ERROR token
@@ -634,8 +674,7 @@ TEST_F(JsonParserTests, WriteUnescapedStringText)
   char buf[buf_size];
 
   std::string json = " {  'key123'  :  'value123' } ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
   clear_buff(buf, buf_size);
@@ -664,8 +703,7 @@ TEST_F(JsonParserTests, WriteUnescapedNumberText)
   char buf[buf_size];
 
   std::string json = " [  -12345 ,  -1.23e-000123 , true , false , null  ] ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   clear_buff(buf, buf_size);
@@ -714,8 +752,7 @@ TEST_F(JsonParserTests, WriteUnescapedInvalid)
   char buf[buf_size];
 
   std::string json = " invalid ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   clear_buff(buf, buf_size);
@@ -734,8 +771,7 @@ TEST_F(JsonParserTests, WriteUnescapedEscape)
   char buf[buf_size];
   // test escape: \", \', \\, \/, \b, \f, \n, \r, \t
   std::string json = "   '\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'   ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
   ASSERT_EQ(10, parser.write_unescaped_text(buf));
@@ -749,8 +785,7 @@ TEST_F(JsonParserTests, WriteUnescapedUnicode)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   std::string json = "   '\\u4e2d\\u56FD'   ";  // Represents 中国
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -763,8 +798,7 @@ TEST_F(JsonParserTests, WriteUnescapedOther)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   std::string json = "   '中国'   ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -779,24 +813,6 @@ void assert_ptr_len(char const* actaul_ptr,
 {
   ASSERT_EQ(expected_ptr, actaul_ptr);
   ASSERT_EQ(expected_len, actual_len);
-}
-
-TEST_F(JsonParserTests, GetNumberText)
-{
-  std::string json = "[-12.45e056,123456789]  ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
-
-  ASSERT_EQ(json_token::INIT, parser.get_current_token());
-  ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
-
-  ASSERT_EQ(json_token::VALUE_NUMBER_FLOAT, parser.next_token());
-  auto [ptr1, len1] = parser.get_current_number_text();
-  assert_ptr_len(ptr1, len1, json.data() + 1, 10);
-
-  ASSERT_EQ(json_token::VALUE_NUMBER_INT, parser.next_token());
-  auto [ptr2, len2] = parser.get_current_number_text();
-  assert_ptr_len(ptr2, len2, json.data() + 12, 9);
 }
 
 void assert_float_parts(bool float_sign,
@@ -827,8 +843,7 @@ TEST_F(JsonParserTests, GetFloatParts)
 {
   // int part is 123, fraction part is 0345, exp part is -05678
   std::string json = "[-123.0345e-05678]  ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
@@ -854,8 +869,7 @@ TEST_F(JsonParserTests, GetFloatParts)
 void assert_field_names(std::string json,
                         std::vector<std::optional<std::string>> expected_field_names)
 {
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   size_t i    = 0;
   while (true) {
     auto t = parser.next_token();
@@ -900,7 +914,9 @@ TEST_F(JsonParserTests, MatchFieldNameTest)
     std::vector<std::optional<std::string>>{
       std::nullopt, "k", "k", std::nullopt, std::nullopt, std::nullopt, "k", std::nullopt});
 
-  json = "            [     1 ,    {      'k' :  'v'   }    ,  {      }      ]    ";
+  json =
+    "            [     1 ,    {      'k' :  'v'   }    ,  {      }      ] "
+    "   ";
   // field names:     NULL   NULL   NULL   k     k    NULL     NULL   NULL  NULL
   assert_field_names(json,
                      std::vector<std::optional<std::string>>{std::nullopt,
@@ -913,8 +929,11 @@ TEST_F(JsonParserTests, MatchFieldNameTest)
                                                              std::nullopt,
                                                              std::nullopt});
 
-  json = "             {     'k' : [    1  ,  [   1,    2,    3     ] ,     3      ]      }     ";
-  // field names:      NULL   k    k    NULL  NULL NULL NULL  NULL  NULL   NULL    k      NULL
+  json =
+    "             {     'k' : [    1  ,  [   1,    2,    3     ] ,     3  "
+    "    ]      }     ";
+  // field names:      NULL   k    k    NULL  NULL NULL NULL  NULL  NULL   NULL
+  // k      NULL
   assert_field_names(json,
                      std::vector<std::optional<std::string>>{std::nullopt,
                                                              "k",
@@ -929,8 +948,11 @@ TEST_F(JsonParserTests, MatchFieldNameTest)
                                                              "k",
                                                              std::nullopt});
 
-  json = "             {    'k1' : {  'k2' : {   'k3': {   'k4':  4    }    }    }     }       ";
-  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2   k1   NULL
+  json =
+    "             {    'k1' : {  'k2' : {   'k3': {   'k4':  4    }    }  "
+    "  }     }       ";
+  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
+  // k1   NULL
   assert_field_names(json,
                      std::vector<std::optional<std::string>>{std::nullopt,
                                                              "k1",
@@ -945,6 +967,22 @@ TEST_F(JsonParserTests, MatchFieldNameTest)
                                                              "k2",
                                                              "k1",
                                                              std::nullopt});
+
+  json = "             {    'k1-\\\"\\'\\\\\\/\\b\\f\\n\\r\\t' :  'v1'}       ";
+  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
+  // k1   NULL
+  assert_field_names(json,
+                     std::vector<std::optional<std::string>>{
+                       std::nullopt, "k1-\"'\\/\b\f\n\r\t", "k1-\"'\\/\b\f\n\r\t", std::nullopt});
+  // \\u4e2d\\u56FD is code points for 中国
+  json =
+    "             {    '中国\\u4e2d\\u56FD中国\\u4e2d\\u56FD' :  'v1'}    "
+    "   ";
+  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
+  // k1   NULL
+  assert_field_names(json,
+                     std::vector<std::optional<std::string>>{
+                       std::nullopt, "中国中国中国中国", "中国中国中国中国", std::nullopt});
 }
 
 TEST_F(JsonParserTests, WriteEscapedStringText)
@@ -953,8 +991,7 @@ TEST_F(JsonParserTests, WriteEscapedStringText)
   char buf[buf_size];
 
   std::string json = " {  'key123'  :  'value123' } ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::START_OBJECT, parser.next_token());
   clear_buff(buf, buf_size);
@@ -983,8 +1020,7 @@ TEST_F(JsonParserTests, WriteEscapedNumberText)
   char buf[buf_size];
 
   std::string json = " [  -12345 ,  -1.23e-000123 , true , false , null  ] ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::START_ARRAY, parser.next_token());
   clear_buff(buf, buf_size);
@@ -1033,8 +1069,7 @@ TEST_F(JsonParserTests, WriteEscapedInvalid)
   char buf[buf_size];
 
   std::string json = " invalid ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::INIT, parser.get_current_token());
   clear_buff(buf, buf_size);
@@ -1053,8 +1088,7 @@ TEST_F(JsonParserTests, WriteEscapedEscape)
   char buf[buf_size];
   // test escape: \", \', \\, \/, \b, \f, \n, \r, \t, \b
   std::string json = "   '\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'   ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
   ASSERT_EQ(20, parser.write_escaped_text(buf));
@@ -1068,8 +1102,7 @@ TEST_F(JsonParserTests, WriteEscapedUnicode)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   std::string json = "   '\\u4e2d\\u56FD'   ";  // Represents 中国
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -1082,8 +1115,7 @@ TEST_F(JsonParserTests, WriteEscapedOther)
   constexpr std::size_t buf_size = 256;
   char buf[buf_size];
   std::string json = "   '中国'   ";
-  json_parser_options options;
-  auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
 
   ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
   clear_buff(buf, buf_size);
@@ -1116,11 +1148,189 @@ TEST_F(JsonParserTests, WriteEscapedContralChars)
     std::string json = "'";
     json             = json + (char)(cases[i].first);
     json             = json + "'";
-    json_parser_options options;
-    auto parser = get_parser(options, json, /*single_quote*/ true, /*control_char*/ true);
+    auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
     ASSERT_EQ(json_token::VALUE_STRING, parser.next_token());
     clear_buff(buf, buf_size);
     parser.write_escaped_text(buf);
     assert_start_with(buf, buf_size, cases[i].second);
   }
+}
+
+void testCopyCurrentStructureValid(bool copy_to_nullptr)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    {
+      "k1": 1,
+      'k2': {
+        "k3": {}
+      }
+    }
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  parser.next_token();
+  clear_buff(buf, buf_size);
+  char* copy_to = copy_to_nullptr ? nullptr : buf;
+  thrust::pair<bool, size_t> ret;
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_TRUE(thrust::get<0>(ret));  // copy from the first {
+  std::string expect = R"({"k1":1,"k2":{"k3":{}}})";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  if (!copy_to_nullptr) { assert_start_with(buf, buf_size, expect); }
+  ASSERT_EQ(parser.get_current_token(), json_token::END_OBJECT);
+
+  parser.reset();
+  clear_buff(buf, buf_size);
+  parser.next_token();
+  parser.next_token();
+  parser.next_token();
+  parser.next_token();
+  parser.next_token();
+  copy_to = copy_to_nullptr ? nullptr : buf;
+  ret     = parser.copy_current_structure(copy_to);
+  ASSERT_TRUE(thrust::get<0>(ret));  // copy from the the 2nd {
+  expect = R"({"k3":{}})";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  if (!copy_to_nullptr) { assert_start_with(buf, buf_size, expect); }
+  ASSERT_EQ(parser.get_current_token(), json_token::END_OBJECT);
+
+  std::string json2 = R"(
+    [[1,{'k':2},3]]
+  )";
+  auto parser2      = get_parser</*single_quote*/ true, /*control_char*/ true>(json2);
+  parser2.next_token();
+  clear_buff(buf, buf_size);
+  copy_to = copy_to_nullptr ? nullptr : buf;
+  ret     = parser2.copy_current_structure(copy_to);  // copy from the first [
+  ASSERT_TRUE(thrust::get<0>(ret));
+  expect = R"([[1,{"k":2},3]])";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  if (!copy_to_nullptr) { assert_start_with(buf, buf_size, expect); }
+  ASSERT_EQ(parser2.get_current_token(), json_token::END_ARRAY);
+
+  parser2.reset();
+  clear_buff(buf, buf_size);
+  parser2.next_token();
+  parser2.next_token();
+  copy_to = copy_to_nullptr ? nullptr : buf;
+  ret     = parser2.copy_current_structure(copy_to);
+  ASSERT_TRUE(thrust::get<0>(ret));  // copy from the 2nd [
+  expect = R"([1,{"k":2},3])";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  if (!copy_to_nullptr) { assert_start_with(buf, buf_size, expect); }
+  ASSERT_EQ(parser2.get_current_token(), json_token::END_ARRAY);
+
+  parser2.reset();
+  clear_buff(buf, buf_size);
+  parser2.next_token();
+  parser2.next_token();
+  parser2.next_token();  // current token is 1
+  copy_to = copy_to_nullptr ? nullptr : buf;
+  ret     = parser2.copy_current_structure(copy_to);
+  ASSERT_TRUE(thrust::get<0>(ret));
+  expect = "1";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  if (!copy_to_nullptr) { assert_start_with(buf, buf_size, expect); }
+  ASSERT_EQ(parser2.get_current_token(), json_token::VALUE_NUMBER_INT);
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureValid)
+{
+  testCopyCurrentStructureValid(/* copy_to_nullptr */ false);
+  testCopyCurrentStructureValid(/* copy_to_nullptr */ true);
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureValidEscape)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    {'a' : 'A"'}
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  char* copy_to    = buf;
+  thrust::pair<bool, size_t> ret;
+  parser.next_token();
+  copy_to = buf;
+  clear_buff(buf, buf_size);
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_TRUE(thrust::get<0>(ret));
+  std::string expect = R"({"a":"A\""})";
+  ASSERT_EQ(thrust::get<1>(ret), expect.size());
+  assert_start_with(buf, buf_size, expect);
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureInValid1)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    [{}]
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  char* copy_to    = buf;
+  thrust::pair<bool, size_t> ret;
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // INIT token
+  parser.next_token();
+  parser.next_token();
+  parser.next_token();
+  copy_to = buf;
+  ret     = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for } token
+  parser.next_token();
+  copy_to = buf;
+  ret     = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for ] token
+  parser.next_token();
+  copy_to = buf;
+  ret     = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for SUCCESS token
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureInValid2)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    {'k' : 1}
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  parser.next_token();
+  parser.next_token();
+  char* copy_to = buf;
+  thrust::pair<bool, size_t> ret;
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for field name 'k', return false
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureInValid3)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    {'k' : 1
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  parser.next_token();
+  char* copy_to = buf;
+  thrust::pair<bool, size_t> ret;
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for { token, fails because of invalid JSON format
+}
+
+TEST_F(JsonParserTests, CopyCurrentStructureInValid4)
+{
+  constexpr std::size_t buf_size = 256;
+  char buf[buf_size];
+  std::string json = R"(
+    invalid
+  )";
+  auto parser      = get_parser</*single_quote*/ true, /*control_char*/ true>(json);
+  parser.next_token();
+  char* copy_to = buf;
+  thrust::pair<bool, size_t> ret;
+  ret = parser.copy_current_structure(copy_to);
+  ASSERT_FALSE(thrust::get<0>(ret));  // for ERROR token
 }
