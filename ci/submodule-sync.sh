@@ -65,7 +65,6 @@ fi
 
 echo "Try update cudf submodule to ${cudf_sha}..."
 git add .
-git diff-index --quiet HEAD || git commit -s -m "Update submodule cudf to ${cudf_sha}"
 
 echo "Test against ${cudf_sha}..."
 
