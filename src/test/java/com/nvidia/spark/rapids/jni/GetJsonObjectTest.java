@@ -17,12 +17,14 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.HostColumnVector;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class GetJsonObjectTest {
+  /**
+   * Test: query is $.k
+   */
   @Test
   void getJsonObjectTest() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[2];
@@ -33,16 +35,51 @@ public class GetJsonObjectTest {
          ColumnVector expected = ColumnVector.fromStrings(
              "v");
          ColumnVector actual = JSONUtils.getJsonObject(jsonCv, 2, query)) {
-      HostColumnVector hostCv = actual.copyToHost();
-      System.out.println("rows: " + hostCv.getRowCount());
-      if (hostCv.isNull(0)) {
-        System.out.println("v: null");  
-      } else {
-        String v = hostCv.getJavaString(0);
-        System.out.println(v.length());
-        int vv = v.charAt(0);
-        System.out.println("int v: " + vv);
-      }
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Test: query is $.k1
+   */
+  @Test
+  void getJsonObjectTest2() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[2];
+    query[0] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[1] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111", -1);
+
+    String JSON = "{\"k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"" +
+        ":\"v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"}";
+    String expectedStr = "v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, 2, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Test: query is $.k1.k2
+   */
+  @Test
+  void getJsonObjectTest3() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[4];
+    query[0] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[1] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k1", -1);
+    query[2] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[3] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k2", -1);
+    String JSON = "{\"k1\":{\"k2\":\"v2\"}}";
+    String expectedStr = "v2";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, 4, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
