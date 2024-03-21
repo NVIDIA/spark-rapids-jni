@@ -15,7 +15,6 @@
  */
 #pragma once
 
-#include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/types.hpp>
 
@@ -869,13 +868,76 @@ class json_parser {
   }
 
   /**
-   * try skip 4 HEX chars
-   * in pattern: '\\' 'u' HEX HEX HEX HEX
+   * @brief Returns the number of bytes in the specified character.
+   *
+   * @param character Single character
+   * @return Number of bytes
    */
-  CUDF_HOST_DEVICE inline bool try_skip_unicode(char const*& str_pos,
-                                                char const*& to_match_str_pos,
-                                                char const* const to_match_str_end,
-                                                char*& copy_dest)
+  CUDF_HOST_DEVICE cudf::size_type bytes_in_char_utf8(cudf::char_utf8 character)
+  {
+    return 1 + static_cast<cudf::size_type>((character & 0x0000'FF00u) > 0) +
+           static_cast<cudf::size_type>((character & 0x00FF'0000u) > 0) +
+           static_cast<cudf::size_type>((character & 0xFF00'0000u) > 0);
+  }
+
+  /**
+   * @brief Converts a character code-point value into a UTF-8 character.
+   *
+   * @param unchr Character code-point to convert.
+   * @return Single UTF-8 character.
+   */
+  CUDF_HOST_DEVICE cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
+  {
+    cudf::char_utf8 utf8 = 0;
+    if (unchr < 0x0000'0080)  // single byte utf8
+      utf8 = unchr;
+    else if (unchr < 0x0000'0800)  // double byte utf8
+    {
+      utf8 = (unchr << 2) & 0x1F00;  // shift bits for
+      utf8 |= (unchr & 0x3F);        // utf8 encoding
+      utf8 |= 0x0000'C080;
+    } else if (unchr < 0x0001'0000)  // triple byte utf8
+    {
+      utf8 = (unchr << 4) & 0x0F'0000;   // upper 4 bits
+      utf8 |= (unchr << 2) & 0x00'3F00;  // next 6 bits
+      utf8 |= (unchr & 0x3F);            // last 6 bits
+      utf8 |= 0x00E0'8080;
+    } else if (unchr < 0x0011'0000)  // quadruple byte utf8
+    {
+      utf8 = (unchr << 6) & 0x0700'0000;   // upper 3 bits
+      utf8 |= (unchr << 4) & 0x003F'0000;  // next 6 bits
+      utf8 |= (unchr << 2) & 0x0000'3F00;  // next 6 bits
+      utf8 |= (unchr & 0x3F);              // last 6 bits
+      utf8 |= 0xF080'8080u;
+    }
+    return utf8;
+  }
+
+  /**
+   * @brief Place a char_utf8 value into a char array.
+   *
+   * @param character Single character
+   * @param[out] str Output array.
+   * @return The number of bytes in the character
+   */
+  CUDF_HOST_DEVICE cudf::size_type from_char_utf8(cudf::char_utf8 character, char* str)
+  {
+    cudf::size_type const chr_width = bytes_in_char_utf8(character);
+    for (cudf::size_type idx = 0; idx < chr_width; ++idx) {
+      str[chr_width - idx - 1] = static_cast<char>(character) & 0xFF;
+      character                = character >> 8;
+    }
+    return chr_width;
+  }
+
+  /**
+   * try skip 4 HEX chars
+   * in pattern: '\\' 'u' HEX HEX HEX HEX, it's a code point of unicode
+   */
+  CUDF_HOST_DEVICE bool try_skip_unicode(char const*& str_pos,
+                                         char const*& to_match_str_pos,
+                                         char const* const to_match_str_end,
+                                         char*& copy_dest)
   {
     // already parsed u
     bool is_success = try_skip_hex(str_pos) && try_skip_hex(str_pos) && try_skip_hex(str_pos) &&
@@ -883,12 +945,12 @@ class json_parser {
     if (is_success) {
       // parse 4 HEX chars to uint32_t value
       auto code_point = parse_code_point(str_pos - 4);
-      auto utf_char   = cudf::strings::detail::codepoint_to_utf8(code_point);
+      auto utf_char   = codepoint_to_utf8(code_point);
       // write utf8 bytes.
       // In UTF-8, the maximum number of bytes used to encode a single character
       // is 4
       char buff[4];
-      cudf::size_type bytes = cudf::strings::detail::from_char_utf8(utf_char, buff);
+      cudf::size_type bytes = from_char_utf8(utf_char, buff);
       string_token_utf8_bytes += bytes;
 
       if (nullptr != copy_dest) {

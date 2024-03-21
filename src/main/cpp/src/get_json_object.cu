@@ -146,10 +146,21 @@ __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
   char* out_buf,
   size_t out_buf_size)
 {
+  char* actual_output;
+  if (nullptr == out_buf) {
+    // First step: preprocess sizes
+    actual_output = out_buf;
+  } else {
+    // Second step: writes output
+    // if output buf size is zero, pass in nullptr to avoid generator writing trash output
+    actual_output = (0 == out_buf_size) ? nullptr : out_buf;
+  }
+
+  json_parser j_parser(input, input_len);
+  json_generator generator(actual_output);
+
   if (!out_buf) {
     // First step: preprocess sizes
-    json_parser j_parser(input, input_len);
-    json_generator generator(out_buf);
     bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
 
     if (!success) {
@@ -161,10 +172,6 @@ __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
     return {success, generator};
   } else {
     // Second step: writes output
-    // if output buf size is zero, pass in nullptr to avoid generator writing trash output
-    char* actual_output = (0 == out_buf_size) ? nullptr : out_buf;
-    json_parser j_parser(input, input_len);
-    json_generator generator(actual_output);
     bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
     return {success, generator};
   }
