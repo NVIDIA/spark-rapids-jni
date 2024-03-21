@@ -50,7 +50,7 @@ constexpr bool curr_allow_single_quotes = true;
 constexpr bool curr_allow_unescaped_control_chars = true;
 
 // deep JSON nesting depth will consume more memory, we can tuning this in
-// future. we ever run into a limit of 254, here use a little value 200.
+// future. we ever run into a limit of 254, here use a little value 100.
 constexpr int curr_max_json_nesting_depth = 100;
 
 // Define the maximum JSON String length, counts utf8 bytes.
