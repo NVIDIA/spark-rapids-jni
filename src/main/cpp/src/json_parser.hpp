@@ -52,7 +52,7 @@ constexpr bool curr_allow_unescaped_control_chars = true;
 
 // deep JSON nesting depth will consume more memory, we can tuning this in
 // future. we ever run into a limit of 254, here use a little value 200.
-constexpr int curr_max_json_nesting_depth = 200;
+constexpr int curr_max_json_nesting_depth = 100;
 
 // Define the maximum JSON String length, counts utf8 bytes.
 // By default, maximum JSON String length is negative one, means no
@@ -257,16 +257,7 @@ class json_parser {
    */
   CUDF_HOST_DEVICE inline void push_context(json_token token)
   {
-    bool v = json_token::START_OBJECT == token ? true : false;
-    // save current field name for START_OBJECT or START_ARRAY
-    if (json_token::FIELD_NAME == previous_token) {
-      // match pattern: 'field_name': { or 'field_name': [
-      field_name_offset_stack[stack_size] = curr_field_name_offset;
-    } else {
-      // match pattern like: 'field_name': [ [ , the second [ has no field name
-      // match pattern like: 'field_name': [ { , the { has no field name
-      field_name_offset_stack[stack_size] = -1;
-    }
+    bool v                      = json_token::START_OBJECT == token ? true : false;
     context_stack[stack_size++] = v;
   }
 
@@ -280,11 +271,7 @@ class json_parser {
   /**
    * pop top context from stack
    */
-  CUDF_HOST_DEVICE inline void pop_curr_context()
-  {
-    curr_field_name_offset = field_name_offset_stack[stack_size - 1];
-    stack_size--;
-  }
+  CUDF_HOST_DEVICE inline void pop_curr_context() { stack_size--; }
 
   /**
    * is context stack is empty
@@ -1183,18 +1170,13 @@ class json_parser {
    */
   CUDF_HOST_DEVICE inline void parse_field_name()
   {
-    char const* curr_field_name_pos = curr_pos;
     auto [success, end_char_pos] =
       try_parse_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::FIELD_NAME;
-      // use 4 bytes offset instead of `char *` to save memory
-      // here assume `char *` uses 8 bytes
-      curr_field_name_offset = static_cast<cudf::size_type>(curr_field_name_pos - json_start_pos);
     } else {
-      curr_token             = json_token::ERROR;
-      curr_field_name_offset = -1;
+      curr_token = json_token::ERROR;
     }
   }
 
@@ -1333,8 +1315,6 @@ class json_parser {
    */
   CUDF_HOST_DEVICE json_token next_token()
   {
-    // save current token
-    previous_token = curr_token;
     // parse next token
     bool has_comma_before_token;  // no-initialization because of do not care here
     bool has_colon_before_token;  // no-initialization because of do not care here
@@ -1558,11 +1538,9 @@ class json_parser {
    */
   CUDF_HOST_DEVICE void reset()
   {
-    curr_pos               = json_start_pos;
-    curr_token             = json_token::INIT;
-    previous_token         = json_token::INIT;
-    stack_size             = 0;
-    curr_field_name_offset = -1;
+    curr_pos   = json_start_pos;
+    curr_token = json_token::INIT;
+    stack_size = 0;
   }
 
   /**
@@ -1581,7 +1559,10 @@ class json_parser {
   }
 
   /**
-   * match current field name
+   * match field name string when current token is FIELD_NAME,
+   * return true if current token is FIELD_NAME and match successfully.
+   * return false otherwise,
+   * Note: to_match_str_ptr should not be nullptr
    */
   CUDF_HOST_DEVICE bool match_current_field_name(cudf::string_view name)
   {
@@ -1593,38 +1574,15 @@ class json_parser {
    */
   CUDF_HOST_DEVICE bool match_current_field_name(char const* to_match_str_ptr, cudf::size_type len)
   {
-    if (json_token::INIT == curr_token || json_token::SUCCESS == curr_token ||
-        json_token::ERROR == curr_token) {
-      return false;
-    }
-
-    if (json_token::FIELD_NAME == curr_token || json_token::FIELD_NAME == previous_token) {
-      // matchs: 'k': , 'k':'v' , 'k': { , 'k': [
-      if (nullptr == to_match_str_ptr) {
-        return false;
-      } else {
-        auto [b, end_pos] = try_parse_string(json_start_pos + curr_field_name_offset,
-                                             to_match_str_ptr,
-                                             to_match_str_ptr + len,
-                                             nullptr,
-                                             write_style::unescaped);
-        return b;
-      }
-    } else if (json_token::END_OBJECT == curr_token || json_token::END_ARRAY == curr_token) {
-      // matchs: 'k' : { ... } , 'k' : [ ... ] ,  { .. } , [ ... ]
-      if (nullptr == to_match_str_ptr) {
-        return -1 == curr_field_name_offset;
-      } else {
-        auto [b, end_pos] = try_parse_string(json_start_pos + curr_field_name_offset,
-                                             to_match_str_ptr,
-                                             to_match_str_ptr + len,
-                                             nullptr,
-                                             write_style::unescaped);
-        return b;
-      }
+    if (json_token::FIELD_NAME == curr_token) {
+      auto [b, end_pos] = try_parse_string(current_token_start_pos,
+                                           to_match_str_ptr,
+                                           to_match_str_ptr + len,
+                                           nullptr,
+                                           write_style::unescaped);
+      return b;
     } else {
-      // current field name is nullptr
-      return nullptr == to_match_str_ptr;
+      return false;
     }
   }
 
@@ -1719,22 +1677,13 @@ class json_parser {
   char const* const json_end_pos;
   char const* curr_pos;
   json_token curr_token{json_token::INIT};
-  json_token previous_token{json_token::INIT};
 
   // saves the nested contexts: JSON object context or JSON array context
   // true is JSON object context; false is JSON array context
   // When encounter EOF and this stack is non-empty, means non-closed JSON
   // object/array, then parsing will fail.
   bool context_stack[max_json_nesting_depth];
-  // saves field names for start object/array token, end object token and end
-  // array token has the same field names with corresponding start object token
-  // and  start array token
-  cudf::size_type field_name_offset_stack[max_json_nesting_depth];
-  // current field name: last reached field name or poped field name when meet
-  // ]/} using offset in JSON str instead of `char *` to save memory, here
-  // assume `char *` using 8 bytes, size_type using 4 bytes.
-  cudf::size_type curr_field_name_offset = -1;
-  int stack_size                         = 0;
+  int stack_size = 0;
 
   // save current token start pos, used by coping current row text
   char const* current_token_start_pos;
