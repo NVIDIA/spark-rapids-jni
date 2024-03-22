@@ -51,7 +51,7 @@ constexpr bool curr_allow_unescaped_control_chars = true;
 
 // deep JSON nesting depth will consume more memory, we can tuning this in
 // future. we ever run into a limit of 254, here use a little value 100.
-constexpr int curr_max_json_nesting_depth = 4;
+constexpr int curr_max_json_nesting_depth = 8;
 
 // Define the maximum JSON String length, counts utf8 bytes.
 // By default, maximum JSON String length is negative one, means no
@@ -889,20 +889,20 @@ class json_parser {
   CUDF_HOST_DEVICE cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
   {
     cudf::char_utf8 utf8 = 0;
-    if (unchr < 0x0000'0080)  // single byte utf8
+    if (unchr < 0x0000'0080)               // single byte utf8
       utf8 = unchr;
-    else if (unchr < 0x0000'0800)  // double byte utf8
+    else if (unchr < 0x0000'0800)          // double byte utf8
     {
-      utf8 = (unchr << 2) & 0x1F00;  // shift bits for
-      utf8 |= (unchr & 0x3F);        // utf8 encoding
+      utf8 = (unchr << 2) & 0x1F00;        // shift bits for
+      utf8 |= (unchr & 0x3F);              // utf8 encoding
       utf8 |= 0x0000'C080;
-    } else if (unchr < 0x0001'0000)  // triple byte utf8
+    } else if (unchr < 0x0001'0000)        // triple byte utf8
     {
-      utf8 = (unchr << 4) & 0x0F'0000;   // upper 4 bits
-      utf8 |= (unchr << 2) & 0x00'3F00;  // next 6 bits
-      utf8 |= (unchr & 0x3F);            // last 6 bits
+      utf8 = (unchr << 4) & 0x0F'0000;     // upper 4 bits
+      utf8 |= (unchr << 2) & 0x00'3F00;    // next 6 bits
+      utf8 |= (unchr & 0x3F);              // last 6 bits
       utf8 |= 0x00E0'8080;
-    } else if (unchr < 0x0011'0000)  // quadruple byte utf8
+    } else if (unchr < 0x0011'0000)        // quadruple byte utf8
     {
       utf8 = (unchr << 6) & 0x0700'0000;   // upper 3 bits
       utf8 |= (unchr << 4) & 0x003F'0000;  // next 6 bits
