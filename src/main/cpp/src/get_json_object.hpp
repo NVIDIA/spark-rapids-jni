@@ -1127,7 +1127,7 @@ struct path_evaluator {
             p_ctx.dirty += ctx.dirty;
 
             // post logic:
-            if (p.next_token() != json_token::END_ARRAY) {
+            while (p.next_token() != json_token::END_ARRAY) {
               // JSON validation check
               if (json_token::ERROR == p.get_current_token()) { return false; }
               // advance the token stream to the end of the array
