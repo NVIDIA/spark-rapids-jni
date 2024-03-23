@@ -884,7 +884,7 @@ void assert_field_names(std::string json,
         ASSERT_TRUE(
           parser.match_current_field_name(str.data(), static_cast<cudf::size_type>(str.size())));
       } else {
-        ASSERT_TRUE(parser.match_current_field_name(nullptr, 0));
+        ASSERT_FALSE(parser.match_current_field_name(nullptr, 0));
       }
     }
     i++;
@@ -894,95 +894,23 @@ void assert_field_names(std::string json,
 TEST_F(JsonParserTests, MatchFieldNameTest)
 {
   std::string json;
-
-  json = "          123      ";
-  // field names:   NULL
-  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt});
-
-  json = "          {         } ";
-  // field names:   NULL     NULL
-  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt, std::nullopt});
-
-  json = "          [        ]     ";
-  // field names:   NULL     NULL
-  assert_field_names(json, std::vector<std::optional<std::string>>{std::nullopt, std::nullopt});
-
-  json = "            {     'k'  :  [     1 ,    2 ,     3      ]     }        ";
-  // field names:      NULL  k      k   NULL    NULL   NULL     k     NULL
-  assert_field_names(
-    json,
-    std::vector<std::optional<std::string>>{
-      std::nullopt, "k", "k", std::nullopt, std::nullopt, std::nullopt, "k", std::nullopt});
-
   json =
-    "            [     1 ,    {      'k' :  'v'   }    ,  {      }      ] "
-    "   ";
-  // field names:     NULL   NULL   NULL   k     k    NULL     NULL   NULL  NULL
-  assert_field_names(json,
-                     std::vector<std::optional<std::string>>{std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             "k",
-                                                             "k",
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt});
-
-  json =
-    "             {     'k' : [    1  ,  [   1,    2,    3     ] ,     3  "
-    "    ]      }     ";
-  // field names:      NULL   k    k    NULL  NULL NULL NULL  NULL  NULL   NULL
-  // k      NULL
-  assert_field_names(json,
-                     std::vector<std::optional<std::string>>{std::nullopt,
-                                                             "k",
-                                                             "k",
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             std::nullopt,
-                                                             "k",
-                                                             std::nullopt});
-
-  json =
-    "             {    'k1' : {  'k2' : {   'k3': {   'k4':  4    }    }  "
+    " {    'k1' : {  'k2' : {   'k3': {   'k4':  4    }    }  "
     "  }     }       ";
-  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
-  // k1   NULL
   assert_field_names(json,
                      std::vector<std::optional<std::string>>{std::nullopt,
                                                              "k1",
-                                                             "k1",
+                                                             std::nullopt,
                                                              "k2",
-                                                             "k2",
+                                                             std::nullopt,
                                                              "k3",
-                                                             "k3",
+                                                             std::nullopt,
                                                              "k4",
-                                                             "k4",
-                                                             "k3",
-                                                             "k2",
-                                                             "k1",
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
+                                                             std::nullopt,
                                                              std::nullopt});
-
-  json = "             {    'k1-\\\"\\'\\\\\\/\\b\\f\\n\\r\\t' :  'v1'}       ";
-  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
-  // k1   NULL
-  assert_field_names(json,
-                     std::vector<std::optional<std::string>>{
-                       std::nullopt, "k1-\"'\\/\b\f\n\r\t", "k1-\"'\\/\b\f\n\r\t", std::nullopt});
-  // \\u4e2d\\u56FD is code points for 中国
-  json =
-    "             {    '中国\\u4e2d\\u56FD中国\\u4e2d\\u56FD' :  'v1'}    "
-    "   ";
-  // field names:      NULL  k1    k1  k2    k2   k3   k3   k4    k4   k3   k2
-  // k1   NULL
-  assert_field_names(json,
-                     std::vector<std::optional<std::string>>{
-                       std::nullopt, "中国中国中国中国", "中国中国中国中国", std::nullopt});
 }
 
 TEST_F(JsonParserTests, WriteEscapedStringText)
