@@ -17,8 +17,11 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.CudfAccessor;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -202,12 +205,7 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
+    assertTimeZoneSupported(currentTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
@@ -217,17 +215,41 @@ public class GpuTimeZoneDB {
   }
   
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(desiredTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          desiredTimeZone.toString()));
-    }
+    assertTimeZoneSupported(desiredTimeZone);
     cacheDatabase();
     Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
     try (Table transitions = instance.getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
+    }
+  }
+
+  public static ColumnVector timeAdd(ColumnVector input, Scalar duration, ZoneId currentTimeZone) {
+    assertTimeZoneSupported(currentTimeZone);
+    cacheDatabase();
+    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(timeAddCS(input.getNativeView(), CudfAccessor.getScalarHandle(duration),
+          transitions.getNativeView(), tzIndex));
+    }
+  }
+
+  public static ColumnVector timeAdd(ColumnVector input, ColumnView duration, ZoneId currentTimeZone) {
+    assertTimeZoneSupported(currentTimeZone);
+    cacheDatabase();
+    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
+    try (Table transitions = instance.getTransitions()) {
+      return new ColumnVector(timeAddCC(input.getNativeView(), duration.getNativeView(),
+          transitions.getNativeView(), tzIndex));
+    }
+  }
+
+  private static void assertTimeZoneSupported(ZoneId zoneId) {
+    // TODO: Remove this check when all timezones are supported
+    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
+    if (!isSupportedTimeZone(zoneId)) {
+      throw new IllegalArgumentException(String.format("Unsupported timezone: %s", 
+          zoneId.toString()));
     }
   }
   
@@ -316,6 +338,12 @@ public class GpuTimeZoneDB {
                 );
               }
             });
+              ZoneOffsetTransition last = transitions.get(transitions.size() - 1);
+              // Add Long max and the last offset at the end so binary search always finds a value.
+              data.add(
+                  new HostColumnVector.StructData(Long.MAX_VALUE, Long.MAX_VALUE,
+                      last.getOffsetAfter().getTotalSeconds())
+              );
           }
           masterTransitions.add(data);
           zoneIdToTable.put(zoneId.getId(), idx);
@@ -371,4 +399,8 @@ public class GpuTimeZoneDB {
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
+
+  private static native long timeAddCS(long input, long duration, long transitions, int tzIndex);
+
+  private static native long timeAddCC(long input, long duration, long transitions, int tzIndex);
 }

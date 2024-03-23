@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,6 +61,35 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  */
 std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
   cudf::column_view const& input,
+  cudf::table_view const& transitions,
+  cudf::size_type tz_index,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Add intervals to a column of timestamps.
+ *
+ * The transition rules are in enclosed in a table, and the index corresponding to the
+ * specific timezone is given.
+ *
+ * @param input the column of input timestamps in UTC
+ * @param intervals the column of intervals to add to the input timestamps
+ * @param transitions the table of transitions for all timezones
+ * @param tz_index the index of the row in `transitions` corresponding to the specific timezone
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned timestamp column's memory
+ */
+std::unique_ptr<cudf::column> time_add(
+  cudf::column_view const& input,
+  cudf::scalar const& duration,
+  cudf::table_view const& transitions,
+  cudf::size_type tz_index,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> time_add(
+  cudf::column_view const& input,
+  cudf::column_view const& intervals,
   cudf::table_view const& transitions,
   cudf::size_type tz_index,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
