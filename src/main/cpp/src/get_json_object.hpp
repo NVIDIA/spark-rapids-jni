@@ -80,6 +80,19 @@ class json_generator {
     : output(nullptr), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
   {
   }
+  CUDF_HOST_DEVICE CUDF_HOST_DEVICE json_generator<>& operator=(const json_generator<>& other)
+  {
+    this->output = other.output;
+    this->output_len = other.output_len;
+    this->array_depth = other.array_depth;
+    this->hide_outer_array_tokens = other.hide_outer_array_tokens;
+    for (size_t i = 0; i < max_json_nesting_depth; i++)
+    {
+      this->is_first_item[i] = other.is_first_item[i];
+    }
+
+    return *this;
+  }
 
   // create a nested child generator based on this parent generator
   // child generator is a view
@@ -269,6 +282,8 @@ class json_generator {
    * then JSON format is invalid, the previous output becomes trash.
    */
   CUDF_HOST_DEVICE inline void set_output_len_zero() { output_len = 0; }
+
+  CUDF_HOST_DEVICE inline void set_output_len(size_t len) { output_len = len; }
 
  private:
   char* output;
@@ -645,9 +660,15 @@ struct path_evaluator {
 
     // manually maintained context stack in lieu of calling evaluate_path recursively.
     struct context {
+      // current token
       json_token token;
+
+      // which case path that this task is from
       int case_path;
-      json_generator<>* g_ptr;
+      
+      // used to save current generator
+      json_generator<> g;
+
       write_style style;
       path_instruction const* path_ptr;
       int path_size;
@@ -663,12 +684,12 @@ struct path_evaluator {
       bool is_first_enter = true;
 
       // used to save child JSON generator for case path 8
-      json_generator<>* child_g_ptr = nullptr;
+      json_generator<> child_g;
 
       CUDF_HOST_DEVICE context()
         : token(json_token::INIT),
           case_path(-1),
-          g_ptr(nullptr),
+          g(json_generator<>()),
           style(write_style::raw_style),
           path_ptr(nullptr),
           path_size(0)
@@ -677,13 +698,13 @@ struct path_evaluator {
 
       CUDF_HOST_DEVICE context(json_token _token,
                                int _case_path,
-                               json_generator<>* _g_ptr,
+                               json_generator<> _g,
                                write_style _style,
                                path_instruction const* _path_ptr,
                                int _path_size)
         : token(_token),
           case_path(_case_path),
-          g_ptr(_g_ptr),
+          g(_g),
           style(_style),
           path_ptr(_path_ptr),
           path_size(_path_size)
@@ -694,14 +715,15 @@ struct path_evaluator {
       {
         token = other.token;
         case_path     = other.case_path;
-        g_ptr     = other.g_ptr;
+        g     = other.g;
         style     = other.style;
         path_ptr  = other.path_ptr;
         path_size = other.path_size;
         task_is_done = other.task_is_done;
         dirty = other.dirty;
         is_first_enter = other.is_first_enter;
-        child_g_ptr = other.child_g_ptr;
+        child_g = other.child_g;
+
         return *this;
       }
     };
@@ -716,12 +738,12 @@ struct path_evaluator {
     // push context function
     auto push_context = [&stack, &stack_pos](json_token _token,
                                              int _case_path,
-                                             json_generator<>* _g_ptr,
+                                             json_generator<> _g,
                                              write_style _style,
                                              path_instruction const* _path_ptr,
                                              int _path_size) {
       if (stack_pos == max_path_depth - 1) { return false; }
-      stack[stack_pos++] = context(_token, _case_path, _g_ptr, _style, _path_ptr, _path_size);
+      stack[stack_pos++] = context(_token, _case_path, _g, _style, _path_ptr, _path_size);
       return true;
     };
 
@@ -742,7 +764,7 @@ struct path_evaluator {
     };
     
     // put the first context task
-    push_context(p.get_current_token(), -1, &root_g, root_style, root_path_ptr, root_path_size);
+    push_context(p.get_current_token(), -1, root_g, root_style, root_path_ptr, root_path_size);
 
     // current context task
     context ctx;
@@ -760,7 +782,7 @@ struct path_evaluator {
             ctx.style == write_style::raw_style) {
           // there is no array wildcard or slice parent, emit this string without
           // quotes write current string in parser to generator
-          ctx.g_ptr->write_raw(p);
+          ctx.g.write_raw(p);
           ctx.dirty = 1;
           ctx.task_is_done = true;
           push_ctx(ctx);
@@ -776,7 +798,7 @@ struct path_evaluator {
             // push back task
             push_ctx(ctx);
             // add child task
-            push_context(p.get_current_token(), 2, ctx.g_ptr, ctx.style, nullptr, 0);
+            push_context(p.get_current_token(), 2, ctx.g, ctx.style, nullptr, 0);
           } else {
             // END_ARRAY
             ctx.task_is_done = true;
@@ -787,7 +809,7 @@ struct path_evaluator {
         // case path 3
         else if (path_is_empty(ctx.path_size)) {
           // general case: just copy the child tree verbatim
-          if (!(ctx.g_ptr->copy_current_structure(p))) {
+          if (!(ctx.g.copy_current_structure(p))) {
             // JSON validation check
             return false;
           }
@@ -813,7 +835,7 @@ struct path_evaluator {
             } else {
               // need to try more children
               push_ctx(ctx);
-              push_context(p.get_current_token(), 4, ctx.g_ptr, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
+              push_context(p.get_current_token(), 4, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
             }
           }
           else
@@ -835,16 +857,16 @@ struct path_evaluator {
           // behavior in Hive
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
-            ctx.g_ptr->write_start_array();
+            ctx.g.write_start_array();
           }
 
           if (p.next_token() != json_token::END_ARRAY) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
             push_ctx(ctx);
-            push_context(p.get_current_token(), 5, ctx.g_ptr, write_style::flatten_style, ctx.path_ptr + 4, ctx.path_size - 4);
+            push_context(p.get_current_token(), 5, ctx.g, write_style::flatten_style, ctx.path_ptr + 4, ctx.path_size - 4);
           } else {
-            ctx.g_ptr->write_end_array();
+            ctx.g.write_end_array();
             ctx.task_is_done = true;
             push_ctx(ctx);
           }
@@ -868,19 +890,19 @@ struct path_evaluator {
           // temporarily buffer child matches, the emitted json will need to be
           // modified slightly if there is only a single element written
 
-          json_generator<> * child_g_ptr;
+          json_generator<> child_g;
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
-
             // create a child generator with hide outer array tokens mode.
-            json_generator<> child_g = ctx.g_ptr -> new_child_generator(/*hide_outer_array_tokens*/ true);
-            child_g_ptr = &child_g;
-
+            child_g = ctx.g.new_child_generator(/*hide_outer_array_tokens*/ true);
             // Note: child generator does not actually write the outer start array
             // token into buffer it only updates internal nested state
-            child_g_ptr -> write_start_array();
+            child_g.write_start_array();
+
+            // copy to stack
+            ctx.child_g = child_g;
           } else {
-            child_g_ptr = ctx.child_g_ptr;
+            child_g = ctx.child_g;
           }
 
           if (p.next_token() != json_token::END_ARRAY) {
@@ -890,24 +912,25 @@ struct path_evaluator {
             push_ctx(ctx);
             // track the number of array elements and only emit an outer array if
             // we've written more than one element, this matches Hive's behavior
-            push_context(p.get_current_token(), 6, child_g_ptr, next_style, ctx.path_ptr + 2, ctx.path_size - 2);
+            push_context(p.get_current_token(), 6, child_g, next_style, ctx.path_ptr + 2, ctx.path_size - 2);
           } else {
-            ctx.task_is_done = true;
-            push_ctx(ctx);
-
             // Note: child generator does not actually write the outer end array token
             // into buffer it only updates internal nested state
-            child_g_ptr->write_end_array();
+            child_g.write_end_array();
 
-            char* child_g_start = child_g_ptr->get_output_start_position();
-            size_t child_g_len  = child_g_ptr->get_output_len();  // len already excluded outer [ ]
+            char* child_g_start = child_g.get_output_start_position();
+            size_t child_g_len  = child_g.get_output_len();  // len already excluded outer [ ]
 
             if (ctx.dirty > 1) {
               // add outer array tokens
-              ctx.g_ptr->write_child_raw_value(child_g_start, child_g_len, true);
+              ctx.g.write_child_raw_value(child_g_start, child_g_len, true);
+              ctx.task_is_done = true;
+              push_ctx(ctx);
             } else if (ctx.dirty == 1) {
               // remove outer array tokens
-              ctx.g_ptr->write_child_raw_value(child_g_start, child_g_len, false);
+              ctx.g.write_child_raw_value(child_g_start, child_g_len, false);
+              ctx.task_is_done = true;
+              push_ctx(ctx);
             }  // else do not write anything
           }
         }
@@ -920,7 +943,7 @@ struct path_evaluator {
                                     path_instruction_type::wildcard)) {
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
-            ctx.g_ptr->write_start_array();
+            ctx.g.write_start_array();
           }
 
           if (p.next_token() != json_token::END_ARRAY) {
@@ -930,9 +953,9 @@ struct path_evaluator {
             // wildcards can have multiple matches, continually update the dirty
             // count
             push_ctx(ctx);
-            push_context(p.get_current_token(), 7, ctx.g_ptr, write_style::quoted_style, ctx.path_ptr + 2, ctx.path_size - 2);
+            push_context(p.get_current_token(), 7, ctx.g, write_style::quoted_style, ctx.path_ptr + 2, ctx.path_size - 2);
           } else {
-            ctx.g_ptr->write_end_array();
+            ctx.g.write_end_array();
             ctx.task_is_done = true;
             push_ctx(ctx);
           }
@@ -966,7 +989,7 @@ struct path_evaluator {
 
           // i == 0
           push_ctx(ctx);
-          push_context(p.get_current_token(), 8, ctx.g_ptr, write_style::quoted_style, ctx.path_ptr + 2, ctx.path_size - 2);
+          push_context(p.get_current_token(), 8, ctx.g, write_style::quoted_style, ctx.path_ptr + 2, ctx.path_size - 2);
         }
         // case (START_ARRAY, Subscript :: Index(idx) :: xs)
         // case path 9
@@ -997,7 +1020,7 @@ struct path_evaluator {
 
           // i == 0
           push_ctx(ctx);
-          push_context(p.get_current_token(), 9, ctx.g_ptr, ctx.style, ctx.path_ptr + 2, ctx.path_size - 2);
+          push_context(p.get_current_token(), 9, ctx.g, ctx.style, ctx.path_ptr + 2, ctx.path_size - 2);
         }
         // case (FIELD_NAME, Named(name) :: xs) if p.getCurrentName == name
         // case path 10
@@ -1008,7 +1031,7 @@ struct path_evaluator {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
             push_ctx(ctx);
-            push_context(p.get_current_token(), 10, ctx.g_ptr, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
+            push_context(p.get_current_token(), 10, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
           } else {
             return false;
           }
@@ -1021,7 +1044,7 @@ struct path_evaluator {
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return false; }
           push_ctx(ctx);
-          push_context(p.get_current_token(), 11, ctx.g_ptr, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
+          push_context(p.get_current_token(), 11, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
         }
         // case _ =>
         // case path 12
@@ -1050,6 +1073,8 @@ struct path_evaluator {
           else if (2 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (_, Nil)
@@ -1064,6 +1089,8 @@ struct path_evaluator {
             {
               p_ctx.dirty = ctx.dirty;
             }
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (START_ARRAY, Subscript :: Wildcard :: Subscript :: Wildcard :: xs)
@@ -1071,6 +1098,8 @@ struct path_evaluator {
           else if (5 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (START_ARRAY, Subscript :: Wildcard :: xs) if style != QuotedStyle
@@ -1078,6 +1107,8 @@ struct path_evaluator {
           else if (6 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;
+            // update child generator for parent task
+            p_ctx.child_g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (START_ARRAY, Subscript :: Wildcard :: xs)
@@ -1085,6 +1116,8 @@ struct path_evaluator {
           else if (7 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           /* case (START_ARRAY, Subscript :: Index(idx) :: (xs@Subscript :: Wildcard :: _)) */
@@ -1102,6 +1135,8 @@ struct path_evaluator {
             }
             // task is done
             p_ctx.task_is_done = true;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (FIELD_NAME, Named(name) :: xs) if p.getCurrentName == name
@@ -1111,6 +1146,8 @@ struct path_evaluator {
             p_ctx.dirty += ctx.dirty;
             // task is done
             p_ctx.task_is_done = true;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case (FIELD_NAME, Wildcard :: xs)
@@ -1120,6 +1157,8 @@ struct path_evaluator {
             p_ctx.dirty += ctx.dirty;
             // task is done
             p_ctx.task_is_done = true;
+            // copy generator states to parent task;
+            p_ctx.g = ctx.g;
             push_ctx(p_ctx);
           }
           // case _ =>
@@ -1134,6 +1173,9 @@ struct path_evaluator {
         }
       }
     }
+
+    // copy output len
+    root_g.set_output_len(ctx.g.get_output_len());
     return ctx.dirty > 0;
   }
 };
