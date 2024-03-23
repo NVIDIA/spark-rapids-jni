@@ -995,7 +995,7 @@ struct path_evaluator {
         // case path 9
         else if (json_token::START_ARRAY == ctx.token &&
                 thrust::get<0>(path_match_subscript_index(ctx.path_ptr, ctx.path_size))) {
-          int idx = thrust::get<1>(path_match_subscript_index_subscript_wildcard(ctx.path_ptr, ctx.path_size));
+          int idx = thrust::get<1>(path_match_subscript_index(ctx.path_ptr, ctx.path_size));
 
           p.next_token();
           // JSON validation check
