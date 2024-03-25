@@ -64,24 +64,24 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   for (auto const& inst : instructions) {
     auto const& [type, name, index] = inst;
     switch (type) {
-      case path_instruction_type::subscript:
-        path_commands.emplace_back(path_instruction{path_instruction_type::subscript});
+      case path_instruction_type::SUBSCRIPT:
+        path_commands.emplace_back(path_instruction{path_instruction_type::SUBSCRIPT});
         break;
-      case path_instruction_type::wildcard:
-        path_commands.emplace_back(path_instruction{path_instruction_type::wildcard});
+      case path_instruction_type::WILDCARD:
+        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
         break;
-      case path_instruction_type::key:
-        path_commands.emplace_back(path_instruction{path_instruction_type::key});
+      case path_instruction_type::KEY:
+        path_commands.emplace_back(path_instruction{path_instruction_type::KEY});
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();
         break;
-      case path_instruction_type::index:
-        path_commands.emplace_back(path_instruction{path_instruction_type::index});
+      case path_instruction_type::INDEX:
+        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
         path_commands.back().index = index;
         break;
-      case path_instruction_type::named:
-        path_commands.emplace_back(path_instruction{path_instruction_type::named});
+      case path_instruction_type::NAMED:
+        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();

@@ -51,22 +51,22 @@ bool eval_path(spark_rapids_jni::json_parser<>& p,
     p, g, spark_rapids_jni::detail::write_style::raw_style, path_ptr, path_size);
 }
 
-path_instruction get_subscript_path() { return path_instruction(path_instruction_type::subscript); }
+path_instruction get_subscript_path() { return path_instruction(path_instruction_type::SUBSCRIPT); }
 
-path_instruction get_wildcard_path() { return path_instruction(path_instruction_type::wildcard); }
+path_instruction get_wildcard_path() { return path_instruction(path_instruction_type::WILDCARD); }
 
-path_instruction get_key_path() { return path_instruction(path_instruction_type::key); }
+path_instruction get_key_path() { return path_instruction(path_instruction_type::KEY); }
 
 path_instruction get_index_path(int index)
 {
-  auto p  = path_instruction(path_instruction_type::index);
+  auto p  = path_instruction(path_instruction_type::INDEX);
   p.index = index;
   return p;
 }
 
 path_instruction get_named_path(std::string name)
 {
-  auto p = path_instruction(path_instruction_type::named);
+  auto p = path_instruction(path_instruction_type::NAMED);
   p.name = cudf::string_view(name.data(), name.size());
   return p;
 }

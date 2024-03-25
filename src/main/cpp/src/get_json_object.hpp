@@ -33,7 +33,7 @@ namespace spark_rapids_jni {
 /**
  * path instruction type
  */
-enum class path_instruction_type { subscript, wildcard, key, index, named };
+enum class path_instruction_type { SUBSCRIPT, WILDCARD, KEY, INDEX, NAMED };
 
 namespace detail {
 
@@ -332,7 +332,7 @@ struct path_evaluator {
     path_instruction const* path_ptr, size_t path_size)
   {
     auto match = path_match_elements(
-      path_ptr, path_size, path_instruction_type::subscript, path_instruction_type::index);
+      path_ptr, path_size, path_instruction_type::SUBSCRIPT, path_instruction_type::INDEX);
     if (match) {
       return thrust::make_tuple(true, path_ptr[1].index);
     } else {
@@ -343,7 +343,7 @@ struct path_evaluator {
   static CUDF_HOST_DEVICE inline thrust::tuple<bool, cudf::string_view> path_match_named(
     path_instruction const* path_ptr, size_t path_size)
   {
-    auto match = path_match_element(path_ptr, path_size, path_instruction_type::named);
+    auto match = path_match_element(path_ptr, path_size, path_instruction_type::NAMED);
     if (match) {
       return thrust::make_tuple(true, path_ptr[0].name);
     } else {
@@ -356,10 +356,10 @@ struct path_evaluator {
   {
     auto match = path_match_elements(path_ptr,
                                      path_size,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::index,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::wildcard);
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::INDEX,
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::WILDCARD);
     if (match) {
       return thrust::make_tuple(true, path_ptr[1].index);
     } else {
@@ -415,7 +415,7 @@ struct path_evaluator {
   //   // case (START_OBJECT, Key :: xs)
   //   // case path 4
   //   else if (json_token::START_OBJECT == token &&
-  //            path_match_element(path_ptr, path_size, path_instruction_type::key)) {
+  //            path_match_element(path_ptr, path_size, path_instruction_type::KEY)) {
   //     bool dirty = false;
   //     while (json_token::END_OBJECT != p.next_token()) {
   //       // JSON validation check
@@ -438,10 +438,10 @@ struct path_evaluator {
   //   else if (json_token::START_ARRAY == token &&
   //            path_match_elements(path_ptr,
   //                                path_size,
-  //                                path_instruction_type::subscript,
-  //                                path_instruction_type::wildcard,
-  //                                path_instruction_type::subscript,
-  //                                path_instruction_type::wildcard)) {
+  //                                path_instruction_type::SUBSCRIPT,
+  //                                path_instruction_type::WILDCARD,
+  //                                path_instruction_type::SUBSCRIPT,
+  //                                path_instruction_type::WILDCARD)) {
   //     // special handling for the non-structure preserving double wildcard
   //     // behavior in Hive
   //     bool dirty = false;
@@ -461,8 +461,8 @@ struct path_evaluator {
   //   else if (json_token::START_ARRAY == token &&
   //            path_match_elements(path_ptr,
   //                                path_size,
-  //                                path_instruction_type::subscript,
-  //                                path_instruction_type::wildcard) &&
+  //                                path_instruction_type::SUBSCRIPT,
+  //                                path_instruction_type::WILDCARD) &&
   //            style != write_style::quoted_style) {
   //     // retain Flatten, otherwise use Quoted... cannot use Raw within an array
   //     write_style next_style = write_style::raw_style;
@@ -517,8 +517,8 @@ struct path_evaluator {
   //   else if (json_token::START_ARRAY == token &&
   //            path_match_elements(path_ptr,
   //                                path_size,
-  //                                path_instruction_type::subscript,
-  //                                path_instruction_type::wildcard)) {
+  //                                path_instruction_type::SUBSCRIPT,
+  //                                path_instruction_type::WILDCARD)) {
   //     bool dirty = false;
   //     g.write_start_array();
   //     while (p.next_token() != json_token::END_ARRAY) {
@@ -631,7 +631,7 @@ struct path_evaluator {
   //   // case (FIELD_NAME, Wildcard :: xs)
   //   // case path 11
   //   else if (json_token::FIELD_NAME == token &&
-  //            path_match_element(path_ptr, path_size, path_instruction_type::wildcard)) {
+  //            path_match_element(path_ptr, path_size, path_instruction_type::WILDCARD)) {
   //     p.next_token();
   //     // JSON validation check
   //     if (json_token::ERROR == p.get_current_token()) { return false; }
@@ -819,7 +819,7 @@ struct path_evaluator {
         // case (START_OBJECT, Key :: xs)
         // case path 4
         else if (json_token::START_OBJECT == ctx.token &&
-                 path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::key)) {
+                 path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::KEY)) {
           if (json_token::END_OBJECT != p.next_token()) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
@@ -847,10 +847,10 @@ struct path_evaluator {
         else if (json_token::START_ARRAY == ctx.token &&
                  path_match_elements(ctx.path_ptr,
                                      ctx.path_size,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::wildcard,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::wildcard)) {
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::WILDCARD,
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::WILDCARD)) {
           // special handling for the non-structure preserving double wildcard
           // behavior in Hive
           if (ctx.is_first_enter) {
@@ -879,8 +879,8 @@ struct path_evaluator {
         else if (json_token::START_ARRAY == ctx.token &&
                  path_match_elements(ctx.path_ptr,
                                      ctx.path_size,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::wildcard) &&
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::WILDCARD) &&
                  ctx.style != write_style::quoted_style) {
           // retain Flatten, otherwise use Quoted... cannot use Raw within an array
           write_style next_style = write_style::raw_style;
@@ -943,8 +943,8 @@ struct path_evaluator {
         else if (json_token::START_ARRAY == ctx.token &&
                  path_match_elements(ctx.path_ptr,
                                      ctx.path_size,
-                                     path_instruction_type::subscript,
-                                     path_instruction_type::wildcard)) {
+                                     path_instruction_type::SUBSCRIPT,
+                                     path_instruction_type::WILDCARD)) {
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
             ctx.g.write_start_array();
@@ -1057,7 +1057,7 @@ struct path_evaluator {
         // case (FIELD_NAME, Wildcard :: xs)
         // case path 11
         else if (json_token::FIELD_NAME == ctx.token &&
-                 path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::wildcard)) {
+                 path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::WILDCARD)) {
           p.next_token();
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return false; }
