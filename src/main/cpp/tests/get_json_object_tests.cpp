@@ -493,3 +493,17 @@ TEST_F(GetJsonObjectTests, TestIssue_9033)
                        std::vector<path_instruction>{get_key_path(), get_named_path("A")},
                        "系\t統");
 }
+
+TEST_F(GetJsonObjectTests, Test_paths_depth_10)
+{
+  test_get_json_object(
+    "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":{\"k9\":{\"k10\":\"v10\"}}}}}}"
+    "}}}}",
+    std::vector<path_instruction>{
+      get_key_path(), get_named_path("k1"), get_key_path(), get_named_path("k2"),
+      get_key_path(), get_named_path("k3"), get_key_path(), get_named_path("k4"),
+      get_key_path(), get_named_path("k5"), get_key_path(), get_named_path("k6"),
+      get_key_path(), get_named_path("k7"), get_key_path(), get_named_path("k8"),
+      get_key_path(), get_named_path("k9"), get_key_path(), get_named_path("k10")},
+    "v10");
+}

@@ -1016,7 +1016,6 @@ struct path_evaluator {
           p.next_token();
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return false; }
-          ctx.is_first_enter = false;
 
           int i = idx;
           while (i > 0) {
@@ -1137,6 +1136,8 @@ struct path_evaluator {
           }
           /* case (START_ARRAY, Subscript :: Index(idx) :: (xs@Subscript :: Wildcard :: _)) */
           // case path 8
+          // case (START_ARRAY, Subscript :: Index(idx) :: xs)
+          // case path 9
           else if (8 == ctx.case_path || 9 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;

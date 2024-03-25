@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import org.junit.jupiter.api.Test;
 
+import ai.rapids.cudf.HostColumnVector;
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class GetJsonObjectTest {
@@ -80,6 +81,46 @@ public class GetJsonObjectTest {
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, 4, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Test: query paths depth is 10
+   */
+  @Test
+  void getJsonObjectTest4() {
+    int paths_num = 20;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[paths_num];
+    query[0] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[1] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k1", -1);
+    query[2] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[3] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k2", -1);
+    query[4] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[5] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k3", -1);
+    query[6] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[7] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k4", -1);
+    query[8] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[9] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k5", -1);
+    query[10] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[11] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k6", -1);
+    query[12] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[13] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k7", -1);
+    query[14] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[15] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k8", -1);
+    query[16] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[17] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k9", -1);
+    query[18] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[19] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "k10", -1);
+
+    String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":{\"k9\":{\"k10\":\"v10\"}}}}}}}}}}";
+    String expectedStr = "v10";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
