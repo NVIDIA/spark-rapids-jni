@@ -124,4 +124,70 @@ public class GetJsonObjectTest {
       assertColumnsAreEqual(expected, actual);
     }
   }
+
+  /**
+   * Baidu case: unescape two chars \/ to one char /
+   */
+  @Test
+  void getJsonObjectTest_Baidu_unescape_backslash() {
+    int paths_num = 2;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[paths_num];
+    query[0] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[1] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "URdeosurl", -1);
+
+    String JSON = "{\"brand\":\"ssssss\",\"duratRon\":15,\"eqTosuresurl\":\"\",\"RsZxarthrl\":false,\"xonRtorsurl\":\"\",\"xonRtorsurlstOTe\":0,\"TRctures\":[{\"RxaGe\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\"}],\"Toster\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\",\"reserUed\":{\"bRtLate\":391.79,\"xooUZRke\":26876,\"nahrlIeneratRonNOTe\":0,\"useJublRc\":6,\"URdeoRd\":821284086},\"tRtle\":\"ssssssssssmMsssssssssssssssssss\",\"url\":\"s{storehrl}\",\"usersTortraRt\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-6971178959s-664926866s-6096674871.zTG\",\"URdeosurl\":\"VttT:\\/\\/nadURdeo2.baRdu.cox\\/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3\",\"URdeoRd\":821284086}";
+    String expectedStr = "VttT://nadURdeo2.baRdu.cox/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Baidu case: query unexist field name
+   */
+  @Test
+  void getJsonObjectTest_Baidu_get_unexist_field_name() {
+    int paths_num = 2;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[paths_num];
+    query[0] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
+    query[1] = new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.NAMED, "Vgdezsurl", -1);
+
+    String JSON = "{\"brand\":\"ssssss\",\"duratgzn\":17,\"eSyzsuresurl\":\"\",\"gswUartWrl\":false,\"Uzngtzrsurl\":\"\",\"UzngtzrsurlstJye\":0,\"ygctures\":[{\"gUaqe\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\/0\\/ygc\\/63025364s-376461312s7528698939.Qyq\"}],\"yzster\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\,\"url\":\"s{stHreqrl}\",\"usersPHrtraIt\":\"LttPs:\\/\\/feed-IUaxe.baIdu.cHU\\/0\\/PIc\\/-1043913002s489796992s-1505641721.Pnx\",\"kIdeHsurl\":\"LttP:\\/\\/nadkIdeH9.baIdu.cHU\\/4d7d308bd7c04e63069fd343adfa792as1790s1080.UP3\",\"kIdeHId\":852890923}";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+            null, null, null, null, null, null, null);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+
+  /**
+   * query path is : $
+   */
+  @Test
+  void getJsonObjectTest_Baidu_path_is_empty() {
+    int paths_num = 0;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
+
+    String JSON = "[100.0,200.000,351.980]";
+    String expectedStr = "[100.0,200.000,351.980]";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
+        ColumnVector expected = ColumnVector.fromStrings(
+          expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+
 }
