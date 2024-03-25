@@ -889,25 +889,26 @@ class json_parser {
   CUDF_HOST_DEVICE cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
   {
     cudf::char_utf8 utf8 = 0;
-    if (unchr < 0x0000'0080)  // single byte utf8
+    if (unchr < 0x0000'0080) {
+      // single byte utf8
       utf8 = unchr;
-    else if (unchr < 0x0000'0800)  // double byte utf8
-    {
-      utf8 = (unchr << 2) & 0x1F00;  // shift bits for
-      utf8 |= (unchr & 0x3F);        // utf8 encoding
+    } else if (unchr < 0x0000'0800) {
+      // double byte utf8
+      utf8 = (unchr << 2) & 0x1F00;
+      utf8 |= (unchr & 0x3F);
       utf8 |= 0x0000'C080;
-    } else if (unchr < 0x0001'0000)  // triple byte utf8
-    {
-      utf8 = (unchr << 4) & 0x0F'0000;   // upper 4 bits
-      utf8 |= (unchr << 2) & 0x00'3F00;  // next 6 bits
-      utf8 |= (unchr & 0x3F);            // last 6 bits
+    } else if (unchr < 0x0001'0000) {
+      // triple byte utf8
+      utf8 = (unchr << 4) & 0x0F'0000;
+      utf8 |= (unchr << 2) & 0x00'3F00;
+      utf8 |= (unchr & 0x3F);
       utf8 |= 0x00E0'8080;
-    } else if (unchr < 0x0011'0000)  // quadruple byte utf8
-    {
-      utf8 = (unchr << 6) & 0x0700'0000;   // upper 3 bits
-      utf8 |= (unchr << 4) & 0x003F'0000;  // next 6 bits
-      utf8 |= (unchr << 2) & 0x0000'3F00;  // next 6 bits
-      utf8 |= (unchr & 0x3F);              // last 6 bits
+    } else if (unchr < 0x0011'0000) {
+      // quadruple byte utf8
+      utf8 = (unchr << 6) & 0x0700'0000;
+      utf8 |= (unchr << 4) & 0x003F'0000;
+      utf8 |= (unchr << 2) & 0x0000'3F00;
+      utf8 |= (unchr & 0x3F);
       utf8 |= 0xF080'8080u;
     }
     return utf8;
@@ -1447,8 +1448,9 @@ class json_parser {
           current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
         return string_token_utf8_bytes;
       case json_token::VALUE_NUMBER_INT:
-        // TODO normalization if needed: https://github.com/NVIDIA/spark-rapids/issues/10218
-        // leverage function: `get_current_float_parts`
+        // TODO normalization if needed:
+        // https://github.com/NVIDIA/spark-rapids/issues/10218 leverage function:
+        // `get_current_float_parts`
         if (nullptr != destination) {
           for (cudf::size_type i = 0; i < number_token_len; ++i) {
             *destination++ = *(current_token_start_pos + i);
@@ -1458,9 +1460,9 @@ class json_parser {
       case json_token::VALUE_NUMBER_FLOAT:
         // TODO normalization: https://github.com/NVIDIA/spark-rapids/issues/10218
         // 0.03E-2 => 0.3E-5; infinity;
-        // 200.000 => 200.0, 351.980 => 351.98, 12345678900000000000.0 => 1.23456789E19
-        // 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003 => 3.0E-4
-        // leverage function: `get_current_float_parts`
+        // 200.000 => 200.0, 351.980 => 351.98, 12345678900000000000.0
+        // => 1.23456789E19 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003
+        // => 3.0E-4 leverage function: `get_current_float_parts`
         if (nullptr != destination) {
           for (cudf::size_type i = 0; i < number_token_len; ++i) {
             *destination++ = *(current_token_start_pos + i);
