@@ -49,7 +49,6 @@
 namespace spark_rapids_jni {
 
 namespace detail {
-// namespace {
 
 rmm::device_uvector<path_instruction> construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
@@ -93,15 +92,6 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
 }
 
-__device__ bool evaluate_path(json_parser<>& p,
-                              json_generator<>& g,
-                              write_style style,
-                              path_instruction const* path_ptr,
-                              int path_size)
-{
-  return path_evaluator::evaluate_path(p, g, style, path_ptr, path_size);
-}
-
 /**
  * @brief Parse a single json string using the provided command buffer
  *
@@ -120,23 +110,22 @@ __device__ inline bool parse_json_path(json_parser<>& j_parser,
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return false; }
 
-  return evaluate_path(j_parser, output, write_style::raw_style, path_ptr, path_size);
+  return path_evaluator::evaluate_path(
+    j_parser, output, write_style::raw_style, path_ptr, path_size);
 }
 
 /**
  * @brief Parse a single json string using the provided command buffer
  *
- * This function exists primarily as a shim for debugging purposes.
  *
  * @param input The incoming json string
  * @param input_len Size of the incoming json string
- * @param commands The command buffer to be applied to the string. Always ends
- * with a path_operator_type::END
- * @param out_buf Buffer user to store the results of the query (nullptr in the
- * size computation step)
+ * @param path_commands_ptr The command buffer to be applied to the string.
+ * @param path_commands_size The command buffer size.
+ * @param out_buf Buffer user to store the results of the query
+ *                (nullptr in the size computation step)
  * @param out_buf_size Size of the output buffer
- * @param options Options controlling behavior
- * @returns A pair containing the result code the output buffer.
+ * @returns A pair containing the result code and the output buffer.
  */
 __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
   char const* input,
@@ -180,9 +169,9 @@ __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
 /**
  * @brief Kernel for running the JSONPath query.
  *
- * This kernel operates in a 2-pass way.  On the first pass, it computes
- * output sizes.  On the second pass it fills in the provided output buffers
- * (chars and validity)
+ * This kernel operates in a 2-pass way. On the first pass it computes the
+ * output sizes. On the second pass, it fills in the provided output buffers
+ * (chars and validity).
  *
  * @param col Device view of the incoming string
  * @param commands JSONPath command buffer
@@ -327,17 +316,15 @@ std::unique_ptr<cudf::column> get_json_object(
   return result;
 }
 
-// }  // namespace
-
 }  // namespace detail
 
 std::unique_ptr<cudf::column> get_json_object(
-  cudf::strings_column_view const& col,
+  cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  return detail::get_json_object(col, instructions, stream, mr);
+  return detail::get_json_object(input, instructions, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

@@ -1037,6 +1037,7 @@ class json_parser {
    * valid number:    0, 0.3, 0e005, 0E005
    * invalid number:  0., 0e, 0E
    *
+   * Note: Leading zeroes are not allowed, keep consistent with Spark, e.g.: 00, -01 are invalid
    */
   __device__ inline void parse_number()
   {
@@ -1101,6 +1102,7 @@ class json_parser {
 
   /**
    * parse:  INT ('.' [0-9]+)? EXP?
+   * and verify leading zeroes
    *
    * @param[out] is_float, if contains `.` or `e`, set true
    */
@@ -1118,6 +1120,16 @@ class json_parser {
       } else if (c == '0') {
         curr_pos++;
         float_integer_len++;
+
+        // check leading zeros
+        if (!eof(curr_pos)) {
+          char next_char_after_zero = *curr_pos;
+          if (next_char_after_zero >= '0' && next_char_after_zero <= '9') {
+            // e.g.: 01 is invalid
+            return false;
+          }
+        }
+
         // first digit is [0]
         // path: INT = '0'
         return parse_number_from_fraction(is_float);

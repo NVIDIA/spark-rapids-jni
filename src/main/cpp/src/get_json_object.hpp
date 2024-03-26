@@ -705,21 +705,7 @@ struct path_evaluator {
       {
       }
 
-      __device__ context& operator=(const context& other)
-      {
-        token          = other.token;
-        case_path      = other.case_path;
-        g              = other.g;
-        style          = other.style;
-        path_ptr       = other.path_ptr;
-        path_size      = other.path_size;
-        task_is_done   = other.task_is_done;
-        dirty          = other.dirty;
-        is_first_enter = other.is_first_enter;
-        child_g        = other.child_g;
-
-        return *this;
-      }
+      __device__ context& operator=(context const&) = default;
     };
 
     // path max depth limitation
@@ -1197,7 +1183,7 @@ struct path_evaluator {
  * input json string is invalid.
  */
 std::unique_ptr<cudf::column> get_json_object(
-  cudf::strings_column_view const& col,
+  cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());

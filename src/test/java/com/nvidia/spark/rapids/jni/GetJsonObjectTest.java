@@ -235,12 +235,28 @@ public class GetJsonObjectTest {
   }
 
   /**
+   * Test number
+   * leading zeros are invalid: 00, 01, 02, 000, -01, -00, -02
+   */
+  @Test
+  void getJsonObjectTest_Test_leading_zeros() {
+    int paths_num = 0;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[paths_num];
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings("00", "01", "02", "000", "-01", "-00", "-02");
+        ColumnVector expected = ColumnVector.fromStrings(null, null, null, null, null, null, null);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
    * case (VALUE_STRING, Nil) if style == RawStyle
    */
   @Test
   void getJsonObjectTest_Test_case_path1() {
     int paths_num = 0;
-    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[paths_num];
 
     String JSON1 = "'abc'";
     String expectedStr1 = "abc";
