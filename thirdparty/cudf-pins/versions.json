@@ -62,9 +62,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "30b1dc1aa9dc8694fc7babb81e33664c56a9b2ff",
+      "git_tag" : "41b473d4368b22585b54026d77a5889434bee2e5",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.04.0"
+      "version" : "24.04"
     },
     "NVTX3" : 
     {
@@ -90,6 +90,22 @@
       "git_url" : "https://github.com/dmlc/dlpack.git",
       "version" : "0.8"
     },
+    "fmt" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "f5e54359df4c26b6230fc61d38aa294581393084",
+      "git_url" : "https://github.com/fmtlib/fmt.git",
+      "patches" : 
+      [
+        {
+          "file" : "fmt/fix_10_1_1_version.diff",
+          "fixed_in" : "10.2.0",
+          "issue" : "fmt 10.1.1 produces a CMake package with version 10.1.0"
+        }
+      ],
+      "version" : "10.1.1"
+    },
     "jitify" : 
     {
       "always_download" : true,
@@ -98,13 +114,42 @@
       "git_url" : "https://github.com/rapidsai/jitify.git",
       "version" : "2.0.0"
     },
+    "nvcomp" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "v2.2.0",
+      "git_url" : "https://github.com/NVIDIA/nvcomp.git",
+      "proprietary_binary" : 
+      {
+        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-major}.x.tgz",
+        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-major}.x.tgz"
+      },
+      "version" : "3.0.6"
+    },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2c161dad4aa732e7a6901ab512aa9a0fac85afc4",
+      "git_tag" : "a98931b91ae8109f478469fd4eec388cf86b81fb",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.04.0"
+      "version" : "24.04"
+    },
+    "spdlog" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "7e635fca68d014934b4af8a1cf874f63989352b7",
+      "git_url" : "https://github.com/gabime/spdlog.git",
+      "patches" : 
+      [
+        {
+          "file" : "spdlog/nvcc_constexpr_fix.diff",
+          "fixed_in" : "1.13",
+          "issue" : "Fix constexpr mismatch between spdlog and fmt [https://github.com/gabime/spdlog/issues/2856]"
+        }
+      ],
+      "version" : "1.12.0"
     }
   }
 }
