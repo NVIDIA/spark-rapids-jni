@@ -46,7 +46,7 @@ enum class write_style { raw_style, quoted_style, flatten_style };
  * path instruction
  */
 struct path_instruction {
-  CUDF_HOST_DEVICE inline path_instruction(path_instruction_type _type) : type(_type) {}
+  __device__ inline path_instruction(path_instruction_type _type) : type(_type) {}
 
   path_instruction_type type;
 
@@ -65,22 +65,20 @@ struct path_instruction {
 template <int max_json_nesting_depth = curr_max_json_nesting_depth>
 class json_generator {
  public:
-  CUDF_HOST_DEVICE json_generator(char* _output)
+  __device__ json_generator(char* _output)
     : output(_output), output_len(0), hide_outer_array_tokens(false)
   {
   }
-  CUDF_HOST_DEVICE json_generator() : output(nullptr), output_len(0), hide_outer_array_tokens(false)
-  {
-  }
-  CUDF_HOST_DEVICE json_generator(char* _output, bool _hide_outer_array_tokens)
+  __device__ json_generator() : output(nullptr), output_len(0), hide_outer_array_tokens(false) {}
+  __device__ json_generator(char* _output, bool _hide_outer_array_tokens)
     : output(_output), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
   {
   }
-  CUDF_HOST_DEVICE json_generator(bool _hide_outer_array_tokens)
+  __device__ json_generator(bool _hide_outer_array_tokens)
     : output(nullptr), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
   {
   }
-  CUDF_HOST_DEVICE CUDF_HOST_DEVICE json_generator<>& operator=(const json_generator<>& other)
+  __device__ json_generator<>& operator=(const json_generator<>& other)
   {
     this->output                  = other.output;
     this->output_len              = other.output_len;
@@ -95,7 +93,7 @@ class json_generator {
 
   // create a nested child generator based on this parent generator
   // child generator is a view
-  CUDF_HOST_DEVICE json_generator new_child_generator(bool hide_outer_array_tokens)
+  __device__ json_generator new_child_generator(bool hide_outer_array_tokens)
   {
     if (nullptr == output) {
       return json_generator(hide_outer_array_tokens);
@@ -104,7 +102,7 @@ class json_generator {
     }
   }
 
-  CUDF_HOST_DEVICE void write_start_array()
+  __device__ void write_start_array()
   {
     if (!hide_outer_array_tokens) {
       if (output) { *(output + output_len) = '['; }
@@ -119,7 +117,7 @@ class json_generator {
     }
   }
 
-  CUDF_HOST_DEVICE void write_end_array()
+  __device__ void write_end_array()
   {
     if (!hide_outer_array_tokens) {
       if (output) { *(output + output_len) = ']'; }
@@ -132,15 +130,12 @@ class json_generator {
   }
 
   // return true if it's in a array context and it's not writing the first item.
-  CUDF_HOST_DEVICE bool need_comma()
-  {
-    return (array_depth > 0 && !is_first_item[array_depth - 1]);
-  }
+  __device__ bool need_comma() { return (array_depth > 0 && !is_first_item[array_depth - 1]); }
 
   /**
    * write comma accroding to current generator state
    */
-  CUDF_HOST_DEVICE void try_write_comma()
+  __device__ void try_write_comma()
   {
     if (need_comma()) {
       // in array context and writes first item
@@ -154,7 +149,7 @@ class json_generator {
    * object/array, then copy to corresponding matched end object/array. return
    * false if JSON format is invalid return true if JSON format is valid
    */
-  CUDF_HOST_DEVICE bool copy_current_structure(json_parser<>& parser)
+  __device__ bool copy_current_structure(json_parser<>& parser)
   {
     // first try add comma
     try_write_comma();
@@ -181,7 +176,7 @@ class json_generator {
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
    */
-  CUDF_HOST_DEVICE void write_raw(json_parser<>& parser)
+  __device__ void write_raw(json_parser<>& parser)
   {
     if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
 
@@ -220,9 +215,9 @@ class json_generator {
    * @param child_block_begin
    * @param child_block_len
    */
-  CUDF_HOST_DEVICE void write_child_raw_value(char* child_block_begin,
-                                              size_t child_block_len,
-                                              bool write_outer_array_tokens)
+  __device__ void write_child_raw_value(char* child_block_begin,
+                                        size_t child_block_len,
+                                        bool write_outer_array_tokens)
   {
     bool insert_comma = need_comma();
 
@@ -258,7 +253,7 @@ class json_generator {
     output_len += child_block_len;
   }
 
-  CUDF_HOST_DEVICE void move_forward(char* begin, size_t len, int forward)
+  __device__ void move_forward(char* begin, size_t len, int forward)
   {
     char* pos = begin + len + forward - 1;
     char* e   = begin + forward - 1;
@@ -270,19 +265,19 @@ class json_generator {
     }
   }
 
-  CUDF_HOST_DEVICE void reset() { output_len = 0; }
+  __device__ void reset() { output_len = 0; }
 
-  CUDF_HOST_DEVICE inline size_t get_output_len() const { return output_len; }
-  CUDF_HOST_DEVICE inline char* get_output_start_position() const { return output; }
-  CUDF_HOST_DEVICE inline char* get_current_output_position() const { return output + output_len; }
+  __device__ inline size_t get_output_len() const { return output_len; }
+  __device__ inline char* get_output_start_position() const { return output; }
+  __device__ inline char* get_current_output_position() const { return output + output_len; }
 
   /**
    * generator may contain trash output, e.g.: generator writes some output,
    * then JSON format is invalid, the previous output becomes trash.
    */
-  CUDF_HOST_DEVICE inline void set_output_len_zero() { output_len = 0; }
+  __device__ inline void set_output_len_zero() { output_len = 0; }
 
-  CUDF_HOST_DEVICE inline void set_output_len(size_t len) { output_len = len; }
+  __device__ inline void set_output_len(size_t len) { output_len = len; }
 
  private:
   char* output;
@@ -297,38 +292,38 @@ class json_generator {
  * path evaluator which can run on both CPU and GPU
  */
 struct path_evaluator {
-  static CUDF_HOST_DEVICE inline bool path_is_empty(size_t path_size) { return path_size == 0; }
+  static __device__ inline bool path_is_empty(size_t path_size) { return path_size == 0; }
 
-  static CUDF_HOST_DEVICE inline bool path_match_element(path_instruction const* path_ptr,
-                                                         size_t path_size,
-                                                         path_instruction_type path_type0)
+  static __device__ inline bool path_match_element(path_instruction const* path_ptr,
+                                                   size_t path_size,
+                                                   path_instruction_type path_type0)
   {
     if (path_size < 1) { return false; }
     return path_ptr[0].type == path_type0;
   }
 
-  static CUDF_HOST_DEVICE inline bool path_match_elements(path_instruction const* path_ptr,
-                                                          size_t path_size,
-                                                          path_instruction_type path_type0,
-                                                          path_instruction_type path_type1)
+  static __device__ inline bool path_match_elements(path_instruction const* path_ptr,
+                                                    size_t path_size,
+                                                    path_instruction_type path_type0,
+                                                    path_instruction_type path_type1)
   {
     if (path_size < 2) { return false; }
     return path_ptr[0].type == path_type0 && path_ptr[1].type == path_type1;
   }
 
-  static CUDF_HOST_DEVICE inline bool path_match_elements(path_instruction const* path_ptr,
-                                                          size_t path_size,
-                                                          path_instruction_type path_type0,
-                                                          path_instruction_type path_type1,
-                                                          path_instruction_type path_type2,
-                                                          path_instruction_type path_type3)
+  static __device__ inline bool path_match_elements(path_instruction const* path_ptr,
+                                                    size_t path_size,
+                                                    path_instruction_type path_type0,
+                                                    path_instruction_type path_type1,
+                                                    path_instruction_type path_type2,
+                                                    path_instruction_type path_type3)
   {
     if (path_size < 4) { return false; }
     return path_ptr[0].type == path_type0 && path_ptr[1].type == path_type1 &&
            path_ptr[2].type == path_type2 && path_ptr[3].type == path_type3;
   }
 
-  static CUDF_HOST_DEVICE inline thrust::tuple<bool, int> path_match_subscript_index(
+  static __device__ inline thrust::tuple<bool, int> path_match_subscript_index(
     path_instruction const* path_ptr, size_t path_size)
   {
     auto match = path_match_elements(
@@ -340,7 +335,7 @@ struct path_evaluator {
     }
   }
 
-  static CUDF_HOST_DEVICE inline thrust::tuple<bool, cudf::string_view> path_match_named(
+  static __device__ inline thrust::tuple<bool, cudf::string_view> path_match_named(
     path_instruction const* path_ptr, size_t path_size)
   {
     auto match = path_match_element(path_ptr, path_size, path_instruction_type::NAMED);
@@ -351,8 +346,8 @@ struct path_evaluator {
     }
   }
 
-  static CUDF_HOST_DEVICE inline thrust::tuple<bool, int>
-  path_match_subscript_index_subscript_wildcard(path_instruction const* path_ptr, size_t path_size)
+  static __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_wildcard(
+    path_instruction const* path_ptr, size_t path_size)
   {
     auto match = path_match_elements(path_ptr,
                                      path_size,
@@ -375,7 +370,7 @@ struct path_evaluator {
    * is not human friendly.
    *
    */
-  // static CUDF_HOST_DEVICE bool evaluate_path(json_parser<>& p,
+  // static __device__ bool evaluate_path(json_parser<>& p,
   //                                            json_generator<>& g,
   //                                            write_style style,
   //                                            path_instruction const* path_ptr,
@@ -651,11 +646,11 @@ struct path_evaluator {
    * This function is rewritten from above commented recursive function.
    * this function is equivalent to the above commented recursive function.
    */
-  static CUDF_HOST_DEVICE bool evaluate_path(json_parser<>& p,
-                                             json_generator<>& root_g,
-                                             write_style root_style,
-                                             path_instruction const* root_path_ptr,
-                                             int root_path_size)
+  static __device__ bool evaluate_path(json_parser<>& p,
+                                       json_generator<>& root_g,
+                                       write_style root_style,
+                                       path_instruction const* root_path_ptr,
+                                       int root_path_size)
   {
     // manually maintained context stack in lieu of calling evaluate_path recursively.
     struct context {
@@ -685,7 +680,7 @@ struct path_evaluator {
       // used to save child JSON generator for case path 8
       json_generator<> child_g;
 
-      CUDF_HOST_DEVICE context()
+      __device__ context()
         : token(json_token::INIT),
           case_path(-1),
           g(json_generator<>()),
@@ -695,12 +690,12 @@ struct path_evaluator {
       {
       }
 
-      CUDF_HOST_DEVICE context(json_token _token,
-                               int _case_path,
-                               json_generator<> _g,
-                               write_style _style,
-                               path_instruction const* _path_ptr,
-                               int _path_size)
+      __device__ context(json_token _token,
+                         int _case_path,
+                         json_generator<> _g,
+                         write_style _style,
+                         path_instruction const* _path_ptr,
+                         int _path_size)
         : token(_token),
           case_path(_case_path),
           g(_g),
@@ -710,7 +705,7 @@ struct path_evaluator {
       {
       }
 
-      CUDF_HOST_DEVICE context& operator=(const context& other)
+      __device__ context& operator=(const context& other)
       {
         token          = other.token;
         case_path      = other.case_path;

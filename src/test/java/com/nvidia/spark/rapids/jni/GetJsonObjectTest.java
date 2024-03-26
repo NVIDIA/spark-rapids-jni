@@ -168,27 +168,6 @@ public class GetJsonObjectTest {
     }
   }
 
-
-  /**
-   * query path is : $
-   */
-  @Test
-  void getJsonObjectTest_Baidu_path_is_empty() {
-    int paths_num = 0;
-    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
-
-    String JSON = "[100.0,200.000,351.980]";
-    String expectedStr = "[100.0,200.000,351.980]";
-    try (
-        ColumnVector jsonCv = ColumnVector.fromStrings(
-            JSON, JSON, JSON, JSON, JSON, JSON, JSON);
-        ColumnVector expected = ColumnVector.fromStrings(
-          expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
-      assertColumnsAreEqual(expected, actual);
-    }
-  }
-
   /**
    * test escape chars: " in ' pair; ' in " pair
    */
@@ -215,5 +194,42 @@ public class GetJsonObjectTest {
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
       assertColumnsAreEqual(expected, actual);
     }
+  }
+
+  /**
+   * test number normalizations
+   */
+  @Test
+  void getJsonObjectTest_Number_Normalization() {
+    int paths_num = 0;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
+
+    String JSON1 = "[100.0,200.000,351.980]";
+    String JSON2 = "[12345678900000000000.0]";
+    String JSON3 = "[0.0]";
+    String JSON4 = "[-0.0]";
+    String JSON5 = "[-0]";
+    String JSON6 = "[12345678999999999999999999]";
+    String JSON7 = "[1E308]";
+    String JSON8 = "[1.0E309,-1E309,1E5000]";
+
+    String expectedStr1 = "[100.0,200.0,351.98]";
+    String expectedStr2 = "[1.23456789E19]";
+    String expectedStr3 = "[0.0]";
+    String expectedStr4 = "[-0.0]";
+    String expectedStr5 = "[0]";
+    String expectedStr6 = "[12345678999999999999999999]";
+    String expectedStr7 = "[1.0E308]";
+    String expectedStr8 = "[\"Infinity\",\"-Infinity\",\"Infinity\"]";
+
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON1, JSON2, JSON3, JSON4, JSON5, JSON6, JSON7, JSON8);
+        ColumnVector expected = ColumnVector.fromStrings(
+          expectedStr1, expectedStr2, expectedStr3, expectedStr4, expectedStr5, expectedStr6, expectedStr7, expectedStr8);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+
   }
 }
