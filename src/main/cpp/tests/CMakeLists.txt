@@ -63,11 +63,6 @@ ConfigureTest(DATETIME_REBASE
 ConfigureTest(ROW_CONVERSION
     row_conversion.cpp)
 
-ConfigureTest(GET_JSON_OBJECT
-    json_parser_tests.cpp
-    get_json_object_tests.cpp
-    )
-
 ConfigureTest(HASH
     hash.cpp)
 

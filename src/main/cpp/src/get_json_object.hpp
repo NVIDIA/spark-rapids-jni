@@ -78,7 +78,7 @@ class json_generator {
     : output(nullptr), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
   {
   }
-  __device__ __device__ json_generator<>& operator=(const json_generator<>& other)
+  __device__ json_generator<>& operator=(const json_generator<>& other)
   {
     this->output                  = other.output;
     this->output_len              = other.output_len;
