@@ -189,5 +189,31 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * test escape chars: " in ' pair; ' in " pair
+   */
+  @Test
+  void getJsonObjectTest_Escape() {
+    int paths_num = 0;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
 
+    String JSON1 = "{ \"a\": \"A\" }";
+    String JSON2 = "{'a':'A\"'}";
+    String JSON3 = "{'a':\"B'\"}";
+    String JSON4 = "['a','b','\"C\"']";
+
+    String expectedStr1 = "{\"a\":\"A\"}";
+    String expectedStr2 = "{\"a\":\"A\\\"\"}";
+    String expectedStr3 = "{\"a\":\"B'\"}";
+    String expectedStr4 = "[\"a\",\"b\",\"\\\"C\\\"\"]";
+
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(
+            JSON1, JSON2, JSON3, JSON4);
+        ColumnVector expected = ColumnVector.fromStrings(
+          expectedStr1, expectedStr2, expectedStr3, expectedStr4);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
 }

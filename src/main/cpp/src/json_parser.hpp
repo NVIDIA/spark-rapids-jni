@@ -651,10 +651,15 @@ class json_parser {
       } else {
         // path 4: safe code point
 
-        if ('\"' == c && copy_destination != nullptr && write_style::escaped == w_style) {
-          // e.g.: 'A"' string, escape to "A\\"" 4 chars
-          *copy_destination++ = '\\';
-          bytes_diff_for_escape_writing++;
+        // handle single unescaped " char; happens when string is quoted by char '
+        // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
+        if ('\"' == c && write_style::escaped == w_style) {
+          if (copy_destination != nullptr) {
+            *copy_destination++ = '\\';
+            bytes_diff_for_escape_writing++;
+          } else {
+            bytes_diff_for_escape_writing++;
+          }
         }
 
         if (!try_skip_safe_code_point(str_pos, c)) { return std::make_pair(false, nullptr); }
@@ -1692,7 +1697,7 @@ class json_parser {
           sum_copy_len += len;
           copy_to += len;
         } else {
-          sum_copy_len += compute_unescaped_len();
+          sum_copy_len += compute_escaped_len();
         }
 
         while (true) {
