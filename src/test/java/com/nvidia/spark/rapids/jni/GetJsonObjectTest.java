@@ -19,7 +19,6 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import org.junit.jupiter.api.Test;
 
-import ai.rapids.cudf.HostColumnVector;
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class GetJsonObjectTest {
@@ -180,17 +179,20 @@ public class GetJsonObjectTest {
     String JSON2 = "{'a':'A\"'}";
     String JSON3 = "{'a':\"B'\"}";
     String JSON4 = "['a','b','\"C\"']";
+    // \\u4e2d\\u56FD is 中国
+    String JSON5 = "'\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'";
 
     String expectedStr1 = "{\"a\":\"A\"}";
     String expectedStr2 = "{\"a\":\"A\\\"\"}";
     String expectedStr3 = "{\"a\":\"B'\"}";
     String expectedStr4 = "[\"a\",\"b\",\"\\\"C\\\"\"]";
+    String expectedStr5 = "中国\"'\\/\b\f\n\r\t\b";
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
-            JSON1, JSON2, JSON3, JSON4);
+            JSON1, JSON2, JSON3, JSON4, JSON5);
         ColumnVector expected = ColumnVector.fromStrings(
-          expectedStr1, expectedStr2, expectedStr3, expectedStr4);
+          expectedStr1, expectedStr2, expectedStr3, expectedStr4, expectedStr5);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -230,6 +232,25 @@ public class GetJsonObjectTest {
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
       assertColumnsAreEqual(expected, actual);
     }
-
   }
+
+  /**
+   * case (VALUE_STRING, Nil) if style == RawStyle
+   */
+  @Test
+  void getJsonObjectTest_Test_case_path1() {
+    int paths_num = 0;
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
+
+    String JSON1 = "'abc'";
+    String expectedStr1 = "abc";
+
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
+        ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, paths_num, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
 }
