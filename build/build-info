@@ -22,6 +22,7 @@
 #   git_path - The path to the repository
 #   libcudf_path - The path to the libcudf library
 set -e
+set -o pipefail
 
 echo_build_properties() {
   version=$1
@@ -34,7 +35,27 @@ echo_build_properties() {
   echo branch=$(cd "$git_path" && git rev-parse --abbrev-ref HEAD)
   echo date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo url=$(cd "$git_path" && git config --get remote.origin.url)
-  echo gpu_architectures=$(cuobjdump "$libcudf_path" 2>/dev/null | awk -F_ '/arch =/ {print $2}' | sort -n -u | tr '\n' ';')
+  gpu_architectures=$(
+    cuobjdump "$libcudf_path" | gawk '
+      match($0, /arch = sm_([0-9]+)/, tmp) {
+        arch[tmp[1]] = 1
+      }
+
+      END {
+        n = asorti(arch)
+        if (n == 0) {
+          print "ERROR: No fatbin ELF / PTX code sections found" > "/dev/stderr"
+          exit(1)
+        }
+        s = arch[1]
+        for (i = 2; i <= n; i++) {
+          s = s ";" arch[i]
+        }
+        print s
+      }
+    '
+  )
+  echo "gpu_architectures=$gpu_architectures"
   for arg in "$@"; do
     echo $arg
   done
