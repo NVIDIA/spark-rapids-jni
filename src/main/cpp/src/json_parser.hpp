@@ -483,6 +483,16 @@ class json_parser {
    */
   __device__ inline int escape_char(unsigned char c, char* output)
   {
+    if (nullptr == output) {
+      switch (c) {
+        case 8:             // \b
+        case 9:             // \t
+        case 10:            // \n
+        case 12:            // \f
+        case 13: return 2;  // \r
+        default: return 6;  // \u0000
+      }
+    }
     switch (c) {
       case 8:
         output[0] = '\\';
@@ -629,9 +639,9 @@ class json_parser {
         }
 
         // copy if enabled, escape mode, write more chars
-        if (copy_destination != nullptr && write_style::escaped == w_style) {
+        if (write_style::escaped == w_style) {
           int escape_chars = escape_char(*str_pos, copy_destination);
-          copy_destination += escape_chars;
+          if (copy_destination != nullptr) copy_destination += escape_chars;
           bytes_diff_for_escape_writing += (escape_chars - 1);
         }
 
@@ -656,12 +666,8 @@ class json_parser {
         // handle single unescaped " char; happens when string is quoted by char '
         // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
         if ('\"' == c && write_style::escaped == w_style) {
-          if (copy_destination != nullptr) {
-            *copy_destination++ = '\\';
-            bytes_diff_for_escape_writing++;
-          } else {
-            bytes_diff_for_escape_writing++;
-          }
+          if (copy_destination != nullptr) { *copy_destination++ = '\\'; }
+          bytes_diff_for_escape_writing++;
         }
 
         if (!try_skip_safe_code_point(str_pos, c)) { return std::make_pair(false, nullptr); }
@@ -712,9 +718,11 @@ class json_parser {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
         case '\"':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = '"';
+          if (write_style::escaped == w_style) {
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = '"';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
@@ -736,9 +744,11 @@ class json_parser {
           }
         case '\\':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = '\\';
+          if (write_style::escaped == w_style) {
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = '\\';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
@@ -754,9 +764,11 @@ class json_parser {
           return true;
         case 'b':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\b'; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = 'b';
+          if (write_style::escaped == w_style) {
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = 'b';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\b')) { return false; }
@@ -765,9 +777,11 @@ class json_parser {
           return true;
         case 'f':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\f'; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = 'f';
+          if (write_style::escaped == w_style) {
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = 'f';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\f')) { return false; }
@@ -776,9 +790,11 @@ class json_parser {
           return true;
         case 'n':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\n'; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = 'n';
+          if (write_style::escaped == w_style) {
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = 'n';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\n')) { return false; }
@@ -788,8 +804,10 @@ class json_parser {
         case 'r':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\r'; }
           if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = 'r';
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = 'r';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\r')) { return false; }
@@ -799,8 +817,10 @@ class json_parser {
         case 't':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\t'; }
           if (copy_dest != nullptr && write_style::escaped == w_style) {
-            *copy_dest++ = '\\';
-            *copy_dest++ = 't';
+            if (copy_dest != nullptr) {
+              *copy_dest++ = '\\';
+              *copy_dest++ = 't';
+            }
             bytes_diff_for_escape_writing++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\t')) { return false; }
