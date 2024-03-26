@@ -15,6 +15,9 @@
  */
 #pragma once
 
+#include "ftos_converter.cuh"
+
+#include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/types.hpp>
 
@@ -180,8 +183,7 @@ template <bool allow_single_quotes           = curr_allow_single_quotes,
           bool allow_tailing_sub_string      = curr_allow_tailing_sub_string>
 class json_parser {
  public:
-  CUDF_HOST_DEVICE inline json_parser(char const* const _json_start_pos,
-                                      cudf::size_type const _json_len)
+  __device__ inline json_parser(char const* const _json_start_pos, cudf::size_type const _json_len)
     : json_start_pos(_json_start_pos),
       json_end_pos(_json_start_pos + _json_len),
       curr_pos(_json_start_pos)
@@ -192,12 +194,12 @@ class json_parser {
   /**
    * is current position EOF
    */
-  CUDF_HOST_DEVICE inline bool eof(char const* pos) { return pos >= json_end_pos; }
+  __device__ inline bool eof(char const* pos) { return pos >= json_end_pos; }
 
   /**
    * is hex digits: 0-9, A-F, a-f
    */
-  CUDF_HOST_DEVICE inline bool is_hex_digit(char c)
+  __device__ inline bool is_hex_digit(char c)
   {
     return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
   }
@@ -205,12 +207,12 @@ class json_parser {
   /**
    * is 0 to 9 digit
    */
-  CUDF_HOST_DEVICE inline bool is_digit(char c) { return (c >= '0' && c <= '9'); }
+  __device__ inline bool is_digit(char c) { return (c >= '0' && c <= '9'); }
 
   /**
    * is white spaces: ' ', '\t', '\n' '\r'
    */
-  CUDF_HOST_DEVICE inline bool is_whitespace(char c)
+  __device__ inline bool is_whitespace(char c)
   {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
   }
@@ -218,7 +220,7 @@ class json_parser {
   /**
    * skips 4 characters: ' ', '\t', '\n' '\r'
    */
-  CUDF_HOST_DEVICE inline void skip_whitespaces(char const*& pos)
+  __device__ inline void skip_whitespaces(char const*& pos)
   {
     while (!eof(pos) && is_whitespace(*pos)) {
       pos++;
@@ -228,7 +230,7 @@ class json_parser {
   /**
    * check current char, if it's expected, then plus the position
    */
-  CUDF_HOST_DEVICE inline bool try_skip(char const*& pos, char expected)
+  __device__ inline bool try_skip(char const*& pos, char expected)
   {
     if (!eof(pos) && *pos == expected) {
       pos++;
@@ -241,7 +243,7 @@ class json_parser {
    * try to push current context into stack
    * if nested depth exceeds limitation, return false
    */
-  CUDF_HOST_DEVICE inline bool try_push_context(json_token token)
+  __device__ inline bool try_push_context(json_token token)
   {
     if (stack_size < max_json_nesting_depth) {
       push_context(token);
@@ -254,7 +256,7 @@ class json_parser {
   /**
    * record the nested state into stack: JSON object or JSON array
    */
-  CUDF_HOST_DEVICE inline void push_context(json_token token)
+  __device__ inline void push_context(json_token token)
   {
     bool v                      = json_token::START_OBJECT == token ? true : false;
     context_stack[stack_size++] = v;
@@ -265,17 +267,17 @@ class json_parser {
    * true is object, false is array
    * only has two contexts: object or array
    */
-  CUDF_HOST_DEVICE inline bool is_object_context() { return context_stack[stack_size - 1]; }
+  __device__ inline bool is_object_context() { return context_stack[stack_size - 1]; }
 
   /**
    * pop top context from stack
    */
-  CUDF_HOST_DEVICE inline void pop_curr_context() { stack_size--; }
+  __device__ inline void pop_curr_context() { stack_size--; }
 
   /**
    * is context stack is empty
    */
-  CUDF_HOST_DEVICE inline bool is_context_stack_empty() { return stack_size == 0; }
+  __device__ inline bool is_context_stack_empty() { return stack_size == 0; }
 
   /**
    * parse the first value token from current position
@@ -285,7 +287,7 @@ class json_parser {
    *   current token is string/num/true/false/null if current value is terminal
    *   current token is ERROR if parse failed
    */
-  CUDF_HOST_DEVICE inline void parse_first_token_in_value()
+  __device__ inline void parse_first_token_in_value()
   {
     // already checked eof
     char c = *curr_pos;
@@ -342,7 +344,7 @@ class json_parser {
   /**
    * parse ' quoted string
    */
-  CUDF_HOST_DEVICE inline void parse_single_quoted_string()
+  __device__ inline void parse_single_quoted_string()
   {
     auto [success, end_char_pos] =
       try_parse_single_quoted_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
@@ -357,7 +359,7 @@ class json_parser {
   /**
    * parse " quoted string
    */
-  CUDF_HOST_DEVICE inline void parse_double_quoted_string()
+  __device__ inline void parse_double_quoted_string()
   {
     auto [success, end_char_pos] =
       try_parse_double_quoted_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
@@ -383,7 +385,7 @@ class json_parser {
    * @return whether passed successfully and the end position of parsed str
    *
    */
-  CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_string(
+  __device__ inline std::pair<bool, char const*> try_parse_string(
     char const* str_pos,
     char const* to_match_str_pos,
     char const* const to_match_str_end,
@@ -416,7 +418,7 @@ class json_parser {
    * not copy
    *
    */
-  CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_single_quoted_string(
+  __device__ inline std::pair<bool, char const*> try_parse_single_quoted_string(
     char const* str_pos,
     char const* to_match_str_pos,
     char const* const to_match_str_end,
@@ -445,7 +447,7 @@ class json_parser {
    * not copy
    *
    */
-  CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_double_quoted_string(
+  __device__ inline std::pair<bool, char const*> try_parse_double_quoted_string(
     char const* str_pos,
     char const* to_match_str_pos,
     char const* const to_match_str_end,
@@ -464,7 +466,7 @@ class json_parser {
   /**
    * transform int value from [0, 15] to hex char
    */
-  CUDF_HOST_DEVICE inline char to_hex_char(unsigned int v)
+  __device__ inline char to_hex_char(unsigned int v)
   {
     if (v < 10)
       return '0' + v;
@@ -479,7 +481,7 @@ class json_parser {
    * @param char to be escaped, c should in range [0, 31)
    * @param[out] escape output
    */
-  CUDF_HOST_DEVICE inline int escape_char(unsigned char c, char* output)
+  __device__ inline int escape_char(unsigned char c, char* output)
   {
     switch (c) {
       case 8:
@@ -573,7 +575,7 @@ class json_parser {
    * @param copy_destination copy unescaped str to destination, nullptr means do
    * not copy
    */
-  CUDF_HOST_DEVICE inline std::pair<bool, char const*> try_parse_quoted_string(
+  __device__ inline std::pair<bool, char const*> try_parse_quoted_string(
     char const* str_pos,
     char const quote_char,
     char const* to_match_str_pos,
@@ -675,9 +677,9 @@ class json_parser {
     return std::make_pair(false, nullptr);
   }
 
-  CUDF_HOST_DEVICE inline bool try_match_char(char const*& char_pos,
-                                              char const* const char_end_pos,
-                                              char c)
+  __device__ inline bool try_match_char(char const*& char_pos,
+                                        char const* const char_end_pos,
+                                        char c)
   {
     if (nullptr != char_pos) {
       if (char_pos < char_end_pos && *char_pos == c) {
@@ -696,11 +698,11 @@ class json_parser {
    * skip the HEX chars in \u HEX HEX HEX HEX.
    * @return positive escaped ASCII value if success, -1 otherwise
    */
-  CUDF_HOST_DEVICE inline bool try_skip_escape_part(char const*& str_pos,
-                                                    char const*& to_match_str_pos,
-                                                    char const* const to_match_str_end,
-                                                    char*& copy_dest,
-                                                    write_style w_style)
+  __device__ inline bool try_skip_escape_part(char const*& str_pos,
+                                              char const*& to_match_str_pos,
+                                              char const* const to_match_str_end,
+                                              char*& copy_dest,
+                                              write_style w_style)
   {
     // already skipped the first '\'
     // try skip second part
@@ -832,7 +834,7 @@ class json_parser {
    *     : ~ ["\\\u0000-\u001F]
    *     ;
    */
-  CUDF_HOST_DEVICE inline bool try_skip_safe_code_point(char const*& str_pos, char c)
+  __device__ inline bool try_skip_safe_code_point(char const*& str_pos, char c)
   {
     // 1 the char is not quoted(' or ") char, here satisfy, do not need to check
     // again
@@ -852,7 +854,7 @@ class json_parser {
   /**
    * convert chars 0-9, a-f, A-F to int value
    */
-  CUDF_HOST_DEVICE inline uint8_t hex_value(char c)
+  __device__ inline uint8_t hex_value(char c)
   {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -863,7 +865,7 @@ class json_parser {
   /**
    * parse four HEX chars to unsigned int
    */
-  CUDF_HOST_DEVICE inline cudf::char_utf8 parse_code_point(char const* p)
+  __device__ inline cudf::char_utf8 parse_code_point(char const* p)
   {
     cudf::char_utf8 v = 0;
     for (size_t i = 0; i < 4; i++) {
@@ -878,7 +880,7 @@ class json_parser {
    * @param character Single character
    * @return Number of bytes
    */
-  CUDF_HOST_DEVICE cudf::size_type bytes_in_char_utf8(cudf::char_utf8 character)
+  __device__ cudf::size_type bytes_in_char_utf8(cudf::char_utf8 character)
   {
     return 1 + static_cast<cudf::size_type>((character & 0x0000'FF00u) > 0) +
            static_cast<cudf::size_type>((character & 0x00FF'0000u) > 0) +
@@ -891,7 +893,7 @@ class json_parser {
    * @param unchr Character code-point to convert.
    * @return Single UTF-8 character.
    */
-  CUDF_HOST_DEVICE cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
+  __device__ cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
   {
     cudf::char_utf8 utf8 = 0;
     if (unchr < 0x0000'0080) {
@@ -926,7 +928,7 @@ class json_parser {
    * @param[out] str Output array.
    * @return The number of bytes in the character
    */
-  CUDF_HOST_DEVICE cudf::size_type from_char_utf8(cudf::char_utf8 character, char* str)
+  __device__ cudf::size_type from_char_utf8(cudf::char_utf8 character, char* str)
   {
     cudf::size_type const chr_width = bytes_in_char_utf8(character);
     for (cudf::size_type idx = 0; idx < chr_width; ++idx) {
@@ -940,10 +942,10 @@ class json_parser {
    * try skip 4 HEX chars
    * in pattern: '\\' 'u' HEX HEX HEX HEX, it's a code point of unicode
    */
-  CUDF_HOST_DEVICE bool try_skip_unicode(char const*& str_pos,
-                                         char const*& to_match_str_pos,
-                                         char const* const to_match_str_end,
-                                         char*& copy_dest)
+  __device__ bool try_skip_unicode(char const*& str_pos,
+                                   char const*& to_match_str_pos,
+                                   char const* const to_match_str_end,
+                                   char*& copy_dest)
   {
     // already parsed u
     bool is_success = try_skip_hex(str_pos) && try_skip_hex(str_pos) && try_skip_hex(str_pos) &&
@@ -983,7 +985,7 @@ class json_parser {
   /**
    * try skip HEX
    */
-  CUDF_HOST_DEVICE inline bool try_skip_hex(char const*& str_pos)
+  __device__ inline bool try_skip_hex(char const*& str_pos)
   {
     if (!eof(str_pos) && is_hex_digit(*str_pos)) {
       str_pos++;
@@ -1016,7 +1018,7 @@ class json_parser {
    * invalid number:  0., 0e, 0E
    *
    */
-  CUDF_HOST_DEVICE inline void parse_number()
+  __device__ inline void parse_number()
   {
     // reset the float parts
     float_integer_len  = 0;
@@ -1051,7 +1053,7 @@ class json_parser {
    * verify max number length if enabled
    * e.g.: -1.23e-456, int len is 1, fraction len is 2, exp digits len is 3
    */
-  CUDF_HOST_DEVICE inline bool check_max_num_len()
+  __device__ inline bool check_max_num_len()
   {
     // exp part contains + or - sign char, do not count the exp sign
     int exp_digit_len = float_exp_len;
@@ -1068,7 +1070,7 @@ class json_parser {
   /**
    * verify max string length if enabled
    */
-  CUDF_HOST_DEVICE inline bool check_string_max_utf8_bytes()
+  __device__ inline bool check_string_max_utf8_bytes()
   {
     return
       // disabled str len check
@@ -1082,7 +1084,7 @@ class json_parser {
    *
    * @param[out] is_float, if contains `.` or `e`, set true
    */
-  CUDF_HOST_DEVICE inline bool try_unsigned_number(bool& is_float)
+  __device__ inline bool try_unsigned_number(bool& is_float)
   {
     if (!eof(curr_pos)) {
       char c = *curr_pos;
@@ -1113,7 +1115,7 @@ class json_parser {
    * parse: ('.' [0-9]+)? EXP?
    * @param[is_float] is float
    */
-  CUDF_HOST_DEVICE inline bool parse_number_from_fraction(bool& is_float)
+  __device__ inline bool parse_number_from_fraction(bool& is_float)
   {
     // parse fraction
     if (try_skip(curr_pos, '.')) {
@@ -1138,7 +1140,7 @@ class json_parser {
    * parse: [0-9]*
    * skip zero or more [0-9]
    */
-  CUDF_HOST_DEVICE inline int skip_zero_or_more_digits()
+  __device__ inline int skip_zero_or_more_digits()
   {
     int digits = 0;
     while (!eof(curr_pos)) {
@@ -1158,7 +1160,7 @@ class json_parser {
    * try skip one or more [0-9]
    * @param[out] len: skipped num of digits
    */
-  CUDF_HOST_DEVICE inline bool try_skip_one_or_more_digits(int& len)
+  __device__ inline bool try_skip_one_or_more_digits(int& len)
   {
     if (!eof(curr_pos) && is_digit(*curr_pos)) {
       curr_pos++;
@@ -1174,7 +1176,7 @@ class json_parser {
    * parse [eE][+-]?[0-9]+
    * @param[out] exp_len exp len
    */
-  CUDF_HOST_DEVICE inline bool try_parse_exp()
+  __device__ inline bool try_parse_exp()
   {
     // already parsed [eE]
 
@@ -1196,7 +1198,7 @@ class json_parser {
   /**
    * parse true
    */
-  CUDF_HOST_DEVICE inline void parse_true()
+  __device__ inline void parse_true()
   {
     // already parsed 't'
     if (try_skip(curr_pos, 'r') && try_skip(curr_pos, 'u') && try_skip(curr_pos, 'e')) {
@@ -1209,7 +1211,7 @@ class json_parser {
   /**
    * parse false
    */
-  CUDF_HOST_DEVICE inline void parse_false()
+  __device__ inline void parse_false()
   {
     // already parsed 'f'
     if (try_skip(curr_pos, 'a') && try_skip(curr_pos, 'l') && try_skip(curr_pos, 's') &&
@@ -1223,7 +1225,7 @@ class json_parser {
   /**
    * parse null
    */
-  CUDF_HOST_DEVICE inline void parse_null()
+  __device__ inline void parse_null()
   {
     // already parsed 'n'
     if (try_skip(curr_pos, 'u') && try_skip(curr_pos, 'l') && try_skip(curr_pos, 'l')) {
@@ -1236,7 +1238,7 @@ class json_parser {
   /**
    * parse the key string in key:value pair
    */
-  CUDF_HOST_DEVICE inline void parse_field_name()
+  __device__ inline void parse_field_name()
   {
     auto [success, end_char_pos] =
       try_parse_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
@@ -1254,8 +1256,8 @@ class json_parser {
    * @param[out] has_comma_before_token has comma before next token
    * @param[out] has_colon_before_token has colon before next token
    */
-  CUDF_HOST_DEVICE inline json_token parse_next_token(bool& has_comma_before_token,
-                                                      bool& has_colon_before_token)
+  __device__ inline json_token parse_next_token(bool& has_comma_before_token,
+                                                bool& has_colon_before_token)
   {
     skip_whitespaces(curr_pos);
     if (!eof(curr_pos)) {
@@ -1381,7 +1383,7 @@ class json_parser {
    * continute parsing, get next token.
    * The final tokens are ERROR or SUCCESS;
    */
-  CUDF_HOST_DEVICE json_token next_token()
+  __device__ json_token next_token()
   {
     // parse next token
     bool has_comma_before_token;  // no-initialization because of do not care here
@@ -1392,12 +1394,12 @@ class json_parser {
   /**
    * get current token
    */
-  CUDF_HOST_DEVICE json_token get_current_token() { return curr_token; }
+  __device__ json_token get_current_token() { return curr_token; }
 
   /**
    * is valid JSON by parsing through all tokens
    */
-  CUDF_HOST_DEVICE bool is_valid()
+  __device__ bool is_valid()
   {
     while (curr_token != json_token::ERROR && curr_token != json_token::SUCCESS) {
       next_token();
@@ -1410,7 +1412,7 @@ class json_parser {
    * after this call, the current token is ] or } if token is { or [
    * @return true if JSON is valid so far, false otherwise.
    */
-  CUDF_HOST_DEVICE bool try_skip_children()
+  __device__ bool try_skip_children()
   {
     if (curr_token == json_token::ERROR || curr_token == json_token::INIT ||
         curr_token == json_token::SUCCESS) {
@@ -1434,7 +1436,7 @@ class json_parser {
     }
   }
 
-  CUDF_HOST_DEVICE cudf::size_type compute_unescaped_len() { return write_unescaped_text(nullptr); }
+  __device__ cudf::size_type compute_unescaped_len() { return write_unescaped_text(nullptr); }
 
   /**
    * unescape current token text, then write to destination
@@ -1443,7 +1445,7 @@ class json_parser {
    *   writes 6 utf8 bytes: -28  -72 -83 -27 -101 -67
    * For number, write verbatim without normalization
    */
-  CUDF_HOST_DEVICE cudf::size_type write_unescaped_text(char* destination)
+  __device__ cudf::size_type write_unescaped_text(char* destination)
   {
     switch (curr_token) {
       case json_token::VALUE_STRING:
@@ -1453,27 +1455,27 @@ class json_parser {
           current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
         return string_token_utf8_bytes;
       case json_token::VALUE_NUMBER_INT:
-        // TODO normalization if needed:
-        // https://github.com/NVIDIA/spark-rapids/issues/10218 leverage function:
-        // `get_current_float_parts`
+        if (number_token_len == 2 && current_token_start_pos[0] == '-' &&
+            current_token_start_pos[1] == '0') {
+          if (nullptr != destination) *destination++ = '0';
+          return 1;
+        }
         if (nullptr != destination) {
           for (cudf::size_type i = 0; i < number_token_len; ++i) {
             *destination++ = *(current_token_start_pos + i);
           }
         }
         return number_token_len;
-      case json_token::VALUE_NUMBER_FLOAT:
-        // TODO normalization: https://github.com/NVIDIA/spark-rapids/issues/10218
+      case json_token::VALUE_NUMBER_FLOAT: {
+        // number normalization:
         // 0.03E-2 => 0.3E-5; infinity;
         // 200.000 => 200.0, 351.980 => 351.98, 12345678900000000000.0
         // => 1.23456789E19 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003
         // => 3.0E-4 leverage function: `get_current_float_parts`
-        if (nullptr != destination) {
-          for (cudf::size_type i = 0; i < number_token_len; ++i) {
-            *destination++ = *(current_token_start_pos + i);
-          }
-        }
-        return number_token_len;
+        double d_value =
+          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
+      }
       case json_token::VALUE_TRUE:
         if (nullptr != destination) {
           *destination++ = 't';
@@ -1525,7 +1527,7 @@ class json_parser {
     return 0;
   }
 
-  CUDF_HOST_DEVICE cudf::size_type compute_escaped_len() { return write_escaped_text(nullptr); }
+  __device__ cudf::size_type compute_escaped_len() { return write_escaped_text(nullptr); }
   /**
    * escape current token text, then write to destination
    * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '"'
@@ -1533,7 +1535,7 @@ class json_parser {
    *   writes 8 utf8 bytes: '"' -28  -72 -83 -27 -101 -67 '"'
    * For number, write verbatim without normalization
    */
-  CUDF_HOST_DEVICE cudf::size_type write_escaped_text(char* destination)
+  __device__ cudf::size_type write_escaped_text(char* destination)
   {
     switch (curr_token) {
       case json_token::VALUE_STRING:
@@ -1543,14 +1545,22 @@ class json_parser {
           current_token_start_pos, nullptr, nullptr, destination, write_style::escaped);
         return string_token_utf8_bytes + bytes_diff_for_escape_writing;
       case json_token::VALUE_NUMBER_INT:
-      case json_token::VALUE_NUMBER_FLOAT:
-        // number can be copied from JSON string directly
+        if (number_token_len == 2 && current_token_start_pos[0] == '-' &&
+            current_token_start_pos[1] == '0') {
+          if (nullptr != destination) *destination++ = '0';
+          return 1;
+        }
         if (nullptr != destination) {
           for (cudf::size_type i = 0; i < number_token_len; ++i) {
             *destination++ = *(current_token_start_pos + i);
           }
         }
         return number_token_len;
+      case json_token::VALUE_NUMBER_FLOAT: {
+        double d_value =
+          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
+      }
       case json_token::VALUE_TRUE:
         if (nullptr != destination) {
           *destination++ = 't';
@@ -1605,7 +1615,7 @@ class json_parser {
   /**
    * reset the parser
    */
-  CUDF_HOST_DEVICE void reset()
+  __device__ void reset()
   {
     curr_pos   = json_start_pos;
     curr_token = json_token::INIT;
@@ -1615,7 +1625,7 @@ class json_parser {
   /**
    * get float parts, current token should be VALUE_NUMBER_FLOAT.
    */
-  CUDF_HOST_DEVICE thrust::tuple<bool, char const*, int, char const*, int, char const*, int>
+  __device__ thrust::tuple<bool, char const*, int, char const*, int, char const*, int>
   get_current_float_parts()
   {
     return thrust::make_tuple(float_sign,
@@ -1633,7 +1643,7 @@ class json_parser {
    * return false otherwise,
    * Note: to_match_str_ptr should not be nullptr
    */
-  CUDF_HOST_DEVICE bool match_current_field_name(cudf::string_view name)
+  __device__ bool match_current_field_name(cudf::string_view name)
   {
     return match_current_field_name(name.data(), name.size_bytes());
   }
@@ -1641,7 +1651,7 @@ class json_parser {
   /**
    * match current field name
    */
-  CUDF_HOST_DEVICE bool match_current_field_name(char const* to_match_str_ptr, cudf::size_type len)
+  __device__ bool match_current_field_name(char const* to_match_str_ptr, cudf::size_type len)
   {
     if (json_token::FIELD_NAME == curr_token) {
       auto [b, end_pos] = try_parse_string(current_token_start_pos,
@@ -1661,7 +1671,7 @@ class json_parser {
    * reurn true otherwise.
    * @param[out] copy_to
    */
-  CUDF_HOST_DEVICE thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
+  __device__ thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
   {
     switch (curr_token) {
       case json_token::INIT:
