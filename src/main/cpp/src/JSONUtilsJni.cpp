@@ -25,7 +25,7 @@ using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 extern "C" {
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(
-  JNIEnv* env, jclass, jlong input_column, jint size, jobjectArray path_instructions)
+  JNIEnv* env, jclass, jlong input_column, jobjectArray path_instructions)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, path_instructions, "path_instructions is null", 0);
@@ -35,6 +35,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
     auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
 
     std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
+    int size = env->GetArrayLength(path_instructions);
     for (int i = 0; i < size; i++) {
       jobject instruction = env->GetObjectArrayElement(path_instructions, i);
       JNI_NULL_CHECK(env, instruction, "path_instruction is null", 0);

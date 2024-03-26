@@ -189,9 +189,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
                               int path_commands_size,
                               cudf::size_type* d_sizes,
                               cudf::detail::input_offsetalator output_offsets,
-                              thrust::optional<char*> out_buf,
-                              thrust::optional<cudf::bitmask_type*> out_validity,
-                              thrust::optional<cudf::size_type*> out_valid_count)
+                              char* out_buf,
+                              cudf::bitmask_type* out_validity,
+                              cudf::size_type* out_valid_count)
 {
   auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::detail::grid_1d::grid_stride();
@@ -204,9 +204,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
     cudf::string_view const str = col.element<cudf::string_view>(tid);
     cudf::size_type output_size = 0;
     if (str.size_bytes() > 0) {
-      char* dst = out_buf.has_value() ? out_buf.value() + output_offsets[tid] : nullptr;
+      char* dst = out_buf != nullptr ? out_buf + output_offsets[tid] : nullptr;
       size_t const dst_size =
-        out_buf.has_value() ? output_offsets[tid + 1] - output_offsets[tid] : 0;
+        out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
       auto [result, out] = get_json_object_single(
@@ -217,14 +217,14 @@ __launch_bounds__(block_size) CUDF_KERNEL
 
     // filled in only during the precompute step. during the compute step, the
     // offsets are fed back in so we do -not- want to write them out
-    if (!out_buf.has_value()) { d_sizes[tid] = output_size; }
+    if (out_buf == nullptr) { d_sizes[tid] = output_size; }
 
     // validity filled in only during the output step
-    if (out_validity.has_value()) {
+    if (out_validity != nullptr) {
       uint32_t mask = __ballot_sync(active_threads, is_valid);
       // 0th lane of the warp writes the validity
       if (!(tid % cudf::detail::warp_size)) {
-        out_validity.value()[cudf::word_index(tid)] = mask;
+        out_validity[cudf::word_index(tid)] = mask;
         warp_valid_count += __popc(mask);
       }
     }
@@ -234,10 +234,10 @@ __launch_bounds__(block_size) CUDF_KERNEL
   }
 
   // sum the valid counts across the whole block
-  if (out_valid_count) {
+  if (out_valid_count != nullptr) {
     cudf::size_type block_valid_count =
       cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-    if (threadIdx.x == 0) { atomicAdd(out_valid_count.value(), block_valid_count); }
+    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
   }
 }
 
@@ -247,7 +247,7 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  if (col.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
+  if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
   // get a string buffer to store all the names and convert to device
   std::string all_names;
@@ -256,19 +256,20 @@ std::unique_ptr<cudf::column> get_json_object(
   }
   cudf::string_scalar all_names_scalar(all_names, true, stream);
   // parse the json_path into a command buffer
-  auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, rmm::mr::get_current_device_resources());
+  auto path_commands = construct_path_commands(
+    instructions, all_names_scalar, stream, rmm::mr::get_current_device_resource());
 
   // compute output sizes
   auto sizes = rmm::device_uvector<cudf::size_type>(
-    col.size(), stream, rmm::mr::get_current_device_resource());
-  auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(col.offsets());
+    input.size(), stream, rmm::mr::get_current_device_resource());
+  auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
   constexpr int block_size = 512;
-  cudf::detail::grid_1d const grid{col.size(), block_size};
+  cudf::detail::grid_1d const grid{input.size(), block_size};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*cdv,
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
                                                                          path_commands.data(),
                                                                          path_commands.size(),
                                                                          sizes.data(),
@@ -288,14 +289,14 @@ std::unique_ptr<cudf::column> get_json_object(
   // potential optimization : if we know that all outputs are valid, we could
   // skip creating the validity mask altogether
   rmm::device_buffer validity =
-    cudf::detail::create_null_mask(col.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
+    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
 
   // compute results
   rmm::device_scalar<cudf::size_type> d_valid_count{0, stream};
 
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *cdv,
+      *d_input_ptr,
       path_commands.data(),
       path_commands.size(),
       sizes.data(),
@@ -304,10 +305,10 @@ std::unique_ptr<cudf::column> get_json_object(
       static_cast<cudf::bitmask_type*>(validity.data()),
       d_valid_count.data());
 
-  auto result = make_strings_column(col.size(),
+  auto result = make_strings_column(input.size(),
                                     std::move(offsets),
                                     chars.release(),
-                                    col.size() - d_valid_count.value(stream),
+                                    input.size() - d_valid_count.value(stream),
                                     std::move(validity));
   // unmatched array query may result in unsanitized '[' value in the result
   if (auto const result_cv = result->view(); cudf::detail::has_nonempty_nulls(result_cv, stream)) {

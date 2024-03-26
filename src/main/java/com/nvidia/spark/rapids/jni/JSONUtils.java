@@ -44,10 +44,10 @@ public class JSONUtils {
     }
   }
 
-  public static ColumnVector getJsonObject(ColumnVector input, int size, PathInstructionJni[] path_instructions) {
+  public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] path_instructions) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(getJsonObject(input.getNativeView(), size, path_instructions));
+    return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions));
   }
 
-  private static native long getJsonObject(long input, int size, PathInstructionJni[] path_instructions);
+  private static native long getJsonObject(long input, PathInstructionJni[] path_instructions);
 }
