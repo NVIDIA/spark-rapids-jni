@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!--
-  Copyright (c) 2022, NVIDIA CORPORATION.
+  Copyright (c) 2022-2024, NVIDIA CORPORATION.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@
       <arg value="-DBUILD_TESTS=OFF"/>
       <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
       <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
+      <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
       <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
       <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
       <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
@@ -47,6 +48,7 @@
       <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
       <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
       <arg value="-DUSE_GDS=${USE_GDS}" />
+      <arg value="-C=${cudf.pin.path}/setup.cmake"/>
     </exec>
 
     <exec dir="${libcudf.build.path}"

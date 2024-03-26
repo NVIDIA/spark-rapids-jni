@@ -89,12 +89,14 @@
     <cuda.version>cuda11</cuda.version>
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
+    <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
     <hadoop.version>3.2.4</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${cudf.path}/cpp/build</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
     <libcudf.clean.skip>true</libcudf.clean.skip>
     <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
+    <libcudf.dependency.mode>pinned</libcudf.dependency.mode>
     <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
