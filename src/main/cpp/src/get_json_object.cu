@@ -158,11 +158,11 @@ __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
       // set output as zero to tell second step
       generator.set_output_len_zero();
     }
-    return {success, generator};
+    return {success, std::move(generator)};
   } else {
     // Second step: writes output
     bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
-    return {success, generator};
+    return {success, std::move(generator)};
   }
 }
 
@@ -176,7 +176,7 @@ __device__ thrust::pair<bool, json_generator<>> get_json_object_single(
  * @param col Device view of the incoming string
  * @param commands JSONPath command buffer
  * @param output_offsets Buffer used to store the string offsets for the results
- * of the query
+ *        of the query
  * @param out_buf Buffer used to store the results of the query
  * @param out_validity Output validity buffer
  * @param out_valid_count Output count of # of valid bits
@@ -194,7 +194,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
                               thrust::optional<cudf::size_type*> out_valid_count)
 {
   auto tid          = cudf::detail::grid_1d::global_thread_id();
-  auto const stride = cudf::thread_index_type{blockDim.x} * cudf::thread_index_type{gridDim.x};
+  auto const stride = cudf::detail::grid_1d::grid_stride();
 
   cudf::size_type warp_valid_count{0};
 
@@ -242,7 +242,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
 }
 
 std::unique_ptr<cudf::column> get_json_object(
-  cudf::strings_column_view const& col,
+  cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
@@ -254,9 +254,9 @@ std::unique_ptr<cudf::column> get_json_object(
   for (auto const& inst : instructions) {
     all_names += std::get<1>(inst);
   }
-  cudf::string_scalar all_names_scalar(all_names);
+  cudf::string_scalar all_names_scalar(all_names, true, stream);
   // parse the json_path into a command buffer
-  auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, mr);
+  auto path_commands = construct_path_commands(instructions, all_names_scalar, stream, rmm::mr::get_current_device_resources());
 
   // compute output sizes
   auto sizes = rmm::device_uvector<cudf::size_type>(
@@ -265,7 +265,7 @@ std::unique_ptr<cudf::column> get_json_object(
 
   constexpr int block_size = 512;
   cudf::detail::grid_1d const grid{col.size(), block_size};
-  auto cdv = cudf::column_device_view::create(col.parent(), stream);
+  auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*cdv,
@@ -273,9 +273,9 @@ std::unique_ptr<cudf::column> get_json_object(
                                                                          path_commands.size(),
                                                                          sizes.data(),
                                                                          d_offsets,
-                                                                         thrust::nullopt,
-                                                                         thrust::nullopt,
-                                                                         thrust::nullopt);
+                                                                         nullptr,
+                                                                         nullptr,
+                                                                         nullptr);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -310,8 +310,8 @@ std::unique_ptr<cudf::column> get_json_object(
                                     col.size() - d_valid_count.value(stream),
                                     std::move(validity));
   // unmatched array query may result in unsanitized '[' value in the result
-  if (cudf::detail::has_nonempty_nulls(result->view(), stream)) {
-    result = cudf::detail::purge_nonempty_nulls(result->view(), stream, mr);
+  if (auto const result_cv = result->view(); cudf::detail::has_nonempty_nulls(result_cv, stream)) {
+    result = cudf::detail::purge_nonempty_nulls(result_cv, stream, mr);
   }
   return result;
 }
