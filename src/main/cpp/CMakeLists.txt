@@ -156,6 +156,7 @@ add_library(
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
+  src/JSONUtilsJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
@@ -170,6 +171,7 @@ add_library(
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/get_json_object.cu
   src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
