@@ -58,32 +58,22 @@ struct path_instruction {
 };
 
 /**
- * JSON generator is used to write out JSON string.
- * It's not a full featured JSON generator, because get json object
- * outputs an array or single item. JSON object is wroten as a whole item.
+ * JSON generator is used to write out JSON content.
+ * Because of get_json_object only outputs JSON object as a whole item,
+ * it's no need to store internal state for JSON object when outputing,
+ * only need to store internal state for JSON array.
  */
 template <int max_json_nesting_depth = curr_max_json_nesting_depth>
 class json_generator {
  public:
-  __device__ json_generator(char* _output)
-    : output(_output), output_len(0), hide_outer_array_tokens(false)
-  {
-  }
-  __device__ json_generator() : output(nullptr), output_len(0), hide_outer_array_tokens(false) {}
-  __device__ json_generator(char* _output, bool _hide_outer_array_tokens)
-    : output(_output), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
-  {
-  }
-  __device__ json_generator(bool _hide_outer_array_tokens)
-    : output(nullptr), output_len(0), hide_outer_array_tokens(_hide_outer_array_tokens)
-  {
-  }
+  __device__ json_generator(char* _output) : output(_output), output_len(0) {}
+  __device__ json_generator() : output(nullptr), output_len(0) {}
+
   __device__ json_generator<>& operator=(const json_generator<>& other)
   {
-    this->output                  = other.output;
-    this->output_len              = other.output_len;
-    this->array_depth             = other.array_depth;
-    this->hide_outer_array_tokens = other.hide_outer_array_tokens;
+    this->output      = other.output;
+    this->output_len  = other.output_len;
+    this->array_depth = other.array_depth;
     for (size_t i = 0; i < max_json_nesting_depth; i++) {
       this->is_first_item[i] = other.is_first_item[i];
     }
@@ -91,42 +81,50 @@ class json_generator {
     return *this;
   }
 
-  // create a nested child generator based on this parent generator
-  // child generator is a view
-  __device__ json_generator new_child_generator(bool hide_outer_array_tokens)
+  // create a nested child generator based on this parent generator,
+  // child generator is a view, parent and child share the same byte array
+  __device__ json_generator new_child_generator()
   {
     if (nullptr == output) {
-      return json_generator(hide_outer_array_tokens);
+      return json_generator();
     } else {
-      return json_generator(output + output_len, hide_outer_array_tokens);
+      return json_generator(output + output_len);
     }
   }
 
+  // write [
+  // add an extra comma if needed,
+  // e.g.: when JSON content is: [[1,2,3]
+  // writing a new [ should result: [[1,2,3],[
   __device__ void write_start_array()
   {
-    if (!hide_outer_array_tokens) {
-      if (output) { *(output + output_len) = '['; }
-      output_len++;
-      is_first_item[array_depth] = true;
-      array_depth++;
-    } else {
-      // hide the outer start array token
-      // Note: do not inc output_len
-      is_first_item[array_depth] = true;
-      array_depth++;
-    }
+    try_write_comma();
+
+    // update internal state
+    if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
+
+    if (output) { *(output + output_len) = '['; }
+
+    output_len++;
+    is_first_item[array_depth] = true;
+    array_depth++;
   }
 
+  // write ]
   __device__ void write_end_array()
   {
-    if (!hide_outer_array_tokens) {
-      if (output) { *(output + output_len) = ']'; }
-      output_len++;
-      array_depth--;
-    } else {
-      // hide the outer end array token
-      array_depth--;
-    }
+    if (output) { *(output + output_len) = ']'; }
+    output_len++;
+    array_depth--;
+  }
+
+  // write first start array without output, only update internal state
+  __device__ void write_first_start_array_without_output()
+  {
+    // hide the outer start array token
+    // Note: do not inc output_len
+    is_first_item[array_depth] = true;
+    array_depth++;
   }
 
   // return true if it's in a array context and it's not writing the first item.
@@ -193,7 +191,7 @@ class json_generator {
    * write child raw value
    * e.g.:
    *
-   * write_array_tokens = false
+   * write_outer_array_tokens = false
    * need_comma = true
    * [1,2,3]1,2,3
    *        ^
@@ -203,7 +201,7 @@ class json_generator {
    * [1,2,3],1,2,3
    *
    *
-   * write_array_tokens = true
+   * write_outer_array_tokens = true
    * need_comma = true
    *   [12,3,4
    *     ^
@@ -212,8 +210,11 @@ class json_generator {
    * ==>>
    *   [1,[2,3,4]
    *
+   * For more information about param write_outer_array_tokens, refer to
+   * `write_first_start_array_without_output`
    * @param child_block_begin
    * @param child_block_len
+   * @param write_outer_array_tokens whether write outer array tokens for child block
    */
   __device__ void write_child_raw_value(char* child_block_begin,
                                         size_t child_block_len,
@@ -282,7 +283,6 @@ class json_generator {
  private:
   char* output;
   size_t output_len;
-  bool hide_outer_array_tokens;
 
   bool is_first_item[max_json_nesting_depth];
   int array_depth = 0;
@@ -878,13 +878,9 @@ struct path_evaluator {
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
             // create a child generator with hide outer array tokens mode.
-            child_g = ctx.g.new_child_generator(/*hide_outer_array_tokens*/ true);
-            // Note: child generator does not actually write the outer start array
-            // token into buffer it only updates internal nested state
-            child_g.write_start_array();
-
-            // copy to stack
-            ctx.child_g = child_g;
+            child_g = ctx.g.new_child_generator();
+            // write first [ without output, without update len, only update internal state
+            child_g.write_first_start_array_without_output();
           } else {
             child_g = ctx.child_g;
           }
@@ -899,21 +895,19 @@ struct path_evaluator {
             push_context(
               p.get_current_token(), 6, child_g, next_style, ctx.path_ptr + 2, ctx.path_size - 2);
           } else {
-            // Note: child generator does not actually write the outer end array token
-            // into buffer it only updates internal nested state
-            child_g.write_end_array();
-
             char* child_g_start = child_g.get_output_start_position();
-            size_t child_g_len  = child_g.get_output_len();  // len already excluded outer [ ]
+            size_t child_g_len  = child_g.get_output_len();
 
             if (ctx.dirty > 1) {
               // add outer array tokens
-              ctx.g.write_child_raw_value(child_g_start, child_g_len, true);
+              ctx.g.write_child_raw_value(
+                child_g_start, child_g_len, /* write_outer_array_tokens */ true);
               ctx.task_is_done = true;
               push_ctx(ctx);
             } else if (ctx.dirty == 1) {
               // remove outer array tokens
-              ctx.g.write_child_raw_value(child_g_start, child_g_len, false);
+              ctx.g.write_child_raw_value(
+                child_g_start, child_g_len, /* write_outer_array_tokens */ false);
               ctx.task_is_done = true;
               push_ctx(ctx);
             }  // else do not write anything
