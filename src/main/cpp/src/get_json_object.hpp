@@ -254,14 +254,18 @@ class json_generator {
     output_len += child_block_len;
   }
 
+  // move memory block forward by specified bytes
+  // e.g.:  memory is: 1 2 0 0, begin is 1, len is 2, after moving,
+  // memory is: 1 2 1 2.
+  // e.g.:  memory is: 1 2 0 0, begin is 1, len is 1, after moving,
+  // memory is: 1 1 2 0.
+  // Note: should move from end to begin to avoid overwrite buffer
   __device__ void move_forward(char* begin, size_t len, int forward)
   {
     char* pos = begin + len + forward - 1;
     char* e   = begin + forward - 1;
-    // should add outer array tokens
-    // First move chars [2, end) a byte forward
     while (pos > e) {
-      *pos = *(pos - 1);
+      *pos = *(pos - forward);
       pos--;
     }
   }

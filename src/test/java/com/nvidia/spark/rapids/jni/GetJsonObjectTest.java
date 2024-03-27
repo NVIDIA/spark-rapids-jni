@@ -560,6 +560,26 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * Query: $[*][*][*]
+   */
+  @Test
+  void getJsonObjectTest_Test_insert_comma_insert_outer_array() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath()
+    };
+    String JSON1 = "[ [11, 12], [21, 22]]";
+    String expectedStr1 = "[[11,12],[21,22]]";
+    String JSON2 = "[ [11], [22] ]";
+    String expectedStr2 = "[11,22]";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
+        ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
   private JSONUtils.PathInstructionJni keyPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
   }
