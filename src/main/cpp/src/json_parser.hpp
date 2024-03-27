@@ -803,7 +803,7 @@ class json_parser {
           return true;
         case 'r':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\r'; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
+          if (write_style::escaped == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'r';
@@ -816,7 +816,7 @@ class json_parser {
           return true;
         case 't':
           if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\t'; }
-          if (copy_dest != nullptr && write_style::escaped == w_style) {
+          if (write_style::escaped == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 't';
