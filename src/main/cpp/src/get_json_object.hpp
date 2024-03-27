@@ -69,7 +69,7 @@ class json_generator {
   __device__ json_generator(char* _output) : output(_output), output_len(0) {}
   __device__ json_generator() : output(nullptr), output_len(0) {}
 
-  __device__ json_generator<>& operator=(const json_generator<>& other)
+  __device__ json_generator<>& operator=(json_generator<> const& other)
   {
     this->output      = other.output;
     this->output_len  = other.output_len;

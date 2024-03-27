@@ -77,4 +77,3 @@ ConfigureTest(UTILITIES
 
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
-
