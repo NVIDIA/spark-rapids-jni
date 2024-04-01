@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!--
-  Copyright (c) 2022, NVIDIA CORPORATION.
+  Copyright (c) 2022-2024, NVIDIA CORPORATION.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@
       <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
       <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
       <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
+      <arg value="-DLIBCUDF_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
       <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
       <arg value="-DUSE_GDS=${USE_GDS}" />
     </exec>
