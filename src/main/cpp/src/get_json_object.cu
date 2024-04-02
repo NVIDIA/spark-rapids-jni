@@ -53,7 +53,7 @@ namespace detail {
 /**
  * write JSON style
  */
-enum class write_style { raw_style, quoted_style, flatten_style };
+enum class write_style { RAW, QUOTED, FLATTEN };
 
 /**
  * path instruction
@@ -76,18 +76,17 @@ struct path_instruction {
  * it's no need to store internal state for JSON object when outputing,
  * only need to store internal state for JSON array.
  */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
 class json_generator {
  public:
   __device__ json_generator(char* _output) : output(_output), output_len(0) {}
   __device__ json_generator() : output(nullptr), output_len(0) {}
 
-  __device__ json_generator<>& operator=(json_generator<> const& other)
+  __device__ json_generator& operator=(json_generator const& other)
   {
     this->output      = other.output;
     this->output_len  = other.output_len;
     this->array_depth = other.array_depth;
-    for (size_t i = 0; i < max_json_nesting_depth; i++) {
+    for (size_t i = 0; i < curr_max_json_nesting_depth; i++) {
       this->is_first_item[i] = other.is_first_item[i];
     }
 
@@ -301,7 +300,7 @@ class json_generator {
   char* output;
   size_t output_len;
 
-  bool is_first_item[max_json_nesting_depth];
+  bool is_first_item[curr_max_json_nesting_depth];
   int array_depth = 0;
 };
 
@@ -388,7 +387,7 @@ struct path_evaluator {
    *
    */
   // static __device__ bool evaluate_path(json_parser<>& p,
-  //                                            json_generator<>& g,
+  //                                            json_generator& g,
   //                                            write_style style,
   //                                            path_instruction const* path_ptr,
   //                                            int path_size)
@@ -398,7 +397,7 @@ struct path_evaluator {
   //   // case (VALUE_STRING, Nil) if style == RawStyle
   //   // case path 1
   //   if (json_token::VALUE_STRING == token && path_is_empty(path_size) &&
-  //       style == write_style::raw_style) {
+  //       style == write_style::RAW) {
   //     // there is no array wildcard or slice parent, emit this string without
   //     // quotes write current string in parser to generator
   //     g.write_raw(p);
@@ -407,7 +406,7 @@ struct path_evaluator {
   //   // case (START_ARRAY, Nil) if style == FlattenStyle
   //   // case path 2
   //   else if (json_token::START_ARRAY == token && path_is_empty(path_size) &&
-  //            style == write_style::flatten_style) {
+  //            style == write_style::FLATTEN) {
   //     // flatten this array into the parent
   //     bool dirty = false;
   //     while (json_token::END_ARRAY != p.next_token()) {
@@ -463,7 +462,7 @@ struct path_evaluator {
   //       if (json_token::ERROR == p.get_current_token()) { return false; }
 
   //       dirty |= path_evaluator::evaluate_path(
-  //         p, g, write_style::flatten_style, path_ptr + 4, path_size - 4);
+  //         p, g, write_style::FLATTEN, path_ptr + 4, path_size - 4);
   //     }
   //     g.write_end_array();
   //     return dirty;
@@ -475,13 +474,13 @@ struct path_evaluator {
   //                                path_size,
   //                                path_instruction_type::SUBSCRIPT,
   //                                path_instruction_type::WILDCARD) &&
-  //            style != write_style::quoted_style) {
+  //            style != write_style::QUOTED) {
   //     // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-  //     write_style next_style = write_style::raw_style;
+  //     write_style next_style = write_style::RAW;
   //     switch (style) {
-  //       case write_style::raw_style: next_style = write_style::quoted_style; break;
-  //       case write_style::flatten_style: next_style = write_style::flatten_style; break;
-  //       case write_style::quoted_style: next_style = write_style::quoted_style;  // never happen
+  //       case write_style::RAW: next_style = write_style::QUOTED; break;
+  //       case write_style::FLATTEN: next_style = write_style::FLATTEN; break;
+  //       case write_style::QUOTED: next_style = write_style::QUOTED;  // never happen
   //     }
 
   //     // temporarily buffer child matches, the emitted json will need to be
@@ -540,7 +539,7 @@ struct path_evaluator {
   //       // wildcards can have multiple matches, continually update the dirty
   //       // count
   //       dirty |= path_evaluator::evaluate_path(
-  //         p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
+  //         p, g, write_style::QUOTED, path_ptr + 2, path_size - 2);
   //     }
   //     g.write_end_array();
 
@@ -564,7 +563,7 @@ struct path_evaluator {
   //       }
   //       if (0 == i) {
   //         bool dirty = path_evaluator::evaluate_path(
-  //           p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
+  //           p, g, write_style::QUOTED, path_ptr + 2, path_size - 2);
   //         while (p.next_token() != json_token::END_ARRAY) {
   //           // JSON validation check
   //           if (json_token::ERROR == p.get_current_token()) { return false; }
@@ -664,7 +663,7 @@ struct path_evaluator {
    * this function is equivalent to the above commented recursive function.
    */
   static __device__ bool evaluate_path(json_parser<>& p,
-                                       json_generator<>& root_g,
+                                       json_generator& root_g,
                                        write_style root_style,
                                        path_instruction const* root_path_ptr,
                                        int root_path_size)
@@ -678,7 +677,7 @@ struct path_evaluator {
       int case_path;
 
       // used to save current generator
-      json_generator<> g;
+      json_generator g;
 
       write_style style;
       path_instruction const* path_ptr;
@@ -695,13 +694,13 @@ struct path_evaluator {
       bool is_first_enter = true;
 
       // used to save child JSON generator for case path 8
-      json_generator<> child_g;
+      json_generator child_g;
 
       __device__ context()
         : token(json_token::INIT),
           case_path(-1),
-          g(json_generator<>()),
-          style(write_style::raw_style),
+          g(json_generator()),
+          style(write_style::RAW),
           path_ptr(nullptr),
           path_size(0)
       {
@@ -709,7 +708,7 @@ struct path_evaluator {
 
       __device__ context(json_token _token,
                          int _case_path,
-                         json_generator<> _g,
+                         json_generator _g,
                          write_style _style,
                          path_instruction const* _path_ptr,
                          int _path_size)
@@ -736,7 +735,7 @@ struct path_evaluator {
     // push context function
     auto push_context = [&stack, &stack_pos](json_token _token,
                                              int _case_path,
-                                             json_generator<> _g,
+                                             json_generator _g,
                                              write_style _style,
                                              path_instruction const* _path_ptr,
                                              int _path_size) {
@@ -777,7 +776,7 @@ struct path_evaluator {
         // case (VALUE_STRING, Nil) if style == RawStyle
         // case path 1
         if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path_size) &&
-            ctx.style == write_style::raw_style) {
+            ctx.style == write_style::RAW) {
           // there is no array wildcard or slice parent, emit this string without
           // quotes write current string in parser to generator
           ctx.g.write_raw(p);
@@ -788,7 +787,7 @@ struct path_evaluator {
         // case (START_ARRAY, Nil) if style == FlattenStyle
         // case path 2
         else if (json_token::START_ARRAY == ctx.token && path_is_empty(ctx.path_size) &&
-                 ctx.style == write_style::flatten_style) {
+                 ctx.style == write_style::FLATTEN) {
           // flatten this array into the parent
           if (json_token::END_ARRAY != p.next_token()) {
             // JSON validation check
@@ -864,7 +863,7 @@ struct path_evaluator {
             push_context(p.get_current_token(),
                          5,
                          ctx.g,
-                         write_style::flatten_style,
+                         write_style::FLATTEN,
                          ctx.path_ptr + 4,
                          ctx.path_size - 4);
           } else {
@@ -880,19 +879,19 @@ struct path_evaluator {
                                      ctx.path_size,
                                      path_instruction_type::SUBSCRIPT,
                                      path_instruction_type::WILDCARD) &&
-                 ctx.style != write_style::quoted_style) {
+                 ctx.style != write_style::QUOTED) {
           // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-          write_style next_style = write_style::raw_style;
+          write_style next_style = write_style::RAW;
           switch (ctx.style) {
-            case write_style::raw_style: next_style = write_style::quoted_style; break;
-            case write_style::flatten_style: next_style = write_style::flatten_style; break;
-            case write_style::quoted_style: next_style = write_style::quoted_style;  // never happen
+            case write_style::RAW: next_style = write_style::QUOTED; break;
+            case write_style::FLATTEN: next_style = write_style::FLATTEN; break;
+            case write_style::QUOTED: next_style = write_style::QUOTED;  // never happen
           }
 
           // temporarily buffer child matches, the emitted json will need to be
           // modified slightly if there is only a single element written
 
-          json_generator<> child_g;
+          json_generator child_g;
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
             // create a child generator with hide outer array tokens mode.
@@ -953,7 +952,7 @@ struct path_evaluator {
             push_context(p.get_current_token(),
                          7,
                          ctx.g,
-                         write_style::quoted_style,
+                         write_style::QUOTED,
                          ctx.path_ptr + 2,
                          ctx.path_size - 2);
           } else {
@@ -996,7 +995,7 @@ struct path_evaluator {
           push_context(p.get_current_token(),
                        8,
                        ctx.g,
-                       write_style::quoted_style,
+                       write_style::QUOTED,
                        ctx.path_ptr + 2,
                        ctx.path_size - 2);
         }
@@ -1201,23 +1200,23 @@ rmm::device_uvector<path_instruction> construct_path_commands(
     auto const& [type, name, index] = inst;
     switch (type) {
       case path_instruction_type::SUBSCRIPT:
-        path_commands.emplace_back(path_instruction{path_instruction_type::SUBSCRIPT});
+        path_commands.emplace_back(path_instruction_type::SUBSCRIPT);
         break;
       case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
+        path_commands.emplace_back(path_instruction_type::WILDCARD);
         break;
       case path_instruction_type::KEY:
-        path_commands.emplace_back(path_instruction{path_instruction_type::KEY});
+        path_commands.emplace_back(path_instruction_type::KEY);
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();
         break;
       case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
+        path_commands.emplace_back(path_instruction_type::INDEX);
         path_commands.back().index = index;
         break;
       case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
+        path_commands.emplace_back(path_instruction_type::NAMED);
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();
@@ -1241,14 +1240,13 @@ rmm::device_uvector<path_instruction> construct_path_commands(
 __device__ inline bool parse_json_path(json_parser<>& j_parser,
                                        path_instruction const* path_ptr,
                                        size_t path_size,
-                                       json_generator<>& output)
+                                       json_generator& output)
 {
   j_parser.next_token();
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return false; }
 
-  return path_evaluator::evaluate_path(
-    j_parser, output, write_style::raw_style, path_ptr, path_size);
+  return path_evaluator::evaluate_path(j_parser, output, write_style::RAW, path_ptr, path_size);
 }
 
 /**
@@ -1264,7 +1262,7 @@ __device__ inline bool parse_json_path(json_parser<>& j_parser,
  * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
-__device__ thrust::pair<bool, json_generator<>> get_json_object_single(
+__device__ thrust::pair<bool, json_generator> get_json_object_single(
   char const* input,
   cudf::size_type input_len,
   path_instruction const* path_commands_ptr,
