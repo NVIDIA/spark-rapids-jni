@@ -23,6 +23,8 @@ public class JSONUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
+  public static final int MAX_PATH_DEPTH = 32;
+
   public enum PathInstructionType {
     SUBSCRIPT,
     WILDCARD,
