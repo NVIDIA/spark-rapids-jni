@@ -62,9 +62,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c98eabbad1f60dfe640d03f03a2df58b23f3e167",
+      "git_tag" : "38aa9b66acaf2a98c4d0739a8cf840305542350f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.04"
+      "version" : "24.06"
     },
     "NVTX3" : 
     {
@@ -114,6 +114,14 @@
       "git_url" : "https://github.com/rapidsai/jitify.git",
       "version" : "2.0.0"
     },
+    "nanoarrow" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "c97720003ff863b81805bcdb9f7c91306ab6b6a8",
+      "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
+      "version" : "0.4.0"
+    },
     "nvcomp" : 
     {
       "always_download" : true,
@@ -131,9 +139,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "0651edf0fce5ebf53528382b475fc29a2f3afa67",
+      "git_tag" : "bd3f0d85c287bbc017b10f8c6177f60804c849aa",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.04"
+      "version" : "24.06"
     },
     "spdlog" : 
     {
