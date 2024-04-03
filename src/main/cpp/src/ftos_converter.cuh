@@ -1184,22 +1184,6 @@ __device__ inline int special_str_size_json(bool const sign,
   return sign + 3;
 }
 
-__device__ inline int d2s_buffered_n_json(double f, char* result)
-{
-  bool sign = false, special = false;
-  floating_decimal_64 v = d2d(f, sign, special);
-  if (special) { return copy_special_str_json(result, sign, v.exponent, v.mantissa); }
-  return to_chars(v, sign, result);
-}
-
-__device__ inline int compute_d2s_size_json(double value)
-{
-  bool sign = false, special = false;
-  floating_decimal_64 v = d2d(value, sign, special);
-  if (special) { return special_str_size_json(sign, v.exponent, v.mantissa); }
-  return d2s_size(v, sign);
-}
-
 }  // namespace
 
 //===== APIs =====
@@ -1476,6 +1460,22 @@ __device__ inline int format_float(double value, int digits, bool is_float, char
 }
 
 //===== json_parser utility =====
+
+__device__ inline int d2s_buffered_n_json(double f, char* result)
+{
+  bool sign = false, special = false;
+  floating_decimal_64 v = d2d(f, sign, special);
+  if (special) { return copy_special_str_json(result, sign, v.exponent, v.mantissa); }
+  return to_chars(v, sign, result);
+}
+
+__device__ inline int compute_d2s_size_json(double value)
+{
+  bool sign = false, special = false;
+  floating_decimal_64 v = d2d(value, sign, special);
+  if (special) { return special_str_size_json(sign, v.exponent, v.mantissa); }
+  return d2s_size(v, sign);
+}
 
 __device__ inline int normalize_double(double value, char* output)
 {
