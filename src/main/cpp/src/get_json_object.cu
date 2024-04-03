@@ -1251,6 +1251,39 @@ __device__ inline bool parse_json_path(json_parser& j_parser,
  * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
+__device__ thrust::pair<bool, json_generator> get_json_object_size_single(
+  char const* input,
+  cudf::size_type input_len,
+  cudf::device_span<path_instruction const> path_commands)
+{
+  json_parser j_parser(input, input_len);
+  json_generator generator(nullptr);
+
+  // First step: preprocess sizes
+  bool success = parse_json_path(j_parser, path_commands, generator);
+
+  if (!success) {
+    // generator may contain trash output, e.g.: generator writes some output,
+    // then JSON format is invalid, the previous output becomes trash.
+    // set output as zero to tell second step
+    generator.set_output_len_zero();
+  }
+  return {success, std::move(generator)};
+}
+
+/**
+ * @brief Parse a single json string using the provided command buffer
+ *
+ *
+ * @param input The incoming json string
+ * @param input_len Size of the incoming json string
+ * @param path_commands_ptr The command buffer to be applied to the string.
+ * @param path_commands_size The command buffer size.
+ * @param out_buf Buffer user to store the results of the query
+ *                (nullptr in the size computation step)
+ * @param out_buf_size Size of the output buffer
+ * @returns A pair containing the result code and the output buffer.
+ */
 __device__ thrust::pair<bool, json_generator> get_json_object_single(
   char const* input,
   cudf::size_type input_len,
@@ -1286,6 +1319,49 @@ __device__ thrust::pair<bool, json_generator> get_json_object_single(
     // Second step: writes output
     bool success = parse_json_path(j_parser, path_commands, generator);
     return {success, std::move(generator)};
+  }
+}
+
+/**
+ * @brief Kernel for running the JSONPath query.
+ *
+ * This kernel operates in a 2-pass way. On the first pass it computes the
+ * output sizes. On the second pass, it fills in the provided output buffers
+ * (chars and validity).
+ *
+ * @param col Device view of the incoming string
+ * @param commands JSONPath command buffer
+ * @param output_offsets Buffer used to store the string offsets for the results
+ *        of the query
+ */
+template <int block_size>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void get_json_object_size_kernel(cudf::column_device_view col,
+                                   cudf::device_span<path_instruction const> path_commands,
+                                   cudf::size_type* d_sizes,
+                                   cudf::detail::input_offsetalator output_offsets)
+{
+  auto tid          = cudf::detail::grid_1d::global_thread_id();
+  auto const stride = cudf::detail::grid_1d::grid_stride();
+
+  cudf::size_type warp_valid_count{0};
+
+  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
+  while (tid < col.size()) {
+    bool is_valid               = false;
+    cudf::string_view const str = col.element<cudf::string_view>(tid);
+    cudf::size_type output_size = 0;
+    if (str.size_bytes() > 0) {
+      // process one single row
+      auto [result, out] = get_json_object_size_single(str.data(), str.size_bytes(), path_commands);
+      output_size        = out.get_output_len();
+      if (result) { is_valid = true; }
+    }
+
+    d_sizes[tid] = output_size;
+
+    tid += stride;
+    active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 }
 
@@ -1390,9 +1466,9 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::detail::grid_1d const grid{input.size(), block_size};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
-  get_json_object_kernel<block_size>
+  get_json_object_size_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr, path_commands, sizes.data(), d_offsets, nullptr, nullptr, nullptr);
+      *d_input_ptr, path_commands, sizes.data(), d_offsets);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
