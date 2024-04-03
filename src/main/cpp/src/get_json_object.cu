@@ -159,7 +159,7 @@ class json_generator {
    * object/array, then copy to corresponding matched end object/array. return
    * false if JSON format is invalid return true if JSON format is valid
    */
-  __device__ bool copy_current_structure(json_parser<>& parser)
+  __device__ bool copy_current_structure(json_parser& parser)
   {
     // first try add comma
     try_write_comma();
@@ -186,7 +186,7 @@ class json_generator {
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
    */
-  __device__ void write_raw(json_parser<>& parser)
+  __device__ void write_raw(json_parser& parser)
   {
     if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
 
@@ -386,7 +386,7 @@ struct path_evaluator {
    * is not human friendly.
    *
    */
-  // static __device__ bool evaluate_path(json_parser<>& p,
+  // static __device__ bool evaluate_path(json_parser& p,
   //                                            json_generator& g,
   //                                            write_style style,
   //                                            path_instruction const* path_ptr,
@@ -662,7 +662,7 @@ struct path_evaluator {
    * This function is rewritten from above commented recursive function.
    * this function is equivalent to the above commented recursive function.
    */
-  static __device__ bool evaluate_path(json_parser<>& p,
+  static __device__ bool evaluate_path(json_parser& p,
                                        json_generator& root_g,
                                        write_style root_style,
                                        path_instruction const* root_path_ptr,
@@ -1237,7 +1237,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @param output Buffer used to store the results of the query
  * @returns A result code indicating success/fail/empty.
  */
-__device__ inline bool parse_json_path(json_parser<>& j_parser,
+__device__ inline bool parse_json_path(json_parser& j_parser,
                                        path_instruction const* path_ptr,
                                        size_t path_size,
                                        json_generator& output)

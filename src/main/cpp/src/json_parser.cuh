@@ -38,10 +38,6 @@ enum class escape_style {
   ESCAPED
 };
 
-// allow single quotes to represent strings in JSON
-// e.g.: {'k': 'v'} is valid when it's true
-constexpr bool curr_allow_single_quotes = true;
-
 // Whether allow unescaped control characters in JSON Strings.
 // Unescaped control characters are ASCII characters with value less than 32,
 // including tab and line feed characters. ASCII values range is [0, 32)
@@ -50,7 +46,6 @@ constexpr bool curr_allow_single_quotes = true;
 // e.g., how to represent carriage return and newline characters:
 //   if true, allow "\n\r" two control characters without escape directly
 //   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-constexpr bool curr_allow_unescaped_control_chars = true;
 
 // deep JSON nesting depth will consume more memory, we can tuning this in
 // future. we ever run into a limit of 254, here use a small value 64.
@@ -140,9 +135,6 @@ enum class json_token {
  * For JSON format:
  * Refer to https://www.json.org/json-en.html.
  *
- * Note: when setting `allow_single_quotes` or `allow_unescaped_control_chars`,
- * then JSON format is not conventional.
- *
  * White space can only be 4 chars: ' ', '\n', '\r', '\t',
  * Jackson does not allow other control chars as white spaces.
  *
@@ -156,14 +148,6 @@ enum class json_token {
  *   infinity, +infinity, -infinity
  *   1e, 1e+, 1e-, -1., 1.
  *
- * When `allow_single_quotes` is true:
- *   Valid string examples:
- *     "\'" , "\"" ,  '\'' , '\"' , '"' , "'"
- *
- *  When `allow_single_quotes` is false:
- *   Invalid string examples:
- *     "\'"
- *
  *  When `allow_unescaped_control_chars` is true:
  *    Valid string: "asscii_control_chars"
  *      here `asscii_control_chars` represents control chars which in Ascii code
@@ -175,11 +159,11 @@ enum class json_token {
  * range: [0, 32)
  *
  */
-template <bool allow_single_quotes           = curr_allow_single_quotes,
-          bool allow_unescaped_control_chars = curr_allow_unescaped_control_chars,
-          int max_string_utf8_bytes          = curr_max_string_utf8_bytes,
-          int max_num_len                    = curr_max_num_len,
-          bool allow_tailing_sub_string      = curr_allow_tailing_sub_string>
+// TODO: clean up allow_single_quotes usage
+// TODO: allow_unescaped_control_chars
+// curr_max_string_utf8_bytes
+// max_num_len
+// allow_tailing_sub_string
 class json_parser {
  public:
   __device__ inline json_parser(char const* const _json_start_pos, cudf::size_type const _json_len)
@@ -311,13 +295,7 @@ class json_parser {
 
       case '"': parse_double_quoted_string(); break;
 
-      case '\'':
-        if (allow_single_quotes) {
-          parse_single_quoted_string();
-        } else {
-          curr_token = json_token::ERROR;
-        }
-        break;
+      case '\'': parse_single_quoted_string(); break;
 
       case 't':
         curr_pos++;
@@ -392,7 +370,7 @@ class json_parser {
     escape_style w_style)
   {
     if (!eof(str_pos)) {
-      if (allow_single_quotes && *str_pos == '\'') {
+      if (*str_pos == '\'') {
         return try_parse_single_quoted_string(
           str_pos, to_match_str_pos, to_match_str_end, copy_destination, w_style);
       } else {
@@ -629,7 +607,7 @@ class json_parser {
         }
 
         return std::make_pair(true, str_pos);
-      } else if (v >= 0 && v < 32 && allow_unescaped_control_chars) {
+      } else if (v >= 0 && v < 32) {
         // path 2: unescaped control char
 
         // copy if enabled, unescape mode, write 1 char
@@ -729,18 +707,13 @@ class json_parser {
           str_pos++;
           return true;
         case '\'':
-          // only allow escape ' when `allow_single_quotes`
-          if (allow_single_quotes) {
-            // for both unescaped/escaped writes a single char '
-            if (nullptr != copy_dest) { *copy_dest++ = c; }
-            if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          // for both unescaped/escaped writes a single char '
+          if (nullptr != copy_dest) { *copy_dest++ = c; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
 
-            string_token_utf8_bytes++;
-            str_pos++;
-            return true;
-          } else {
-            return false;
-          }
+          string_token_utf8_bytes++;
+          str_pos++;
+          return true;
         case '\\':
           if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = c; }
           if (escape_style::ESCAPED == w_style) {
@@ -1081,10 +1054,8 @@ class json_parser {
 
     int sum_len = float_integer_len + float_fraction_len + exp_digit_len;
     return
-      // disabled num len check
-      max_num_len <= 0 ||
       // enabled num len check
-      (max_num_len > 0 && sum_len <= max_num_len);
+      (sum_len <= curr_max_num_len);
   }
 
   /**
@@ -1093,10 +1064,8 @@ class json_parser {
   __device__ inline bool check_string_max_utf8_bytes()
   {
     return
-      // disabled str len check
-      max_string_utf8_bytes <= 0 ||
       // enabled str len check
-      (max_string_utf8_bytes > 0 && string_token_utf8_bytes <= max_string_utf8_bytes);
+      (string_token_utf8_bytes <= curr_max_string_utf8_bytes);
   }
 
   /**
@@ -1301,14 +1270,9 @@ class json_parser {
           current_token_start_pos = curr_pos;
           parse_first_token_in_value();
         } else {
-          if (allow_tailing_sub_string) {
-            // previous token is not INIT, means already get a token; stack is
-            // empty; Successfully parsed. Note: ignore the tailing sub-string
-            curr_token = json_token::SUCCESS;
-          } else {
-            // not eof, has extra useless tailing characters.
-            curr_token = json_token::ERROR;
-          }
+          // previous token is not INIT, means already get a token; stack is
+          // empty; Successfully parsed. Note: ignore the tailing sub-string
+          curr_token = json_token::SUCCESS;
         }
       } else {
         // stack is non-empty
