@@ -665,8 +665,7 @@ struct path_evaluator {
   static __device__ bool evaluate_path(json_parser& p,
                                        json_generator& root_g,
                                        write_style root_style,
-                                       path_instruction const* root_path_ptr,
-                                       int root_path_size)
+                                       cudf::device_span<path_instruction const> root_path)
   {
     // manually maintained context stack in lieu of calling evaluate_path recursively.
     struct context {
@@ -761,7 +760,7 @@ struct path_evaluator {
     };
 
     // put the first context task
-    push_context(p.get_current_token(), -1, root_g, root_style, root_path_ptr, root_path_size);
+    push_context(p.get_current_token(), -1, root_g, root_style, root_path.data(), root_path.size());
 
     // current context task
     context ctx;
@@ -1238,15 +1237,14 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @returns A result code indicating success/fail/empty.
  */
 __device__ inline bool parse_json_path(json_parser& j_parser,
-                                       path_instruction const* path_ptr,
-                                       size_t path_size,
+                                       cudf::device_span<path_instruction const> path,
                                        json_generator& output)
 {
   j_parser.next_token();
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return false; }
 
-  return path_evaluator::evaluate_path(j_parser, output, write_style::RAW, path_ptr, path_size);
+  return path_evaluator::evaluate_path(j_parser, output, write_style::RAW, path);
 }
 
 /**
@@ -1265,8 +1263,7 @@ __device__ inline bool parse_json_path(json_parser& j_parser,
 __device__ thrust::pair<bool, json_generator> get_json_object_single(
   char const* input,
   cudf::size_type input_len,
-  path_instruction const* path_commands_ptr,
-  int path_commands_size,
+  cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
   size_t out_buf_size)
 {
@@ -1285,7 +1282,7 @@ __device__ thrust::pair<bool, json_generator> get_json_object_single(
 
   if (!out_buf) {
     // First step: preprocess sizes
-    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
+    bool success = parse_json_path(j_parser, path_commands, generator);
 
     if (!success) {
       // generator may contain trash output, e.g.: generator writes some output,
@@ -1296,7 +1293,7 @@ __device__ thrust::pair<bool, json_generator> get_json_object_single(
     return {success, std::move(generator)};
   } else {
     // Second step: writes output
-    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
+    bool success = parse_json_path(j_parser, path_commands, generator);
     return {success, std::move(generator)};
   }
 }
@@ -1320,8 +1317,7 @@ __device__ thrust::pair<bool, json_generator> get_json_object_single(
 template <int block_size>
 __launch_bounds__(block_size) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
-                              path_instruction const* path_commands_ptr,
-                              int path_commands_size,
+                              cudf::device_span<path_instruction const> path_commands,
                               cudf::size_type* d_sizes,
                               cudf::detail::input_offsetalator output_offsets,
                               char* out_buf,
@@ -1344,8 +1340,8 @@ __launch_bounds__(block_size) CUDF_KERNEL
         out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
-      auto [result, out] = get_json_object_single(
-        str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
+      auto [result, out] =
+        get_json_object_single(str.data(), str.size_bytes(), path_commands, dst, dst_size);
       output_size = out.get_output_len();
       if (result) { is_valid = true; }
     }
@@ -1404,14 +1400,8 @@ std::unique_ptr<cudf::column> get_json_object(
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
-                                                                         path_commands.data(),
-                                                                         path_commands.size(),
-                                                                         sizes.data(),
-                                                                         d_offsets,
-                                                                         nullptr,
-                                                                         nullptr,
-                                                                         nullptr);
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
+      *d_input_ptr, path_commands, sizes.data(), d_offsets, nullptr, nullptr, nullptr);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -1432,8 +1422,7 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *d_input_ptr,
-      path_commands.data(),
-      path_commands.size(),
+      path_commands,
       sizes.data(),
       d_offsets,
       chars.data(),
