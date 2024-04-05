@@ -42,13 +42,13 @@ jobs:
           git config user.email "70000568+nvauto@users.noreply.github.com "
           git fetch origin ${HEAD} ${BASE}
           git checkout -b ${INTERMEDIATE_HEAD} origin/${HEAD}
-          OUT=$(git --no-pager diff --name-only origin/${BASE} | grep "${FILE_USE_BASE}" || true)
-          [[ ! -z "${OUT}" ]] && git checkout origin/${BASE} -- ${FILE_USE_BASE} && \
-            git commit -s -am "Auto-merge use submodule in BASE ref"
+          git checkout origin/${BASE} -- ${FILES_USE_BASE}
+          [ -z "$(git status --porcelain=v1 --untracked=no) ] && \
+            git commit -s -am "Auto-merge use ${BASE} versions"
           git push origin ${INTERMEDIATE_HEAD} -f
         env:
           INTERMEDIATE_HEAD: bot-auto-merge-${{ env.HEAD }}
-          FILE_USE_BASE: thirdparty/cudf
+          FILE_USE_BASE: thirdparty/cudf thirdparty/cudf-pins
 
       - name: auto-merge job
         uses: ./.github/workflows/action-helper
