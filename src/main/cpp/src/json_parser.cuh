@@ -52,8 +52,11 @@ constexpr bool curr_allow_single_quotes = true;
 //   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
 constexpr bool curr_allow_unescaped_control_chars = true;
 
-// deep JSON nesting depth will consume more memory, we can tuning this in
-// future. we ever run into a limit of 254, here use a small value 64.
+/**
+ * @brief Maximum JSON nesting depth
+ * JSON with a greater depth is invalid
+ * If set this to be a greater value, should update `context_stack`
+*/
 constexpr int curr_max_json_nesting_depth = 64;
 
 // Define the maximum JSON String length, counts utf8 bytes.
@@ -192,6 +195,37 @@ class json_parser {
 
  private:
   /**
+   * @brief get the bit value for specified bit from a int64 number
+   */
+  __device__ inline bool get_bit_value(int64_t number, int bitIndex)
+  {
+    // Shift the number right by the bitIndex to bring the desired bit to the rightmost position
+    long shifted = number >> bitIndex;
+
+    // Extract the rightmost bit by performing a bitwise AND with 1
+    bool bit_value = shifted & 1;
+
+    return bit_value;
+  }
+
+  /**
+   * @brief set the bit value for specified bit to a int64 number
+   */
+  __device__ inline void set_bit_value(int64_t& number, int bit_index, bool bit_value)
+  {
+    // Create a mask with a 1 at the desired bit index
+    long mask = 1L << bit_index;
+
+    if (bit_value) {
+      // Set the bit to 1 by performing a bitwise OR with the mask
+      number |= mask;
+    } else {
+      // Set the bit to 0 by performing a bitwise AND with the complement of the mask
+      number &= ~mask;
+    }
+  }
+
+  /**
    * is current position EOF
    */
   __device__ inline bool eof(char const* pos) { return pos >= json_end_pos; }
@@ -258,8 +292,9 @@ class json_parser {
    */
   __device__ inline void push_context(json_token token)
   {
-    bool v                      = json_token::START_OBJECT == token ? true : false;
-    context_stack[stack_size++] = v;
+    bool v = json_token::START_OBJECT == token ? true : false;
+    set_bit_value(context_stack, stack_size, v);
+    stack_size++;
   }
 
   /**
@@ -267,7 +302,10 @@ class json_parser {
    * true is object, false is array
    * only has two contexts: object or array
    */
-  __device__ inline bool is_object_context() { return context_stack[stack_size - 1]; }
+  __device__ inline bool is_object_context()
+  {
+    return get_bit_value(context_stack, stack_size - 1);
+  }
 
   /**
    * pop top context from stack
@@ -1754,27 +1792,27 @@ class json_parser {
   char const* curr_pos;
   json_token curr_token{json_token::INIT};
 
-  // saves the nested contexts: JSON object context or JSON array context
-  // true is JSON object context; false is JSON array context
-  // When encounter EOF and this stack is non-empty, means non-closed JSON
-  // object/array, then parsing will fail.
-  bool context_stack[max_json_nesting_depth];
+  // 64 bits long saves the nested object/array contexts
+  // true(bit value 1) is JSON object context
+  // false(bit value 0) is JSON array context
+  // JSON parser checks array/object are mached, e.g.: [1,2) are wrong
+  int64_t context_stack;
   int stack_size = 0;
 
   // save current token start pos, used by coping current token text
   char const* current_token_start_pos;
-  // used to store int/float string length
+  // used to store number token length
   cudf::size_type number_token_len;
 
   // Records string/field name token utf8 bytes size after unescaped
-  // e.g.: For JSON string "\\n", after unescaped, it ues 1 byte '\n'
-  // used by `write_unescaped_text` and `write_escaped_text` bytes
+  // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
   // used by checking the max string length
   int string_token_utf8_bytes;
-  // Records bytes diff for escape writing
-  // e.g.: "\\n" string_token_utf8_bytes is 1,
-  // when `write_escaped_text` bytes is 4: " \ n "
-  // this diff will be 4 - 1 = 3;
+
+  // Records bytes diff between escape writing and unescape writing
+  // e.g.: 4 chars string "\\n", string_token_utf8_bytes is 1,
+  // when `write_escaped_text`, will write out 4 chars: " \ n ",
+  // then this diff will be 4 - 1 = 3
   int bytes_diff_for_escape_writing;
 };
 
