@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,14 +69,15 @@ IFS="$ORI_IFS"
 FIRST_FILE=${CLASS_FILES%%,*}
 cp -f "$FIRST_FILE" "$FPATH.jar"
 
+GPG_PLUGIN="org.apache.maven.plugins:maven-gpg-plugin:3.1.0:sign-and-deploy-file"
 ###### Build the deploy command ######
 if [ "$SIGN_FILE" == true ]; then
     case $SIGN_TOOL in
         nvsec)
-            DEPLOY_CMD="$MVN gpg:sign-and-deploy-file -Dgpg.executable=nvsec_sign"
+            DEPLOY_CMD="$MVN $GPG_PLUGIN -Dgpg.executable=nvsec_sign"
             ;;
         gpg)
-            DEPLOY_CMD="$MVN gpg:sign-and-deploy-file -Dgpg.passphrase=$GPG_PASSPHRASE "
+            DEPLOY_CMD="$MVN $GPG_PLUGIN -Dgpg.passphrase=$GPG_PASSPHRASE "
             ;;
         *)
             echo "Error unsupported sign type : $SIGN_TYPE !"
