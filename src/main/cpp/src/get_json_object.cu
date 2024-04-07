@@ -76,23 +76,10 @@ struct path_instruction {
  * it's no need to store internal state for JSON object when outputing,
  * only need to store internal state for JSON array.
  */
-template <int max_json_nesting_depth = curr_max_json_nesting_depth>
 class json_generator {
  public:
   __device__ json_generator(char* _output) : output(_output), output_len(0) {}
   __device__ json_generator() : output(nullptr), output_len(0) {}
-
-  __device__ json_generator<>& operator=(json_generator<> const& other)
-  {
-    this->output      = other.output;
-    this->output_len  = other.output_len;
-    this->array_depth = other.array_depth;
-    for (size_t i = 0; i < max_json_nesting_depth; i++) {
-      this->is_first_item[i] = other.is_first_item[i];
-    }
-
-    return *this;
-  }
 
   // create a nested child generator based on this parent generator,
   // child generator is a view, parent and child share the same byte array
@@ -113,14 +100,12 @@ class json_generator {
   {
     try_write_comma();
 
-    // update internal state
-    if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
-
     if (output) { *(output + output_len) = '['; }
 
     output_len++;
-    is_first_item[array_depth] = true;
     array_depth++;
+    // new array is empty
+    is_curr_array_empty = true;
   }
 
   // write ]
@@ -128,7 +113,12 @@ class json_generator {
   {
     if (output) { *(output + output_len) = ']'; }
     output_len++;
+
+    // point to parent array
     array_depth--;
+
+    // set parent array as non-empty because already had a closed child item.
+    is_curr_array_empty = false;
   }
 
   // write first start array without output, only update internal state
@@ -136,12 +126,13 @@ class json_generator {
   {
     // hide the outer start array token
     // Note: do not inc output_len
-    is_first_item[array_depth] = true;
     array_depth++;
+    // new array is empty
+    is_curr_array_empty = true;
   }
 
   // return true if it's in a array context and it's not writing the first item.
-  __device__ bool need_comma() { return (array_depth > 0 && !is_first_item[array_depth - 1]); }
+  __device__ bool need_comma() { return (array_depth > 0 && !is_curr_array_empty); }
 
   /**
    * write comma accroding to current generator state
@@ -165,7 +156,7 @@ class json_generator {
     // first try add comma
     try_write_comma();
 
-    if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
+    if (array_depth > 0) { is_curr_array_empty = false; }
 
     if (nullptr != output) {
       auto copy_to       = output + output_len;
@@ -189,7 +180,7 @@ class json_generator {
    */
   __device__ void write_raw(json_parser<>& parser)
   {
-    if (array_depth > 0) { is_first_item[array_depth - 1] = false; }
+    if (array_depth > 0) { is_curr_array_empty = false; }
 
     if (nullptr != output) {
       auto copied = parser.write_unescaped_text(output + output_len);
@@ -227,7 +218,8 @@ class json_generator {
    * `write_first_start_array_without_output`
    * @param child_block_begin
    * @param child_block_len
-   * @param write_outer_array_tokens whether write outer array tokens for child block
+   * @param write_outer_array_tokens whether write outer array tokens for child
+   * block
    */
   __device__ void write_child_raw_value(char* child_block_begin,
                                         size_t child_block_len,
@@ -235,7 +227,7 @@ class json_generator {
   {
     bool insert_comma = need_comma();
 
-    is_first_item[array_depth - 1] = false;
+    if (array_depth > 0) { is_curr_array_empty = false; }
 
     if (nullptr != output) {
       if (write_outer_array_tokens) {
@@ -275,6 +267,7 @@ class json_generator {
   // Note: should move from end to begin to avoid overwrite buffer
   __device__ void move_forward(char* begin, size_t len, int forward)
   {
+    // TODO copy by 8 bytes
     char* pos = begin + len + forward - 1;
     char* e   = begin + forward - 1;
     while (pos > e) {
@@ -301,7 +294,9 @@ class json_generator {
   char* output;
   size_t output_len;
 
-  bool is_first_item[max_json_nesting_depth];
+  // whether already worte a item in current array
+  // used to decide whether add a comma before writing out a new item.
+  bool is_curr_array_empty;
   int array_depth = 0;
 };
 
@@ -388,7 +383,7 @@ struct path_evaluator {
    *
    */
   // static __device__ bool evaluate_path(json_parser<>& p,
-  //                                            json_generator<>& g,
+  //                                            json_generator& g,
   //                                            write_style style,
   //                                            path_instruction const* path_ptr,
   //                                            int path_size)
@@ -664,7 +659,7 @@ struct path_evaluator {
    * this function is equivalent to the above commented recursive function.
    */
   static __device__ bool evaluate_path(json_parser<>& p,
-                                       json_generator<>& root_g,
+                                       json_generator& root_g,
                                        write_style root_style,
                                        path_instruction const* root_path_ptr,
                                        int root_path_size)
@@ -678,7 +673,7 @@ struct path_evaluator {
       int case_path;
 
       // used to save current generator
-      json_generator<> g;
+      json_generator g;
 
       write_style style;
       path_instruction const* path_ptr;
@@ -695,12 +690,12 @@ struct path_evaluator {
       bool is_first_enter = true;
 
       // used to save child JSON generator for case path 8
-      json_generator<> child_g;
+      json_generator child_g;
 
       __device__ context()
         : token(json_token::INIT),
           case_path(-1),
-          g(json_generator<>()),
+          g(json_generator()),
           style(write_style::raw_style),
           path_ptr(nullptr),
           path_size(0)
@@ -709,7 +704,7 @@ struct path_evaluator {
 
       __device__ context(json_token _token,
                          int _case_path,
-                         json_generator<> _g,
+                         json_generator _g,
                          write_style _style,
                          path_instruction const* _path_ptr,
                          int _path_size)
@@ -736,7 +731,7 @@ struct path_evaluator {
     // push context function
     auto push_context = [&stack, &stack_pos](json_token _token,
                                              int _case_path,
-                                             json_generator<> _g,
+                                             json_generator _g,
                                              write_style _style,
                                              path_instruction const* _path_ptr,
                                              int _path_size) {
@@ -892,7 +887,7 @@ struct path_evaluator {
           // temporarily buffer child matches, the emitted json will need to be
           // modified slightly if there is only a single element written
 
-          json_generator<> child_g;
+          json_generator child_g;
           if (ctx.is_first_enter) {
             ctx.is_first_enter = false;
             // create a child generator with hide outer array tokens mode.
@@ -1241,7 +1236,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
 __device__ inline bool parse_json_path(json_parser<>& j_parser,
                                        path_instruction const* path_ptr,
                                        size_t path_size,
-                                       json_generator<>& output)
+                                       json_generator& output)
 {
   j_parser.next_token();
   // JSON validation check
@@ -1264,7 +1259,7 @@ __device__ inline bool parse_json_path(json_parser<>& j_parser,
  * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
-__device__ thrust::pair<bool, json_generator<>> get_json_object_single(
+__device__ thrust::pair<bool, json_generator> get_json_object_single(
   char const* input,
   cudf::size_type input_len,
   path_instruction const* path_commands_ptr,
