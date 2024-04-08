@@ -132,7 +132,7 @@ class json_generator {
   }
 
   // return true if it's in a array context and it's not writing the first item.
-  __device__ bool need_comma() { return (array_depth > 0 && !is_curr_array_empty); }
+  __device__ inline bool need_comma() { return (array_depth > 0 && !is_curr_array_empty); }
 
   /**
    * write comma accroding to current generator state
@@ -680,44 +680,17 @@ struct path_evaluator {
       int path_size;
 
       // is this context task is done
-      bool task_is_done = false;
+      bool task_is_done;
 
       // whether written output
       // if dirty > 0, indicates success
-      int dirty = 0;
+      int dirty;
 
       // for some case paths
-      bool is_first_enter = true;
+      bool is_first_enter;
 
       // used to save child JSON generator for case path 8
       json_generator child_g;
-
-      __device__ context()
-        : token(json_token::INIT),
-          case_path(-1),
-          g(json_generator()),
-          style(write_style::raw_style),
-          path_ptr(nullptr),
-          path_size(0)
-      {
-      }
-
-      __device__ context(json_token _token,
-                         int _case_path,
-                         json_generator _g,
-                         write_style _style,
-                         path_instruction const* _path_ptr,
-                         int _path_size)
-        : token(_token),
-          case_path(_case_path),
-          g(_g),
-          style(_style),
-          path_ptr(_path_ptr),
-          path_size(_path_size)
-      {
-      }
-
-      __device__ context& operator=(context const&) = default;
     };
 
     // path max depth limitation
@@ -735,37 +708,27 @@ struct path_evaluator {
                                              write_style _style,
                                              path_instruction const* _path_ptr,
                                              int _path_size) {
-      if (stack_pos == max_path_depth - 1) { return false; }
-      stack[stack_pos++] = context(_token, _case_path, _g, _style, _path_ptr, _path_size);
-      return true;
-    };
+      // no need to check stack is full
+      // because Spark-Rapids already checked maximum length of `path_instruction`
+      auto& ctx          = stack[stack_pos];
+      ctx.token          = _token;
+      ctx.case_path      = _case_path;
+      ctx.g              = _g;
+      ctx.style          = _style;
+      ctx.path_ptr       = _path_ptr;
+      ctx.path_size      = _path_size;
+      ctx.task_is_done   = false;
+      ctx.dirty          = 0;
+      ctx.is_first_enter = true;
 
-    // push context function
-    auto push_ctx = [&stack, &stack_pos](context ctx) {
-      if (stack_pos == max_path_depth - 1) { return false; }
-      stack[stack_pos++] = ctx;
-      return true;
-    };
-
-    // pop context function
-    auto pop_context = [&stack, &stack_pos](context& c) {
-      if (stack_pos > 0) {
-        c = stack[--stack_pos];
-        return true;
-      }
-      return false;
+      stack_pos++;
     };
 
     // put the first context task
     push_context(p.get_current_token(), -1, root_g, root_style, root_path_ptr, root_path_size);
 
-    // current context task
-    context ctx;
-
-    // parent context task
-    context p_ctx;
-
-    while (pop_context(ctx)) {
+    while (stack_pos > 0) {
+      auto& ctx = stack[stack_pos - 1];
       if (!ctx.task_is_done) {
         // task is not done.
 
@@ -778,7 +741,6 @@ struct path_evaluator {
           ctx.g.write_raw(p);
           ctx.dirty        = 1;
           ctx.task_is_done = true;
-          push_ctx(ctx);
         }
         // case (START_ARRAY, Nil) if style == FlattenStyle
         // case path 2
@@ -789,13 +751,11 @@ struct path_evaluator {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
             // push back task
-            push_ctx(ctx);
             // add child task
             push_context(p.get_current_token(), 2, ctx.g, ctx.style, nullptr, 0);
           } else {
             // END_ARRAY
             ctx.task_is_done = true;
-            push_ctx(ctx);
           }
         }
         // case (_, Nil)
@@ -808,7 +768,6 @@ struct path_evaluator {
           }
           ctx.dirty        = 1;
           ctx.task_is_done = true;
-          push_ctx(ctx);
         }
         // case (START_OBJECT, Key :: xs)
         // case path 4
@@ -824,16 +783,13 @@ struct path_evaluator {
                 // JSON validation check
                 return false;
               }
-              push_ctx(ctx);
             } else {
               // need to try more children
-              push_ctx(ctx);
               push_context(
                 p.get_current_token(), 4, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
             }
           } else {
             ctx.task_is_done = true;
-            push_ctx(ctx);
           }
         }
         // case (START_ARRAY, Subscript :: Wildcard :: Subscript :: Wildcard :: xs)
@@ -855,7 +811,6 @@ struct path_evaluator {
           if (p.next_token() != json_token::END_ARRAY) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
-            push_ctx(ctx);
             push_context(p.get_current_token(),
                          5,
                          ctx.g,
@@ -865,7 +820,6 @@ struct path_evaluator {
           } else {
             ctx.g.write_end_array();
             ctx.task_is_done = true;
-            push_ctx(ctx);
           }
         }
         // case (START_ARRAY, Subscript :: Wildcard :: xs) if style != QuotedStyle
@@ -901,8 +855,6 @@ struct path_evaluator {
           if (p.next_token() != json_token::END_ARRAY) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
-
-            push_ctx(ctx);
             // track the number of array elements and only emit an outer array if
             // we've written more than one element, this matches Hive's behavior
             push_context(
@@ -916,13 +868,11 @@ struct path_evaluator {
               ctx.g.write_child_raw_value(
                 child_g_start, child_g_len, /* write_outer_array_tokens */ true);
               ctx.task_is_done = true;
-              push_ctx(ctx);
             } else if (ctx.dirty == 1) {
               // remove outer array tokens
               ctx.g.write_child_raw_value(
                 child_g_start, child_g_len, /* write_outer_array_tokens */ false);
               ctx.task_is_done = true;
-              push_ctx(ctx);
             }  // else do not write anything
           }
         }
@@ -944,7 +894,6 @@ struct path_evaluator {
 
             // wildcards can have multiple matches, continually update the dirty
             // count
-            push_ctx(ctx);
             push_context(p.get_current_token(),
                          7,
                          ctx.g,
@@ -954,7 +903,6 @@ struct path_evaluator {
           } else {
             ctx.g.write_end_array();
             ctx.task_is_done = true;
-            push_ctx(ctx);
           }
         }
         /* case (START_ARRAY, Subscript :: Index(idx) :: (xs@Subscript :: Wildcard :: _)) */
@@ -987,7 +935,6 @@ struct path_evaluator {
           }
 
           // i == 0
-          push_ctx(ctx);
           push_context(p.get_current_token(),
                        8,
                        ctx.g,
@@ -1022,7 +969,6 @@ struct path_evaluator {
           }
 
           // i == 0
-          push_ctx(ctx);
           push_context(
             p.get_current_token(), 9, ctx.g, ctx.style, ctx.path_ptr + 2, ctx.path_size - 2);
         }
@@ -1035,7 +981,6 @@ struct path_evaluator {
           if (p.next_token() != json_token::VALUE_NULL) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return false; }
-            push_ctx(ctx);
             push_context(
               p.get_current_token(), 10, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
           } else {
@@ -1049,7 +994,6 @@ struct path_evaluator {
           p.next_token();
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return false; }
-          push_ctx(ctx);
           push_context(
             p.get_current_token(), 11, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
         }
@@ -1060,32 +1004,32 @@ struct path_evaluator {
           // default case path, return false for this task
           ctx.dirty        = 0;
           ctx.task_is_done = true;
-          push_ctx(ctx);
         }
       } else {
         // current context is done.
 
+        // pop current top context
+        stack_pos--;
+
         // pop parent task
         // update parent task info according to current task result
-        if (pop_context(p_ctx)) {
+        if (stack_pos > 0) {
+          // peek parent context task
+          auto& p_ctx = stack[stack_pos - 1];
+
           // case (VALUE_STRING, Nil) if style == RawStyle
           // case path 1
           if (1 == ctx.case_path) {
             // never happen
           }
-          // case (START_ARRAY, Nil) if style == FlattenStyle
-          // case path 2
-          else if (2 == ctx.case_path) {
+          // path 2: case (START_ARRAY, Nil) if style == FlattenStyle
+          // path 5: case (START_ARRAY, Subscript :: Wildcard :: Subscript :: Wildcard :: xs)
+          // path 7: case (START_ARRAY, Subscript :: Wildcard :: xs)
+          else if (2 == ctx.case_path || 5 == ctx.case_path || 7 == ctx.case_path) {
             // collect result from child task
             p_ctx.dirty += ctx.dirty;
             // copy generator states to parent task;
             p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
-          }
-          // case (_, Nil)
-          // case path 3
-          else if (3 == ctx.case_path) {
-            // never happen
           }
           // case (START_OBJECT, Key :: xs)
           // case path 4
@@ -1093,16 +1037,6 @@ struct path_evaluator {
             if (p_ctx.dirty < 1 && ctx.dirty > 0) { p_ctx.dirty = ctx.dirty; }
             // copy generator states to parent task;
             p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
-          }
-          // case (START_ARRAY, Subscript :: Wildcard :: Subscript :: Wildcard :: xs)
-          // case path 5
-          else if (5 == ctx.case_path) {
-            // collect result from child task
-            p_ctx.dirty += ctx.dirty;
-            // copy generator states to parent task;
-            p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
           }
           // case (START_ARRAY, Subscript :: Wildcard :: xs) if style != QuotedStyle
           // case path 6
@@ -1111,16 +1045,6 @@ struct path_evaluator {
             p_ctx.dirty += ctx.dirty;
             // update child generator for parent task
             p_ctx.child_g = ctx.g;
-            push_ctx(p_ctx);
-          }
-          // case (START_ARRAY, Subscript :: Wildcard :: xs)
-          // case path 7
-          else if (7 == ctx.case_path) {
-            // collect result from child task
-            p_ctx.dirty += ctx.dirty;
-            // copy generator states to parent task;
-            p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
           }
           /* case (START_ARRAY, Subscript :: Index(idx) :: (xs@Subscript :: Wildcard :: _)) */
           // case path 8
@@ -1141,7 +1065,6 @@ struct path_evaluator {
             p_ctx.task_is_done = true;
             // copy generator states to parent task;
             p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
           }
           // case (FIELD_NAME, Named(name) :: xs) if p.getCurrentName == name
           // case path 10
@@ -1152,7 +1075,6 @@ struct path_evaluator {
             p_ctx.task_is_done = true;
             // copy generator states to parent task;
             p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
           }
           // case (FIELD_NAME, Wildcard :: xs)
           // case path 11
@@ -1163,10 +1085,10 @@ struct path_evaluator {
             p_ctx.task_is_done = true;
             // copy generator states to parent task;
             p_ctx.g = ctx.g;
-            push_ctx(p_ctx);
           }
-          // case _ =>
-          // case path 12
+          // case path 3: case (_, Nil)
+          // case path 12: case _ =>
+          // others
           else {
             // never happen
           }
@@ -1177,8 +1099,8 @@ struct path_evaluator {
     }
 
     // copy output len
-    root_g.set_output_len(ctx.g.get_output_len());
-    return ctx.dirty > 0;
+    root_g.set_output_len(stack[0].g.get_output_len());
+    return stack[0].dirty > 0;
   }
 };
 
