@@ -96,7 +96,7 @@
     <libcudf.build.configure>false</libcudf.build.configure>
     <libcudf.clean.skip>true</libcudf.clean.skip>
     <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
-    <libcudf.dependency.mode>pinned</libcudf.dependency.mode>
+    <libcudf.dependency.mode>latest</libcudf.dependency.mode>
     <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
