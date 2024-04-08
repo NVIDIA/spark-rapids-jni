@@ -1437,16 +1437,11 @@ std::unique_ptr<cudf::column> get_json_object(
       static_cast<cudf::bitmask_type*>(validity.data()),
       d_valid_count.data());
 
-  auto result = make_strings_column(input.size(),
-                                    std::move(offsets),
-                                    chars.release(),
-                                    input.size() - d_valid_count.value(stream),
-                                    std::move(validity));
-  // unmatched array query may result in unsanitized '[' value in the result
-  if (auto const result_cv = result->view(); cudf::detail::has_nonempty_nulls(result_cv, stream)) {
-    result = cudf::detail::purge_nonempty_nulls(result_cv, stream, mr);
-  }
-  return result;
+  return make_strings_column(input.size(),
+                             std::move(offsets),
+                             chars.release(),
+                             input.size() - d_valid_count.value(stream),
+                             std::move(validity));
 }
 
 }  // namespace detail
