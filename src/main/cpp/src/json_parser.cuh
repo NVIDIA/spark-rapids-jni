@@ -40,7 +40,7 @@ enum class write_style {
 
 // allow single quotes to represent strings in JSON
 // e.g.: {'k': 'v'} is valid when it's true
-constexpr bool curr_allow_single_quotes = true;
+constexpr bool allow_single_quotes = true;
 
 // Whether allow unescaped control characters in JSON Strings.
 // Unescaped control characters are ASCII characters with value less than 32,
@@ -50,20 +50,20 @@ constexpr bool curr_allow_single_quotes = true;
 // e.g., how to represent carriage return and newline characters:
 //   if true, allow "\n\r" two control characters without escape directly
 //   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-constexpr bool curr_allow_unescaped_control_chars = true;
+constexpr bool allow_unescaped_control_chars = true;
 
 /**
  * @brief Maximum JSON nesting depth
  * JSON with a greater depth is invalid
  * If set this to be a greater value, should update `context_stack`
-*/
-constexpr int curr_max_json_nesting_depth = 64;
+ */
+constexpr int max_json_nesting_depth = 64;
 
 // Define the maximum JSON String length, counts utf8 bytes.
 // By default, maximum JSON String length is negative one, means no
 // limitation. e.g.: The length of String "\\n" is 1, JSON parser does not
 // count escape characters.
-constexpr int curr_max_string_utf8_bytes = 20000000;
+constexpr int max_string_utf8_bytes = 20000000;
 
 //
 /**
@@ -76,7 +76,7 @@ constexpr int curr_max_string_utf8_bytes = 20000000;
  * e.g.: The length of number -123.45e-67 is 7. if maximum JSON number length
  * is 6, then this number is a invalid number.
  */
-constexpr int curr_max_num_len = 1000;
+constexpr int max_num_len = 1000;
 
 /**
  * whether allow tailing useless sub-string in JSON.
@@ -85,7 +85,7 @@ constexpr int curr_max_num_len = 1000;
  * 'v'} is valid.
  *   {'k' : 'v'}_extra_tail_sub_string
  */
-constexpr bool curr_allow_tailing_sub_string = true;
+constexpr bool allow_tailing_sub_string = true;
 
 /**
  * JSON token enum
@@ -178,12 +178,6 @@ enum class json_token {
  * range: [0, 32)
  *
  */
-template <bool allow_single_quotes           = curr_allow_single_quotes,
-          bool allow_unescaped_control_chars = curr_allow_unescaped_control_chars,
-          int max_json_nesting_depth         = curr_max_json_nesting_depth,
-          int max_string_utf8_bytes          = curr_max_string_utf8_bytes,
-          int max_num_len                    = curr_max_num_len,
-          bool allow_tailing_sub_string      = curr_allow_tailing_sub_string>
 class json_parser {
  public:
   __device__ inline json_parser(char const* const _json_start_pos, cudf::size_type const _json_len)
