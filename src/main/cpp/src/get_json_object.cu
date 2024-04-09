@@ -1157,7 +1157,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
-__device__ thrust::pair<bool, size_t> get_json_object_single(
+__device__ thrust::pair<bool, json_generator> get_json_object_single(
   char const* input,
   cudf::size_type input_len,
   path_instruction const* path_commands_ptr,
@@ -1180,7 +1180,7 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
 
   j_parser.next_token();
   // JSON validation check
-  if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
+  if (json_token::ERROR == j_parser.get_current_token()) { return {false, generator}; }
 
   if (nullptr == out_buf) {
     // First step: preprocess sizes
@@ -1193,12 +1193,12 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
       // set output as zero to tell second step
       generator.set_output_len_zero();
     }
-    return {success, generator.get_output_len()};
+    return {success, generator};
   } else {
     // Second step: writes output
     bool success = evaluate_path(
       j_parser, generator, write_style::raw_style, path_commands_ptr, path_commands_size);
-    return {success, generator.get_output_len()};
+    return {success, generator};
   }
 }
 
@@ -1245,8 +1245,11 @@ __launch_bounds__(block_size) CUDF_KERNEL
         out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
-      auto [result, output_size] = get_json_object_single(
+      bool result;
+      json_generator generator;
+      thrust::tie(result, generator) = get_json_object_single(
         str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
+      output_size = generator.get_output_len();
       if (result) { is_valid = true; }
     }
 
