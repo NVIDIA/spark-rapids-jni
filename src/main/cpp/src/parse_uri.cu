@@ -1003,4 +1003,11 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
   return detail::parse_uri(input, detail::URI_chunks::QUERY, query_match, stream, mr);
 }
 
+std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);
+}
 }  // namespace spark_rapids_jni
