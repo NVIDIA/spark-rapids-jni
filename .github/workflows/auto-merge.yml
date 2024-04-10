@@ -42,7 +42,9 @@ jobs:
           git config user.email "70000568+nvauto@users.noreply.github.com "
           git fetch origin ${HEAD} ${BASE}
           git checkout -b ${INTERMEDIATE_HEAD} origin/${HEAD}
+          # Use commits from HEAD, but keek submodule files(FILE_USE_BASE) from BASE
           git checkout origin/${BASE} -- ${FILE_USE_BASE}
+          # If any submodule file is updaged from HEAD, always change to BASE ones
           [ ! -z "$(git status --porcelain=v1 --untracked=no)" ] && \
             git commit -s -am "Auto-merge use ${BASE} versions"
           git push origin ${INTERMEDIATE_HEAD} -f
