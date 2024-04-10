@@ -78,5 +78,8 @@ ConfigureBench(STRING_TO_FLOAT_BENCH
 ConfigureBench(BLOOM_FILTER_BENCH
   bloom_filter.cu)
 
+ConfigureBench(GET_JSON_OBJECT_BENCH
+  get_json_object.cu)
+
 ConfigureBench(PARSE_URI_BENCH
   parse_uri.cpp)
