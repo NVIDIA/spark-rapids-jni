@@ -1165,41 +1165,28 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
   char* out_buf,
   size_t out_buf_size)
 {
-  char* actual_output;
-  if (nullptr == out_buf) {
-    // First step: preprocess sizes
-    actual_output = out_buf;
-  } else {
-    // Second step: writes output
-    // if output buf size is zero, pass in nullptr to avoid generator writing trash output
-    actual_output = (0 == out_buf_size) ? nullptr : out_buf;
-  }
-
   json_parser j_parser(input, input_len);
-  json_generator generator(actual_output);
-
   j_parser.next_token();
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
 
-  if (nullptr == out_buf) {
-    // First step: preprocess sizes
-    bool success = evaluate_path(
-      j_parser, generator, write_style::raw_style, path_commands_ptr, path_commands_size);
+  // First pass: preprocess sizes.
+  // Second pass: writes output.
+  // The generator automatically determines which pass based on `out_buf`.
+  // If `out_buf_size` is zero, pass in `nullptr` to avoid generator writing trash output.
+  json_generator generator((out_buf == nullptr || out_buf_size == 0) ? nullptr : out_buf);
 
-    if (!success) {
-      // generator may contain trash output, e.g.: generator writes some output,
-      // then JSON format is invalid, the previous output becomes trash.
-      // set output as zero to tell second step
-      generator.set_output_len_zero();
-    }
-    return {success, generator.get_output_len()};
-  } else {
-    // Second step: writes output
-    bool success = evaluate_path(
-      j_parser, generator, write_style::raw_style, path_commands_ptr, path_commands_size);
-    return {success, generator.get_output_len()};
+  bool const success = evaluate_path(
+    j_parser, generator, write_style::raw_style, path_commands_ptr, path_commands_size);
+
+  if (nullptr == out_buf && !success) {
+    // generator may contain trash output, e.g.: generator writes some output,
+    // then JSON format is invalid, the previous output becomes trash.
+    // set output as zero to tell second step
+    generator.set_output_len_zero();
   }
+
+  return {success, generator.get_output_len()};
 }
 
 /**
@@ -1238,7 +1225,6 @@ __launch_bounds__(block_size) CUDF_KERNEL
   while (tid < col.size()) {
     bool is_valid               = false;
     cudf::string_view const str = col.element<cudf::string_view>(tid);
-    cudf::size_type output_size = 0;
     if (str.size_bytes() > 0) {
       char* dst = out_buf != nullptr ? out_buf + output_offsets[tid] : nullptr;
       size_t const dst_size =
@@ -1248,11 +1234,15 @@ __launch_bounds__(block_size) CUDF_KERNEL
       auto [result, output_size] = get_json_object_single(
         str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
       if (result) { is_valid = true; }
-    }
 
-    // filled in only during the precompute step. during the compute step, the
-    // offsets are fed back in so we do -not- want to write them out
-    if (out_buf == nullptr) { d_sizes[tid] = output_size; }
+      // filled in only during the precompute step. during the compute step, the
+      // offsets are fed back in so we do -not- want to write them out
+      if (out_buf == nullptr) { d_sizes[tid] = static_cast<cudf::size_type>(output_size); }
+    } else {
+      // valid JSON length is always greater than 0
+      // if `str` size len is zero, output len is 0 and `is_valid` is false
+      if (out_buf == nullptr) { d_sizes[tid] = 0; }
+    }
 
     // validity filled in only during the output step
     if (out_validity != nullptr) {
