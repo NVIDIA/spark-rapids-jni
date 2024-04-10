@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-#include <bloom_filter.hpp>
-#include <hash.cuh>
-
 #include <benchmarks/common/generate_input.hpp>
 
-#include <nvbench/nvbench.cuh>
-
 #include <cudf_test/column_utilities.hpp>
+
+#include <bloom_filter.hpp>
+#include <hash.cuh>
+#include <nvbench/nvbench.cuh>
 
 static void bloom_filter_put(nvbench::state& state)
 {

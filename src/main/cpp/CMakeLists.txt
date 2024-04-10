@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022-2023, NVIDIA CORPORATION.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include(../../../thirdparty/cudf/fetch_rapids.cmake)
+include(../../../thirdparty/cudf/rapids_config.cmake)
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.02.00
+  VERSION 24.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -94,6 +94,9 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
+# find NVTX
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
+
 # find CCCL
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
@@ -153,6 +156,7 @@ add_library(
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
+  src/JSONUtilsJni.cpp
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
@@ -167,10 +171,12 @@ add_library(
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/get_json_object.cu
   src/histogram.cu
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
+  src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
@@ -223,6 +229,7 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
+    nvtx3-cpp
   -Wl,--no-whole-archive
     ${PARQUET_LIB}
     ${THRIFT_LIB}

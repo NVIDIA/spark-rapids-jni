@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#include <row_conversion.hpp>
-
 #include <benchmarks/common/generate_input.hpp>
 
-#include <nvbench/nvbench.cuh>
+#include <cudf_test/column_utilities.hpp>
 
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf_test/column_utilities.hpp>
+
+#include <nvbench/nvbench.cuh>
+#include <row_conversion.hpp>
 
 void fixed_width(nvbench::state& state)
 {
@@ -48,15 +48,15 @@ void fixed_width(nvbench::state& state)
     bytes_per_row += cudf::size_of(t);
   }
 
-  auto rows = cudf::convert_to_rows_fixed_width_optimized(table->view());
+  auto rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     if (direction == "to row") {
-      auto _rows = cudf::convert_to_rows_fixed_width_optimized(table->view());
+      auto _rows = spark_rapids_jni::convert_to_rows_fixed_width_optimized(table->view());
     } else {
       for (auto const& r : rows) {
         cudf::lists_column_view const l(r->view());
-        auto out = cudf::convert_from_rows_fixed_width_optimized(l, schema);
+        auto out = spark_rapids_jni::convert_from_rows_fixed_width_optimized(l, schema);
       }
     }
   });
@@ -117,16 +117,16 @@ static void variable_or_fixed_width(nvbench::state& state)
     }
   }
 
-  auto rows = cudf::convert_to_rows(table->view());
+  auto rows = spark_rapids_jni::convert_to_rows(table->view());
 
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
-    auto new_rows = cudf::convert_to_rows(table->view());
+    auto new_rows = spark_rapids_jni::convert_to_rows(table->view());
     if (direction == "to row") {
-      auto _rows = cudf::convert_to_rows(table->view());
+      auto _rows = spark_rapids_jni::convert_to_rows(table->view());
     } else {
       for (auto const& r : rows) {
         cudf::lists_column_view const l(r->view());
-        auto out = cudf::convert_from_rows(l, schema);
+        auto out = spark_rapids_jni::convert_from_rows(l, schema);
       }
     }
   });

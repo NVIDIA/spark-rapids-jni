@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,13 @@
 
 #include "utilities.hpp"
 
-#include <cudf/types.hpp>
+#include "gtest/gtest.h"
+
 #include <cudf_test/base_fixture.hpp>
 
-#include <rmm/device_uvector.hpp>
+#include <cudf/types.hpp>
 
-#include "gtest/gtest.h"
+#include <rmm/device_uvector.hpp>
 
 class UtilitiesTest : public cudf::test::BaseFixture {};
 

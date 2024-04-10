@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,10 @@
  */
 
 #include "cast_string.hpp"
+#include "cudf_jni_apis.hpp"
+#include "dtype_utils.hpp"
+#include "jni_utils.hpp"
+
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
@@ -28,10 +32,6 @@
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/transform.hpp>
 #include <cudf/unary.hpp>
-
-#include "cudf_jni_apis.hpp"
-#include "dtype_utils.hpp"
-#include "jni_utils.hpp"
 
 constexpr char const* JNI_CAST_ERROR_CLASS = "com/nvidia/spark/rapids/jni/CastException";
 
