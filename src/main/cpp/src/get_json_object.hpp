@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#pragma once
+
 #include "json_parser.cuh"
 
 #include <cudf/strings/string_view.hpp>
