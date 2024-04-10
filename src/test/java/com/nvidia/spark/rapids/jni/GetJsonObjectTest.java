@@ -96,13 +96,11 @@ public class GetJsonObjectTest {
         keyPath(), namedPath("k5"),
         keyPath(), namedPath("k6"),
         keyPath(), namedPath("k7"),
-        keyPath(), namedPath("k8"),
-        keyPath(), namedPath("k9"),
-        keyPath(), namedPath("k10")
+        keyPath(), namedPath("k8")
     };
 
-    String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":{\"k9\":{\"k10\":\"v10\"}}}}}}}}}}";
-    String expectedStr = "v10";
+    String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":\"v8\"}}}}}}}}";
+    String expectedStr = "v8";
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
