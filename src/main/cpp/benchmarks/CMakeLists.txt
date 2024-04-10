@@ -23,7 +23,7 @@ target_compile_options(
 )
 
 target_link_libraries(
-  spark_rapids_jni_datagen PUBLIC cudf::cudf
+  spark_rapids_jni_datagen PUBLIC cudf::cudf nvtx3-cpp
 )
 
 target_include_directories(
