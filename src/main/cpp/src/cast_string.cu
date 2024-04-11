@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 
 #include "cast_string.hpp"
 
-#include <rmm/device_scalar.hpp>
-#include <rmm/exec_policy.hpp>
-
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/detail/null_mask.hpp>
@@ -26,9 +23,11 @@
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/null_mask.hpp>
 
-#include <cub/warp/warp_reduce.cuh>
+#include <rmm/device_scalar.hpp>
+#include <rmm/exec_policy.hpp>
 
 #include <cooperative_groups.h>
+#include <cub/warp/warp_reduce.cuh>
 
 using namespace cudf;
 

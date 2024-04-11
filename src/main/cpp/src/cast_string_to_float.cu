@@ -16,7 +16,6 @@
 
 #include "cast_string.hpp"
 
-#include <cub/warp/warp_reduce.cuh>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -25,6 +24,8 @@
 #include <cudf/strings/convert/convert_floats.hpp>
 #include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/utilities/bit.hpp>
+
+#include <cub/warp/warp_reduce.cuh>
 
 using namespace cudf;
 
