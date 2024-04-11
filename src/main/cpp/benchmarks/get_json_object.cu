@@ -22,16 +22,18 @@
 #include <cudf/io/types.hpp>
 #include <cudf/strings/split/split.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
 #include <get_json_object.hpp>
 #include <nvbench/nvbench.cuh>
 
-#include <iostream>
-
 // #define DEBUG_PRINT
 
 #ifdef DEBUG_PRINT
+
+#include <cudf/utilities/type_dispatcher.hpp>
+
+#include <iostream>
+
 namespace {
 
 // Copy from `cudf/cpp/tests/utilities/column_utilities.cu`.
