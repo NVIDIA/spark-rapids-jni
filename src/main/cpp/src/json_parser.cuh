@@ -16,6 +16,7 @@
 #pragma once
 
 #include "ftos_converter.cuh"
+#include "string_to_float_cudf.cuh"
 
 #include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/strings/string_view.hpp>
@@ -1512,12 +1513,12 @@ class json_parser {
         return number_token_len;
       case json_token::VALUE_NUMBER_FLOAT: {
         // number normalization:
-        // 0.03E-2 => 0.3E-5; infinity;
-        // 200.000 => 200.0, 351.980 => 351.98, 12345678900000000000.0
-        // => 1.23456789E19 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003
-        // => 3.0E-4 leverage function: `get_current_float_parts`
-        double d_value =
-          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        // 0.03E-2 => 0.3E-5, 200.000 => 200.0, 351.980 => 351.98,
+        // 12345678900000000000.0 => 1.23456789E19, 1E308 => 1.0E308
+        // 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003 => 3.0E-4
+        // 1.0E309 => "Infinity", -1E309 => "-Infinity"
+        double d_value = spark_rapids_jni::detail::stod(
+          cudf::string_view(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
       case json_token::VALUE_TRUE:
@@ -1601,8 +1602,9 @@ class json_parser {
         }
         return number_token_len;
       case json_token::VALUE_NUMBER_FLOAT: {
-        double d_value =
-          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        // number normalization:
+        double d_value = spark_rapids_jni::detail::stod(
+          cudf::string_view(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
       case json_token::VALUE_TRUE:
