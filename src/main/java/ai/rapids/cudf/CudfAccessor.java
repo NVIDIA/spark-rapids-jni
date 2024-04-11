@@ -20,7 +20,7 @@ package ai.rapids.cudf;
 // https://github.com/NVIDIA/spark-rapids-jni/issues/1307
 public class CudfAccessor {
   public static long getScalarHandle(Scalar s) {
-    System.out.println("Hello, world!");
+    System.out.println("Hello, world2!");
     return s.getScalarHandle();
   }
 
