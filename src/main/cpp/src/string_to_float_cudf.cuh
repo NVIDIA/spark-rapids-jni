@@ -32,6 +32,13 @@ namespace detail {
  * to the appropriate float values.
  *
  * This function will also handle scientific notation format.
+ *
+ * This function is a copy of cudf::strings::detail::stod with
+ * the namespace changed to spark_rapids_jni::detail and fixed
+ * an overflow bug of `exp_ten`. It is a short-term solution to
+ * resolve a bug in get_json_object. We should remove this file
+ * once the bug is fixed in cudf in long term.
+ * This diff is `if (exp_ten >= 1e8) break;`
  */
 __device__ inline double stod(cudf::string_view const& d_str)
 {
