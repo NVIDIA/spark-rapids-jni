@@ -40,7 +40,7 @@ enum class write_style {
 
 // allow single quotes to represent strings in JSON
 // e.g.: {'k': 'v'} is valid when it's true
-constexpr bool curr_allow_single_quotes = true;
+constexpr bool allow_single_quotes = true;
 
 // Whether allow unescaped control characters in JSON Strings.
 // Unescaped control characters are ASCII characters with value less than 32,
@@ -50,17 +50,20 @@ constexpr bool curr_allow_single_quotes = true;
 // e.g., how to represent carriage return and newline characters:
 //   if true, allow "\n\r" two control characters without escape directly
 //   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-constexpr bool curr_allow_unescaped_control_chars = true;
+constexpr bool allow_unescaped_control_chars = true;
 
-// deep JSON nesting depth will consume more memory, we can tuning this in
-// future. we ever run into a limit of 254, here use a small value 64.
-constexpr int curr_max_json_nesting_depth = 64;
+/**
+ * @brief Maximum JSON nesting depth
+ * JSON with a greater depth is invalid
+ * If set this to be a greater value, should update `context_stack`
+ */
+constexpr int max_json_nesting_depth = 64;
 
 // Define the maximum JSON String length, counts utf8 bytes.
 // By default, maximum JSON String length is negative one, means no
 // limitation. e.g.: The length of String "\\n" is 1, JSON parser does not
 // count escape characters.
-constexpr int curr_max_string_utf8_bytes = 20000000;
+constexpr int max_string_utf8_bytes = 20000000;
 
 //
 /**
@@ -73,7 +76,7 @@ constexpr int curr_max_string_utf8_bytes = 20000000;
  * e.g.: The length of number -123.45e-67 is 7. if maximum JSON number length
  * is 6, then this number is a invalid number.
  */
-constexpr int curr_max_num_len = 1000;
+constexpr int max_num_len = 1000;
 
 /**
  * whether allow tailing useless sub-string in JSON.
@@ -82,7 +85,7 @@ constexpr int curr_max_num_len = 1000;
  * 'v'} is valid.
  *   {'k' : 'v'}_extra_tail_sub_string
  */
-constexpr bool curr_allow_tailing_sub_string = true;
+constexpr bool allow_tailing_sub_string = true;
 
 /**
  * JSON token enum
@@ -175,12 +178,6 @@ enum class json_token {
  * range: [0, 32)
  *
  */
-template <bool allow_single_quotes           = curr_allow_single_quotes,
-          bool allow_unescaped_control_chars = curr_allow_unescaped_control_chars,
-          int max_json_nesting_depth         = curr_max_json_nesting_depth,
-          int max_string_utf8_bytes          = curr_max_string_utf8_bytes,
-          int max_num_len                    = curr_max_num_len,
-          bool allow_tailing_sub_string      = curr_allow_tailing_sub_string>
 class json_parser {
  public:
   __device__ inline json_parser(char const* const _json_start_pos, cudf::size_type const _json_len)
@@ -191,6 +188,37 @@ class json_parser {
   }
 
  private:
+  /**
+   * @brief get the bit value for specified bit from a int64 number
+   */
+  __device__ inline bool get_bit_value(int64_t number, int bitIndex)
+  {
+    // Shift the number right by the bitIndex to bring the desired bit to the rightmost position
+    long shifted = number >> bitIndex;
+
+    // Extract the rightmost bit by performing a bitwise AND with 1
+    bool bit_value = shifted & 1;
+
+    return bit_value;
+  }
+
+  /**
+   * @brief set the bit value for specified bit to a int64 number
+   */
+  __device__ inline void set_bit_value(int64_t& number, int bit_index, bool bit_value)
+  {
+    // Create a mask with a 1 at the desired bit index
+    long mask = 1L << bit_index;
+
+    if (bit_value) {
+      // Set the bit to 1 by performing a bitwise OR with the mask
+      number |= mask;
+    } else {
+      // Set the bit to 0 by performing a bitwise AND with the complement of the mask
+      number &= ~mask;
+    }
+  }
+
   /**
    * is current position EOF
    */
@@ -258,8 +286,9 @@ class json_parser {
    */
   __device__ inline void push_context(json_token token)
   {
-    bool v                      = json_token::START_OBJECT == token ? true : false;
-    context_stack[stack_size++] = v;
+    bool v = json_token::START_OBJECT == token ? true : false;
+    set_bit_value(context_stack, stack_size, v);
+    stack_size++;
   }
 
   /**
@@ -267,7 +296,10 @@ class json_parser {
    * true is object, false is array
    * only has two contexts: object or array
    */
-  __device__ inline bool is_object_context() { return context_stack[stack_size - 1]; }
+  __device__ inline bool is_object_context()
+  {
+    return get_bit_value(context_stack, stack_size - 1);
+  }
 
   /**
    * pop top context from stack
@@ -1041,24 +1073,16 @@ class json_parser {
    */
   __device__ inline void parse_number()
   {
-    // reset the float parts
-    float_integer_len  = 0;
-    float_fraction_len = 0;
-    float_exp_len      = 0;
-    float_exp_has_sign = false;
-
     // parse sign
-    if (try_skip(curr_pos, '-')) {
-      float_sign = false;
-    } else {
-      float_sign = true;
-    }
-    float_integer_pos = curr_pos;
+    try_skip(curr_pos, '-');
 
     // parse unsigned number
     bool is_float = false;
-    if (try_unsigned_number(is_float)) {
-      if (check_max_num_len()) {
+    // store number digits length
+    // e.g.: +1.23e-45 length is 5
+    int number_digits_length = 0;
+    if (try_unsigned_number(is_float, number_digits_length)) {
+      if (check_max_num_len(number_digits_length)) {
         curr_token = (is_float ? json_token::VALUE_NUMBER_FLOAT : json_token::VALUE_NUMBER_INT);
         // success parsed a number, update the token length
         number_token_len = curr_pos - current_token_start_pos;
@@ -1071,21 +1095,16 @@ class json_parser {
   }
 
   /**
-   * verify max number length if enabled
-   * e.g.: -1.23e-456, int len is 1, fraction len is 2, exp digits len is 3
+   * verify max number digits length if enabled
+   * e.g.: +1.23e-45 length is 5
    */
-  __device__ inline bool check_max_num_len()
+  __device__ inline bool check_max_num_len(int number_digits_length)
   {
-    // exp part contains + or - sign char, do not count the exp sign
-    int exp_digit_len = float_exp_len;
-    if (float_exp_len > 0 && float_exp_has_sign) { exp_digit_len--; }
-
-    int sum_len = float_integer_len + float_fraction_len + exp_digit_len;
     return
       // disabled num len check
       max_num_len <= 0 ||
       // enabled num len check
-      (max_num_len > 0 && sum_len <= max_num_len);
+      (max_num_len > 0 && number_digits_length <= max_num_len);
   }
 
   /**
@@ -1106,20 +1125,20 @@ class json_parser {
    *
    * @param[out] is_float, if contains `.` or `e`, set true
    */
-  __device__ inline bool try_unsigned_number(bool& is_float)
+  __device__ inline bool try_unsigned_number(bool& is_float, int& number_digits_length)
   {
     if (!eof(curr_pos)) {
       char c = *curr_pos;
       if (c >= '1' && c <= '9') {
         curr_pos++;
-        float_integer_len++;
+        number_digits_length++;
         // first digit is [1-9]
         // path: INT = [1-9] [0-9]*
-        float_integer_len += skip_zero_or_more_digits();
-        return parse_number_from_fraction(is_float);
+        number_digits_length += skip_zero_or_more_digits();
+        return parse_number_from_fraction(is_float, number_digits_length);
       } else if (c == '0') {
         curr_pos++;
-        float_integer_len++;
+        number_digits_length++;
 
         // check leading zeros
         if (!eof(curr_pos)) {
@@ -1132,7 +1151,7 @@ class json_parser {
 
         // first digit is [0]
         // path: INT = '0'
-        return parse_number_from_fraction(is_float);
+        return parse_number_from_fraction(is_float, number_digits_length);
       } else {
         // first digit is non [0-9]
         return false;
@@ -1147,22 +1166,21 @@ class json_parser {
    * parse: ('.' [0-9]+)? EXP?
    * @param[is_float] is float
    */
-  __device__ inline bool parse_number_from_fraction(bool& is_float)
+  __device__ inline bool parse_number_from_fraction(bool& is_float, int& number_digits_length)
   {
     // parse fraction
     if (try_skip(curr_pos, '.')) {
       // has fraction
-      float_fraction_pos = curr_pos;
-      is_float           = true;
+      is_float = true;
       // try pattern: [0-9]+
-      if (!try_skip_one_or_more_digits(float_fraction_len)) { return false; }
+      if (!try_skip_one_or_more_digits(number_digits_length)) { return false; }
     }
 
     // parse exp
     if (!eof(curr_pos) && (*curr_pos == 'e' || *curr_pos == 'E')) {
       curr_pos++;
       is_float = true;
-      return try_parse_exp();
+      return try_parse_exp(number_digits_length);
     }
 
     return true;
@@ -1192,12 +1210,12 @@ class json_parser {
    * try skip one or more [0-9]
    * @param[out] len: skipped num of digits
    */
-  __device__ inline bool try_skip_one_or_more_digits(int& len)
+  __device__ inline bool try_skip_one_or_more_digits(int& number_digits_length)
   {
     if (!eof(curr_pos) && is_digit(*curr_pos)) {
       curr_pos++;
-      len++;
-      len += skip_zero_or_more_digits();
+      number_digits_length++;
+      number_digits_length += skip_zero_or_more_digits();
       return true;
     } else {
       return false;
@@ -1208,21 +1226,15 @@ class json_parser {
    * parse [eE][+-]?[0-9]+
    * @param[out] exp_len exp len
    */
-  __device__ inline bool try_parse_exp()
+  __device__ inline bool try_parse_exp(int& number_digits_length)
   {
     // already parsed [eE]
 
-    float_exp_pos = curr_pos;
-
     // parse [+-]?
-    if (!eof(curr_pos) && (*curr_pos == '+' || *curr_pos == '-')) {
-      float_exp_len++;
-      curr_pos++;
-      float_exp_has_sign = true;
-    }
+    if (!eof(curr_pos) && (*curr_pos == '+' || *curr_pos == '-')) { curr_pos++; }
 
     // parse [0-9]+
-    return try_skip_one_or_more_digits(float_exp_len);
+    return try_skip_one_or_more_digits(number_digits_length);
   }
 
   // =========== Parse number end ===========
@@ -1655,21 +1667,6 @@ class json_parser {
   }
 
   /**
-   * get float parts, current token should be VALUE_NUMBER_FLOAT.
-   */
-  __device__ thrust::tuple<bool, char const*, int, char const*, int, char const*, int>
-  get_current_float_parts()
-  {
-    return thrust::make_tuple(float_sign,
-                              float_integer_pos,
-                              float_integer_len,
-                              float_fraction_pos,
-                              float_fraction_len,
-                              float_exp_pos,
-                              float_exp_len);
-  }
-
-  /**
    * match field name string when current token is FIELD_NAME,
    * return true if current token is FIELD_NAME and match successfully.
    * return false otherwise,
@@ -1789,44 +1786,27 @@ class json_parser {
   char const* curr_pos;
   json_token curr_token{json_token::INIT};
 
-  // saves the nested contexts: JSON object context or JSON array context
-  // true is JSON object context; false is JSON array context
-  // When encounter EOF and this stack is non-empty, means non-closed JSON
-  // object/array, then parsing will fail.
-  bool context_stack[max_json_nesting_depth];
+  // 64 bits long saves the nested object/array contexts
+  // true(bit value 1) is JSON object context
+  // false(bit value 0) is JSON array context
+  // JSON parser checks array/object are mached, e.g.: [1,2) are wrong
+  int64_t context_stack;
   int stack_size = 0;
 
-  // save current token start pos, used by coping current row text
+  // save current token start pos, used by coping current token text
   char const* current_token_start_pos;
-  // used to copy int/float string verbatim, note: int/float have no escape
-  // chars
+  // used to store number token length
   cudf::size_type number_token_len;
 
-  // The following variables record number token informations.
-  // if current token is int/float, use the following variables to save
-  // float parts e.g.: -123.000456E-000789, sign is false; integer part is 123;
-  // fraction part is 000456; exp part is -000789. The following parts is used
-  // by normalization, e.g.: 0.001 => 1E-3
-  bool float_sign;
-  char const* float_integer_pos;
-  int float_integer_len;
-  char const* float_fraction_pos;
-  int float_fraction_len;
-  char const* float_exp_pos;
-  int float_exp_len;
-  // true indicates has '-' or '+' in the exp part;
-  // the exp sign char is not counted when checking the max number length
-  bool float_exp_has_sign;
-
   // Records string/field name token utf8 bytes size after unescaped
-  // e.g.: For JSON string "\\n", after unescaped, it ues 1 byte '\n'
-  // used by `write_unescaped_text` and `write_escaped_text` bytes
+  // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
   // used by checking the max string length
   int string_token_utf8_bytes;
-  // Records bytes diff for escape writing
-  // e.g.: "\\n" string_token_utf8_bytes is 1,
-  // when `write_escaped_text` bytes is 4: " \ n "
-  // this diff will be 4 - 1 = 3;
+
+  // Records bytes diff between escape writing and unescape writing
+  // e.g.: 4 chars string "\\n", string_token_utf8_bytes is 1,
+  // when `write_escaped_text`, will write out 4 chars: " \ n ",
+  // then this diff will be 4 - 1 = 3
   int bytes_diff_for_escape_writing;
 };
 
