@@ -96,13 +96,11 @@ public class GetJsonObjectTest {
         keyPath(), namedPath("k5"),
         keyPath(), namedPath("k6"),
         keyPath(), namedPath("k7"),
-        keyPath(), namedPath("k8"),
-        keyPath(), namedPath("k9"),
-        keyPath(), namedPath("k10")
+        keyPath(), namedPath("k8")
     };
 
-    String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":{\"k9\":{\"k10\":\"v10\"}}}}}}}}}}";
-    String expectedStr = "v10";
+    String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":\"v8\"}}}}}}}}";
+    String expectedStr = "v8";
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
@@ -202,6 +200,8 @@ public class GetJsonObjectTest {
             "[-0.0]",
             "[-0]",
             "[12345678999999999999999999]",
+            "[9.299999257686047e-0005603333574677677]",
+            "9.299999257686047e0005603333574677677",
             "[1E308]",
             "[1.0E309,-1E309,1E5000]",
             "0.3",
@@ -216,6 +216,8 @@ public class GetJsonObjectTest {
             "[-0.0]",
             "[0]",
             "[12345678999999999999999999]",
+            "[0.0]",
+            "\"Infinity\"",
             "[1.0E308]",
             "[\"Infinity\",\"-Infinity\",\"Infinity\"]",
             "0.3",
