@@ -84,6 +84,7 @@
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
     <BUILD_FAULTINJ>ON</BUILD_FAULTINJ>
+    <BUILD_PROFILER>ON</BUILD_PROFILER>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda11</cuda.version>
@@ -345,6 +346,8 @@
       </activation>
       <properties>
         <jni.classifier>${cuda.version}-arm64</jni.classifier>
+        <!-- CUPTI does not have a static library for arm64 yet -->
+        <BUILD_PROFILER>OFF</BUILD_PROFILER>
       </properties>
     </profile>
   </profiles>
@@ -457,6 +460,7 @@
                   <arg value="-DBUILD_TESTS=${BUILD_TESTS}"/>
                   <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
                   <arg value="-DBUILD_FAULTINJ=${BUILD_FAULTINJ}"/>
+                  <arg value="-DBUILD_PROFILER=${BUILD_PROFILER}"/>
                 </exec>
                 <exec dir="${native.build.path}"
                       failonerror="true"
@@ -546,6 +550,12 @@
                     <include>libcudf.so</include>
                     <include>libcudfjni.so</include>
                     <include>libcufilejni.so</include>
+                  </includes>
+                </resource>
+                <resource>
+                  <directory>${native.build.path}/profiler</directory>
+                  <includes>
+                    <include>libprofilerjni.so</include>
                   </includes>
                 </resource>
                 <resource>
