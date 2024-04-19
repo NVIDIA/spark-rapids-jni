@@ -38,7 +38,7 @@ namespace detail {
 constexpr auto NUM_THREADS{256};
 
 /**
- * @brief Identify if a character is whitespace.
+ * @brief Identify if a character is whitespace or C0 control code.
  *
  * @param chr character to test
  * @return true if character is a whitespace character
