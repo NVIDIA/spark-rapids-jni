@@ -130,6 +130,35 @@ public class CastStringsTest {
   }
 
   @Test
+  void castToFloatsTrimTest() {
+    Table.TestBuilder tb = new Table.TestBuilder();
+    tb.column(1.1f, 1.2f, 1.3f, 1.4f, 1.5f, null, null);
+    tb.column(1.1d, 1.2d, 1.3d, 1.4d, 1.5d, null, null);
+    try (Table expected = tb.build()) {
+      Table.TestBuilder tb2 = new Table.TestBuilder();
+      tb2.column("1.1\u0000", "1.2\u0014", "1.3\u001f", 
+          "\u0000\u00001.4\u0000", "1.5\u0000\u0020\u0000", "1.6\u009f", "1.7\u0021");
+      tb2.column("1.1\u0000", "1.2\u0014", "1.3\u001f", 
+          "\u0000\u00001.4\u0000", "1.5\u0000\u0020\u0000", "1.6\u009f", "1.7\u0021");
+
+      List<ColumnVector> result = new ArrayList<>();
+      try (Table origTable = tb2.build()) {
+        for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+          ColumnVector string_col = origTable.getColumn(i);
+          result.add(CastStrings.toFloat(string_col, false, 
+              expected.getColumn(i).getType()));
+        }
+        try (Table result_tbl = new Table(
+            result.toArray(new ColumnVector[result.size()]))) {
+          AssertUtils.assertTablesAreEqual(expected, result_tbl);
+        }
+      } finally {
+        result.forEach(ColumnVector::close);
+      }
+    }
+  }
+
+  @Test
   void castToDecimalTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
     tb.decimal32Column(0,3, 9, 4, 2, 21, null, null);
