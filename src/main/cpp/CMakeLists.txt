@@ -110,6 +110,7 @@ endif()
 
 # cudf
 if(BUILD_TESTS)
+  find_package(GTest REQUIRED)
   rapids_find_package(cudf REQUIRED COMPONENTS testing)
 else()
   rapids_find_package(cudf REQUIRED)
