@@ -33,14 +33,14 @@ public class CastStringsTest {
   @Test
   void castToIntegerTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.column(3l, 9l, 4l, 2l, 20l, null, null);
-    tb.column(5, 1, 0, 2, 7, null, null);
-    tb.column(new Byte[]{2, 3, 4, 5, 9, null, null});
+    tb.column(3l, 9l, 4l, 2l, 20l, null, null, 1l);
+    tb.column(5, 1, 0, 2, 7, null, null, 1);
+    tb.column(new Byte[]{2, 3, 4, 5, 9, null, null, 1});
     try (Table expected = tb.build()) {
       Table.TestBuilder tb2 = new Table.TestBuilder();
-      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-      tb2.column("5", "1  ", "0", "2", "7.1", null, "asdf");
-      tb2.column("2", "3", " 4 ", "5", " 9.2 ", null, "7.8.3");
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd", "\u0000 \u001f1\u0014");
+      tb2.column("5", "1  ", "0", "2", "7.1", null, "asdf", "\u0000 \u001f1\u0014");
+      tb2.column("2", "3", " 4 ", "5", " 9.2 ", null, "7.8.3", "\u0000 \u001f1\u0014");
 
       List<ColumnVector> result = new ArrayList<>();
       try (Table origTable = tb2.build()) {
@@ -161,17 +161,17 @@ public class CastStringsTest {
   @Test
   void castToDecimalTest() {
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.decimal32Column(0,3, 9, 4, 2, 21, null, null);
-    tb.decimal64Column(0, 5l, 1l, 0l, 2l, 7l, null, null);
-    tb.decimal32Column(-1, 20, 30, 40, 51, 92, null, null);
+    tb.decimal32Column(0,3, 9, 4, 2, 21, null, null, 1);
+    tb.decimal64Column(0, 5l, 1l, 0l, 2l, 7l, null, null, 1l);
+    tb.decimal32Column(-1, 20, 30, 40, 51, 92, null, null, 10);
     try (Table expected = tb.build()) {
       int[] desiredPrecision = new int[]{2, 10, 3};
       int[] desiredScale = new int[]{0, 0, -1};
 
       Table.TestBuilder tb2 = new Table.TestBuilder();
-      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd");
-      tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf");
-      tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3");
+      tb2.column(" 3", "9", "4", "2", "20.5", null, "7.6asd", "\u0000 \u001f1\u0014");
+      tb2.column("5", "1 ", "0", "2", "7.1", null, "asdf", "\u0000 \u001f1\u0014");
+      tb2.column("2", "3", " 4 ", "5.07", "9.23", null, "7.8.3", "\u0000 \u001f1\u0014");
 
       List<ColumnVector> result = new ArrayList<>();
       try (Table origTable = tb2.build()) {

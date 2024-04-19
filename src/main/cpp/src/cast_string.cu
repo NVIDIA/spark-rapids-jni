@@ -45,6 +45,7 @@ constexpr auto NUM_THREADS{256};
  */
 constexpr bool is_whitespace(char const chr)
 {
+  if (chr >= 0x0000 && chr <= 0x001F) { return true; }
   switch (chr) {
     case ' ':
     case '\r':
