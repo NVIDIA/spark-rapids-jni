@@ -28,7 +28,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("k") };
+        namedPath("k") };
     try (ColumnVector jsonCv = ColumnVector.fromStrings(
         "{\"k\": \"v\"}");
         ColumnVector expected = ColumnVector.fromStrings(
@@ -44,7 +44,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest2() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(),
+
         namedPath("k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111")
     };
 
@@ -69,7 +69,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest3() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("k1"), keyPath(), namedPath("k2")
+        namedPath("k1"), namedPath("k2")
     };
     String JSON = "{\"k1\":{\"k2\":\"v2\"}}";
     String expectedStr = "v2";
@@ -89,14 +89,14 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest4() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("k1"),
-        keyPath(), namedPath("k2"),
-        keyPath(), namedPath("k3"),
-        keyPath(), namedPath("k4"),
-        keyPath(), namedPath("k5"),
-        keyPath(), namedPath("k6"),
-        keyPath(), namedPath("k7"),
-        keyPath(), namedPath("k8")
+        namedPath("k1"),
+        namedPath("k2"),
+        namedPath("k3"),
+        namedPath("k4"),
+        namedPath("k5"),
+        namedPath("k6"),
+        namedPath("k7"),
+        namedPath("k8")
     };
 
     String JSON = "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":\"v8\"}}}}}}}}";
@@ -117,7 +117,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Baidu_unescape_backslash() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("URdeosurl")
+        namedPath("URdeosurl")
     };
 
     String JSON = "{\"brand\":\"ssssss\",\"duratRon\":15,\"eqTosuresurl\":\"\",\"RsZxarthrl\":false,\"xonRtorsurl\":\"\",\"xonRtorsurlstOTe\":0,\"TRctures\":[{\"RxaGe\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\"}],\"Toster\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\",\"reserUed\":{\"bRtLate\":391.79,\"xooUZRke\":26876,\"nahrlIeneratRonNOTe\":0,\"useJublRc\":6,\"URdeoRd\":821284086},\"tRtle\":\"ssssssssssmMsssssssssssssssssss\",\"url\":\"s{storehrl}\",\"usersTortraRt\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-6971178959s-664926866s-6096674871.zTG\",\"URdeosurl\":\"http:\\/\\/nadURdeo2.baRdu.cox\\/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3\",\"URdeoRd\":821284086}";
@@ -138,7 +138,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Baidu_get_unexist_field_name() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("Vgdezsurl")
+        namedPath("Vgdezsurl")
     };
 
     String JSON = "{\"brand\":\"ssssss\",\"duratgzn\":17,\"eSyzsuresurl\":\"\",\"gswUartWrl\":false,\"Uzngtzrsurl\":\"\",\"UzngtzrsurlstJye\":0,\"ygctures\":[{\"gUaqe\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\/0\\/ygc\\/63025364s-376461312s7528698939.Qyq\"}],\"yzster\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\,\"url\":\"s{stHreqrl}\",\"usersPHrtraIt\":\"LttPs:\\/\\/feed-IUaxe.baIdu.cHU\\/0\\/PIc\\/-1043913002s489796992s-1505641721.Pnx\",\"kIdeHsurl\":\"LttP:\\/\\/nadkIdeH9.baIdu.cHU\\/4d7d308bd7c04e63069fd343adfa792as1790s1080.UP3\",\"kIdeHId\":852890923}";
@@ -251,7 +251,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_index() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), indexPath(1)
+        indexPath(1)
     };
 
     String JSON1 = "[ [0, 1, 2] , [10, [11], [121, 122, 123], 13] ,  [20, 21, 22]]";
@@ -271,7 +271,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_index_index() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), indexPath(1), subscriptPath(), indexPath(2)
+        indexPath(1), indexPath(2)
     };
 
     String JSON1 = "[ [0, 1, 2] , [10, [11], [121, 122, 123], 13] ,  [20, 21, 22]]";
@@ -315,7 +315,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path2() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath()
+        wildcardPath(), wildcardPath()
     };
 
     String JSON1 = "[ [11, 12], [21, [221, [2221, [22221, 22222]]]], [31, 32] ]";
@@ -355,7 +355,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path4() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("k")
+        namedPath("k")
     };
 
     String JSON1 = "{ 'k' : 'v'  }";
@@ -378,8 +378,8 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path5() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath(), // $[*][*]
-        keyPath(), namedPath("k")
+        wildcardPath(), wildcardPath(), // $[*][*]
+        namedPath("k")
     };
 
     // flatten the arrays, then query named path "k"
@@ -402,7 +402,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path6() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), wildcardPath()
+        wildcardPath()
     };
     String JSON1 = "[1, [21, 22], 3]";
     String expectedStr1 = "[1,[21,22],3]";
@@ -430,13 +430,13 @@ public class GetJsonObjectTest {
    */
   @Test
   void getJsonObjectTest_Test_case_path7() {
-    // subscriptPath(), wildcardPath() subscriptPath(), wildcardPath() will go to
+    // wildcardPath() wildcardPath() will go to
     // path5
-    // so insert keyPath(), namedPath("k")
+    // so insert namedPath("k")
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), wildcardPath(), // path 6
-        keyPath(), namedPath("k"), // path 4, path 10
-        subscriptPath(), wildcardPath() // path 7
+        wildcardPath(), // path 6
+        namedPath("k"), // path 4, path 10
+        wildcardPath() // path 7
     };
 
     String JSON1 = "[ {'k': [0, 1, 2]}, {'k': [10, 11, 12]}, {'k': [20, 21, 22]}  ]";
@@ -459,7 +459,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path8() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), indexPath(1), subscriptPath(), wildcardPath()
+        indexPath(1), wildcardPath()
     };
     String JSON1 = "[ [0], [10, 11, 12], [2] ]";
     String expectedStr1 = "[10,11,12]";
@@ -479,7 +479,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path9() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), indexPath(1), subscriptPath(), indexPath(1), subscriptPath(), wildcardPath()
+        indexPath(1), indexPath(1), wildcardPath()
     };
     String JSON1 = "[[0, 1, 2], [10, [111, 112, 113], 12], [20, 21, 22]]";
     String expectedStr1 = "[111,112,113]";
@@ -501,7 +501,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_case_path10() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), namedPath("k"), subscriptPath(), indexPath(1)
+        namedPath("k"), indexPath(1)
     };
     String JSON1 = "{'k' : [0,1,2]}";
     String expectedStr1 = "1";
@@ -517,26 +517,24 @@ public class GetJsonObjectTest {
 
   /**
    * Test case paths:
-   * case path 11: case (FIELD_NAME, Wildcard :: xs)
+   * case path 11: case (FIELD_NAME, Key :: Wildcard :: xs)
    * Refer to Spark code:
    * https://github.com/apache/spark/blob/v3.5.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/jsonExpressions.scala#L218
-   * path sequence key, wildcard can test path 11, but parser can not produce this
-   * sequence.
-   * Note: Here use manually created key, wildcard sequence to test.
+   * Can not produce this Paths: (key, wildcard)
+   * e.g.: Spark will produces (wildcard) path for path string $.*, instead of (key, wildcard) path
+   * Anyway, here is testing $.*
    */
   @Test
   void getJsonObjectTest_Test_case_path11() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        keyPath(), wildcardPath()
+        wildcardPath()
     };
     String JSON1 = "{'k' : [0,1,2]}";
-    String expectedStr1 = "[0,1,2]";
     String JSON2 = "{'k' : null}";
-    String expectedStr2 = "null";
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
-        ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
+        ColumnVector expected = ColumnVector.fromStrings(null, null);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -568,7 +566,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_Test_insert_comma_insert_outer_array() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath(), subscriptPath(), wildcardPath()
+        wildcardPath(), wildcardPath(), wildcardPath()
     };
     String JSON1 = "[ [11, 12], [21, 22]]";
     String expectedStr1 = "[[11,12],[21,22]]";
@@ -580,14 +578,6 @@ public class GetJsonObjectTest {
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
-  }
-
-  private JSONUtils.PathInstructionJni keyPath() {
-    return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.KEY, "", -1);
-  }
-
-  private JSONUtils.PathInstructionJni subscriptPath() {
-    return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.SUBSCRIPT, "", -1);
   }
 
   private JSONUtils.PathInstructionJni wildcardPath() {
