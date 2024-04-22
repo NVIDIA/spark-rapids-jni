@@ -580,6 +580,25 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * Query: $[*][*][*]
+   */
+  @Test
+  void getJsonObjectTest_15() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("a")
+    };
+    String JSON1 = "{'a':'v1'}";
+    String JSON2 = "{'a':\"b\"c\"}";
+    try (
+        ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
+        ColumnVector expected = ColumnVector.fromStrings("v1", null);
+        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);
   }

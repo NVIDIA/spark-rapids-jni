@@ -358,285 +358,6 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
 
 /**
  *
- * The following commented function is recursive version,
- * The next function below is the rewritten version,
- * Keep version here is for review purpuse, because rewritten version(iterative)
- * is not human friendly.
- *
- */
-// __device__ bool evaluate_path(json_parser& p,
-//                                            json_generator& g,
-//                                            write_style style,
-//                                            path_instruction const* path_ptr,
-//                                            int path_size)
-// {
-//   auto token = p.get_current_token();
-
-//   // case (VALUE_STRING, Nil) if style == RawStyle
-//   // case path 1
-//   if (json_token::VALUE_STRING == token && path_is_empty(path_size) &&
-//       style == write_style::raw_style) {
-//     // there is no array wildcard or slice parent, emit this string without
-//     // quotes write current string in parser to generator
-//     g.write_raw(p);
-//     return true;
-//   }
-//   // case (START_ARRAY, Nil) if style == FlattenStyle
-//   // case path 2
-//   else if (json_token::START_ARRAY == token && path_is_empty(path_size) &&
-//            style == write_style::flatten_style) {
-//     // flatten this array into the parent
-//     bool dirty = false;
-//     while (json_token::END_ARRAY != p.next_token()) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       dirty |= path_evaluator::evaluate_path(p, g, style, nullptr, 0);
-//     }
-//     return dirty;
-//   }
-//   // case (_, Nil)
-//   // case path 3
-//   else if (path_is_empty(path_size)) {
-//     // general case: just copy the child tree verbatim
-//     return g.copy_current_structure(p);
-//   }
-//   // case (START_OBJECT, Key :: xs)
-//   // case path 4
-//   else if (json_token::START_OBJECT == token &&
-//            path_match_element(path_ptr, path_size, path_instruction_type::KEY)) {
-//     bool dirty = false;
-//     while (json_token::END_OBJECT != p.next_token()) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       if (dirty) {
-//         // once a match has been found we can skip other fields
-//         if (!p.try_skip_children()) {
-//           // JSON validation check
-//           return false;
-//         }
-//       } else {
-//         dirty = path_evaluator::evaluate_path(p, g, style, path_ptr + 1, path_size - 1);
-//       }
-//     }
-//     return dirty;
-//   }
-//   // case (START_ARRAY, Subscript :: Wildcard :: Subscript :: Wildcard :: xs)
-//   // case path 5
-//   else if (json_token::START_ARRAY == token &&
-//            path_match_elements(path_ptr,
-//                                path_size,
-//                                path_instruction_type::SUBSCRIPT,
-//                                path_instruction_type::WILDCARD,
-//                                path_instruction_type::SUBSCRIPT,
-//                                path_instruction_type::WILDCARD)) {
-//     // special handling for the non-structure preserving double wildcard
-//     // behavior in Hive
-//     bool dirty = false;
-//     g.write_start_array();
-//     while (p.next_token() != json_token::END_ARRAY) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       dirty |= path_evaluator::evaluate_path(
-//         p, g, write_style::flatten_style, path_ptr + 4, path_size - 4);
-//     }
-//     g.write_end_array();
-//     return dirty;
-//   }
-//   // case (START_ARRAY, Subscript :: Wildcard :: xs) if style != QuotedStyle
-//   // case path 6
-//   else if (json_token::START_ARRAY == token &&
-//            path_match_elements(path_ptr,
-//                                path_size,
-//                                path_instruction_type::SUBSCRIPT,
-//                                path_instruction_type::WILDCARD) &&
-//            style != write_style::quoted_style) {
-//     // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-//     write_style next_style = write_style::raw_style;
-//     switch (style) {
-//       case write_style::raw_style: next_style = write_style::quoted_style; break;
-//       case write_style::flatten_style: next_style = write_style::flatten_style; break;
-//       case write_style::quoted_style: next_style = write_style::quoted_style;  // never happen
-//     }
-
-//     // temporarily buffer child matches, the emitted json will need to be
-//     // modified slightly if there is only a single element written
-
-//     int dirty = 0;
-//     // create a child generator with hide outer array tokens mode.
-//     auto child_g = g.new_child_generator(/*hide_outer_array_tokens*/ true);
-
-//     // Note: child generator does not actually write the outer start array
-//     // token into buffer it only updates internal nested state
-//     child_g.write_start_array();
-
-//     while (p.next_token() != json_token::END_ARRAY) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       // track the number of array elements and only emit an outer array if
-//       // we've written more than one element, this matches Hive's behavior
-//       dirty +=
-//         (path_evaluator::evaluate_path(p, child_g, next_style, path_ptr + 2, path_size - 2) ? 1
-//                                                                                             :
-//                                                                                             0);
-//     }
-
-//     // Note: child generator does not actually write the outer end array token
-//     // into buffer it only updates internal nested state
-//     child_g.write_end_array();
-
-//     char* child_g_start = child_g.get_output_start_position();
-//     size_t child_g_len  = child_g.get_output_len();  // len already excluded outer [ ]
-
-//     if (dirty > 1) {
-//       // add outer array tokens
-//       g.write_child_raw_value(child_g_start, child_g_len, true);
-//     } else if (dirty == 1) {
-//       // remove outer array tokens
-//       g.write_child_raw_value(child_g_start, child_g_len, false);
-//     }  // else do not write anything
-
-//     return dirty > 0;
-//   }
-//   // case (START_ARRAY, Subscript :: Wildcard :: xs)
-//   // case path 7
-//   else if (json_token::START_ARRAY == token &&
-//            path_match_elements(path_ptr,
-//                                path_size,
-//                                path_instruction_type::SUBSCRIPT,
-//                                path_instruction_type::WILDCARD)) {
-//     bool dirty = false;
-//     g.write_start_array();
-//     while (p.next_token() != json_token::END_ARRAY) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       // wildcards can have multiple matches, continually update the dirty
-//       // count
-//       dirty |= path_evaluator::evaluate_path(
-//         p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
-//     }
-//     g.write_end_array();
-
-//     return dirty;
-//   }
-//   /* case (START_ARRAY, Subscript :: Index(idx) :: (xs@Subscript :: Wildcard :: _)) */
-//   // case path 8
-//   else if (json_token::START_ARRAY == token &&
-//            thrust::get<0>(path_match_subscript_index_subscript_wildcard(path_ptr, path_size)))
-//            {
-//     int idx = thrust::get<1>(path_match_subscript_index_subscript_wildcard(path_ptr,
-//     path_size)); p.next_token();
-//     // JSON validation check
-//     if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//     int i = idx;
-//     while (i >= 0) {
-//       if (p.get_current_token() == json_token::END_ARRAY) {
-//         // terminate, nothing has been written
-//         return false;
-//       }
-//       if (0 == i) {
-//         bool dirty = path_evaluator::evaluate_path(
-//           p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
-//         while (p.next_token() != json_token::END_ARRAY) {
-//           // JSON validation check
-//           if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//           // advance the token stream to the end of the array
-//           if (!p.try_skip_children()) { return false; }
-//         }
-//         return dirty;
-//       } else {
-//         // i > 0
-//         if (!p.try_skip_children()) { return false; }
-
-//         p.next_token();
-//         // JSON validation check
-//         if (json_token::ERROR == p.get_current_token()) { return false; }
-//       }
-//       --i;
-//     }
-//     // path parser guarantees idx >= 0
-//     // will never reach to here
-//     return false;
-//   }
-//   // case (START_ARRAY, Subscript :: Index(idx) :: xs)
-//   // case path 9
-//   else if (json_token::START_ARRAY == token &&
-//            thrust::get<0>(path_match_subscript_index(path_ptr, path_size))) {
-//     int idx = thrust::get<1>(path_match_subscript_index(path_ptr, path_size));
-//     p.next_token();
-//     // JSON validation check
-//     if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//     int i = idx;
-//     while (i >= 0) {
-//       if (p.get_current_token() == json_token::END_ARRAY) {
-//         // terminate, nothing has been written
-//         return false;
-//       }
-//       if (0 == i) {
-//         bool dirty = path_evaluator::evaluate_path(p, g, style, path_ptr + 2, path_size - 2);
-//         while (p.next_token() != json_token::END_ARRAY) {
-//           // JSON validation check
-//           if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//           // advance the token stream to the end of the array
-//           if (!p.try_skip_children()) { return false; }
-//         }
-//         return dirty;
-//       } else {
-//         // i > 0
-//         if (!p.try_skip_children()) { return false; }
-
-//         p.next_token();
-//         // JSON validation check
-//         if (json_token::ERROR == p.get_current_token()) { return false; }
-//       }
-//       --i;
-//     }
-//     // path parser guarantees idx >= 0
-//     // will never reach to here
-//     return false;
-//   }
-//   // case (FIELD_NAME, Named(name) :: xs) if p.getCurrentName == name
-//   // case path 10
-//   else if (json_token::FIELD_NAME == token &&
-//            thrust::get<0>(path_match_named(path_ptr, path_size)) &&
-//            p.match_current_field_name(thrust::get<1>(path_match_named(path_ptr, path_size)))) {
-//     if (p.next_token() != json_token::VALUE_NULL) {
-//       // JSON validation check
-//       if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//       return path_evaluator::evaluate_path(p, g, style, path_ptr + 1, path_size - 1);
-//     } else {
-//       return false;
-//     }
-//   }
-//   // case (FIELD_NAME, Wildcard :: xs)
-//   // case path 11
-//   else if (json_token::FIELD_NAME == token &&
-//            path_match_element(path_ptr, path_size, path_instruction_type::WILDCARD)) {
-//     p.next_token();
-//     // JSON validation check
-//     if (json_token::ERROR == p.get_current_token()) { return false; }
-
-//     return path_evaluator::evaluate_path(p, g, style, path_ptr + 1, path_size - 1);
-//   }
-//   // case _ =>
-//   // case path 12
-//   else {
-//     if (!p.try_skip_children()) { return false; }
-//     return false;
-//   }
-// }
-
-/**
- *
  * This function is rewritten from above commented recursive function.
  * this function is equivalent to the above commented recursive function.
  */
@@ -757,41 +478,72 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                thrust::get<0>(path_match_named(ctx.path_ptr, ctx.path_size))) {
-        // match first mached children with expected name
-        bool found_expected_child = false;
-        while (json_token::END_OBJECT != p.next_token()) {
-          // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
-
-          // need to try more children
-          auto match_named = path_match_named(ctx.path_ptr, ctx.path_size);
-          auto named       = thrust::get<1>(match_named);
-          // current token is FIELD_NAME
-          if (p.match_current_field_name(named)) {
-            // skip FIELD_NAME token
-            if (json_token::ERROR == p.next_token()) { return false; }
-            // meets null token, it's not expected, return false
-            if (json_token::VALUE_NULL == p.get_current_token()) { return false; }
-            // push sub task; sub task will update the result of path 4
-            push_context(
-              p.get_current_token(), 4, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
-            found_expected_child = true;
-            break;
-          } else {
-            // skip FIELD_NAME token
-            if (json_token::ERROR == p.next_token()) { return false; }
-
-            // current child is not expected, skip current child
-            if (!p.try_skip_children()) {
+        if (!ctx.is_first_enter) {
+          // 2st enter
+          // skip the following children after the expect
+          if (ctx.dirty > 0) {
+            while (json_token::END_OBJECT != p.next_token()) {
               // JSON validation check
-              return false;
+              if (json_token::ERROR == p.get_current_token()) { return false; }
+
+              // skip FIELD_NAME token
+              p.next_token();
+              // JSON validation check
+              if (json_token::ERROR == p.get_current_token()) { return false; }
+
+              // skip value of FIELD_NAME
+              if (!p.try_skip_children()) {
+                // JSON validation check
+                return false;
+              }
+            }
+            ctx.task_is_done = true;
+          } else {
+            return false;
+          }
+        } else {
+          // below is 1st enter
+          ctx.is_first_enter = false;
+          // match first mached children with expected name
+          bool found_expected_child = false;
+          while (json_token::END_OBJECT != p.next_token()) {
+            // JSON validation check
+            if (json_token::ERROR == p.get_current_token()) { return false; }
+
+            // need to try more children
+            auto match_named = path_match_named(ctx.path_ptr, ctx.path_size);
+            auto named       = thrust::get<1>(match_named);
+            // current token is FIELD_NAME
+            if (p.match_current_field_name(named)) {
+              // skip FIELD_NAME token
+              p.next_token();
+              // JSON validation check
+              if (json_token::ERROR == p.get_current_token()) { return false; }
+
+              // meets null token, it's not expected, return false
+              if (json_token::VALUE_NULL == p.get_current_token()) { return false; }
+              // push sub task; sub task will update the result of path 4
+              push_context(
+                p.get_current_token(), 4, ctx.g, ctx.style, ctx.path_ptr + 1, ctx.path_size - 1);
+              found_expected_child = true;
+              break;
+            } else {
+              // skip FIELD_NAME token
+              p.next_token();
+              // JSON validation check
+              if (json_token::ERROR == p.get_current_token()) { return false; }
+
+              // current child is not expected, skip current child
+              if (!p.try_skip_children()) {
+                // JSON validation check
+                return false;
+              }
             }
           }
-        }
-
-        if (!found_expected_child) {
-          // did not find any expected sub child
-          return false;
+          if (!found_expected_child) {
+            // did not find any expected sub child
+            return false;
+          }
         }
       }
       // case (START_ARRAY, Wildcard :: Wildcard :: xs)
@@ -859,7 +611,6 @@ __device__ bool evaluate_path(json_parser& p,
         } else {
           char* child_g_start = child_g.get_output_start_position();
           size_t child_g_len  = child_g.get_output_len();
-
           if (ctx.dirty > 1) {
             // add outer array tokens
             ctx.g.write_child_raw_value(
@@ -881,7 +632,6 @@ __device__ bool evaluate_path(json_parser& p,
           ctx.is_first_enter = false;
           ctx.g.write_start_array();
         }
-
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return false; }
@@ -1004,8 +754,6 @@ __device__ bool evaluate_path(json_parser& p,
           p_ctx.dirty = ctx.dirty;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
-          // set parent task is done, will pop parent task
-          p_ctx.task_is_done = true;
         }
         // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
         // case path 6
