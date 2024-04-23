@@ -110,7 +110,8 @@ endif()
 
 # cudf
 if(BUILD_TESTS)
-  find_package(GTest REQUIRED)
+  include(${rapids-cmake-dir}/cpm/gtest.cmake)
+  rapids_cpm_gtest(BUILD_STATIC)
   rapids_find_package(cudf REQUIRED COMPONENTS testing)
 else()
   rapids_find_package(cudf REQUIRED)
