@@ -542,7 +542,8 @@ __device__ bool evaluate_path(json_parser& p,
           }
           if (!found_expected_child) {
             // did not find any expected sub child
-            return false;
+            ctx.task_is_done = true;
+            ctx.dirty        = false;
           }
         }
       }
