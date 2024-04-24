@@ -170,8 +170,10 @@ std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view
                     thrust::make_counting_iterator<cudf::size_type>(strings_count),
                     d_results,
                     [d_strings, pfn, d_target, d] __device__(cudf::size_type idx) {
-                      if (!d_strings.is_null(idx))
+                      if (!d_strings.is_null(idx)) {
+                        // printf("!!! in kernel, idx: %d\n", idx);
                         return bool{pfn(d_strings.element<cudf::string_view>(idx), d_target, d)};
+                      }
                       return false;
                     });
   results->set_null_count(strings.null_count());
