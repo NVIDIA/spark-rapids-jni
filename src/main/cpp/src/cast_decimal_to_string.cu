@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,19 +28,19 @@
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/climits>
+#include <cuda/std/limits>
+#include <cuda/std/type_traits>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
 #include <thrust/generate.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/optional.h>
 #include <thrust/transform.h>
-
-#include <cuda/std/climits>
-#include <cuda/std/limits>
-#include <cuda/std/type_traits>
 
 using namespace cudf;
 
@@ -191,7 +191,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
 
     return make_strings_column(input.size(),
                                std::move(offsets),
-                               std::move(chars->release().data.release()[0]),
+                               chars.release(),
                                input.null_count(),
                                cudf::detail::copy_bitmask(input, stream, mr));
   }

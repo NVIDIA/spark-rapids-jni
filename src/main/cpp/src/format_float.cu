@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,7 +89,7 @@ struct dispatch_format_float_fn {
 
     return cudf::make_strings_column(strings_count,
                                      std::move(offsets),
-                                     std::move(chars->release().data.release()[0]),
+                                     chars.release(),
                                      floats.null_count(),
                                      cudf::detail::copy_bitmask(floats, stream, mr));
   }

@@ -800,15 +800,15 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
   if (sign) { result[index++] = '-'; }
 
   uint64_t output         = v.mantissa;
-  uint32_t const olength  = decimal_length(output);
-  int32_t exp             = v.exponent + static_cast<int32_t>(olength) - 1;
+  int32_t const olength   = decimal_length(output);
+  int32_t exp             = v.exponent + olength - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
   // Values in the interval [1E-3, 1E7) are special.
   if (scientificNotation) {
     // Print in the format x.xxxxxE-yy.
-    for (uint32_t i = 0; i < olength - 1; ++i) {
-      uint32_t const c = output % 10;
+    for (int i = 0; i < olength - 1; ++i) {
+      int const c = output % 10;
       output /= 10;
       result[index + olength - i] = (char)('0' + c);
     }
@@ -845,7 +845,7 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
         output /= 10;
         index++;
       }
-    } else if (exp + 1 >= olength) {
+    } else if (exp + 1 >= static_cast<int32_t>(olength)) {
       // Decimal dot is after any of the digits.
       for (int i = 0; i < olength; i++) {
         result[index + olength - i - 1] = (char)('0' + output % 10);
@@ -880,7 +880,7 @@ __device__ inline int d2s_size(floating_decimal_64 const v, bool const sign)
   if (sign) { index++; }
 
   uint64_t output         = v.mantissa;
-  uint32_t const olength  = decimal_length(output);
+  int32_t const olength   = decimal_length(output);
   int32_t exp             = v.exponent + static_cast<int32_t>(olength) - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
@@ -920,7 +920,7 @@ __device__ inline int to_chars(floating_decimal_32 const v, bool const sign, cha
   if (sign) { result[index++] = '-'; }
 
   uint32_t output         = v.mantissa;
-  uint32_t const olength  = decimal_length(output);
+  int32_t const olength   = decimal_length(output);
   int32_t exp             = v.exponent + olength - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
@@ -995,7 +995,7 @@ __device__ inline int f2s_size(floating_decimal_32 const v, bool const sign)
   if (sign) { index++; }
 
   uint32_t output         = v.mantissa;
-  uint32_t const olength  = decimal_length(output);
+  int32_t const olength   = decimal_length(output);
   int32_t exp             = v.exponent + olength - 1;
   bool scientificNotation = (exp < -3) || (exp >= 7);
 
@@ -1149,6 +1149,57 @@ __device__ inline int compute_f2s_size(float value)
   return f2s_size(v, sign);
 }
 
+//===== special inf handling for json =====
+
+__device__ inline int copy_special_str_json(char* const result,
+                                            bool const sign,
+                                            bool const exponent,
+                                            bool const mantissa)
+{
+  // no NaN in json
+  if (exponent) {
+    if (sign) {
+      memcpy(result, "\"-Infinity\"", 11);
+      return 11;
+    } else {
+      memcpy(result, "\"Infinity\"", 10);
+      return 10;
+    }
+  }
+  if (sign) {
+    memcpy(result, "-0.0", 4);
+    return 4;
+  } else {
+    memcpy(result, "0.0", 3);
+    return 3;
+  }
+}
+
+__device__ inline int special_str_size_json(bool const sign,
+                                            bool const exponent,
+                                            bool const mantissa)
+{
+  // no NaN in json
+  if (exponent) { return sign + 10; }
+  return sign + 3;
+}
+
+__device__ inline int d2s_buffered_n_json(double f, char* result)
+{
+  bool sign = false, special = false;
+  floating_decimal_64 v = d2d(f, sign, special);
+  if (special) { return copy_special_str_json(result, sign, v.exponent, v.mantissa); }
+  return to_chars(v, sign, result);
+}
+
+__device__ inline int compute_d2s_size_json(double value)
+{
+  bool sign = false, special = false;
+  floating_decimal_64 v = d2d(value, sign, special);
+  if (special) { return special_str_size_json(sign, v.exponent, v.mantissa); }
+  return d2s_size(v, sign);
+}
+
 }  // namespace
 
 //===== APIs =====
@@ -1223,9 +1274,9 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
   using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { result[index++] = '-'; }
-  U output               = v.mantissa;
-  uint32_t const olength = decimal_length(output);
-  int32_t exp            = v.exponent + static_cast<int32_t>(olength) - 1;
+  U output              = v.mantissa;
+  int32_t const olength = decimal_length(output);
+  int32_t exp           = v.exponent + static_cast<int32_t>(olength) - 1;
   if (exp < 0) {
     // Decimal dot is before any of the digits.
     int index_for_carrier = index;
@@ -1291,7 +1342,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     }
   } else {
     // 0 <= exp < olength - 1
-    uint32_t temp_d = digits, tailing_zero = 0;
+    int32_t temp_d = digits, tailing_zero = 0;
     if (exp + digits + 1 > olength) {
       temp_d       = olength - exp - 1;
       tailing_zero = digits - temp_d;
@@ -1301,10 +1352,10 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     U integer        = rounded_output / pow10;
     U decimal        = rounded_output % pow10;
     // calculate integer length after format to cover carry case
-    uint32_t integer_len          = decimal_length(integer);
-    uint32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
-    uint32_t sep_cnt              = 0;
-    int rev_index                 = 0;
+    int32_t integer_len          = decimal_length(integer);
+    int32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
+    int32_t sep_cnt              = 0;
+    int rev_index                = 0;
     for (int i = 0; i < integer_len; i++) {
       if (sep_cnt == 3) {
         result[formated_integer_len - (rev_index++) - 1] = ',';
@@ -1338,9 +1389,9 @@ __device__ inline int format_size(T const v, bool const sign, int digits)
   using U   = std::conditional_t<std::is_same_v<T, floating_decimal_32>, uint32_t, uint64_t>;
   int index = 0;
   if (sign) { index++; }
-  U output               = v.mantissa;
-  uint32_t const olength = decimal_length(output);
-  int32_t exp            = v.exponent + static_cast<int32_t>(olength) - 1;
+  U output              = v.mantissa;
+  int32_t const olength = decimal_length(output);
+  int32_t exp           = v.exponent + static_cast<int32_t>(olength) - 1;
   if (exp < 0) {
     index += 2 + digits;
   } else if (exp + 1 >= olength) {
@@ -1421,6 +1472,17 @@ __device__ inline int format_float(double value, int digits, bool is_float, char
     floating_decimal_64 v = d2d(value, sign, special);
     if (special) { return copy_format_special_str(output, sign, v.exponent, v.mantissa, digits); }
     return to_formatted_chars<floating_decimal_64>(v, sign, output, digits);
+  }
+}
+
+//===== json_parser utility =====
+
+__device__ inline int double_normalization(double value, char* output)
+{
+  if (output == nullptr) {
+    return compute_d2s_size_json(value);
+  } else {
+    return d2s_buffered_n_json(value, output);
   }
 }
 

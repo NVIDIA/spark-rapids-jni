@@ -16,7 +16,6 @@
 
 #include "cast_string.hpp"
 
-#include <cub/warp/warp_reduce.cuh>
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -25,6 +24,8 @@
 #include <cudf/strings/convert/convert_floats.hpp>
 #include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/utilities/bit.hpp>
+
+#include <cub/warp/warp_reduce.cuh>
 
 using namespace cudf;
 
@@ -35,13 +36,14 @@ namespace detail {
 __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
 
 /**
- * @brief Identify if a character is whitespace.
+ * @brief Identify if a character is whitespace or C0 control code.
  *
  * @param chr character to test
  * @return true if character is a whitespace character
  */
 constexpr bool is_whitespace(char const chr)
 {
+  if (chr >= 0x0000 && chr <= 0x001F) { return true; }
   switch (chr) {
     case ' ':
     case '\r':

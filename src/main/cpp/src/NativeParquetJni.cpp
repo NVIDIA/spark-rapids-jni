@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,15 +24,15 @@
 // This came from the parquet code itself...
 #define SIGNED_RIGHT_SHIFT_IS  1
 #define ARITHMETIC_RIGHT_SHIFT 1
+#include "cudf_jni_apis.hpp"
+#include "jni_utils.hpp"
+
+#include <cudf/detail/nvtx/ranges.hpp>
+
+#include <generated/parquet_types.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/protocol/TCompactProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
-
-#include <cudf/detail/nvtx/ranges.hpp>
-#include <generated/parquet_types.h>
-
-#include "cudf_jni_apis.hpp"
-#include "jni_utils.hpp"
 
 namespace rapids {
 namespace jni {

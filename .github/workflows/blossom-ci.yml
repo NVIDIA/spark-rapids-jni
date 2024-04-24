@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2023, NVIDIA CORPORATION.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,27 +35,23 @@ jobs:
     # This job only runs for pull request comments
     if: contains( '\
       abellina,\
-      andygrove,\
       anfeng,\
       firestarman,\
       GaryShen2008,\
-      jbrennan333, \
       jlowe,\
-      krajendrannv,\
       mythrocks,\
       nartal1,\
       nvdbaranec,\
       NvTimLiu,\
       razajafri,\
       revans2,\
-      rongou,\
       rwlee,\
       sameerz,\
       tgravescs,\
       wbo4958,\
       wjxiz1992,\
       sperlingxx,\
-      pxLi,\
+      YanxuanLiu,\
       hyperbolic2346,\
       gerashegalov,\
       ttnghia,\
@@ -65,6 +61,9 @@ jobs:
       NVnavkumar,\
       yinqingh,\
       thirtiseven,\
+      parthosa,\
+      liurenjie1024,\
+      binmahone,\
       ', format('{0},', github.actor)) && github.event.comment.body == 'build'
     steps:
       - name: Check if comment is issued by authorized person

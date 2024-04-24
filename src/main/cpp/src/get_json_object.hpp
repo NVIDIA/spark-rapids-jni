@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,23 +16,35 @@
 
 #pragma once
 
-#include <cudf/lists/lists_column_view.hpp>
-#include <cudf/table/table_view.hpp>
+#include "json_parser.cuh"
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cudf/strings/string_view.hpp>
+#include <cudf/strings/strings_column_view.hpp>
+
+#include <thrust/optional.h>
+#include <thrust/pair.h>
+#include <thrust/scan.h>
+#include <thrust/tuple.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::column> interleave_bits(
-  cudf::table_view const& tbl,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+/**
+ * path instruction type
+ */
+enum class path_instruction_type { SUBSCRIPT, WILDCARD, KEY, INDEX, NAMED };
 
-std::unique_ptr<cudf::column> hilbert_index(
-  int32_t const num_bits,
-  cudf::table_view const& tbl,
+/**
+ * Extracts json object from a json string based on json path specified, and
+ * returns json string of the extracted json object. It will return null if the
+ * input json string is invalid.
+ */
+std::unique_ptr<cudf::column> get_json_object(
+  cudf::strings_column_view const& input,
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

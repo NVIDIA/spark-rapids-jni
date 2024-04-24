@@ -18,6 +18,7 @@
 
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -25,14 +26,27 @@
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::column> interleave_bits(
+std::vector<std::unique_ptr<cudf::column>> convert_to_rows_fixed_width_optimized(
   cudf::table_view const& tbl,
+  // TODO need something for validity
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-std::unique_ptr<cudf::column> hilbert_index(
-  int32_t const num_bits,
+std::vector<std::unique_ptr<cudf::column>> convert_to_rows(
   cudf::table_view const& tbl,
+  // TODO need something for validity
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::table> convert_from_rows_fixed_width_optimized(
+  cudf::lists_column_view const& input,
+  std::vector<cudf::data_type> const& schema,
+  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
+  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::table> convert_from_rows(
+  cudf::lists_column_view const& input,
+  std::vector<cudf::data_type> const& schema,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>24.04.0-SNAPSHOT</version>
+  <version>24.06.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -89,12 +89,14 @@
     <cuda.version>cuda11</cuda.version>
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
+    <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
     <hadoop.version>3.2.4</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${cudf.path}/cpp/build</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
     <libcudf.clean.skip>true</libcudf.clean.skip>
     <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
+    <libcudf.dependency.mode>pinned</libcudf.dependency.mode>
     <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
@@ -476,6 +478,7 @@
                   <arg value="${project.basedir}/build/build-info"/>
                   <arg value="${project.version}"/>
                   <arg value="${cudf.path}"/>
+                  <arg value="${libcudf.build.path}/libcudf.a"/>
                 </exec>
                 <exec executable="bash"
                       output="${project.build.directory}/extra-resources/spark-rapids-jni-version-info.properties"
@@ -483,6 +486,7 @@
                   <arg value="${project.basedir}/build/build-info"/>
                   <arg value="${project.version}"/>
                   <arg value="${project.basedir}"/>
+                  <arg value="${native.build.path}/libcudf.so"/>
                 </exec>
               </target>
             </configuration>

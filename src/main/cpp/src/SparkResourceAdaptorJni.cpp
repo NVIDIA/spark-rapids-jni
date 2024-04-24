@@ -14,22 +14,22 @@
  * limitations under the License.
  */
 
+#include <rmm/mr/device/device_memory_resource.hpp>
+
+#include <cudf_jni_apis.hpp>
+#include <pthread.h>
+#include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <exception>
 #include <map>
 #include <set>
 #include <sstream>
 #include <unordered_set>
-
-#include <pthread.h>
-
-#include <cudf_jni_apis.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
-#include <spdlog/common.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/null_sink.h>
-#include <spdlog/sinks/ostream_sink.h>
-#include <spdlog/spdlog.h>
 
 namespace {
 
@@ -400,8 +400,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
   rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
-
-  bool supports_streams() const noexcept override { return resource->supports_streams(); }
 
   /**
    * Update the internal state so that a specific thread is dedicated to a task.
