@@ -392,7 +392,7 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //   // case (VALUE_STRING, Nil) if style == RawStyle
 //   // case path 1
 //   if (json_token::VALUE_STRING == token && path_is_empty(path_size) &&
-//       style == write_style::raw_style) {
+//       style == write_style::RAW) {
 //     // there is no array wildcard or slice parent, emit this string without
 //     // quotes write current string in parser to generator
 //     g.write_raw(p);
@@ -401,7 +401,7 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //   // case (START_ARRAY, Nil) if style == FlattenStyle
 //   // case path 2
 //   else if (json_token::START_ARRAY == token && path_is_empty(path_size) &&
-//            style == write_style::flatten_style) {
+//            style == write_style::FLATTEN) {
 //     // flatten this array into the parent
 //     bool dirty = false;
 //     while (json_token::END_ARRAY != p.next_token()) {
@@ -457,7 +457,7 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //       if (json_token::ERROR == p.get_current_token()) { return false; }
 
 //       dirty |= path_evaluator::evaluate_path(
-//         p, g, write_style::flatten_style, path_ptr + 4, path_size - 4);
+//         p, g, write_style::FLATTEN, path_ptr + 4, path_size - 4);
 //     }
 //     g.write_end_array();
 //     return dirty;
@@ -469,13 +469,13 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //                                path_size,
 //                                path_instruction_type::SUBSCRIPT,
 //                                path_instruction_type::WILDCARD) &&
-//            style != write_style::quoted_style) {
+//            style != write_style::QUOTED) {
 //     // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-//     write_style next_style = write_style::raw_style;
+//     write_style next_style = write_style::RAW;
 //     switch (style) {
-//       case write_style::raw_style: next_style = write_style::quoted_style; break;
-//       case write_style::flatten_style: next_style = write_style::flatten_style; break;
-//       case write_style::quoted_style: next_style = write_style::quoted_style;  // never happen
+//       case write_style::RAW: next_style = write_style::QUOTED; break;
+//       case write_style::FLATTEN: next_style = write_style::FLATTEN; break;
+//       case write_style::QUOTED: next_style = write_style::QUOTED;  // never happen
 //     }
 
 //     // temporarily buffer child matches, the emitted json will need to be
@@ -534,7 +534,7 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //       // wildcards can have multiple matches, continually update the dirty
 //       // count
 //       dirty |= path_evaluator::evaluate_path(
-//         p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
+//         p, g, write_style::QUOTED, path_ptr + 2, path_size - 2);
 //     }
 //     g.write_end_array();
 
@@ -558,7 +558,7 @@ __device__ inline thrust::tuple<bool, int> path_match_subscript_index_subscript_
 //       }
 //       if (0 == i) {
 //         bool dirty = path_evaluator::evaluate_path(
-//           p, g, write_style::quoted_style, path_ptr + 2, path_size - 2);
+//           p, g, write_style::QUOTED, path_ptr + 2, path_size - 2);
 //         while (p.next_token() != json_token::END_ARRAY) {
 //           // JSON validation check
 //           if (json_token::ERROR == p.get_current_token()) { return false; }
@@ -736,7 +736,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path_size) &&
-          ctx.style == write_style::raw_style) {
+          ctx.style == write_style::RAW) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
         ctx.g.write_raw(p);
@@ -746,7 +746,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case (START_ARRAY, Nil) if style == FlattenStyle
       // case path 2
       else if (json_token::START_ARRAY == ctx.token && path_is_empty(ctx.path_size) &&
-               ctx.style == write_style::flatten_style) {
+               ctx.style == write_style::FLATTEN) {
         // flatten this array into the parent
         if (json_token::END_ARRAY != p.next_token()) {
           // JSON validation check
@@ -815,7 +815,7 @@ __device__ bool evaluate_path(json_parser& p,
           push_context(p.get_current_token(),
                        5,
                        ctx.g,
-                       write_style::flatten_style,
+                       write_style::FLATTEN,
                        ctx.path_ptr + 4,
                        ctx.path_size - 4);
         } else {
@@ -830,13 +830,13 @@ __device__ bool evaluate_path(json_parser& p,
                                    ctx.path_size,
                                    path_instruction_type::SUBSCRIPT,
                                    path_instruction_type::WILDCARD) &&
-               ctx.style != write_style::quoted_style) {
+               ctx.style != write_style::QUOTED) {
         // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-        write_style next_style = write_style::raw_style;
+        write_style next_style = write_style::RAW;
         switch (ctx.style) {
-          case write_style::raw_style: next_style = write_style::quoted_style; break;
-          case write_style::flatten_style: next_style = write_style::flatten_style; break;
-          case write_style::quoted_style: next_style = write_style::quoted_style;  // never happen
+          case write_style::RAW: next_style = write_style::QUOTED; break;
+          case write_style::FLATTEN: next_style = write_style::FLATTEN; break;
+          case write_style::QUOTED: next_style = write_style::QUOTED;  // never happen
         }
 
         // temporarily buffer child matches, the emitted json will need to be
@@ -898,7 +898,7 @@ __device__ bool evaluate_path(json_parser& p,
           push_context(p.get_current_token(),
                        7,
                        ctx.g,
-                       write_style::quoted_style,
+                       write_style::QUOTED,
                        ctx.path_ptr + 2,
                        ctx.path_size - 2);
         } else {
@@ -939,7 +939,7 @@ __device__ bool evaluate_path(json_parser& p,
         push_context(p.get_current_token(),
                      8,
                      ctx.g,
-                     write_style::quoted_style,
+                     write_style::QUOTED,
                      ctx.path_ptr + 2,
                      ctx.path_size - 2);
       }
@@ -1118,23 +1118,23 @@ rmm::device_uvector<path_instruction> construct_path_commands(
     auto const& [type, name, index] = inst;
     switch (type) {
       case path_instruction_type::SUBSCRIPT:
-        path_commands.emplace_back(path_instruction_type::SUBSCRIPT);
+        path_commands.emplace_back(path_instruction{path_instruction_type::SUBSCRIPT});
         break;
       case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction_type::WILDCARD);
+        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
         break;
       case path_instruction_type::KEY:
-        path_commands.emplace_back(path_instruction_type::KEY);
+        path_commands.emplace_back(path_instruction{path_instruction_type::KEY});
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();
         break;
       case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction_type::INDEX);
+        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
         path_commands.back().index = index;
         break;
       case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction_type::NAMED);
+        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
         path_commands.back().name =
           cudf::string_view(all_names_scalar.data() + name_pos, name.size());
         name_pos += name.size();
@@ -1160,108 +1160,35 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @returns A pair containing the result code and the output buffer.
  */
 __device__ thrust::pair<bool, size_t> get_json_object_single(
-__device__ thrust::pair<bool, json_generator> get_json_object_size_single(
   char const* input,
   cudf::size_type input_len,
-  cudf::device_span<path_instruction const> path_commands)
+  path_instruction const* path_commands_ptr,
+  int path_commands_size,
+  char* out_buf,
+  size_t out_buf_size)
 {
   json_parser j_parser(input, input_len);
-  json_generator generator(nullptr);
+  j_parser.next_token();
+  // JSON validation check
+  if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
 
-  // First step: preprocess sizes
-  bool success = parse_json_path(j_parser, path_commands, generator);
+  // First pass: preprocess sizes.
+  // Second pass: writes output.
+  // The generator automatically determines which pass based on `out_buf`.
+  // If `out_buf_size` is zero, pass in `nullptr` to avoid generator writing trash output.
+  json_generator generator((out_buf == nullptr || out_buf_size == 0) ? nullptr : out_buf);
 
-  if (!success) {
+  bool const success =
+    evaluate_path(j_parser, generator, write_style::RAW, path_commands_ptr, path_commands_size);
+
+  if (nullptr == out_buf && !success) {
     // generator may contain trash output, e.g.: generator writes some output,
     // then JSON format is invalid, the previous output becomes trash.
     // set output as zero to tell second step
     generator.set_output_len_zero();
   }
-  return {success, std::move(generator)};
-}
 
-/**
- * @brief Parse a single json string using the provided command buffer
- *
- *
- * @param input The incoming json string
- * @param input_len Size of the incoming json string
- * @param path_commands_ptr The command buffer to be applied to the string.
- * @param path_commands_size The command buffer size.
- * @param out_buf Buffer user to store the results of the query
- *                (nullptr in the size computation step)
- * @param out_buf_size Size of the output buffer
- * @returns A pair containing the result code and the output buffer.
- */
-__device__ thrust::pair<bool, json_generator> get_json_object_single(
-  char const* input,
-  cudf::size_type input_len,
-  cudf::device_span<path_instruction const> path_commands,
-  char* out_buf,
-  size_t out_buf_size)
-{
-  json_parser j_parser(input, input_len);
-  json_generator generator(actual_output);
-
-  if (!out_buf) {
-    // First step: preprocess sizes
-    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
-
-    if (!success) {
-      // generator may contain trash output, e.g.: generator writes some output,
-      // then JSON format is invalid, the previous output becomes trash.
-      // set output as zero to tell second step
-      generator.set_output_len_zero();
-    }
-    return {success, std::move(generator)};
-  } else {
-    // Second step: writes output
-    bool success = parse_json_path(j_parser, path_commands_ptr, path_commands_size, generator);
-    return {success, std::move(generator)};
-  }
-}
-
-/**
- * @brief Kernel for running the JSONPath query.
- *
- * This kernel operates in a 2-pass way. On the first pass it computes the
- * output sizes. On the second pass, it fills in the provided output buffers
- * (chars and validity).
- *
- * @param col Device view of the incoming string
- * @param commands JSONPath command buffer
- * @param output_offsets Buffer used to store the string offsets for the results
- *        of the query
- */
-template <int block_size>
-__launch_bounds__(block_size) CUDF_KERNEL
-  void get_json_object_size_kernel(cudf::column_device_view col,
-                                   cudf::device_span<path_instruction const> path_commands,
-                                   cudf::size_type* d_sizes,
-                                   cudf::detail::input_offsetalator output_offsets)
-{
-  auto tid          = cudf::detail::grid_1d::global_thread_id();
-  auto const stride = cudf::detail::grid_1d::grid_stride();
-
-  cudf::size_type warp_valid_count{0};
-
-  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
-  while (tid < col.size()) {
-    bool is_valid               = false;
-    cudf::string_view const str = col.element<cudf::string_view>(tid);
-    cudf::size_type output_size = 0;
-    if (str.size_bytes() > 0) {
-      // process one single row
-      auto [result, out] = get_json_object_size_single(str.data(), str.size_bytes(), path_commands);
-      output_size        = out.get_output_len();
-      if (result) { is_valid = true; }
-    }
-
-    d_sizes[tid] = output_size;
-
-    tid += stride;
-    active_threads = __ballot_sync(active_threads, tid < col.size());
-  }
+  return {success, generator.get_output_len()};
 }
 
 /**
@@ -1283,7 +1210,8 @@ __launch_bounds__(block_size) CUDF_KERNEL
 template <int block_size>
 __launch_bounds__(block_size) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
-                              cudf::device_span<path_instruction const> path_commands,
+                              path_instruction const* path_commands_ptr,
+                              int path_commands_size,
                               cudf::size_type* d_sizes,
                               cudf::detail::input_offsetalator output_offsets,
                               char* out_buf,
@@ -1367,9 +1295,15 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::detail::grid_1d const grid{input.size(), block_size};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
-  get_json_object_size_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr, path_commands, sizes.data(), d_offsets);
+  get_json_object_kernel<block_size>
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
+                                                                         path_commands.data(),
+                                                                         path_commands.size(),
+                                                                         sizes.data(),
+                                                                         d_offsets,
+                                                                         nullptr,
+                                                                         nullptr,
+                                                                         nullptr);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -1390,7 +1324,8 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *d_input_ptr,
-      path_commands,
+      path_commands.data(),
+      path_commands.size(),
       sizes.data(),
       d_offsets,
       chars.data(),
