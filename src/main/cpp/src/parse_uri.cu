@@ -582,7 +582,9 @@ uri_parts __device__ validate_uri(const char* str,
   }
 
   // if the first ':' is after the other tokens, this doesn't have a scheme or it is invalid
-  if (col != -1 && (slash == -1 || col < slash) && (hash == -1 || col < hash)) {
+  bool const has_scheme =
+    (col != -1) && ((slash == -1) || (col < slash)) && ((hash == -1) || (col < hash));
+  if (has_scheme) {
     // we have a scheme up to the :
     ret.scheme = {str, col};
     if (!validate_scheme(ret.scheme)) {
@@ -600,8 +602,15 @@ uri_parts __device__ validate_uri(const char* str,
     slash -= skip;
   }
 
-  // no more string to parse is an error
+  // no more string to parse is generally an error ...
   if (len <= 0) {
+    // unless we had no scheme
+    if (!has_scheme) {
+      // Entirely empty or we only had a fragment, which is a valid URI reference.
+      // This is equivalent to having a path that is present but empty, so mark it ok too
+      ret.valid |= (1 << static_cast<int>(URI_chunks::PATH));
+      return ret;
+    }
     ret.valid = 0;
     return ret;
   }
@@ -654,13 +663,6 @@ uri_parts __device__ validate_uri(const char* str,
       ret.authority = {&str[2],
                        next_slash == -1 ? question < 0 ? len - 2 : question - 2 : next_slash - 2};
       if (next_slash > 0) { ret.path = {str + next_slash, path_len - next_slash}; }
-
-      if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 &&
-          ret.fragment.size_bytes() == 0) {
-        // invalid! - but spark like to return things as long as you don't have illegal characters
-        // ret.valid = 0;
-        return ret;
-      }
 
       if (ret.authority.size_bytes() > 0) {
         auto ipv6_address = ret.authority.size_bytes() > 2 && *ret.authority.begin() == '[';
@@ -729,6 +731,7 @@ uri_parts __device__ validate_uri(const char* str,
       // path with no authority
       ret.path = {str, path_len};
     }
+
     if (!validate_path(ret.path)) {
       ret.valid = 0;
       return ret;
