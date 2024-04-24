@@ -143,14 +143,6 @@ std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view
   if (strings_count == 0) return cudf::make_empty_column(cudf::type_id::BOOL8);
 
   CUDF_EXPECTS(target.is_valid(stream), "Parameter target must be valid.");
-  if (target.size() == 0)  // empty target string returns true
-  {
-    auto const true_scalar = cudf::make_fixed_width_scalar<bool>(true, stream);
-    auto results = cudf::make_column_from_scalar(*true_scalar, strings.size(), stream, mr);
-    results->set_null_mask(cudf::detail::copy_bitmask(strings.parent(), stream, mr),
-                           strings.null_count());
-    return results;
-  }
 
   auto d_target       = cudf::string_view(target.data(), target.size());
   auto strings_column = cudf::column_device_view::create(strings.parent(), stream);
@@ -194,27 +186,40 @@ std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view co
 
   // benchmark measurements showed this to be faster for smaller strings
   auto pfn = [] __device__(cudf::string_view d_string, cudf::string_view d_target, int d) {
+    // printf("!!! in kernel, start\n");
     int n = d_string.length(), m = d_target.length();
+    // printf("!!! in kernel, n: %d, m: %d\n", n, m);
     for (int i = 0; i <= n - m - d; i++) {
+      // printf("!!! in kernel, i: %d\n", i);
       bool match = true;
       for (int j = 0; j < m; j++) {
+        // printf("!!! in kernel, j: %d\n", j);
         if (d_string[i + j] != d_target[j]) {
+          // printf("!!! in kernel, match 1: false\n");
           match = false;
           break;
         }
       }
       if (match) {
+        // printf("!!! in kernel, match 2: true\n");
         for (int j = 0; j < d; j++) {
+          // printf("!!! in kernel, j: %d\n", j);
           if (d_string[i + m + j] < '0' || d_string[i + m + j] > '9') {
+            // printf("!!! in kernel, match 3: false\n");
             match = false;
             break;
           }
         }
-        if (match) { return true; }
+        if (match) {
+          // printf("!!! in kernel, match 4: true\n");
+          return true;
+        }
       }
     }
+    // printf("!!! in kernel, return");
     return false;
   };
+  // printf("!!! before into string_digits_pattern_fn\n");
   return string_digits_pattern_fn(input, target, d, pfn, stream, mr);
 }
 
