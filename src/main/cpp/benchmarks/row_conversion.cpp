@@ -113,7 +113,7 @@ static void variable_or_fixed_width(nvbench::state& state)
       bytes_per_row += cudf::size_of(t);
     } else if (t.id() == cudf::type_id::STRING) {
       auto sc = cudf::strings_column_view(table->get_column(i));
-      string_bytes += sc.chars_size();
+      string_bytes += sc.chars_size(cudf::get_default_stream());
     }
   }
 
