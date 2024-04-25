@@ -65,15 +65,6 @@ constexpr int max_string_utf8_bytes = 20000000;
 constexpr int max_num_len = 1000;
 
 /**
- * whether allow tailing useless sub-string in JSON.
- *
- * If true, e.g., the following invalid JSON is allowed, because prefix {'k' :
- * 'v'} is valid.
- *   {'k' : 'v'}_extra_tail_sub_string
- */
-constexpr bool allow_tailing_sub_string = true;
-
-/**
  * JSON token enum
  */
 enum class json_token {
@@ -1289,14 +1280,9 @@ class json_parser {
           current_token_start_pos = curr_pos;
           parse_first_token_in_value();
         } else {
-          if (allow_tailing_sub_string) {
-            // previous token is not INIT, means already get a token; stack is
-            // empty; Successfully parsed. Note: ignore the tailing sub-string
-            curr_token = json_token::SUCCESS;
-          } else {
-            // not eof, has extra useless tailing characters.
-            curr_token = json_token::ERROR;
-          }
+          // previous token is not INIT, means already get a token; stack is
+          // empty; Successfully parsed. Note: ignore the tailing sub-string
+          curr_token = json_token::SUCCESS;
         }
       } else {
         // stack is non-empty
