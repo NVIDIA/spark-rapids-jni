@@ -602,16 +602,12 @@ uri_parts __device__ validate_uri(const char* str,
     slash -= skip;
   }
 
-  // no more string to parse is generally an error ...
+  // no more string to parse is generally an error, unless we had no scheme
   if (len <= 0) {
-    // unless we had no scheme
-    if (!has_scheme) {
-      // Entirely empty or we only had a fragment, which is a valid URI reference.
-      // This is equivalent to having a path that is present but empty, so mark it ok too
-      ret.valid |= (1 << static_cast<int>(URI_chunks::PATH));
-      return ret;
-    }
-    ret.valid = 0;
+    // If we had a scheme then this is entirely invalid.
+    // If no scheme then URI is entirely empty or we only had a fragment
+    // This is equivalent to having a path that is present but empty, so mark it ok
+    ret.valid = (static_cast<int>(!has_scheme) << static_cast<int>(URI_chunks::PATH));
     return ret;
   }
 

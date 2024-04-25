@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,7 +89,7 @@ public class ParseURI {
    * Parse path for each URI from the incoming column.
    *
    * @param URIColumn The input strings column in which each row contains a URI.
-   * @return A string column with query data extracted.
+   * @return A string column with the URI path extracted.
    */
   public static ColumnVector parseURIPath(ColumnView uriColumn) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";

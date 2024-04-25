@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -167,9 +167,9 @@ public class ParseURITest {
         URI uri = new URI(testData[i]);
         path = uri.getRawPath();
       } catch (URISyntaxException ex) {
-        // leave the scheme null if URI is invalid
+        // leave the path null if URI is invalid
       } catch (NullPointerException ex) {
-        // leave the scheme null if URI is null
+        // leave the path null if URI is null
       }
       expectedPathStrings[i] = path;
     }
