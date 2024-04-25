@@ -50,6 +50,8 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
+constexpr int rows_per_thread = 32;
+
 /**
  * write JSON style
  */
@@ -276,7 +278,12 @@ class json_generator {
     }
   }
 
-  __device__ void reset() { output_len = 0; }
+  __device__ void reset()
+  {
+    output_len          = 0;
+    array_depth         = 0;
+    is_curr_array_empty = true;
+  }
 
   __device__ inline size_t get_output_len() const { return output_len; }
   __device__ inline char* get_output_start_position() const { return output; }
@@ -913,50 +920,36 @@ __launch_bounds__(block_size) CUDF_KERNEL
   auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::detail::grid_1d::grid_stride();
 
-  cudf::size_type warp_valid_count{0};
+  int start_row_idx = tid * rows_per_thread;
+  int end_row_idx   = (tid + 1) * rows_per_thread;
 
-  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
-  while (tid < col.size()) {
-    bool is_valid               = false;
-    cudf::string_view const str = col.element<cudf::string_view>(tid);
-    if (str.size_bytes() > 0) {
-      char* dst = out_buf != nullptr ? out_buf + output_offsets[tid] : nullptr;
-      size_t const dst_size =
-        out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
+  auto active_threads = __ballot_sync(0xffff'ffffu, tid * rows_per_thread < col.size());
+  while (tid * rows_per_thread < col.size()) {
+    uint32_t valid_32_bits = 0;  // all bits are invalid initially
+    for (int row_idx = start_row_idx; row_idx < end_row_idx; ++row_idx) {
+      if (row_idx < col.size()) {  // check data bound
+        cudf::string_view const str = col.element<cudf::string_view>(row_idx);
+        if (str.size_bytes() > 0) {
+          char* dst = out_buf != nullptr ? out_buf + output_offsets[row_idx] : nullptr;
+          size_t const dst_size =
+            out_buf != nullptr ? output_offsets[row_idx + 1] - output_offsets[row_idx] : 0;
 
-      // process one single row
-      auto [result, output_size] = get_json_object_single(
-        str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
-      if (result) { is_valid = true; }
+          // process one single row
+          auto [result, output_size] = get_json_object_single(
+            str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
 
-      // filled in only during the precompute step. during the compute step, the
-      // offsets are fed back in so we do -not- want to write them out
-      if (out_buf == nullptr) { d_sizes[tid] = static_cast<cudf::size_type>(output_size); }
-    } else {
-      // valid JSON length is always greater than 0
-      // if `str` size len is zero, output len is 0 and `is_valid` is false
-      if (out_buf == nullptr) { d_sizes[tid] = 0; }
-    }
-
-    // validity filled in only during the output step
-    if (out_validity != nullptr) {
-      uint32_t mask = __ballot_sync(active_threads, is_valid);
-      // 0th lane of the warp writes the validity
-      if (!(tid % cudf::detail::warp_size)) {
-        out_validity[cudf::word_index(tid)] = mask;
-        warp_valid_count += __popc(mask);
+          // filled in only during the precompute step. during the compute step, the
+          // offsets are fed back in so we do -not- want to write them out
+          if (out_buf == nullptr) { d_sizes[row_idx] = static_cast<cudf::size_type>(output_size); }
+        } else {
+          // valid JSON length is always greater than 0
+          // if `str` size len is zero, output len is 0 and `is_valid` is false
+          if (out_buf == nullptr) { d_sizes[row_idx] = 0; }
+        }
       }
     }
 
     tid += stride;
-    active_threads = __ballot_sync(active_threads, tid < col.size());
-  }
-
-  // sum the valid counts across the whole block
-  if (out_valid_count != nullptr) {
-    cudf::size_type block_valid_count =
-      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
   }
 }
 
@@ -983,8 +976,8 @@ std::unique_ptr<cudf::column> get_json_object(
     input.size(), stream, rmm::mr::get_current_device_resource());
   auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
-  constexpr int block_size = 512;
-  cudf::detail::grid_1d const grid{input.size(), block_size};
+  constexpr int block_size = 128;
+  cudf::detail::grid_1d const grid{input.size(), block_size, rows_per_thread};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_kernel<block_size>
@@ -1008,7 +1001,7 @@ std::unique_ptr<cudf::column> get_json_object(
   // potential optimization : if we know that all outputs are valid, we could
   // skip creating the validity mask altogether
   rmm::device_buffer validity =
-    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
+    cudf::detail::create_null_mask(input.size(), cudf::mask_state::ALL_VALID, stream, mr);
 
   // compute results
   rmm::device_scalar<cudf::size_type> d_valid_count{0, stream};
@@ -1024,11 +1017,8 @@ std::unique_ptr<cudf::column> get_json_object(
       static_cast<cudf::bitmask_type*>(validity.data()),
       d_valid_count.data());
 
-  return make_strings_column(input.size(),
-                             std::move(offsets),
-                             chars.release(),
-                             input.size() - d_valid_count.value(stream),
-                             std::move(validity));
+  return make_strings_column(
+    input.size(), std::move(offsets), chars.release(), 0, std::move(validity));
 }
 
 }  // namespace detail
