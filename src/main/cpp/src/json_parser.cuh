@@ -1367,6 +1367,8 @@ class json_parser {
           current_token_start_pos = curr_pos;
           parse_first_token_in_value();
         } else {
+          // Allow tail useless sub-string in JSON, e.g.:
+          // The following invalid JSON is allowed: {'k' : 'v'}_extra_tail_sub_string
           // previous token is not INIT, means already get a token; stack is
           // empty; Successfully parsed. Note: ignore the tailing sub-string
           curr_token = json_token::SUCCESS;

@@ -918,12 +918,12 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
   // Second pass: writes output.
   // The generator automatically determines which pass based on `out_buf`.
   // If `out_buf_size` is zero, pass in `nullptr` to avoid generator writing trash output.
-  json_generator generator((out_buf == nullptr || out_buf_size == 0) ? nullptr : out_buf);
+  json_generator generator((out_buf_size == 0) ? nullptr : out_buf);
 
   bool const success = evaluate_path(
     j_parser, generator, write_style::RAW, {path_commands.data(), path_commands.size()});
 
-  if (nullptr == out_buf && !success) {
+  if (!success) {
     // generator may contain trash output, e.g.: generator writes some output,
     // then JSON format is invalid, the previous output becomes trash.
     // set output as zero to tell second step
@@ -956,11 +956,9 @@ __launch_bounds__(block_size) CUDF_KERNEL
                                    cudf::size_type* d_sizes,
                                    cudf::detail::input_offsetalator output_offsets)
 {
-  auto tid          = cudf::detail::grid_1d::global_thread_id();
-  auto const stride = cudf::detail::grid_1d::grid_stride();
+  auto tid = cudf::detail::grid_1d::global_thread_id();
 
-  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
-  while (tid < col.size()) {
+  if (tid < col.size()) {
     cudf::string_view const str = col.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
       // process one single row
@@ -975,9 +973,6 @@ __launch_bounds__(block_size) CUDF_KERNEL
       // if `str` size len is zero, output len is 0 and `is_valid` is false
       d_sizes[tid] = 0;
     }
-
-    tid += stride;
-    active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 }
 
