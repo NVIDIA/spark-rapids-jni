@@ -582,7 +582,9 @@ uri_parts __device__ validate_uri(const char* str,
   }
 
   // if the first ':' is after the other tokens, this doesn't have a scheme or it is invalid
-  if (col != -1 && (slash == -1 || col < slash) && (hash == -1 || col < hash)) {
+  bool const has_scheme =
+    (col != -1) && ((slash == -1) || (col < slash)) && ((hash == -1) || (col < hash));
+  if (has_scheme) {
     // we have a scheme up to the :
     ret.scheme = {str, col};
     if (!validate_scheme(ret.scheme)) {
@@ -600,9 +602,12 @@ uri_parts __device__ validate_uri(const char* str,
     slash -= skip;
   }
 
-  // no more string to parse is an error
+  // no more string to parse is generally an error, unless we had no scheme
   if (len <= 0) {
-    ret.valid = 0;
+    // If we had a scheme then this is entirely invalid.
+    // If no scheme then URI is entirely empty or we only had a fragment
+    // This is equivalent to having a path that is present but empty, so mark it ok
+    ret.valid = (static_cast<int>(!has_scheme) << static_cast<int>(URI_chunks::PATH));
     return ret;
   }
 
@@ -654,13 +659,6 @@ uri_parts __device__ validate_uri(const char* str,
       ret.authority = {&str[2],
                        next_slash == -1 ? question < 0 ? len - 2 : question - 2 : next_slash - 2};
       if (next_slash > 0) { ret.path = {str + next_slash, path_len - next_slash}; }
-
-      if (next_slash == -1 && ret.authority.size_bytes() == 0 && ret.query.size_bytes() == 0 &&
-          ret.fragment.size_bytes() == 0) {
-        // invalid! - but spark like to return things as long as you don't have illegal characters
-        // ret.valid = 0;
-        return ret;
-      }
 
       if (ret.authority.size_bytes() > 0) {
         auto ipv6_address = ret.authority.size_bytes() > 2 && *ret.authority.begin() == '[';
@@ -729,6 +727,7 @@ uri_parts __device__ validate_uri(const char* str,
       // path with no authority
       ret.path = {str, path_len};
     }
+
     if (!validate_path(ret.path)) {
       ret.valid = 0;
       return ret;
@@ -1003,4 +1002,11 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
   return detail::parse_uri(input, detail::URI_chunks::QUERY, query_match, stream, mr);
 }
 
+std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);
+}
 }  // namespace spark_rapids_jni
