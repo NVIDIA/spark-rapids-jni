@@ -33,7 +33,7 @@ enum class escape_style {
   // e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
   UNESCAPED,
 
-  // * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"'
+  // e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '"'
   // '"'
   ESCAPED
 };
