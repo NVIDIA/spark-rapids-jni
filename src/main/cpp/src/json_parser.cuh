@@ -16,6 +16,7 @@
 #pragma once
 
 #include "ftos_converter.cuh"
+#include "string_to_float_cudf.cuh"
 
 #include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/strings/string_view.hpp>
@@ -620,6 +621,11 @@ class json_parser {
     // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
     // used by checking the max string length
     int unescped_string_utf8_bytes = 0;
+    // Records bytes diff between escape writing and unescape writing
+    // e.g.: 4 chars string "\\n", unescped_string_utf8_bytes is 1,
+    // when `write_escaped_text`, will write out 4 chars: " \ n ",
+    // then this diff will be 4 - 1 = 3
+    int escped_string_utf8_bytes = 0;
 
     // skip left quote char
     if (!try_skip(str_pos, quote_char)) { return std::make_pair(false, nullptr); }
@@ -1627,8 +1633,8 @@ class json_parser {
         // 12345678900000000000.0 => 1.23456789E19, 1E308 => 1.0E308
         // 0.0000000000003 => 3.0E-13; 0.003 => 0.003; 0.0003 => 3.0E-4
         // 1.0E309 => "Infinity", -1E309 => "-Infinity"
-        double d_value =
-          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        double d_value = spark_rapids_jni::detail::stod(
+          cudf::string_view(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
       case json_token::VALUE_TRUE:
@@ -1712,8 +1718,8 @@ class json_parser {
         return number_token_len;
       case json_token::VALUE_NUMBER_FLOAT: {
         // number normalization:
-        double d_value =
-          cudf::strings::detail::stod(cudf::string_view(current_token_start_pos, number_token_len));
+        double d_value = spark_rapids_jni::detail::stod(
+          cudf::string_view(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
       case json_token::VALUE_TRUE:
