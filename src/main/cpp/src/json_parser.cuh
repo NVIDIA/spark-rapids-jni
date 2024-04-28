@@ -349,7 +349,7 @@ class json_parser {
    */
   __device__ inline void parse_single_quoted_string()
   {
-    auto [success, end_char_pos] = match_unescaped_string(curr_pos, '\'', escape_style::UNESCAPED);
+    auto [success, end_char_pos] = match_unescaped_string(curr_pos, '\'');
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::VALUE_STRING;
@@ -363,7 +363,7 @@ class json_parser {
    */
   __device__ inline void parse_double_quoted_string()
   {
-    auto [success, end_char_pos] = match_unescaped_string(curr_pos, '\"', escape_style::UNESCAPED);
+    auto [success, end_char_pos] = match_unescaped_string(curr_pos, '\"');
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::VALUE_STRING;
@@ -614,21 +614,12 @@ class json_parser {
   }
 
   __device__ inline std::pair<bool, char const*> match_unescaped_string(char const* str_pos,
-                                                                        char const quote_char,
-                                                                        escape_style w_style)
+                                                                        char const quote_char)
   {
     // Records string/field name token utf8 bytes size after unescaped
     // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
     // used by checking the max string length
     int unescped_string_utf8_bytes = 0;
-    // Records bytes diff between escape writing and unescape writing
-    // e.g.: 4 chars string "\\n", unescped_string_utf8_bytes is 1,
-    // when `write_escaped_text`, will write out 4 chars: " \ n ",
-    // then this diff will be 4 - 1 = 3
-    int escped_string_utf8_bytes = 0;
-
-    // write the first " if write style is escaped
-    if (escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
 
     // skip left quote char
     if (!try_skip(str_pos, quote_char)) { return std::make_pair(false, nullptr); }
@@ -647,18 +638,9 @@ class json_parser {
           return std::make_pair(false, nullptr);
         }
 
-        // write the end " if write style is escaped
-        if (escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
-
         return std::make_pair(true, str_pos);
       } else if (v >= 0 && v < 32) {
         // path 2: unescaped control char
-
-        // copy if enabled, escape mode, write more chars
-        if (escape_style::ESCAPED == w_style) {
-          int escape_chars = escape_char(*str_pos, nullptr);
-          escped_string_utf8_bytes += (escape_chars - 1);
-        }
 
         str_pos++;
         unescped_string_utf8_bytes++;
@@ -673,17 +655,13 @@ class json_parser {
                                   const_null_ptr,
                                   nullptr,
                                   null_ptr,
-                                  w_style,
+                                  escape_style::UNESCAPED,
                                   escped_string_utf8_bytes,
                                   unescped_string_utf8_bytes)) {
           return std::make_pair(false, nullptr);
         }
       } else {
         // path 4: safe code point
-
-        // handle single unescaped " char; happens when string is quoted by char '
-        // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
-        if ('\"' == c && escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
 
         if (!try_skip_safe_code_point(str_pos, c)) { return std::make_pair(false, nullptr); }
         unescped_string_utf8_bytes++;
