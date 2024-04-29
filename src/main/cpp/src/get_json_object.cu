@@ -323,8 +323,7 @@ __device__ inline bool path_match_elements(cudf::device_span<path_instruction co
 __device__ inline thrust::tuple<bool, int> path_match_index(
   cudf::device_span<path_instruction const> path)
 {
-  auto match =
-    path_match_elements(path, path_instruction_type::SUBSCRIPT, path_instruction_type::INDEX);
+  auto match = path_match_element(path, path_instruction_type::INDEX);
   if (match) {
     return thrust::make_tuple(true, path.data()[0].index);
   } else {
@@ -349,7 +348,7 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   auto match =
     path_match_elements(path, path_instruction_type::INDEX, path_instruction_type::WILDCARD);
   if (match) {
-    return thrust::make_tuple(true, path.data()[1].index);
+    return thrust::make_tuple(true, path.data()[0].index);
   } else {
     return thrust::make_tuple(false, 0);
   }
