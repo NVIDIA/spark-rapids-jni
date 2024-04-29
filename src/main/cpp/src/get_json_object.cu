@@ -15,6 +15,7 @@
  */
 
 #include "get_json_object.hpp"
+#include "json_parser.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -54,6 +55,19 @@ namespace detail {
  * write JSON style
  */
 enum class write_style { raw_style, quoted_style, flatten_style };
+
+__device__ inline const char * get_name(write_style style) {
+  switch (style) {
+    case write_style::raw_style:
+      return "RAW";
+    case write_style::quoted_style:
+      return "QUOTED";
+    case write_style::flatten_style:
+      return "FLATTEN";
+    default:
+      return "UNKNOWN";
+  }
+}
 
 /**
  * path instruction
@@ -276,8 +290,6 @@ class json_generator {
     }
   }
 
-  __device__ void reset() { output_len = 0; }
-
   __device__ inline size_t get_output_len() const { return output_len; }
   __device__ inline char* get_output_start_position() const { return output; }
   __device__ inline char* get_current_output_position() const { return output + output_len; }
@@ -413,6 +425,8 @@ __device__ bool evaluate_path(json_parser& p,
                                            write_style _style,
                                            path_instruction const* _path_ptr,
                                            int _path_size) {
+    //printf("Put in ctx at %i is %s task_is_done false path_size %i style %s\n", 
+    //    stack_pos, get_name(_token), _path_size, get_name(_style));
     // no need to check stack is full
     // because Spark-Rapids already checked maximum length of `path_instruction`
     auto& ctx          = stack[stack_pos];
@@ -434,13 +448,17 @@ __device__ bool evaluate_path(json_parser& p,
 
   while (stack_pos > 0) {
     auto& ctx = stack[stack_pos - 1];
+    //printf("ctx at %i is %s task_is_done %s path_size %i style %s\n", stack_pos - 1, get_name(ctx.token), 
+    //    ctx.task_is_done ? "true" : "false", ctx.path_size, get_name(ctx.style));
     if (!ctx.task_is_done) {
+      //printf("TASK_PATH IS NOT DONE\n");
       // task is not done.
 
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path_size) &&
           ctx.style == write_style::raw_style) {
+        //printf("PATH 1\n");
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
         ctx.g.write_raw(p);
@@ -451,6 +469,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 2
       else if (json_token::START_ARRAY == ctx.token && path_is_empty(ctx.path_size) &&
                ctx.style == write_style::flatten_style) {
+        //printf("PATH 2\n");
         // flatten this array into the parent
         if (json_token::END_ARRAY != p.next_token()) {
           // JSON validation check
@@ -466,6 +485,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path_size)) {
+        //printf("PATH 3\n");
         // general case: just copy the child tree verbatim
         if (!(ctx.g.copy_current_structure(p))) {
           // JSON validation check
@@ -478,6 +498,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                thrust::get<0>(path_match_named(ctx.path_ptr, ctx.path_size))) {
+        //printf("PATH 4\n");
         if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
@@ -554,6 +575,8 @@ __device__ bool evaluate_path(json_parser& p,
                                    ctx.path_size,
                                    path_instruction_type::WILDCARD,
                                    path_instruction_type::WILDCARD)) {
+
+        //printf("PATH 5\n");
         // special handling for the non-structure preserving double wildcard
         // behavior in Hive
         if (ctx.is_first_enter) {
@@ -580,6 +603,7 @@ __device__ bool evaluate_path(json_parser& p,
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::WILDCARD) &&
                ctx.style != write_style::quoted_style) {
+        //printf("PATH 6\n");
         // retain Flatten, otherwise use Quoted... cannot use Raw within an array
         write_style next_style = write_style::raw_style;
         switch (ctx.style) {
@@ -629,6 +653,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path_ptr, ctx.path_size, path_instruction_type::WILDCARD)) {
+        //printf("PATH 7\n");
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
           ctx.g.write_start_array();
@@ -654,6 +679,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 8
       else if (json_token::START_ARRAY == ctx.token &&
                thrust::get<0>(path_match_index_wildcard(ctx.path_ptr, ctx.path_size))) {
+        //printf("PATH 8\n");
         int idx = thrust::get<1>(path_match_index_wildcard(ctx.path_ptr, ctx.path_size));
 
         p.next_token();
@@ -689,6 +715,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 9
       else if (json_token::START_ARRAY == ctx.token &&
                thrust::get<0>(path_match_index(ctx.path_ptr, ctx.path_size))) {
+        //printf("PATH 9\n");
         int idx = thrust::get<1>(path_match_index(ctx.path_ptr, ctx.path_size));
 
         p.next_token();
@@ -718,6 +745,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case _ =>
       // case path 12
       else {
+        //printf("PATH 12\n");
         if (!p.try_skip_children()) { return false; }
         // default case path, return false for this task
         ctx.dirty        = 0;
@@ -725,6 +753,7 @@ __device__ bool evaluate_path(json_parser& p,
       }
     } else {
       // current context is done.
+      //printf("TASK_PATH/CONTEXT IS NOT DONE\n");
 
       // pop current top context
       stack_pos--;
@@ -852,14 +881,13 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @returns A pair containing the result code and the output buffer.
  */
 __device__ thrust::pair<bool, size_t> get_json_object_single(
-  char const* input,
-  cudf::size_type input_len,
+  char_range input,
   path_instruction const* path_commands_ptr,
   int path_commands_size,
   char* out_buf,
   size_t out_buf_size)
 {
-  json_parser j_parser(input, input_len);
+  json_parser j_parser(input);
   j_parser.next_token();
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
@@ -900,7 +928,8 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
  * @param options Options controlling behavior
  */
 template <int block_size>
-__launch_bounds__(block_size) CUDF_KERNEL
+__launch_bounds__(block_size, 1)
+  CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
                               path_instruction const* path_commands_ptr,
                               int path_commands_size,
@@ -925,8 +954,8 @@ __launch_bounds__(block_size) CUDF_KERNEL
         out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
-      auto [result, output_size] = get_json_object_single(
-        str.data(), str.size_bytes(), path_commands_ptr, path_commands_size, dst, dst_size);
+      auto [result, output_size] = get_json_object_single(str,
+        path_commands_ptr, path_commands_size, dst, dst_size);
       if (result) { is_valid = true; }
 
       // filled in only during the precompute step. during the compute step, the
@@ -987,6 +1016,7 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::detail::grid_1d const grid{input.size(), block_size};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
+  //std::cout << "\t\t!!!!!!COMPUTE OFFSETS AND SIZES!!!!!!" << std::endl;
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
                                                                          path_commands.data(),
@@ -1012,6 +1042,8 @@ std::unique_ptr<cudf::column> get_json_object(
 
   // compute results
   rmm::device_scalar<cudf::size_type> d_valid_count{0, stream};
+
+  //std::cout << "\t\t!!!!COMPUTE OUTPUT!!!!" << std::endl;
 
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
