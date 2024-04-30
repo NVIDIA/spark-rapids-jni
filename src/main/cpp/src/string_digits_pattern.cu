@@ -21,6 +21,7 @@
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
+#include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/detail/utilities.hpp>
 #include <cudf/strings/find.hpp>
 #include <cudf/strings/string_view.cuh>
@@ -135,6 +136,8 @@ template <typename BoolFunction>
 std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view const& strings,
                                                        cudf::string_scalar const& target,
                                                        int const d,
+                                                       int const start,
+                                                       int const end,
                                                        BoolFunction pfn,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::mr::device_memory_resource* mr)
@@ -157,17 +160,18 @@ std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view
   auto results_view = results->mutable_view();
   auto d_results    = results_view.data<bool>();
   // set the bool values by evaluating the passed function
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(strings_count),
-                    d_results,
-                    [d_strings, pfn, d_target, d] __device__(cudf::size_type idx) {
-                      if (!d_strings.is_null(idx)) {
-                        // printf("!!! in kernel, idx: %d\n", idx);
-                        return bool{pfn(d_strings.element<cudf::string_view>(idx), d_target, d)};
-                      }
-                      return false;
-                    });
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(strings_count),
+    d_results,
+    [d_strings, pfn, d_target, d, start, end] __device__(cudf::size_type idx) {
+      if (!d_strings.is_null(idx)) {
+        // printf("!!! in kernel, idx: %d\n", idx);
+        return bool{pfn(d_strings.element<cudf::string_view>(idx), d_target, d, start, end)};
+      }
+      return false;
+    });
   results->set_null_count(strings.null_count());
   return results;
 }
@@ -175,6 +179,8 @@ std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view
 std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view const& input,
                                                     cudf::string_scalar const& target,
                                                     int const d,
+                                                    int const start,
+                                                    int const end,
                                                     rmm::cuda_stream_view stream,
                                                     rmm::mr::device_memory_resource* mr)
 {
@@ -185,7 +191,8 @@ std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view co
   // }
 
   // benchmark measurements showed this to be faster for smaller strings
-  auto pfn = [] __device__(cudf::string_view d_string, cudf::string_view d_target, int d) {
+  auto pfn = [] __device__(
+               cudf::string_view d_string, cudf::string_view d_target, int d, int start, int end) {
     // printf("!!! in kernel, start\n");
     int n = d_string.length(), m = d_target.length();
     // printf("!!! in kernel, n: %d, m: %d\n", n, m);
@@ -194,17 +201,22 @@ std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view co
       bool match = true;
       for (int j = 0; j < m; j++) {
         // printf("!!! in kernel, j: %d\n", j);
-        if (d_string[i + j] != d_target[j]) {
+        auto c        = d_string[i + j];
+        auto c_target = d_target[j];
+        if (c != c_target) {
           // printf("!!! in kernel, match 1: false\n");
           match = false;
           break;
         }
       }
+
       if (match) {
         // printf("!!! in kernel, match 2: true\n");
         for (int j = 0; j < d; j++) {
-          // printf("!!! in kernel, j: %d\n", j);
-          if (d_string[i + m + j] < '0' || d_string[i + m + j] > '9') {
+          // printf("!!! in kernel, d_string[i+m+j]: %d\n", d_string[i+m+j]);
+          auto code_point = cudf::strings::detail::utf8_to_codepoint(d_string[i + m + j]);
+          // printf("!!! in kernel, code_point: %d\n", code_point);
+          if (code_point < start || code_point > end) {
             // printf("!!! in kernel, match 3: false\n");
             match = false;
             break;
@@ -220,7 +232,7 @@ std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view co
     return false;
   };
   // printf("!!! before into string_digits_pattern_fn\n");
-  return string_digits_pattern_fn(input, target, d, pfn, stream, mr);
+  return string_digits_pattern_fn(input, target, d, start, end, pfn, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

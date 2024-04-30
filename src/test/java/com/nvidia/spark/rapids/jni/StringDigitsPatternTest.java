@@ -33,7 +33,19 @@ public class StringDigitsPatternTest {
         "abc123", "aabc123", "aabc12", "abc1232", "aabc1232");
         Scalar pattern = Scalar.fromString("abc");
         ColumnVector expected = ColumnVector.fromBooleans(true, true, false, true, true);
-        ColumnVector actual = StringDigitsPattern.stringDigitsPattern(inputCv, pattern, d)) {
+        ColumnVector actual = StringDigitsPattern.stringDigitsPattern(inputCv, pattern, d, 48, 57)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void stringDigitsPatternChineseTest() {
+    int d = 2;
+    try (ColumnVector inputCv = ColumnVector.fromStrings(
+        "数据砖块", "火花-迅速英伟达", "英伟达Nvidia", "火花-迅速");
+        Scalar pattern = Scalar.fromString("英");
+        ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false);
+        ColumnVector actual = StringDigitsPattern.stringDigitsPattern(inputCv, pattern, d, 19968, 40869)) {
       assertColumnsAreEqual(expected, actual);
     }
   }

@@ -34,6 +34,8 @@ std::unique_ptr<cudf::column> string_digits_pattern(
   cudf::strings_column_view const& input,
   cudf::string_scalar const& target,
   int const d,
+  int const start,
+  int const end,
   rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 }  // namespace spark_rapids_jni

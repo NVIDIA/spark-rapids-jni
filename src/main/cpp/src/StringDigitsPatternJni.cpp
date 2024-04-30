@@ -22,7 +22,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_stringDigitsPattern(
-  JNIEnv* env, jclass, jlong column_view, jlong target, jint d)
+  JNIEnv* env, jclass, jlong column_view, jlong target, jint d, jint start, jint end)
 {
   JNI_NULL_CHECK(env, column_view, "input column is null", 0);
   JNI_NULL_CHECK(env, target, "target is null", 0);
@@ -36,7 +36,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_str
     cudf::column_view* cv = reinterpret_cast<cudf::column_view*>(column_view);
     cudf::strings_column_view scv(*cv);
     cudf::string_scalar* ss_scalar = reinterpret_cast<cudf::string_scalar*>(target);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::string_digits_pattern(scv, *ss_scalar, d));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::string_digits_pattern(scv, *ss_scalar, d, start, end));
   }
   CATCH_STD(env, 0);
 }
