@@ -853,8 +853,12 @@ class json_parser {
 
           // for both unescaped/escaped writes corresponding utf8 bytes, no need
           // to pass in write style
-          return try_skip_unicode(
-            str_pos, to_match_str_pos, to_match_str_end, copy_dest, unescped_string_utf8_bytes);
+          return try_skip_unicode(str_pos,
+                                  to_match_str_pos,
+                                  to_match_str_end,
+                                  copy_dest,
+                                  unescped_string_utf8_bytes,
+                                  escped_string_utf8_bytes);
         default:
           // path 3: invalid
           return false;
@@ -986,7 +990,8 @@ class json_parser {
                                    char const*& to_match_str_pos,
                                    char const* const to_match_str_end,
                                    char*& copy_dest,
-                                   int& unescped_string_utf8_bytes)
+                                   int& unescped_string_utf8_bytes,
+                                   int& escped_string_utf8_bytes)
   {
     // already parsed u
     bool is_success = try_skip_hex(str_pos) && try_skip_hex(str_pos) && try_skip_hex(str_pos) &&
@@ -1001,6 +1006,7 @@ class json_parser {
       char buff[4];
       cudf::size_type bytes = from_char_utf8(utf_char, buff);
       unescped_string_utf8_bytes += bytes;
+      escped_string_utf8_bytes += bytes;
 
       if (nullptr != copy_dest) {
         for (cudf::size_type i = 0; i < bytes; i++) {
