@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,30 +24,44 @@ set -e
 SCRIPTDIR=$(cd $(dirname $0); pwd)
 
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
-CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
 export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
+export DOCKER_BUILD_EXTRA_ARGS="--platform=linux/amd64 --build-arg CMAKE_ARCH=x86_64"
+profiles="source-javadoc"
+CUDA_VER=${CUDA_VER:-cuda11}
+USE_SANITIZER=${USE_SANITIZER:-ON}
+BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
   exit 1
 fi
 
-_CUDF_CLEAN_SKIP=""
-# if ccache is enabled and libcudf.clean.skip not provided
-# by the user remove the cpp build directory
-#
-if [[ "$CCACHE_DISABLE" != "1" ]]; then
-  if [[ ! "$*" =~ " -Dlibcudf.clean.skip=" ]]; then
-    # Don't skip clean if ccache is enabled
-    # unless the user overrides
-    _CUDF_CLEAN_SKIP="-Dlibcudf.clean.skip=false"
-  fi
+case $(uname -m) in
+  x86_64|amd64)
+    arch=amd64;;
+  aarch64|arm64)
+    arch=arm64;;
+  *)
+    echo "Unsupported CPU architecture"; exit 1;;
+esac
+
+# Set env for arm64 build
+if [ "$arch" == "arm64" ]; then
+  profiles="${profiles},arm64"
+  USE_GDS="OFF"
+  USE_SANITIZER="ON"
+  BUILD_FAULTINJ="OFF"
+  export DOCKER_BUILD_EXTRA_ARGS="--platform=linux/arm64 --build-arg CMAKE_ARCH=aarch64"
 fi
 
+git submodule update --init --recursive
+
 $SCRIPTDIR/run-in-docker mvn \
+    -P${profiles} \
+    -Dlibcudf.build.configure=true \
     -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
-    -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=$CUDF_USE_PER_THREAD_DEFAULT_STREAM \
-    -DUSE_GDS=$USE_GDS \
-    $_CUDF_CLEAN_SKIP \
+    -DUSE_GDS=$USE_GDS -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
+    -DBUILD_TESTS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
+    -DUSE_SANITIZER=${USE_SANITIZER} \
     "$@"
