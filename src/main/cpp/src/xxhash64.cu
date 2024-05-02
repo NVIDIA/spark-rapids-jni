@@ -22,6 +22,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cuda/functional>
 #include <thrust/tabulate.h>
@@ -330,7 +331,7 @@ class device_row_hasher {
 std::unique_ptr<cudf::column> xxhash64(cudf::table_view const& input,
                                        int64_t _seed,
                                        rmm::cuda_stream_view stream,
-                                       rmm::mr::device_memory_resource* mr)
+                                       rmm::device_async_resource_ref mr)
 {
   hash_value_type seed = static_cast<hash_value_type>(_seed);
 

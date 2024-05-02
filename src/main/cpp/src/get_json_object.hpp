@@ -21,6 +21,8 @@
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
+#include <rmm/resource_ref.hpp>
+
 #include <thrust/optional.h>
 #include <thrust/pair.h>
 #include <thrust/scan.h>
@@ -45,7 +47,7 @@ enum class path_instruction_type { SUBSCRIPT, WILDCARD, KEY, INDEX, NAMED };
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni

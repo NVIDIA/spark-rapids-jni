@@ -38,6 +38,7 @@
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cooperative_groups.h>
 #include <cuda/barrier>
@@ -1213,7 +1214,7 @@ static std::unique_ptr<column> fixed_width_convert_to_rows(
   const scalar& zero,
   const scalar& scalar_size_per_row,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   int64_t const total_allocation = size_per_row * num_rows;
   // We made a mistake in the split somehow
@@ -1459,7 +1460,7 @@ batch_data build_batches(size_type num_rows,
                          RowSize row_sizes,
                          bool all_fixed_width,
                          rmm::cuda_stream_view stream,
-                         rmm::mr::device_memory_resource* mr)
+                         rmm::device_async_resource_ref mr)
 {
   auto const total_size = thrust::reduce(rmm::exec_policy(stream), row_sizes, row_sizes + num_rows);
   auto const num_batches = static_cast<int32_t>(
@@ -1758,7 +1759,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   column_info_s const& column_info,
   std::optional<rmm::device_uvector<cudf::detail::input_offsetalator>> variable_width_offsets,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   int device_id;
   CUDF_CUDA_TRY(cudaGetDevice(&device_id));
@@ -1989,7 +1990,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
  */
 std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
                                                      rmm::cuda_stream_view stream,
-                                                     rmm::mr::device_memory_resource* mr)
+                                                     rmm::device_async_resource_ref mr)
 {
   auto const num_columns = tbl.num_columns();
   auto const num_rows    = tbl.num_rows();
@@ -2051,7 +2052,7 @@ std::vector<std::unique_ptr<column>> convert_to_rows(table_view const& tbl,
 }
 
 std::vector<std::unique_ptr<column>> convert_to_rows_fixed_width_optimized(
-  table_view const& tbl, rmm::cuda_stream_view stream, rmm::mr::device_memory_resource* mr)
+  table_view const& tbl, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
   auto const num_columns = tbl.num_columns();
 
@@ -2145,7 +2146,7 @@ void fixup_null_counts(std::vector<std::unique_ptr<column>>& output_columns,
 std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
                                          std::vector<data_type> const& schema,
                                          rmm::cuda_stream_view stream,
-                                         rmm::mr::device_memory_resource* mr)
+                                         rmm::device_async_resource_ref mr)
 {
   // verify that the types are what we expect
   column_view child    = input.child();
@@ -2208,7 +2209,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
                                                size_type num_rows,
                                                bool include_nm,
                                                rmm::cuda_stream_view stream,
-                                               rmm::mr::device_memory_resource* mr) {
+                                               rmm::device_async_resource_ref mr) {
       auto column =
         make_fixed_width_column(type,
                                 num_rows,
@@ -2444,7 +2445,7 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
 std::unique_ptr<table> convert_from_rows_fixed_width_optimized(lists_column_view const& input,
                                                                std::vector<data_type> const& schema,
                                                                rmm::cuda_stream_view stream,
-                                                               rmm::mr::device_memory_resource* mr)
+                                                               rmm::device_async_resource_ref mr)
 {
   // verify that the types are what we expect
   column_view child    = input.child();

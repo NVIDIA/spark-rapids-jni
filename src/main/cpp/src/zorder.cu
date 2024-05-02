@@ -23,6 +23,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cuda/functional>
 #include <thrust/for_each.h>
@@ -137,7 +138,7 @@ namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> interleave_bits(cudf::table_view const& tbl,
                                               rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr)
+                                              rmm::device_async_resource_ref mr)
 {
   auto num_columns = tbl.num_columns();
   CUDF_EXPECTS(num_columns > 0, "The input table must have at least one column.");
@@ -224,7 +225,7 @@ std::unique_ptr<cudf::column> interleave_bits(cudf::table_view const& tbl,
 std::unique_ptr<cudf::column> hilbert_index(int32_t const num_bits_per_entry,
                                             cudf::table_view const& tbl,
                                             rmm::cuda_stream_view stream,
-                                            rmm::mr::device_memory_resource* mr)
+                                            rmm::device_async_resource_ref mr)
 {
   auto const num_rows    = tbl.num_rows();
   auto const num_columns = tbl.num_columns();

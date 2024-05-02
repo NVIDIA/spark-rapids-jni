@@ -31,6 +31,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cuda/functional>
 #include <thrust/logical.h>
@@ -225,7 +226,7 @@ std::pair<int, int> get_bloom_filter_stride(int bloom_filter_longs)
 std::unique_ptr<cudf::list_scalar> bloom_filter_create(int num_hashes,
                                                        int bloom_filter_longs,
                                                        rmm::cuda_stream_view stream,
-                                                       rmm::mr::device_memory_resource* mr)
+                                                       rmm::device_async_resource_ref mr)
 {
   auto [bloom_filter_size, buf_size] = get_bloom_filter_stride(bloom_filter_longs);
 
@@ -276,7 +277,7 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
 
 std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& bloom_filters,
                                                       rmm::cuda_stream_view stream,
-                                                      rmm::mr::device_memory_resource* mr)
+                                                      rmm::device_async_resource_ref mr)
 {
   // unpack the bloom filter
   cudf::lists_column_view lcv(bloom_filters);
@@ -339,7 +340,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& b
 std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                                  cudf::device_span<uint8_t const> bloom_filter,
                                                  rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource* mr)
+                                                 rmm::device_async_resource_ref mr)
 {
   // unpack the bloom filter
   auto [header, buffer, bloom_filter_bits] = unpack_bloom_filter(bloom_filter, stream);
@@ -368,7 +369,7 @@ std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
 std::unique_ptr<cudf::column> bloom_filter_probe(cudf::column_view const& input,
                                                  cudf::list_scalar& bloom_filter,
                                                  rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource* mr)
+                                                 rmm::device_async_resource_ref mr)
 {
   return bloom_filter_probe(input, bloom_filter.view(), stream, mr);
 }

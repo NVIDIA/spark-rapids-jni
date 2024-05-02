@@ -30,6 +30,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cuda/functional>
 
@@ -877,7 +878,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                                   URI_chunks chunk,
                                   std::optional<strings_column_view const> query_match,
                                   rmm::cuda_stream_view stream,
-                                  rmm::mr::device_memory_resource* mr)
+                                  rmm::device_async_resource_ref mr)
 {
   size_type strings_count = input.size();
   if (strings_count == 0) { return make_empty_column(type_id::STRING); }
@@ -955,7 +956,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
 
 std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
                                               rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr)
+                                              rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, std::nullopt, stream, mr);
@@ -963,7 +964,7 @@ std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
 
 std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::parse_uri(input, detail::URI_chunks::HOST, std::nullopt, stream, mr);
@@ -971,7 +972,7 @@ std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
 
 std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr)
+                                           rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
@@ -980,7 +981,7 @@ std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
 std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
                                                  std::string const& query_match,
                                                  rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource* mr)
+                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -994,7 +995,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
 std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
                                                  cudf::strings_column_view const& query_match,
                                                  rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource* mr)
+                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   CUDF_EXPECTS(input.size() == query_match.size(), "Query column must be the same size as input!");
@@ -1004,7 +1005,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
 
 std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
                                           rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);

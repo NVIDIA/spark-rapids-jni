@@ -27,6 +27,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <thrust/binary_search.h>
 
@@ -95,7 +96,7 @@ auto convert_timestamp_tz(column_view const& input,
                           size_type tz_index,
                           bool to_utc,
                           rmm::cuda_stream_view stream,
-                          rmm::mr::device_memory_resource* mr)
+                          rmm::device_async_resource_ref mr)
 {
   // get the fixed transitions
   auto const ft_cdv_ptr        = column_device_view::create(transitions.column(0), stream);
@@ -127,7 +128,7 @@ std::unique_ptr<column> convert_timestamp(column_view const& input,
                                           size_type tz_index,
                                           bool to_utc,
                                           rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+                                          rmm::device_async_resource_ref mr)
 {
   auto const type = input.type().id();
 
@@ -149,7 +150,7 @@ std::unique_ptr<column> convert_timestamp_to_utc(column_view const& input,
                                                  table_view const& transitions,
                                                  size_type tz_index,
                                                  rmm::cuda_stream_view stream,
-                                                 rmm::mr::device_memory_resource* mr)
+                                                 rmm::device_async_resource_ref mr)
 {
   return convert_timestamp(input, transitions, tz_index, true, stream, mr);
 }
@@ -158,7 +159,7 @@ std::unique_ptr<column> convert_utc_timestamp_to_timezone(column_view const& inp
                                                           table_view const& transitions,
                                                           size_type tz_index,
                                                           rmm::cuda_stream_view stream,
-                                                          rmm::mr::device_memory_resource* mr)
+                                                          rmm::device_async_resource_ref mr)
 {
   return convert_timestamp(input, transitions, tz_index, false, stream, mr);
 }

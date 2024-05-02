@@ -31,6 +31,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <cuda/std/climits>
 #include <cuda/std/limits>
@@ -180,7 +181,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
   template <typename T, std::enable_if_t<cudf::is_fixed_point<T>()>* = nullptr>
   std::unique_ptr<column> operator()(column_view const& input,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
+                                     rmm::device_async_resource_ref mr) const
   {
     using DecimalType = device_storage_type_t<T>;  // underlying value type
 
@@ -199,7 +200,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
   template <typename T, std::enable_if_t<not cudf::is_fixed_point<T>()>* = nullptr>
   std::unique_ptr<column> operator()(column_view const&,
                                      rmm::cuda_stream_view,
-                                     rmm::mr::device_memory_resource*) const
+                                     rmm::device_async_resource_ref) const
   {
     CUDF_FAIL("Values for decimal_to_non_ansi_string function must be a decimal type.");
   }
@@ -209,7 +210,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
 
 std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
                                                    rmm::cuda_stream_view stream,
-                                                   rmm::mr::device_memory_resource* mr)
+                                                   rmm::device_async_resource_ref mr)
 {
   if (input.is_empty()) return make_empty_column(type_id::STRING);
   return type_dispatcher(input.type(), dispatch_decimal_to_non_ansi_string_fn{}, input, stream, mr);
@@ -221,7 +222,7 @@ std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
 
 std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
                                                    rmm::cuda_stream_view stream,
-                                                   rmm::mr::device_memory_resource* mr)
+                                                   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::decimal_to_non_ansi_string(input, stream, mr);

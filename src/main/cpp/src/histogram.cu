@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,8 @@
 #include <cudf/reduction/detail/histogram.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
+
+#include <rmm/resource_ref.hpp>
 
 //
 #include <thrust/binary_search.h>
@@ -170,7 +172,7 @@ struct percentile_dispatcher {
                          bool has_null,
                          cudf::size_type num_histograms,
                          rmm::cuda_stream_view stream,
-                         rmm::mr::device_memory_resource* mr) const
+                         rmm::device_async_resource_ref mr) const
   {
     // Returns all nulls for totally empty input.
     if (data.size() == 0 || percentages.size() == 0) {
@@ -256,7 +258,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                            cudf::size_type num_histograms,
                                            cudf::size_type num_percentages,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr)
+                                           rmm::device_async_resource_ref mr)
 {
   if (input->size() == 0) {
     return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
@@ -283,7 +285,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                                                         cudf::column_view const& frequencies,
                                                         bool output_as_lists,
                                                         rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource* mr)
+                                                        rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(
     !frequencies.has_nulls(), "The input frequencies must not have nulls.", std::invalid_argument);
@@ -429,7 +431,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
                                                         std::vector<double> const& percentages,
                                                         bool output_as_list,
                                                         rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource* mr)
+                                                        rmm::device_async_resource_ref mr)
 {
   check_input(input, percentages);
 

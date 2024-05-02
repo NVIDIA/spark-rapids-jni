@@ -25,6 +25,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 namespace spark_rapids_jni {
 
@@ -77,7 +78,7 @@ struct dispatch_format_float_fn {
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& floats,
                                            int const digits,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr) const
+                                           rmm::device_async_resource_ref mr) const
   {
     auto const strings_count = floats.size();
     if (strings_count == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
@@ -99,7 +100,7 @@ struct dispatch_format_float_fn {
   std::unique_ptr<cudf::column> operator()(cudf::column_view const&,
                                            int const,
                                            rmm::cuda_stream_view,
-                                           rmm::mr::device_memory_resource*) const
+                                           rmm::device_async_resource_ref) const
   {
     CUDF_FAIL("Values for format_float function must be a float type.");
   }
@@ -111,7 +112,7 @@ struct dispatch_format_float_fn {
 std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
                                            int const digits,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr)
+                                           rmm::device_async_resource_ref mr)
 {
   return type_dispatcher(floats.type(), dispatch_format_float_fn{}, floats, digits, stream, mr);
 }
@@ -122,7 +123,7 @@ std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
 std::unique_ptr<cudf::column> format_float(cudf::column_view const& floats,
                                            int const digits,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr)
+                                           rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::format_float(floats, digits, stream, mr);
