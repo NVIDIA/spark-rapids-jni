@@ -320,7 +320,7 @@ __device__ inline bool path_match_elements(cudf::device_span<path_instruction co
 }
 
 __device__ inline thrust::tuple<bool, int> path_match_index(
-    cudf::device_span<path_instruction const> path)
+  cudf::device_span<path_instruction const> path)
 {
   auto match = path_match_element(path, path_instruction_type::INDEX);
   if (match) {
@@ -344,8 +344,8 @@ __device__ inline thrust::tuple<bool, cudf::string_view> path_match_named(
 __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   cudf::device_span<path_instruction const> path)
 {
-  auto match = path_match_elements(
-    path, path_instruction_type::INDEX, path_instruction_type::WILDCARD);
+  auto match =
+    path_match_elements(path, path_instruction_type::INDEX, path_instruction_type::WILDCARD);
   if (match) {
     return thrust::make_tuple(true, path.data()[0].index);
   } else {
@@ -681,8 +681,7 @@ __device__ bool evaluate_path(json_parser& p,
       }
       // case (START_ARRAY, Index(idx) :: xs)
       // case path 9
-      else if (json_token::START_ARRAY == ctx.token &&
-               thrust::get<0>(path_match_index(ctx.path))) {
+      else if (json_token::START_ARRAY == ctx.token && thrust::get<0>(path_match_index(ctx.path))) {
         int idx = thrust::get<1>(path_match_index(ctx.path));
 
         p.next_token();
@@ -833,8 +832,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
 }
 
 __device__ thrust::pair<bool, size_t> get_json_object_size_single(
-  char_range input,
-  cudf::device_span<path_instruction const> path_commands)
+  char_range input, cudf::device_span<path_instruction const> path_commands)
 {
   json_parser j_parser(input);
   j_parser.next_token();
@@ -923,12 +921,12 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
                                    cudf::detail::input_offsetalator output_offsets)
 {
   auto tid = cudf::detail::grid_1d::global_thread_id();
-if (tid < col.size()) {
+  if (tid < col.size()) {
     cudf::string_view const str = col.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
       // process one single row
-      auto [result, output_size] = get_json_object_size_single(
-        str, {path_commands.data(), path_commands.size()});
+      auto [result, output_size] =
+        get_json_object_size_single(str, {path_commands.data(), path_commands.size()});
 
       // filled in only during the precompute step. during the compute step, the
       // offsets are fed back in so we do -not- want to write them out
@@ -982,8 +980,8 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
         out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
 
       // process one single row
-      auto [result, output_size] = get_json_object_single(str,
-          {path_commands.data(), path_commands.size()}, dst, dst_size);
+      auto [result, output_size] =
+        get_json_object_single(str, {path_commands.data(), path_commands.size()}, dst, dst_size);
       if (result) { is_valid = true; }
 
       // filled in only during the precompute step. during the compute step, the
@@ -1046,7 +1044,7 @@ std::unique_ptr<cudf::column> get_json_object(
   // preprocess sizes (returned in the offsets buffer)
   get_json_object_size_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-        *d_input_ptr, path_commands, sizes.data(), d_offsets);
+      *d_input_ptr, path_commands, sizes.data(), d_offsets);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
