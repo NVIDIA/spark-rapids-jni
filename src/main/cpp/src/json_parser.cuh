@@ -27,30 +27,16 @@
 namespace spark_rapids_jni {
 
 /**
- * write style when writing out JSON string
+ r write style when writing out JSON string
  */
-enum class write_style {
+enum class escape_style {
   // e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
-  unescaped,
+  UNESCAPED,
 
-  // * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"'
+  // e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"'
   // '"'
-  escaped
+  ESCAPED
 };
-
-// allow single quotes to represent strings in JSON
-// e.g.: {'k': 'v'} is valid when it's true
-constexpr bool allow_single_quotes = true;
-
-// Whether allow unescaped control characters in JSON Strings.
-// Unescaped control characters are ASCII characters with value less than 32,
-// including tab and line feed characters. ASCII values range is [0, 32)
-// e.g.: ["\n"] is valid, here \n is one char
-// If true, JSON is not conventional format.
-// e.g., how to represent carriage return and newline characters:
-//   if true, allow "\n\r" two control characters without escape directly
-//   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-constexpr bool allow_unescaped_control_chars = true;
 
 /**
  * @brief Maximum JSON nesting depth
@@ -77,15 +63,6 @@ constexpr int max_string_utf8_bytes = 20000000;
  * is 6, then this number is a invalid number.
  */
 constexpr int max_num_len = 1000;
-
-/**
- * whether allow tailing useless sub-string in JSON.
- *
- * If true, e.g., the following invalid JSON is allowed, because prefix {'k' :
- * 'v'} is valid.
- *   {'k' : 'v'}_extra_tail_sub_string
- */
-constexpr bool allow_tailing_sub_string = true;
 
 /**
  * JSON token enum
@@ -211,7 +188,6 @@ class char_range_reader {
   __device__ inline bool eof() { return _range.eof(_pos); }
   __device__ inline bool is_null() { return _range.is_null(); }
 
-  // TODO would be great if this would return a std::optional of some kind...
   __device__ inline void next() { _pos++; }
 
   __device__ inline char current_char() { return _range[_pos]; }
@@ -223,80 +199,6 @@ class char_range_reader {
   cudf::size_type _pos;
 };
 
-__device__ inline char const * get_name(json_token token) {
-  switch (token) {
-    case json_token::INIT:
-      return "INIT";
-    case json_token::SUCCESS:
-      return "SUCCESS";
-    case json_token::ERROR:
-      return "ERROR";
-    case json_token::START_OBJECT:
-      return "OBJ_START";
-    case json_token::END_OBJECT:
-      return "OBJ_END";
-    case json_token::START_ARRAY:
-      return "ARR_START";
-    case json_token::END_ARRAY:
-      return "ARR_END";
-    case json_token::FIELD_NAME:
-      return "FILED_NAME";
-    case json_token::VALUE_STRING:
-      return "VALUE_STR";
-    case json_token::VALUE_NUMBER_INT:
-      return "INT";
-    case json_token::VALUE_NUMBER_FLOAT:
-      return "FLOAT";
-    case json_token::VALUE_TRUE:
-      return "TRUE";
-    case json_token::VALUE_FALSE:
-      return "FALSE";
-    case json_token::VALUE_NULL:
-      return "NULL";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-
-
-/** 
- * A token along with the start and end so the range is clear.
- */
-class json_token_with_range {
-public:
-  __device__ inline json_token_with_range(const json_token token,  const char_range value)
-    :_token(token),
-    _value(value)
-  {
-  }
-
-  __device__ inline json_token_with_range(const json_token_with_range&) = default;
-  __device__ inline json_token_with_range(json_token_with_range&&) = default;
-  __device__ inline json_token_with_range& operator=(const json_token_with_range&) = default;
-  __device__ inline json_token_with_range& operator=(json_token_with_range&&) = default;
-
-  __device__ inline json_token token() { return _token; }
-  __device__ inline char_range range() { return _value; }
-
-  // Warning it looks like there is some kind of a bug in CUDA where you don't want to initialize
-  // a member variable with a static method like this.
-  __device__ inline static json_token_with_range error() {
-    return json_token_with_range(json_token::ERROR, char_range::null());
-  }
-
-  // Warning it looks like there is some kind of a bug in CUDA where you don't want to initialize
-  // a member variable with a static method like this.
-  __device__ inline static json_token_with_range success() {
-    return json_token_with_range(json_token::SUCCESS, char_range::null());
-  }
-
-
-private:
-  json_token _token;
-  char_range _value;
-};
-
 /**
  * JSON parser, provides token by token parsing.
  * Follow Jackson JSON format by default.
@@ -305,8 +207,9 @@ private:
  * For JSON format:
  * Refer to https://www.json.org/json-en.html.
  *
- * Note: when setting `allow_single_quotes` or `allow_unescaped_control_chars`,
- * then JSON format is not conventional.
+ * Note: This is not conventional as it allows 
+ * single quotes and  unescaped control characters
+ * to match what SPARK does for get_json_object
  *
  * White space can only be 4 chars: ' ', '\n', '\r', '\t',
  * Jackson does not allow other control chars as white spaces.
@@ -321,22 +224,11 @@ private:
  *   infinity, +infinity, -infinity
  *   1e, 1e+, 1e-, -1., 1.
  *
- * When `allow_single_quotes` is true:
- *   Valid string examples:
+ * Valid string examples:
  *     "\'" , "\"" ,  '\'' , '\"' , '"' , "'"
  *
- *  When `allow_single_quotes` is false:
- *   Invalid string examples:
- *     "\'"
- *
- *  When `allow_unescaped_control_chars` is true:
- *    Valid string: "asscii_control_chars"
- *      here `asscii_control_chars` represents control chars which in Ascii code
- * range: [0, 32)
- *
- *  When `allow_unescaped_control_chars` is false:
- *    Invalid string: "asscii_control_chars"
- *      here `asscii_control_chars` represents control chars which in Ascii code
+ * Valid string: "ascii_control_chars"
+ *    here `ascii_control_chars` represents control chars which in Ascii code
  * range: [0, 32)
  *
  */
@@ -346,7 +238,6 @@ class json_parser {
     : chars(_chars),
       curr_pos(0),
       current_token(json_token::INIT)
-      //current_token_range(nullptr, 0)
   {
   }
 
@@ -424,21 +315,16 @@ class json_parser {
    */
   __device__ inline bool try_skip(char_range_reader& reader, char expected)
   {
-    //printf("TRY TO SKIP %c at %i\n", expected, reader.pos());
     if (!reader.eof() && reader.current_char() == expected) {
-      //printf("SKIPPED %c at %i\n", expected, reader.pos());
       reader.next();
       return true;
     }
     return false;
   }
 
-  //TODO remove this ASAP
   __device__ inline bool try_skip(cudf::size_type& pos, char expected)
   {
-    //printf("TRY TO SKIP %c at %i\n", expected, pos);
     if (!eof(pos) && chars[pos] == expected) {
-      //printf("SKIPPED %c at %i\n", expected, pos);
       pos++;
       return true;
     }
@@ -491,7 +377,6 @@ class json_parser {
 
   __device__ inline void set_current_error() {
     current_token = json_token::ERROR;
-    //current_token_range = char_range::null();
   }
 
   /**
@@ -514,7 +399,6 @@ class json_parser {
         } else {
           curr_pos++;
           current_token = json_token::START_OBJECT;
-          //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
         }
         break;
       case '[':
@@ -523,18 +407,13 @@ class json_parser {
         } else {
           curr_pos++;
           current_token = json_token::START_ARRAY;
-          //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
         }
         break;
       case '"': 
         parse_double_quoted_string_and_set_current();
         break;
       case '\'':
-        if (allow_single_quotes) {
-          parse_single_quoted_string_and_set_current();
-        } else {
-          set_current_error();
-        }
+        parse_single_quoted_string_and_set_current();
         break;
       case 't':
         curr_pos++;
@@ -561,15 +440,14 @@ class json_parser {
    */
   __device__ inline void parse_single_quoted_string_and_set_current()
   {
-    //TODO eventually chars should be a reader so we can just pass it in...
+    //aODO eventually chars should be a reader so we can just pass it in...
     char_range_reader reader(chars, curr_pos);
     auto [success, end_char_pos] =
-      try_parse_single_quoted_string(reader, char_range::null(), nullptr, write_style::unescaped);
+      try_parse_single_quoted_string(reader, char_range::null(), nullptr, escape_style::UNESCAPED);
     if (success) {
       // TODO remove end_char_pos, and just get it from the reader...
       curr_pos   = end_char_pos;
       current_token = json_token::VALUE_STRING;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -583,12 +461,11 @@ class json_parser {
     //TODO eventually chars should be a reader so we can just pass it in...
     char_range_reader reader(chars, curr_pos);
     auto [success, end_char_pos] =
-      try_parse_double_quoted_string(reader, char_range::null(), nullptr, write_style::unescaped);
+      try_parse_double_quoted_string(reader, char_range::null(), nullptr, escape_style::UNESCAPED);
     if (success) {
       // TODO remove end_char_pos, and just get it from the reader...
       curr_pos   = end_char_pos;
       current_token = json_token::VALUE_STRING;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -609,10 +486,10 @@ class json_parser {
     char_range_reader& str,
     char_range to_match,
     char* copy_destination,
-    write_style w_style)
+    escape_style w_style)
   {
     if (!str.is_null() && !str.eof()) {
-      if (allow_single_quotes && str.current_char() == '\'') {
+      if (str.current_char() == '\'') {
         return try_parse_single_quoted_string(
           str, to_match, copy_destination, w_style);
       } else {
@@ -638,7 +515,7 @@ class json_parser {
     char_range_reader& str,
     char_range to_match,
     char* copy_destination,
-    write_style w_style)
+    escape_style w_style)
   {
     return try_parse_quoted_string(str,
                                    '\'',
@@ -662,7 +539,7 @@ class json_parser {
     char_range_reader& str,
     char_range to_match,
     char* copy_destination,
-    write_style w_style)
+    escape_style w_style)
   {
     return try_parse_quoted_string(str,
                                    '\"',
@@ -756,7 +633,7 @@ class json_parser {
    * } , :), string quote char(" ') and Escape char \ are all Ascii(The leading
    * bit is 0), so it's safe that do not convert byte array to UTF-8 char.
    *
-   * When quote is " and allow_unescaped_control_chars is false, grammar is:
+   * When quote is " grammar is:
    *
    *   STRING
    *     : '"' (ESC | SAFECODEPOINT)* '"'
@@ -775,16 +652,12 @@ class json_parser {
    *     ;
    *
    *   fragment SAFECODEPOINT
-   *       // 1 not " or ' depending to allow_single_quotes
+   *       // 1 not " or '
    *       // 2 not \
    *       // 3 non control character: Ascii value not in [0, 32)
    *     : ~ ["\\\u0000-\u001F]
    *     ;
    *
-   * When allow_unescaped_control_chars is true:
-   *   Allow [0-32) control Ascii chars directly without escape
-   * When allow_single_quotes is true:
-   *   These strings are allowed: '\'' , '\"' , '"' , "\"" , "\'" , "'"
    * @param str str for parsing
    * @param quote_char expected quote char
    * @param to_match expected match str
@@ -796,16 +669,15 @@ class json_parser {
     char const quote_char,
     char_range_reader to_match,
     char* copy_destination,
-    write_style w_style)
+    escape_style w_style)
   {
 
-    //printf("TRY PARSE %c QUOTED STRING\n", quote_char);
     // update state
     string_token_utf8_bytes       = 0;
     bytes_diff_for_escape_writing = 0;
 
     // write the first " if write style is escaped
-    if (write_style::escaped == w_style) {
+    if (escape_style::ESCAPED == w_style) {
       bytes_diff_for_escape_writing++;
       if (nullptr != copy_destination) { *copy_destination++ = '"'; }
     }
@@ -816,10 +688,8 @@ class json_parser {
     // scan string content
     while (!str.eof()) {
       char c = str.current_char();
-      //printf("LOOKING AT QUOTED STRING CHAR %c at %i\n", c, str.pos());
       int v  = static_cast<int>(c);
       if (c == quote_char) {
-        //printf("IS QUOTE CHAR AT END\n");
         // path 1: match closing quote char
         str.next();
 
@@ -829,7 +699,6 @@ class json_parser {
 
         // match check, the last char in match_str is quote_char
         if (!to_match.is_null()) {
-          //printf("TO_MATCH IS NOT NULL!!!\n");
           // TODO this is checking if the string is not empty, nothing about quotes!!!
           // match check, the last char in match_str is quote_char
           //if (to_match_str_pos != to_match_str_end) { return std::make_pair(false, 0); }
@@ -837,23 +706,22 @@ class json_parser {
         }
 
         // write the end " if write style is escaped
-        if (write_style::escaped == w_style) {
+        if (escape_style::ESCAPED == w_style) {
           bytes_diff_for_escape_writing++;
           if (nullptr != copy_destination) { *copy_destination++ = '"'; }
         }
 
         return std::make_pair(true, str.pos());
-      } else if (v >= 0 && v < 32 && allow_unescaped_control_chars) {
-        //printf("UNESCAPED CONTROL CHAR\n");
+      } else if (v >= 0 && v < 32) {
         // path 2: unescaped control char
 
         // copy if enabled, unescape mode, write 1 char
-        if (copy_destination != nullptr && write_style::unescaped == w_style) {
+        if (copy_destination != nullptr && escape_style::UNESCAPED == w_style) {
           *copy_destination++ = str.current_char();
         }
 
         // copy if enabled, escape mode, write more chars
-        if (write_style::escaped == w_style) {
+        if (escape_style::ESCAPED == w_style) {
           int escape_chars = escape_char(str.current_char(), copy_destination);
           if (copy_destination != nullptr) copy_destination += escape_chars;
           bytes_diff_for_escape_writing += (escape_chars - 1);
@@ -868,7 +736,6 @@ class json_parser {
         string_token_utf8_bytes++;
         continue;
       } else if ('\\' == c) {
-        //printf("ESCAPE CHAR\n");
         // path 3: escape path
         str.next();
         if (!try_skip_escape_part(
@@ -876,12 +743,11 @@ class json_parser {
           return std::make_pair(false, 0);
         }
       } else {
-        //printf("REGULAR CHAR\n");
         // path 4: safe code point
 
         // handle single unescaped " char; happens when string is quoted by char '
         // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
-        if ('\"' == c && write_style::escaped == w_style) {
+        if ('\"' == c && escape_style::ESCAPED == w_style) {
           if (copy_destination != nullptr) { *copy_destination++ = '\\'; }
           bytes_diff_for_escape_writing++;
         }
@@ -922,7 +788,7 @@ class json_parser {
   __device__ inline bool try_skip_escape_part(char_range_reader& str,
                                               char_range_reader& to_match,
                                               char*& copy_dest,
-                                              write_style w_style)
+                                              escape_style w_style)
   {
     // already skipped the first '\'
     // try skip second part
@@ -931,8 +797,8 @@ class json_parser {
       switch (c) {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
         case '\"':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = c; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = '"';
@@ -944,21 +810,16 @@ class json_parser {
           str.next();
           return true;
         case '\'':
-          // only allow escape ' when `allow_single_quotes`
-          if (allow_single_quotes) {
-            // for both unescaped/escaped writes a single char '
-            if (nullptr != copy_dest) { *copy_dest++ = c; }
-            if (!try_match_char(to_match, c)) { return false; }
+          // for both unescaped/escaped writes a single char '
+          if (nullptr != copy_dest) { *copy_dest++ = c; }
+          if (!try_match_char(to_match, c)) { return false; }
 
-            string_token_utf8_bytes++;
-            str.next();
-            return true;
-          } else {
-            return false;
-          }
+          string_token_utf8_bytes++;
+          str.next();
+          return true;
         case '\\':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = c; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = '\\';
@@ -977,8 +838,8 @@ class json_parser {
           str.next();
           return true;
         case 'b':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\b'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\b'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'b';
@@ -990,8 +851,8 @@ class json_parser {
           str.next();
           return true;
         case 'f':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\f'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\f'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'f';
@@ -1003,8 +864,8 @@ class json_parser {
           str.next();
           return true;
         case 'n':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\n'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\n'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'n';
@@ -1016,8 +877,8 @@ class json_parser {
           str.next();
           return true;
         case 'r':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\r'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\r'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'r';
@@ -1029,8 +890,8 @@ class json_parser {
           str.next();
           return true;
         case 't':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\t'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\t'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 't';
@@ -1062,7 +923,7 @@ class json_parser {
   /**
    * parse:
    *   fragment SAFECODEPOINT
-   *       // 1 not " or ' depending to allow_single_quotes
+   *       // 1 not " or ' 
    *       // 2 not \
    *       // 3 non control character: Ascii value not in [0, 32)
    *     : ~ ["\\\u0000-\u001F]
@@ -1168,7 +1029,6 @@ class json_parser {
                                    char_range_reader& to_match,
                                    char*& copy_dest)
   {
-    //printf("TRY SKIP UNICODE at %i\n", str.pos());
     // already parsed \u
     // now we expect 4 hex chars.
     cudf::char_utf8 code_point = 0;
@@ -1177,7 +1037,6 @@ class json_parser {
         return false;
       }
       char c = str.current_char();
-      //printf("TRY SKIP UNICODE GOT %c at %i\n", c, str.pos());
       str.next();
       if (!is_hex_digit(c)) {
         return false;
@@ -1250,7 +1109,6 @@ class json_parser {
         current_token = (is_float ? json_token::VALUE_NUMBER_FLOAT : json_token::VALUE_NUMBER_INT);
         // success parsed a number, update the token length
         number_token_len = curr_pos - current_token_start_pos;
-        //current_token_range = chars.slice(current_token_start_pos, number_token_len);
       } else {
         set_current_error();
       }
@@ -1412,7 +1270,6 @@ class json_parser {
     // already parsed 't'
     if (try_skip(curr_pos, 'r') && try_skip(curr_pos, 'u') && try_skip(curr_pos, 'e')) {
       current_token = json_token::VALUE_TRUE;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -1427,7 +1284,6 @@ class json_parser {
     if (try_skip(curr_pos, 'a') && try_skip(curr_pos, 'l') && try_skip(curr_pos, 's') &&
         try_skip(curr_pos, 'e')) {
       current_token = json_token::VALUE_FALSE;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -1436,12 +1292,11 @@ class json_parser {
   /**
    * parse null
    */
-  __device__ inline json_token_with_range parse_null_and_set_current()
+  __device__ inline void parse_null_and_set_current()
   {
     // already parsed 'n'
     if (try_skip(curr_pos, 'u') && try_skip(curr_pos, 'l') && try_skip(curr_pos, 'l')) {
       current_token = json_token::VALUE_NULL;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -1452,17 +1307,15 @@ class json_parser {
    */
   __device__ inline void parse_field_name_and_set_current()
   {
-    //printf("PARSE FIELD NAME\n");
     //TODO eventually chars should be a reader so we can just pass it in...
     char_range_reader reader(chars, curr_pos);
     current_token_start_pos = curr_pos;
     auto [success, end_char_pos] =
-      try_parse_string(reader, char_range::null(), nullptr, write_style::unescaped);
+      try_parse_string(reader, char_range::null(), nullptr, escape_style::UNESCAPED);
     if (success) {
       // TODO remove end_char_pos, and just get it from the reader...
       curr_pos   = end_char_pos;
       current_token = json_token::FIELD_NAME;
-      //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
     } else {
       set_current_error();
     }
@@ -1478,38 +1331,25 @@ class json_parser {
                                                 bool& has_colon_before_token)
   {
     skip_whitespaces();
-    //printf("SKIPPED WHITE SPACE %i\n", curr_pos);
     if (!eof()) {
       char c = chars[curr_pos];
-      //printf("NOT EOF %c at %i\n", c, curr_pos);
       if (is_context_stack_empty()) {
-        //printf("CONTEXT IS EMPTY\n");
         // stack is empty
 
         if (current_token == json_token::INIT) {
           // main root entry point
           parse_first_token_in_value_and_set_current();
         } else {
-          //printf("CURRENT STATE IS NOT INIT\n");
-          if (allow_tailing_sub_string) {
-            // previous token is not INIT, means already get a token; stack is
-            // empty; Successfully parsed. Note: ignore the tailing sub-string
-            current_token = json_token::SUCCESS;
-            //current_token_range = char_range(nullptr, 0);
-          } else {
-            // not eof, has extra useless tailing characters.
-            set_current_error();
-          }
+          // previous token is not INIT, means already get a token; stack is
+          // empty; Successfully parsed. Note: ignore the tailing sub-string
+          current_token = json_token::SUCCESS;
         }
       } else {
         // stack is non-empty
-        //printf("CONTEXT IS NOT EMPTY\n");
 
         if (is_object_context()) {
-          //printf("OBJECT CONTEXT\n");
           // in JSON object context
           if (current_token == json_token::START_OBJECT) {
-            //printf("CHECKING AFTER START_OBJECT\n");
             // previous token is '{'
             if (c == '}') {
               // empty object
@@ -1518,13 +1358,11 @@ class json_parser {
               curr_pos++;
               pop_curr_context();
               current_token = json_token::END_OBJECT;
-              //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
             } else {
               // parse key in key:value pair
               parse_field_name_and_set_current();
             }
           } else if (current_token == json_token::FIELD_NAME) {
-            //printf("CHECKING AFTER FIELD_NAME\n");
             if (c == ':') {
               has_colon_before_token = true;
               // skip ':' and parse value in key:value pair
@@ -1535,7 +1373,6 @@ class json_parser {
               set_current_error();
             }
           } else {
-            //printf("CHECKING AFTER VALUE_*\n");
             // expect next key:value pair or '}'
             if (c == '}') {
               // end of object
@@ -1543,7 +1380,6 @@ class json_parser {
               curr_pos++;
               pop_curr_context();
               current_token = json_token::END_OBJECT;
-              //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
             } else if (c == ',') {
               has_comma_before_token = true;
               // parse next key:value pair
@@ -1555,10 +1391,8 @@ class json_parser {
             }
           }
         } else {
-          //printf("OBJECT CONTEXT\n");
           // in Json array context
           if (current_token == json_token::START_ARRAY) {
-            //printf("CHECKING AFTER START_ARRAY\n");
             // previous token is '['
             if (c == ']') {
               // curr: ']', empty array
@@ -1566,7 +1400,6 @@ class json_parser {
               curr_pos++;
               pop_curr_context();
               current_token = json_token::END_ARRAY;
-              //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
             } else {
               // non-empty array, parse the first value in the array
               parse_first_token_in_value_and_set_current();
@@ -1584,7 +1417,6 @@ class json_parser {
               curr_pos++;
               pop_curr_context();
               current_token = json_token::END_ARRAY;
-              //current_token_range = chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
             } else {
               set_current_error();
             }
@@ -1592,12 +1424,10 @@ class json_parser {
         }
       }
     } else {
-      //printf("EOF %i\n", curr_pos);
       // eof
       if (is_context_stack_empty() && current_token != json_token::INIT) {
         // reach eof; stack is empty; previous token is not INIT
         current_token = json_token::SUCCESS;
-        //current_token_range = char_range(nullptr, 0);
       } else {
         // eof, and meet the following cases:
         //   - has unclosed JSON array/object;
@@ -1614,12 +1444,10 @@ class json_parser {
    */
   __device__ json_token next_token()
   {
-    //printf("PARSE NEXT START %s (%p to %p) %i\n", get_name(current_token), current_token_range.start(), current_token_range.end(), curr_pos);
     // parse next token
     bool has_comma_before_token;  // no-initialization because of do not care here
     bool has_colon_before_token;  // no-initialization because of do not care here
     parse_next_token_and_set_current(has_comma_before_token, has_colon_before_token);
-    //printf("PARSE NEXT DONE %s (%p to %p) %i\n", get_name(current_token), current_token_range.start(), current_token_range.end(), curr_pos);
     return current_token;
   }
 
@@ -1681,7 +1509,7 @@ class json_parser {
         // rewind the pos; parse again with copy
         char_range_reader reader(current_range());
         try_parse_string(
-          reader, char_range::null(), destination, write_style::unescaped);
+          reader, char_range::null(), destination, escape_style::UNESCAPED);
         return string_token_utf8_bytes;
       }
       case json_token::VALUE_NUMBER_INT: {
@@ -1740,7 +1568,7 @@ class json_parser {
         // rewind the pos; parse again with copy
         char_range_reader reader(current_range());
         try_parse_string(
-          reader, char_range::null(), destination, write_style::unescaped);
+          reader, char_range::null(), destination, escape_style::UNESCAPED);
         return string_token_utf8_bytes;
       }  
       case json_token::START_ARRAY:
@@ -1778,7 +1606,7 @@ class json_parser {
         // can not copy from JSON directly due to escaped chars
         char_range_reader reader(current_range());
         try_parse_string(
-          reader, char_range::null(), destination, write_style::escaped);
+          reader, char_range::null(), destination, escape_style::ESCAPED);
         return string_token_utf8_bytes + bytes_diff_for_escape_writing;
       }  
       case json_token::VALUE_NUMBER_INT: {
@@ -1829,7 +1657,7 @@ class json_parser {
         // can not copy from JSON directly due to escaped chars
         char_range_reader reader(current_range());
         try_parse_string(
-          reader, char_range::null(), destination, write_style::escaped);
+          reader, char_range::null(), destination, escape_style::ESCAPED);
         return string_token_utf8_bytes + bytes_diff_for_escape_writing;
       }  
       case json_token::START_ARRAY:
@@ -1872,7 +1700,7 @@ class json_parser {
       auto [b, end_pos] = try_parse_string(reader,
                                            name,
                                            nullptr,
-                                           write_style::unescaped);
+                                           escape_style::UNESCAPED);
       return b;
     } else {
       return false;
@@ -1887,7 +1715,6 @@ class json_parser {
    */
   __device__ thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
   {
-    //printf("COPY STRUCTURE %s\n", get_name(current_token));
     switch (current_token) {
       case json_token::INIT:
       case json_token::ERROR:
@@ -1971,7 +1798,6 @@ class json_parser {
   const char_range chars;
   cudf::size_type curr_pos;
   json_token current_token;
-  //char_range current_token_range;
 
   // 64 bits long saves the nested object/array contexts
   // true(bit value 1) is JSON object context
