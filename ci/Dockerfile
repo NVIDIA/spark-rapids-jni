@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2023-2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,31 +15,26 @@
 #
 
 ###
-# JNI CI image for multi-platform build
+# Build the image for spark-rapids-jni development environment.
 #
-# Arguments: CUDA_VERSION=11.8.0
+# Arguments: CUDA_VERSION=[11.X.Y, 12.X.Y], OS_RELEASE=[8, 9], TARGETPLATFORM=[linux/amd64, linux/amd64]
 #
 ###
 ARG CUDA_VERSION=11.8.0
 ARG OS_RELEASE=8
 # multi-platform build with: docker buildx build --platform linux/arm64,linux/amd64 <ARGS> on either amd64 or arm64 host
-# check available offcial arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
+# check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
 ARG TOOLSET_VERSION=11
 ### Install basic requirements
-RUN dnf install -y scl-utils
-RUN dnf install -y gcc-toolset-${TOOLSET_VERSION} python39
-RUN dnf --enablerepo=powertools install -y zlib-devel maven tar wget patch ninja-build
-# require git 2.18+ to keep consistent submodule operations
-RUN dnf install -y git
+RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
-RUN mkdir /usr/local/rapids && mkdir /rapids && chmod 777 /usr/local/rapids && chmod 777 /rapids
+RUN mkdir /usr/local/rapids /rapids && chmod 777 /usr/local/rapids /rapids
 
-# 3.22.3+: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
+# 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
 ARG CMAKE_VERSION=3.26.4
-# default as arm64 release
-ARG CMAKE_ARCH=aarch64
-# aarch64 cmake for arm build
+# default x86_64 from x86 build, aarch64 cmake for arm build
+ARG CMAKE_ARCH=x86_64
 RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    tar zxf cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    rm cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz
@@ -58,7 +53,7 @@ RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v
          -DCMAKE_BUILD_TYPE=Release \
          -DZSTD_FROM_INTERNET=ON \
          -DREDIS_STORAGE_BACKEND=OFF && \
-      cmake --build . --parallel 4 --target install" && \
+      cmake --build . --parallel ${PARALLEL_LEVEL} --target install" && \
    cd ../.. && \
    rm -rf ccache-${CCACHE_VERSION}
 
