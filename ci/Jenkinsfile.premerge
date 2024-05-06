@@ -32,7 +32,7 @@ def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
 def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda11.8.0-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE)
-def PREMERGE_DOCKERFILE = 'ci/Dockerfile.multi'
+def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG
 def skipped = false
 def major_ver // major version extracted from project version
