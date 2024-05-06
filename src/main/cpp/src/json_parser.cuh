@@ -27,7 +27,7 @@
 namespace spark_rapids_jni {
 
 /**
- r write style when writing out JSON string
+ * write style when writing out JSON string
  */
 enum class escape_style {
   // e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
@@ -106,6 +106,10 @@ enum class json_token {
 
 };
 
+/**
+ * This is similar to cudf::string_view, but cudf::string_view enforces
+ * UTF-8 encoding, which adds overhead that is not needed for this process.
+ */
 class char_range {
  public:
   __device__ inline char_range(char const* const start, cudf::size_type const len)
