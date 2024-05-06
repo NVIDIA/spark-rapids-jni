@@ -50,8 +50,6 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
-constexpr int rows_per_thread = 32;
-
 /**
  * write JSON style
  */
@@ -915,7 +913,8 @@ __launch_bounds__(block_size) CUDF_KERNEL
                               cudf::detail::input_offsetalator output_offsets,
                               char* out_buf,
                               cudf::bitmask_type* out_validity,
-                              cudf::size_type* out_valid_count)
+                              cudf::size_type* out_valid_count,
+                              int rows_per_thread)
 {
   auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::detail::grid_1d::grid_stride();
@@ -977,6 +976,13 @@ std::unique_ptr<cudf::column> get_json_object(
   auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
   constexpr int block_size = 128;
+  int rows_per_thread      = 1;
+  auto chars_size          = input.chars_size(stream);
+  if (chars_size > 1073741824) {
+    // 1G+ chars
+    rows_per_thread = 16;
+  }
+
   cudf::detail::grid_1d const grid{input.size(), block_size, rows_per_thread};
   auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   // preprocess sizes (returned in the offsets buffer)
@@ -988,7 +994,8 @@ std::unique_ptr<cudf::column> get_json_object(
                                                                          d_offsets,
                                                                          nullptr,
                                                                          nullptr,
-                                                                         nullptr);
+                                                                         nullptr,
+                                                                         rows_per_thread);
 
   // convert sizes to offsets
   auto [offsets, output_size] =
@@ -1015,7 +1022,8 @@ std::unique_ptr<cudf::column> get_json_object(
       d_offsets,
       chars.data(),
       static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data());
+      d_valid_count.data(),
+      rows_per_thread);
 
   return make_strings_column(
     input.size(), std::move(offsets), chars.release(), 0, std::move(validity));
