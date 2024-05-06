@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <rmm/resource_ref.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <cudf_jni_apis.hpp>
 #include <pthread.h>
@@ -384,10 +384,10 @@ class full_thread_state {
  * mitigation we might want to do to avoid killing a task with an out of
  * memory error.
  */
-class spark_resource_adaptor final {
+class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
  public:
   spark_resource_adaptor(JNIEnv* env,
-                         rmm::device_async_resource_ref mr,
+                         rmm::mr::device_memory_resource* mr,
                          std::shared_ptr<spdlog::logger>& logger,
                          bool const is_log_enabled)
     : resource{mr}, logger{logger}, is_log_enabled{is_log_enabled}
@@ -399,7 +399,7 @@ class spark_resource_adaptor final {
     logger->set_pattern("%H:%M:%S.%f,%v");
   }
 
-  rmm::device_async_resource_ref get_wrapped_resource() { return resource; }
+  rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
 
   /**
    * Update the internal state so that a specific thread is dedicated to a task.
@@ -870,7 +870,7 @@ class spark_resource_adaptor final {
   }
 
  private:
-  rmm::device_async_resource_ref resource;
+  rmm::mr::device_memory_resource* const resource;
   std::shared_ptr<spdlog::logger> logger;  ///< spdlog logger object
   bool const is_log_enabled;
 
@@ -1728,46 +1728,13 @@ class spark_resource_adaptor final {
     return ret;
   }
 
-  /**
-   * Sync allocation method required to satisfy cuda::mr::resource concept
-   * Synchronous memory allocations are not supported
-   */
-  void* allocate(std::size_t, std::size_t) { return nullptr; }
-
-  /**
-   * Sync deallocation method required to satisfy cuda::mr::resource concept
-   * Asynchronous memory allocations are not supported
-   */
-  void deallocate(void*, std::size_t, std::size_t) {}
-
-  /**
-   * Equality comparison method required to satisfy cuda::mr::resource concept
-   */
-  friend bool operator==(const spark_resource_adaptor& lhs, const spark_resource_adaptor& rhs)
-  {
-    return (lhs.resource == rhs.resource) && (lhs.jvm == rhs.jvm);
-  }
-
-  /**
-   * Equality comparison method required to satisfy cuda::mr::resource concept
-   */
-  friend bool operator!=(const spark_resource_adaptor& lhs, const spark_resource_adaptor& rhs)
-  {
-    return !(lhs == rhs);
-  }
-
-  /**
-   * Async allocation method required to satisfy cuda::mr::async_resource concept
-   */
-  void* allocate_async(std::size_t const num_bytes,
-                       std::size_t const alignment,
-                       rmm::cuda_stream_view stream)
+  void* do_allocate(std::size_t const num_bytes, rmm::cuda_stream_view stream) override
   {
     auto const tid = static_cast<long>(pthread_self());
     while (true) {
       bool const likely_spill = pre_alloc(tid);
       try {
-        void* ret = resource.allocate_async(num_bytes, alignment, stream);
+        void* ret = resource->allocate(num_bytes, stream);
         post_alloc_success(tid, likely_spill);
         return ret;
       } catch (rmm::out_of_memory const& e) {
@@ -1820,15 +1787,9 @@ class spark_resource_adaptor final {
     wake_next_highest_priority_blocked(lock, true, is_for_cpu);
   }
 
-  /**
-   * Async deallocation method required to satisfy cuda::mr::async_resource concept
-   */
-  void deallocate_async(void* p,
-                        std::size_t size,
-                        std::size_t const alignment,
-                        rmm::cuda_stream_view stream)
+  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) override
   {
-    resource.deallocate_async(p, size, alignment, stream);
+    resource->deallocate(p, size, stream);
     // deallocate success
     if (size > 0) {
       std::unique_lock<std::mutex> lock(state_mutex);
@@ -1857,7 +1818,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
   JNI_NULL_CHECK(env, child, "child is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto wrapped = reinterpret_cast<rmm::device_async_resource_ref*>(child);
+    auto wrapped = reinterpret_cast<rmm::mr::device_memory_resource*>(child);
     cudf::jni::native_jstring nlogloc(env, log_loc);
     std::shared_ptr<spdlog::logger> logger;
     bool is_log_enabled;
@@ -1876,7 +1837,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
       }
     }
 
-    auto ret = new spark_resource_adaptor(env, *wrapped, logger, is_log_enabled);
+    auto ret = new spark_resource_adaptor(env, wrapped, logger, is_log_enabled);
     return cudf::jni::ptr_as_jlong(ret);
   }
   CATCH_STD(env, 0)
