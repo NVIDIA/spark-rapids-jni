@@ -137,9 +137,9 @@ class char_range {
   __device__ inline char const* start() const { return _data; }
   __device__ inline char const* end() const { return _data + _len; }
 
-  __device__ inline bool eof(cudf::size_type pos) { return pos >= _len; }
-  __device__ inline bool is_null() { return _data == nullptr; }
-  __device__ inline bool is_empty() { return _len == 0; }
+  __device__ inline bool eof(cudf::size_type pos) const { return pos >= _len; }
+  __device__ inline bool is_null() const { return _data == nullptr; }
+  __device__ inline bool is_empty() const { return _len == 0; }
 
   __device__ inline char operator[](cudf::size_type pos) const { return _data[pos]; }
 
@@ -170,14 +170,14 @@ class char_range_reader {
   {
   }
 
-  __device__ inline bool eof() { return _range.eof(_pos); }
-  __device__ inline bool is_null() { return _range.is_null(); }
+  __device__ inline bool eof() const { return _range.eof(_pos); }
+  __device__ inline bool is_null() const { return _range.is_null(); }
 
   __device__ inline void next() { _pos++; }
 
-  __device__ inline char current_char() { return _range[_pos]; }
+  __device__ inline char current_char() const { return _range[_pos]; }
 
-  __device__ inline cudf::size_type pos() { return _pos; }
+  __device__ inline cudf::size_type pos() const { return _pos; }
 
  private:
   char_range _range;
@@ -259,13 +259,13 @@ class json_parser {
   /**
    * is current position EOF
    */
-  __device__ inline bool eof(cudf::size_type pos) { return pos >= chars.size(); }
-  __device__ inline bool eof() { return curr_pos >= chars.size(); }
+  __device__ inline bool eof(cudf::size_type pos) const { return pos >= chars.size(); }
+  __device__ inline bool eof() const { return curr_pos >= chars.size(); }
 
   /**
    * is hex digits: 0-9, A-F, a-f
    */
-  __device__ inline bool is_hex_digit(char c)
+  __device__ inline bool is_hex_digit (char c) const
   {
     return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
   }
@@ -273,12 +273,12 @@ class json_parser {
   /**
    * is 0 to 9 digit
    */
-  __device__ inline bool is_digit(char c) { return (c >= '0' && c <= '9'); }
+  __device__ inline bool is_digit(char c) const { return (c >= '0' && c <= '9'); }
 
   /**
    * is white spaces: ' ', '\t', '\n' '\r'
    */
-  __device__ inline bool is_whitespace(char c)
+  __device__ inline bool is_whitespace(char c) const
   {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
   }
@@ -519,8 +519,8 @@ class json_parser {
 
     // scan string content
     while (!str.eof()) {
-      char c = str.current_char();
-      int v  = static_cast<int>(c);
+      const char c = str.current_char();
+      const int v  = static_cast<int>(c);
       if (c == quote_char) {
         // path 1: match closing quote char
         str.next();
@@ -541,7 +541,7 @@ class json_parser {
           if (copy_destination != nullptr) { *copy_destination++ = str.current_char(); }
         } else {
           // escape_style::ESCAPED
-          int escape_chars = escape_char(str.current_char(), copy_destination);
+          const int escape_chars = escape_char(str.current_char(), copy_destination);
           if (copy_destination != nullptr) { copy_destination += escape_chars; }
           output_size_bytes += escape_chars;
         }
@@ -612,8 +612,12 @@ class json_parser {
    *     : ~ ["\\\u0000-\u001F]
    *     ;
    *
-   * @param str str for parsing
+   * @param str string to parse
    * @param to_match expected match str
+   * @param w_style the escape style for writing.
+   * @return a pair of success and length, where success is true if the string
+   * is valid and length is the number of bytes needed to encode the string
+   * in the given style.
    */
   __device__ inline std::pair<bool, cudf::size_type> try_parse_string(
     char_range_reader& str,
@@ -713,7 +717,7 @@ class json_parser {
     // already skipped the first '\'
     // try skip second part
     if (!str.eof()) {
-      char c = str.current_char();
+      const char c = str.current_char();
       switch (c) {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
         case '\"':
@@ -955,7 +959,7 @@ class json_parser {
     cudf::char_utf8 code_point = 0;
     for (size_t i = 0; i < 4; i++) {
       if (str.eof()) { return false; }
-      char c = str.current_char();
+      const char c = str.current_char();
       str.next();
       if (!is_hex_digit(c)) { return false; }
       code_point = (code_point * 16) + hex_value(c);
@@ -965,7 +969,7 @@ class json_parser {
     // In UTF-8, the maximum number of bytes used to encode a single character
     // is 4
     char buff[4];
-    cudf::size_type bytes = from_char_utf8(utf_char, buff);
+    const cudf::size_type bytes = from_char_utf8(utf_char, buff);
     output_size_bytes += bytes;
 
     // TODO I think if we do an escape sequence for \n/etc it will return
@@ -1056,7 +1060,7 @@ class json_parser {
   __device__ inline bool try_unsigned_number(bool& is_float, int& number_digits_length)
   {
     if (!eof()) {
-      char c = chars[curr_pos];
+      const char c = chars[curr_pos];
       if (c >= '1' && c <= '9') {
         curr_pos++;
         number_digits_length++;
@@ -1070,7 +1074,7 @@ class json_parser {
 
         // check leading zeros
         if (!eof()) {
-          char next_char_after_zero = chars[curr_pos];
+          const char next_char_after_zero = chars[curr_pos];
           if (next_char_after_zero >= '0' && next_char_after_zero <= '9') {
             // e.g.: 01 is invalid
             return false;
@@ -1236,7 +1240,7 @@ class json_parser {
   {
     skip_whitespaces();
     if (!eof()) {
-      char c = chars[curr_pos];
+      const char c = chars[curr_pos];
       if (is_context_stack_empty()) {
         // stack is empty
 
@@ -1413,7 +1417,7 @@ class json_parser {
         char_range_reader reader(current_range());
         return write_string(reader, destination, escape_style::UNESCAPED);
       }
-      case json_token::VALUE_NUMBER_INT: {
+      case json_token::VALUE_NUMBER_INT: 
         if (number_token_len == 2 && chars[current_token_start_pos] == '-' &&
             chars[current_token_start_pos + 1] == '0') {
           if (nullptr != destination) *destination++ = '0';
@@ -1425,7 +1429,6 @@ class json_parser {
           }
         }
         return number_token_len;
-      }
       case json_token::VALUE_NUMBER_FLOAT: {
         // number normalization:
         // 0.03E-2 => 0.3E-5, 200.000 => 200.0, 351.980 => 351.98,
@@ -1436,7 +1439,7 @@ class json_parser {
           cudf::strings::detail::stod(chars.slice_sv(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
-      case json_token::VALUE_TRUE: {
+      case json_token::VALUE_TRUE:
         if (nullptr != destination) {
           *destination++ = 't';
           *destination++ = 'r';
@@ -1444,8 +1447,7 @@ class json_parser {
           *destination++ = 'e';
         }
         return 4;
-      }
-      case json_token::VALUE_FALSE: {
+      case json_token::VALUE_FALSE:
         if (nullptr != destination) {
           *destination++ = 'f';
           *destination++ = 'a';
@@ -1454,8 +1456,7 @@ class json_parser {
           *destination++ = 'e';
         }
         return 5;
-      }
-      case json_token::VALUE_NULL: {
+      case json_token::VALUE_NULL:
         if (nullptr != destination) {
           *destination++ = 'n';
           *destination++ = 'u';
@@ -1463,7 +1464,6 @@ class json_parser {
           *destination++ = 'l';
         }
         return 4;
-      }
       case json_token::FIELD_NAME: {
         // can not copy from JSON directly due to escaped chars
         // rewind the pos; parse again with copy
@@ -1687,7 +1687,7 @@ class json_parser {
   }
 
  private:
-  const char_range chars;
+  char_range const chars;
   cudf::size_type curr_pos;
   json_token current_token;
 

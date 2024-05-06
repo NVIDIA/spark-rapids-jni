@@ -874,15 +874,23 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
  * (chars and validity).
  *
  * @param col Device view of the incoming string
- * @param commands JSONPath command buffer
+ * @param path_commands JSONPath command buffer
+ * @param d_sizes a buffer used to write the output sizes in the first pass,
+ *        and is read back in on the second pass to compute offsets.
  * @param output_offsets Buffer used to store the string offsets for the results
  *        of the query
  * @param out_buf Buffer used to store the results of the query
  * @param out_validity Output validity buffer
  * @param out_valid_count Output count of # of valid bits
- * @param options Options controlling behavior
  */
 template <int block_size>
+// We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
+// the kernel itself. By default NVCC uses a heuristic to find a balance between the
+// maximum number of registers used by a kernel and the parallelism of the kernel.
+// The lots of registers are used the parallelism will suffer. But in our case
+// NVCC gets this wrong and we want to avoid spilling all the time or else
+// the performance is really bad. This essentially tells NVCC to prefer using lots
+// of registers over spilling. 
 __launch_bounds__(block_size, 1) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
                               cudf::device_span<path_instruction const> path_commands,
