@@ -26,7 +26,7 @@ SCRIPTDIR=$(cd $(dirname $0); pwd)
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 USE_GDS=${USE_GDS:-ON}
 export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
-export DOCKER_BUILD_EXTRA_ARGS="--platform=linux/amd64 --build-arg CMAKE_ARCH=x86_64"
+export DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/amd64 --build-arg CMAKE_ARCH=x86_64"
 CUDA_VER=${CUDA_VER:-cuda11}
 USE_SANITIZER=${USE_SANITIZER:-ON}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
@@ -51,7 +51,7 @@ if [ "$arch" == "arm64" ]; then
   USE_GDS="OFF"
   USE_SANITIZER="ON"
   BUILD_FAULTINJ="OFF"
-  export DOCKER_BUILD_EXTRA_ARGS="--platform=linux/arm64 --build-arg CMAKE_ARCH=aarch64"
+  export DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/arm64 --build-arg CMAKE_ARCH=aarch64"
 fi
 
 $SCRIPTDIR/run-in-docker mvn \

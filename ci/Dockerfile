@@ -17,11 +17,12 @@
 ###
 # Build the image for spark-rapids-jni development environment.
 #
-# Arguments: CUDA_VERSION=[11.X.Y, 12.X.Y], OS_RELEASE=[8, 9], TARGETPLATFORM=[linux/amd64, linux/amd64]
+# Arguments: CUDA_VERSION=[11.X.Y, 12.X.Y], OS_RELEASE=[8, 9], TARGETPLATFORM=[linux/amd64, linux/arm64]
 #
 ###
 ARG CUDA_VERSION=11.8.0
 ARG OS_RELEASE=8
+ARG TARGETPLATFORM=linux/amd64
 # multi-platform build with: docker buildx build --platform linux/arm64,linux/amd64 <ARGS> on either amd64 or arm64 host
 # check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
