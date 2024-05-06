@@ -149,11 +149,6 @@ class char_range {
     return char_range(_data + pos, len);
   }
 
-  __device__ inline char_range slice_from(cudf::size_type pos) const
-  {
-    return char_range(_data + pos, _len - pos);
-  }
-
  private:
   char const* _data;
   cudf::size_type _len;
