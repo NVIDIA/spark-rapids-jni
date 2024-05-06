@@ -36,9 +36,7 @@
 
 #include <rmm/device_uvector.hpp>
 
-#include <thrust/optional.h>
 #include <thrust/pair.h>
-#include <thrust/scan.h>
 #include <thrust/tuple.h>
 
 namespace spark_rapids_jni {
