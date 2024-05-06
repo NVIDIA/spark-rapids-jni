@@ -890,7 +890,7 @@ template <int block_size>
 // The lots of registers are used the parallelism will suffer. But in our case
 // NVCC gets this wrong and we want to avoid spilling all the time or else
 // the performance is really bad. This essentially tells NVCC to prefer using lots
-// of registers over spilling. 
+// of registers over spilling.
 __launch_bounds__(block_size, 1) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
                               cudf::device_span<path_instruction const> path_commands,

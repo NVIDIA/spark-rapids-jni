@@ -265,7 +265,7 @@ class json_parser {
   /**
    * is hex digits: 0-9, A-F, a-f
    */
-  __device__ inline bool is_hex_digit (char c) const
+  __device__ inline bool is_hex_digit(char c) const
   {
     return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
   }
@@ -1417,7 +1417,7 @@ class json_parser {
         char_range_reader reader(current_range());
         return write_string(reader, destination, escape_style::UNESCAPED);
       }
-      case json_token::VALUE_NUMBER_INT: 
+      case json_token::VALUE_NUMBER_INT:
         if (number_token_len == 2 && chars[current_token_start_pos] == '-' &&
             chars[current_token_start_pos + 1] == '0') {
           if (nullptr != destination) *destination++ = '0';
