@@ -29,28 +29,14 @@ namespace spark_rapids_jni {
 /**
  * write style when writing out JSON string
  */
-enum class write_style {
+enum class escape_style {
   // e.g.: '\\r' is a string with 2 chars '\' 'r', writes 1 char '\r'
-  unescaped,
+  UNESCAPED,
 
-  // * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"'
+  // e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '"'
   // '"'
-  escaped
+  ESCAPED
 };
-
-// allow single quotes to represent strings in JSON
-// e.g.: {'k': 'v'} is valid when it's true
-constexpr bool allow_single_quotes = true;
-
-// Whether allow unescaped control characters in JSON Strings.
-// Unescaped control characters are ASCII characters with value less than 32,
-// including tab and line feed characters. ASCII values range is [0, 32)
-// e.g.: ["\n"] is valid, here \n is one char
-// If true, JSON is not conventional format.
-// e.g., how to represent carriage return and newline characters:
-//   if true, allow "\n\r" two control characters without escape directly
-//   if false, "\n\r" are not allowed, should use escape characters: "\\n\\r"
-constexpr bool allow_unescaped_control_chars = true;
 
 /**
  * @brief Maximum JSON nesting depth
@@ -77,15 +63,6 @@ constexpr int max_string_utf8_bytes = 20000000;
  * is 6, then this number is a invalid number.
  */
 constexpr int max_num_len = 1000;
-
-/**
- * whether allow tailing useless sub-string in JSON.
- *
- * If true, e.g., the following invalid JSON is allowed, because prefix {'k' :
- * 'v'} is valid.
- *   {'k' : 'v'}_extra_tail_sub_string
- */
-constexpr bool allow_tailing_sub_string = true;
 
 /**
  * JSON token enum
@@ -344,13 +321,7 @@ class json_parser {
 
       case '"': parse_double_quoted_string(); break;
 
-      case '\'':
-        if (allow_single_quotes) {
-          parse_single_quoted_string();
-        } else {
-          curr_token = json_token::ERROR;
-        }
-        break;
+      case '\'': parse_single_quoted_string(); break;
 
       case 't':
         curr_pos++;
@@ -378,8 +349,7 @@ class json_parser {
    */
   __device__ inline void parse_single_quoted_string()
   {
-    auto [success, end_char_pos] =
-      try_parse_single_quoted_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
+    auto [success, end_char_pos] = try_parse_string(curr_pos);
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::VALUE_STRING;
@@ -393,106 +363,13 @@ class json_parser {
    */
   __device__ inline void parse_double_quoted_string()
   {
-    auto [success, end_char_pos] =
-      try_parse_double_quoted_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
+    auto [success, end_char_pos] = try_parse_string(curr_pos);
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::VALUE_STRING;
     } else {
       curr_token = json_token::ERROR;
     }
-  }
-
-  /*
-   * try parse ' or " quoted string
-   *
-   * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON
-   * string
-   * @param to_match_str_pos expected match str position, nullptr means do not
-   * match
-   * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do
-   * not copy
-   * @return whether passed successfully and the end position of parsed str
-   *
-   */
-  __device__ inline std::pair<bool, char const*> try_parse_string(
-    char const* str_pos,
-    char const* to_match_str_pos,
-    char const* const to_match_str_end,
-    char* copy_destination,
-    write_style w_style)
-  {
-    if (!eof(str_pos)) {
-      if (allow_single_quotes && *str_pos == '\'') {
-        return try_parse_single_quoted_string(
-          str_pos, to_match_str_pos, to_match_str_end, copy_destination, w_style);
-      } else {
-        return try_parse_double_quoted_string(
-          str_pos, to_match_str_pos, to_match_str_end, copy_destination, w_style);
-      }
-    } else {
-      return std::make_pair(false, nullptr);
-    }
-  }
-
-  /**
-   * try parse ' quoted string
-   *
-   * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON
-   * string
-   * @param to_match_str_pos expected match str position, nullptr means do not
-   * match
-   * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do
-   * not copy
-   *
-   */
-  __device__ inline std::pair<bool, char const*> try_parse_single_quoted_string(
-    char const* str_pos,
-    char const* to_match_str_pos,
-    char const* const to_match_str_end,
-    char* copy_destination,
-    write_style w_style)
-  {
-    return try_parse_quoted_string(str_pos,
-                                   '\'',
-                                   to_match_str_pos,  // match str pos, nullptr means do not match
-                                   to_match_str_end,  // match str end
-                                   copy_destination,  // copy destination while parsing, nullptr
-                                                      // means do not copy
-                                   w_style);
-  }
-
-  /**
-   * try parse " quoted string.
-   *
-   * when allow single quote, first try single quote
-   * @param str_pos str start position for parsing, should be a position in JSON
-   * string
-   * @param to_match_str_pos expected match str position, nullptr means do not
-   * match
-   * @param to_match_str_end expected match str end
-   * @param copy_destination copy unescaped str to destination, nullptr means do
-   * not copy
-   *
-   */
-  __device__ inline std::pair<bool, char const*> try_parse_double_quoted_string(
-    char const* str_pos,
-    char const* to_match_str_pos,
-    char const* const to_match_str_end,
-    char* copy_destination,
-    write_style w_style)
-  {
-    return try_parse_quoted_string(str_pos,
-                                   '\"',
-                                   to_match_str_pos,  // match str pos, nullptr means do not match
-                                   to_match_str_end,  // match str end
-                                   copy_destination,  // copy destination while parsing, nullptr
-                                                      // means do not copy
-                                   w_style);
   }
 
   /**
@@ -566,6 +443,118 @@ class json_parser {
     }
   }
 
+  __device__ inline std::pair<int, int> write_string(char const* str_pos,
+                                                     char* copy_destination,
+                                                     escape_style w_style)
+  {
+    if (eof(str_pos)) return std::make_pair(0, 0);
+    char const quote_char = *str_pos;
+    // Records string/field name token utf8 bytes size after unescaped
+    // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
+    // used by checking the max string length
+    int unescped_string_utf8_bytes = 0;
+    // Records string/field name token utf8 bytes size after escaped
+    // e.g.: 4 chars string "\\n", will write out 4 chars: " \ n "
+    int escped_string_utf8_bytes = 0;
+
+    // write the first " if write style is escaped
+    if (escape_style::ESCAPED == w_style) {
+      escped_string_utf8_bytes++;
+      if (nullptr != copy_destination) { *copy_destination++ = '"'; }
+    }
+
+    // skip left quote char
+    if (!try_skip(str_pos, quote_char)) {
+      return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+    }
+
+    // scan string content
+    while (!eof(str_pos)) {
+      char c = *str_pos;
+      int v  = static_cast<int>(c);
+      if (c == quote_char) {
+        // path 1: match closing quote char
+        str_pos++;
+
+        // check max str len
+        if (!(max_string_utf8_bytes <= 0 ||
+              (max_string_utf8_bytes > 0 && unescped_string_utf8_bytes <= max_string_utf8_bytes))) {
+          return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+        }
+
+        // write the end " if write style is escaped
+        if (escape_style::ESCAPED == w_style) {
+          escped_string_utf8_bytes++;
+          if (nullptr != copy_destination) { *copy_destination++ = '"'; }
+        }
+
+        return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+      } else if (v >= 0 && v < 32) {
+        // path 2: unescaped control char
+
+        // copy if enabled, unescape mode, write 1 char
+        if (copy_destination != nullptr && escape_style::UNESCAPED == w_style) {
+          *copy_destination++ = *str_pos;
+        }
+
+        // copy if enabled, escape mode, write more chars
+        if (escape_style::ESCAPED == w_style) {
+          int escape_chars = escape_char(*str_pos, copy_destination);
+          if (copy_destination != nullptr) copy_destination += escape_chars;
+          escped_string_utf8_bytes += (escape_chars - 1);
+        }
+
+        // check match if enabled
+        const char* match_str_pos = nullptr;
+        if (!try_match_char(match_str_pos, nullptr, *str_pos)) {
+          return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+        }
+
+        str_pos++;
+        unescped_string_utf8_bytes++;
+        escped_string_utf8_bytes++;
+        continue;
+      } else if ('\\' == c) {
+        // path 3: escape path
+        str_pos++;
+        const char* to_match_str_pos = nullptr;
+        char* copy_dest_nullptr      = nullptr;
+        if (!try_skip_escape_part(str_pos,
+                                  to_match_str_pos,
+                                  copy_dest_nullptr,
+                                  copy_destination,
+                                  w_style,
+                                  escped_string_utf8_bytes,
+                                  unescped_string_utf8_bytes)) {
+          return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+        }
+      } else {
+        // path 4: safe code point
+
+        // handle single unescaped " char; happens when string is quoted by char '
+        // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
+        if ('\"' == c && escape_style::ESCAPED == w_style) {
+          if (copy_destination != nullptr) { *copy_destination++ = '\\'; }
+          escped_string_utf8_bytes++;
+        }
+
+        if (!try_skip_safe_code_point(str_pos, c)) {
+          return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+        }
+        if (copy_destination != nullptr) { *copy_destination++ = c; }
+        // check match if enabled
+        const char* match_str_pos = nullptr;
+        if (!try_match_char(match_str_pos, nullptr, c)) {
+          return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+        }
+        unescped_string_utf8_bytes++;
+        escped_string_utf8_bytes++;
+      }
+    }
+
+    return std::make_pair(unescped_string_utf8_bytes, escped_string_utf8_bytes);
+  }
+
   /**
    * utility for parsing string, this function does not update the parser
    * internal try parse quoted string using passed `quote_char` `quote_char` can
@@ -617,23 +606,19 @@ class json_parser {
    * @param copy_destination copy unescaped str to destination, nullptr means do
    * not copy
    */
-  __device__ inline std::pair<bool, char const*> try_parse_quoted_string(
+  __device__ inline std::pair<bool, char const*> try_parse_string(
     char const* str_pos,
-    char const quote_char,
-    char const* to_match_str_pos,
-    char const* const to_match_str_end,
-    char* copy_destination,
-    write_style w_style)
+    char const* to_match_str_pos       = nullptr,
+    char const* const to_match_str_end = nullptr,
+    escape_style w_style               = escape_style::UNESCAPED)
   {
-    // update state
-    string_token_utf8_bytes       = 0;
-    bytes_diff_for_escape_writing = 0;
+    if (eof(str_pos)) { return std::make_pair(false, nullptr); }
+    char const quote_char          = *str_pos;
+    int unescped_string_utf8_bytes = 0;
+    int escped_string_utf8_bytes   = 0;
 
     // write the first " if write style is escaped
-    if (write_style::escaped == w_style) {
-      bytes_diff_for_escape_writing++;
-      if (nullptr != copy_destination) { *copy_destination++ = '"'; }
-    }
+    if (escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
 
     // skip left quote char
     if (!try_skip(str_pos, quote_char)) { return std::make_pair(false, nullptr); }
@@ -647,34 +632,25 @@ class json_parser {
         str_pos++;
 
         // check max str len
-        if (!check_string_max_utf8_bytes()) { return std::make_pair(false, nullptr); }
+        if (!(max_string_utf8_bytes <= 0 ||
+              (max_string_utf8_bytes > 0 && unescped_string_utf8_bytes <= max_string_utf8_bytes))) {
+          return std::make_pair(false, nullptr);
+        }
 
         // match check, the last char in match_str is quote_char
-        if (nullptr != to_match_str_pos) {
-          // match check, the last char in match_str is quote_char
-          if (to_match_str_pos != to_match_str_end) { return std::make_pair(false, nullptr); }
-        }
+        if (to_match_str_pos != to_match_str_end) { return std::make_pair(false, nullptr); }
 
         // write the end " if write style is escaped
-        if (write_style::escaped == w_style) {
-          bytes_diff_for_escape_writing++;
-          if (nullptr != copy_destination) { *copy_destination++ = '"'; }
-        }
+        if (escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
 
         return std::make_pair(true, str_pos);
-      } else if (v >= 0 && v < 32 && allow_unescaped_control_chars) {
+      } else if (v >= 0 && v < 32) {
         // path 2: unescaped control char
 
-        // copy if enabled, unescape mode, write 1 char
-        if (copy_destination != nullptr && write_style::unescaped == w_style) {
-          *copy_destination++ = *str_pos;
-        }
-
         // copy if enabled, escape mode, write more chars
-        if (write_style::escaped == w_style) {
-          int escape_chars = escape_char(*str_pos, copy_destination);
-          if (copy_destination != nullptr) copy_destination += escape_chars;
-          bytes_diff_for_escape_writing += (escape_chars - 1);
+        if (escape_style::ESCAPED == w_style) {
+          int escape_chars = escape_char(*str_pos, nullptr);
+          escped_string_utf8_bytes += (escape_chars - 1);
         }
 
         // check match if enabled
@@ -683,13 +659,20 @@ class json_parser {
         }
 
         str_pos++;
-        string_token_utf8_bytes++;
+        unescped_string_utf8_bytes++;
+        escped_string_utf8_bytes++;
         continue;
       } else if ('\\' == c) {
         // path 3: escape path
         str_pos++;
-        if (!try_skip_escape_part(
-              str_pos, to_match_str_pos, to_match_str_end, copy_destination, w_style)) {
+        char* copy_dest_nullptr = nullptr;
+        if (!try_skip_escape_part(str_pos,
+                                  to_match_str_pos,
+                                  to_match_str_end,
+                                  copy_dest_nullptr,
+                                  w_style,
+                                  escped_string_utf8_bytes,
+                                  unescped_string_utf8_bytes)) {
           return std::make_pair(false, nullptr);
         }
       } else {
@@ -697,18 +680,15 @@ class json_parser {
 
         // handle single unescaped " char; happens when string is quoted by char '
         // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
-        if ('\"' == c && write_style::escaped == w_style) {
-          if (copy_destination != nullptr) { *copy_destination++ = '\\'; }
-          bytes_diff_for_escape_writing++;
-        }
+        if ('\"' == c && escape_style::ESCAPED == w_style) { escped_string_utf8_bytes++; }
 
         if (!try_skip_safe_code_point(str_pos, c)) { return std::make_pair(false, nullptr); }
-        if (copy_destination != nullptr) { *copy_destination++ = c; }
         // check match if enabled
         if (!try_match_char(to_match_str_pos, to_match_str_end, c)) {
           return std::make_pair(false, nullptr);
         }
-        string_token_utf8_bytes++;
+        unescped_string_utf8_bytes++;
+        escped_string_utf8_bytes++;
       }
     }
 
@@ -740,7 +720,9 @@ class json_parser {
                                               char const*& to_match_str_pos,
                                               char const* const to_match_str_end,
                                               char*& copy_dest,
-                                              write_style w_style)
+                                              escape_style w_style,
+                                              int& escped_string_utf8_bytes,
+                                              int& unescped_string_utf8_bytes)
   {
     // already skipped the first '\'
     // try skip second part
@@ -749,114 +731,118 @@ class json_parser {
       switch (*str_pos) {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
         case '\"':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = c; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = '"';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case '\'':
-          // only allow escape ' when `allow_single_quotes`
-          if (allow_single_quotes) {
-            // for both unescaped/escaped writes a single char '
-            if (nullptr != copy_dest) { *copy_dest++ = c; }
-            if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
+          // for both unescaped/escaped writes a single char '
+          if (nullptr != copy_dest) { *copy_dest++ = c; }
+          if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
 
-            string_token_utf8_bytes++;
-            str_pos++;
-            return true;
-          } else {
-            return false;
-          }
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
+          str_pos++;
+          return true;
         case '\\':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = c; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = c; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = '\\';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case '/':
           // for both unescaped/escaped writes a single char /
           if (nullptr != copy_dest) { *copy_dest++ = c; }
           if (!try_match_char(to_match_str_pos, to_match_str_end, c)) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case 'b':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\b'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\b'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'b';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\b')) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case 'f':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\f'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\f'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'f';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\f')) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case 'n':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\n'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\n'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'n';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\n')) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case 'r':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\r'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\r'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 'r';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\r')) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         case 't':
-          if (nullptr != copy_dest && write_style::unescaped == w_style) { *copy_dest++ = '\t'; }
-          if (write_style::escaped == w_style) {
+          if (nullptr != copy_dest && escape_style::UNESCAPED == w_style) { *copy_dest++ = '\t'; }
+          if (escape_style::ESCAPED == w_style) {
             if (copy_dest != nullptr) {
               *copy_dest++ = '\\';
               *copy_dest++ = 't';
             }
-            bytes_diff_for_escape_writing++;
+            escped_string_utf8_bytes++;
           }
           if (!try_match_char(to_match_str_pos, to_match_str_end, '\t')) { return false; }
-          string_token_utf8_bytes++;
+          unescped_string_utf8_bytes++;
+          escped_string_utf8_bytes++;
           str_pos++;
           return true;
         // path 1 done: \", \', \\, \/, \b, \f, \n, \r, \t
@@ -866,7 +852,12 @@ class json_parser {
 
           // for both unescaped/escaped writes corresponding utf8 bytes, no need
           // to pass in write style
-          return try_skip_unicode(str_pos, to_match_str_pos, to_match_str_end, copy_dest);
+          return try_skip_unicode(str_pos,
+                                  to_match_str_pos,
+                                  to_match_str_end,
+                                  copy_dest,
+                                  unescped_string_utf8_bytes,
+                                  escped_string_utf8_bytes);
         default:
           // path 3: invalid
           return false;
@@ -997,7 +988,9 @@ class json_parser {
   __device__ bool try_skip_unicode(char const*& str_pos,
                                    char const*& to_match_str_pos,
                                    char const* const to_match_str_end,
-                                   char*& copy_dest)
+                                   char*& copy_dest,
+                                   int& unescped_string_utf8_bytes,
+                                   int& escped_string_utf8_bytes)
   {
     // already parsed u
     bool is_success = try_skip_hex(str_pos) && try_skip_hex(str_pos) && try_skip_hex(str_pos) &&
@@ -1011,7 +1004,8 @@ class json_parser {
       // is 4
       char buff[4];
       cudf::size_type bytes = from_char_utf8(utf_char, buff);
-      string_token_utf8_bytes += bytes;
+      unescped_string_utf8_bytes += bytes;
+      escped_string_utf8_bytes += bytes;
 
       if (nullptr != copy_dest) {
         for (cudf::size_type i = 0; i < bytes; i++) {
@@ -1105,18 +1099,6 @@ class json_parser {
       max_num_len <= 0 ||
       // enabled num len check
       (max_num_len > 0 && number_digits_length <= max_num_len);
-  }
-
-  /**
-   * verify max string length if enabled
-   */
-  __device__ inline bool check_string_max_utf8_bytes()
-  {
-    return
-      // disabled str len check
-      max_string_utf8_bytes <= 0 ||
-      // enabled str len check
-      (max_string_utf8_bytes > 0 && string_token_utf8_bytes <= max_string_utf8_bytes);
   }
 
   /**
@@ -1285,7 +1267,7 @@ class json_parser {
   __device__ inline void parse_field_name()
   {
     auto [success, end_char_pos] =
-      try_parse_string(curr_pos, nullptr, nullptr, nullptr, write_style::unescaped);
+      try_parse_string(curr_pos, nullptr, nullptr, escape_style::UNESCAPED);
     if (success) {
       curr_pos   = end_char_pos;
       curr_token = json_token::FIELD_NAME;
@@ -1314,14 +1296,11 @@ class json_parser {
           current_token_start_pos = curr_pos;
           parse_first_token_in_value();
         } else {
-          if (allow_tailing_sub_string) {
-            // previous token is not INIT, means already get a token; stack is
-            // empty; Successfully parsed. Note: ignore the tailing sub-string
-            curr_token = json_token::SUCCESS;
-          } else {
-            // not eof, has extra useless tailing characters.
-            curr_token = json_token::ERROR;
-          }
+          // Allow tail useless sub-string in JSON, e.g.:
+          // The following invalid JSON is allowed: {'k' : 'v'}_extra_tail_sub_string
+          // previous token is not INIT, means already get a token; stack is
+          // empty; Successfully parsed. Note: ignore the tailing sub-string
+          curr_token = json_token::SUCCESS;
         }
       } else {
         // stack is non-empty
@@ -1495,9 +1474,7 @@ class json_parser {
       case json_token::VALUE_STRING:
         // can not copy from JSON directly due to escaped chars
         // rewind the pos; parse again with copy
-        try_parse_string(
-          current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
-        return string_token_utf8_bytes;
+        return write_string(current_token_start_pos, destination, escape_style::UNESCAPED).first;
       case json_token::VALUE_NUMBER_INT:
         if (number_token_len == 2 && current_token_start_pos[0] == '-' &&
             current_token_start_pos[1] == '0') {
@@ -1548,9 +1525,7 @@ class json_parser {
       case json_token::FIELD_NAME:
         // can not copy from JSON directly due to escaped chars
         // rewind the pos; parse again with copy
-        try_parse_string(
-          current_token_start_pos, nullptr, nullptr, destination, write_style::unescaped);
-        return string_token_utf8_bytes;
+        return write_string(current_token_start_pos, destination, escape_style::UNESCAPED).first;
       case json_token::START_ARRAY:
         if (nullptr != destination) { *destination++ = '['; }
         return 1;
@@ -1582,12 +1557,11 @@ class json_parser {
   __device__ cudf::size_type write_escaped_text(char* destination)
   {
     switch (curr_token) {
-      case json_token::VALUE_STRING:
+      case json_token::VALUE_STRING: {
         // can not copy from JSON directly due to escaped chars
         // rewind the pos; parse again with copy
-        try_parse_string(
-          current_token_start_pos, nullptr, nullptr, destination, write_style::escaped);
-        return string_token_utf8_bytes + bytes_diff_for_escape_writing;
+        return write_string(current_token_start_pos, destination, escape_style::ESCAPED).second;
+      }
       case json_token::VALUE_NUMBER_INT:
         if (number_token_len == 2 && current_token_start_pos[0] == '-' &&
             current_token_start_pos[1] == '0') {
@@ -1631,12 +1605,11 @@ class json_parser {
           *destination++ = 'l';
         }
         return 4;
-      case json_token::FIELD_NAME:
+      case json_token::FIELD_NAME: {
         // can not copy from JSON directly due to escaped chars
         // rewind the pos; parse again with copy
-        try_parse_string(
-          current_token_start_pos, nullptr, nullptr, destination, write_style::escaped);
-        return string_token_utf8_bytes + bytes_diff_for_escape_writing;
+        return write_string(current_token_start_pos, destination, escape_style::ESCAPED).second;
+      }
       case json_token::START_ARRAY:
         if (nullptr != destination) { *destination++ = '['; }
         return 1;
@@ -1684,11 +1657,8 @@ class json_parser {
   __device__ bool match_current_field_name(char const* to_match_str_ptr, cudf::size_type len)
   {
     if (json_token::FIELD_NAME == curr_token) {
-      auto [b, end_pos] = try_parse_string(current_token_start_pos,
-                                           to_match_str_ptr,
-                                           to_match_str_ptr + len,
-                                           nullptr,
-                                           write_style::unescaped);
+      auto [b, end_pos] = try_parse_string(
+        current_token_start_pos, to_match_str_ptr, to_match_str_ptr + len, escape_style::UNESCAPED);
       return b;
     } else {
       return false;
@@ -1798,17 +1768,6 @@ class json_parser {
   char const* current_token_start_pos;
   // used to store number token length
   cudf::size_type number_token_len;
-
-  // Records string/field name token utf8 bytes size after unescaped
-  // e.g.: For JSON 4 chars string "\\n", after unescaped, get 1 char '\n'
-  // used by checking the max string length
-  int string_token_utf8_bytes;
-
-  // Records bytes diff between escape writing and unescape writing
-  // e.g.: 4 chars string "\\n", string_token_utf8_bytes is 1,
-  // when `write_escaped_text`, will write out 4 chars: " \ n ",
-  // then this diff will be 4 - 1 = 3
-  int bytes_diff_for_escape_writing;
 };
 
 }  // namespace spark_rapids_jni

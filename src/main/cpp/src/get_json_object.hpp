@@ -16,8 +16,6 @@
 
 #pragma once
 
-#include "json_parser.cuh"
-
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 

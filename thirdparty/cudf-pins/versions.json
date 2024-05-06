@@ -62,7 +62,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7b0231c8241164c8a0511cd737e7098cb7ccea3e",
+      "git_tag" : "ff837fffda2bf4afa0dc80bc482a18f5645b4901",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.06"
     },
@@ -78,7 +78,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "56c53beb6fb0cafd265b7fcc3df78ae487811b22",
+      "git_tag" : "2101cb31d0210b609cd02c88f9b538e10881d91d",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -139,7 +139,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9e6db746f1a4a6361fb9fadf381f749dc52faaea",
+      "git_tag" : "e13b253fdfa19ccdf563be5fbf4ffa1cdc6b87a0",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.06"
     },
