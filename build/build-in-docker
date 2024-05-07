@@ -27,7 +27,7 @@ LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 USE_GDS=${USE_GDS:-ON}
 export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
 export DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/amd64 --build-arg CMAKE_ARCH=x86_64"
-CUDA_VER=${CUDA_VER:-cuda11}
+CUDA_VERSION=${CUDA_VERSION:-cuda11}
 USE_SANITIZER=${USE_SANITIZER:-ON}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 
@@ -36,27 +36,17 @@ if (( $# == 0 )); then
   exit 1
 fi
 
-case $(uname -m) in
-  x86_64|amd64)
-    arch=amd64;;
-  aarch64|arm64)
-    arch=arm64;;
-  *)
-    echo "Unsupported CPU architecture"; exit 1;;
-esac
-
-# Set env for arm64 build
-if [ "$arch" == "arm64" ]; then
-  profiles="${profiles},arm64"
-  USE_GDS="OFF"
-  USE_SANITIZER="ON"
-  BUILD_FAULTINJ="OFF"
+# Set env for arm64 build, The possible values of 'uname -m' : [x86_64/i386/aarch64/mips/...]
+if [ "$(uname -m)" == "aarch64" ]; then
+  USE_GDS="OFF" # The GDS cuFiles RDMA libraries are not included in the arm64 CUDA toolkit.
+  USE_SANITIZER="ON" # OOM failures in rmm occur during arm64 unit tests when USE_SANITIZER=OFF
+  BUILD_FAULTINJ="OFF" # libcupti_static.a linked by cufaultinj, does not exist in the arm64 CUDA toolkit.
   export DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/arm64 --build-arg CMAKE_ARCH=aarch64"
 fi
 
 $SCRIPTDIR/run-in-docker mvn \
     -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
     -DUSE_GDS=$USE_GDS \
-    -DBUILD_TESTS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
+    -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VERSION \
     -DUSE_SANITIZER=${USE_SANITIZER} \
     "$@"

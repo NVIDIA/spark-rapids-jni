@@ -30,7 +30,7 @@ ARG TOOLSET_VERSION=11
 ### Install basic requirements
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
-RUN mkdir /usr/local/rapids /rapids && chmod 777 /usr/local/rapids /rapids
+RUN mkdir -m 777 /usr/local/rapids /rapids
 
 # 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
 ARG CMAKE_VERSION=3.26.4
