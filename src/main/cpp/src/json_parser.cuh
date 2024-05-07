@@ -117,7 +117,7 @@ class char_range {
   {
   }
 
-  __device__ inline char_range(const cudf::string_view& input)
+  __device__ inline char_range(cudf::string_view const& input)
     : _data(input.data()), _len(input.size_bytes())
   {
   }
@@ -126,9 +126,9 @@ class char_range {
   // a member variable with a static method like this.
   __device__ inline static char_range null() { return char_range(nullptr, 0); }
 
-  __device__ inline char_range(const char_range&)            = default;
+  __device__ inline char_range(char_range const&)            = default;
   __device__ inline char_range(char_range&&)                 = default;
-  __device__ inline char_range& operator=(const char_range&) = default;
+  __device__ inline char_range& operator=(char_range const&) = default;
   __device__ inline char_range& operator=(char_range&&)      = default;
   __device__ inline ~char_range()                            = default;
 
@@ -193,7 +193,7 @@ class char_range_reader {
  * Refer to https://www.json.org/json-en.html.
  *
  * Note: This is not conventional as it allows
- * single quotes and  unescaped control characters
+ * single quotes and unescaped control characters
  * to match what SPARK does for get_json_object
  *
  * White space can only be 4 chars: ' ', '\n', '\r', '\t',
@@ -519,8 +519,8 @@ class json_parser {
 
     // scan string content
     while (!str.eof()) {
-      const char c = str.current_char();
-      const int v  = static_cast<int>(c);
+      char const c = str.current_char();
+      int const v  = static_cast<int>(c);
       if (c == quote_char) {
         // path 1: match closing quote char
         str.next();
@@ -541,7 +541,7 @@ class json_parser {
           if (copy_destination != nullptr) { *copy_destination++ = str.current_char(); }
         } else {
           // escape_style::ESCAPED
-          const int escape_chars = escape_char(str.current_char(), copy_destination);
+          int const escape_chars = escape_char(str.current_char(), copy_destination);
           if (copy_destination != nullptr) { copy_destination += escape_chars; }
           output_size_bytes += escape_chars;
         }
@@ -717,7 +717,7 @@ class json_parser {
     // already skipped the first '\'
     // try skip second part
     if (!str.eof()) {
-      const char c = str.current_char();
+      char const c = str.current_char();
       switch (c) {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
         case '\"':
@@ -959,7 +959,7 @@ class json_parser {
     cudf::char_utf8 code_point = 0;
     for (size_t i = 0; i < 4; i++) {
       if (str.eof()) { return false; }
-      const char c = str.current_char();
+      char const c = str.current_char();
       str.next();
       if (!is_hex_digit(c)) { return false; }
       code_point = (code_point * 16) + hex_value(c);
@@ -969,7 +969,7 @@ class json_parser {
     // In UTF-8, the maximum number of bytes used to encode a single character
     // is 4
     char buff[4];
-    const cudf::size_type bytes = from_char_utf8(utf_char, buff);
+    cudf::size_type const bytes = from_char_utf8(utf_char, buff);
     output_size_bytes += bytes;
 
     // TODO I think if we do an escape sequence for \n/etc it will return
@@ -1060,7 +1060,7 @@ class json_parser {
   __device__ inline bool try_unsigned_number(bool& is_float, int& number_digits_length)
   {
     if (!eof()) {
-      const char c = chars[curr_pos];
+      char const c = chars[curr_pos];
       if (c >= '1' && c <= '9') {
         curr_pos++;
         number_digits_length++;
@@ -1074,7 +1074,7 @@ class json_parser {
 
         // check leading zeros
         if (!eof()) {
-          const char next_char_after_zero = chars[curr_pos];
+          char const next_char_after_zero = chars[curr_pos];
           if (next_char_after_zero >= '0' && next_char_after_zero <= '9') {
             // e.g.: 01 is invalid
             return false;
@@ -1240,7 +1240,7 @@ class json_parser {
   {
     skip_whitespaces();
     if (!eof()) {
-      const char c = chars[curr_pos];
+      char const c = chars[curr_pos];
       if (is_context_stack_empty()) {
         // stack is empty
 

@@ -887,7 +887,7 @@ template <int block_size>
 // We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
 // the kernel itself. By default NVCC uses a heuristic to find a balance between the
 // maximum number of registers used by a kernel and the parallelism of the kernel.
-// The lots of registers are used the parallelism will suffer. But in our case
+// If lots of registers are used the parallelism may suffer. But in our case
 // NVCC gets this wrong and we want to avoid spilling all the time or else
 // the performance is really bad. This essentially tells NVCC to prefer using lots
 // of registers over spilling.
