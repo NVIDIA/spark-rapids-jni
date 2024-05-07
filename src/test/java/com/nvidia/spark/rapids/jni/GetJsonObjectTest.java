@@ -311,7 +311,7 @@ public class GetJsonObjectTest {
    * case path 5: case (START_ARRAY, Subscript :: Wildcard :: Subscript ::
    * Wildcard :: xs), set flatten style
    * case path 2: case (START_ARRAY, Nil) if style == FlattenStyle
-   * 
+   *
    * First use path5 [*][*] to enable flatten style.
    */
   @Test
