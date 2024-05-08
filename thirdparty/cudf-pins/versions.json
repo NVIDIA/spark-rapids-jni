@@ -33,6 +33,11 @@
           "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
         },
         {
+          "file" : "cccl/kernel_pointer_hiding.diff",
+          "fixed_in" : "2.4",
+          "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
+        },
+        {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
           "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
