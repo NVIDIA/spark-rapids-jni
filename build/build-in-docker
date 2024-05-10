@@ -25,6 +25,7 @@ SCRIPTDIR=$(cd $(dirname $0); pwd)
 
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 USE_GDS=${USE_GDS:-ON}
+export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
 # Make CUDA_VERSION consistent with the file run-in-docker
 export CUDA_VERSION=${CUDA_VERSION:-11.8.0}
 CUDA_CLASSIFIER=cuda${CUDA_VERSION%%.*}
