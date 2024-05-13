@@ -52,8 +52,9 @@ namespace {
 template <typename DecimalType>
 struct decimal_to_non_ansi_string_fn {
   column_device_view d_decimals;
-  size_type* d_offsets{};
-  char* d_chars{};
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   /**
    * @brief Calculates the size of the string required to convert the element, in base-10 format.
@@ -87,9 +88,9 @@ struct decimal_to_non_ansi_string_fn {
     } else {
       // positive scale or adjusted exponent < -6 means scientific notation
       auto const extra_digits = abs_value_digits > 1 ? 3 : 2;
-      return static_cast<int32_t>(value < 0) +            // sign if negative
-             abs_value_digits +                           // number of digits
-             extra_digits +                               // decimal point if exists, E, +/-
+      return static_cast<int32_t>(value < 0) +  // sign if negative
+             abs_value_digits +                 // number of digits
+             extra_digits +                     // decimal point if exists, E, +/-
              strings::detail::count_digits(
                numeric::detail::abs(adjusted_exponent));  // exponent portion
     }
@@ -127,7 +128,7 @@ struct decimal_to_non_ansi_string_fn {
       d_buffer +=
         strings::detail::integer_to_string(abs_value / exp_ten, d_buffer);  // add the integer part
       if (scale != 0) {
-        *d_buffer++ = '.';                                                  // add decimal point
+        *d_buffer++ = '.';  // add decimal point
 
         thrust::generate_n(thrust::seq, d_buffer, num_zeros, []() { return '0'; });  // add zeros
         d_buffer += num_zeros;
@@ -162,13 +163,13 @@ struct decimal_to_non_ansi_string_fn {
   __device__ void operator()(size_type idx)
   {
     if (d_decimals.is_null(idx)) {
-      if (d_chars == nullptr) { d_offsets[idx] = 0; }
+      if (d_chars == nullptr) { d_sizes[idx] = 0; }
       return;
     }
     if (d_chars != nullptr) {
       decimal_to_non_ansi_string(idx);
     } else {
-      d_offsets[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
+      d_sizes[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
     }
   }
 };
