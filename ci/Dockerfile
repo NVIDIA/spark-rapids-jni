@@ -17,31 +17,29 @@
 ###
 # Build the image for spark-rapids-jni development environment.
 #
-# Arguments: CUDA_VERSION=11.8.0
+# Arguments: CUDA_VERSION=[11.X.Y, 12.X.Y], OS_RELEASE=[8, 9], TARGETPLATFORM=[linux/amd64, linux/arm64]
 #
 ###
 ARG CUDA_VERSION=11.8.0
-FROM nvidia/cuda:$CUDA_VERSION-devel-centos7
-ARG DEVTOOLSET_VERSION=11
+ARG OS_RELEASE=8
+ARG TARGETPLATFORM=linux/amd64
+# multi-platform build with: docker buildx build --platform linux/arm64,linux/amd64 <ARGS> on either amd64 or arm64 host
+# check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
+FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
+ARG TOOLSET_VERSION=11
 ### Install basic requirements
-RUN yum install -y centos-release-scl
-RUN yum install -y devtoolset-${DEVTOOLSET_VERSION} rh-python38 epel-release
-RUN yum install -y zlib-devel maven tar wget patch ninja-build
-# require git 2.18+ to keep consistent submodule operations
-RUN yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm && yum install -y git
-# pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
-RUN scl enable rh-python38 "pip install requests 'urllib3<2.0'"
-
+RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
-RUN mkdir /usr/local/rapids && mkdir /rapids && chmod 777 /usr/local/rapids && chmod 777 /rapids
+RUN mkdir -m 777 /usr/local/rapids /rapids
 
 # 3.22.3: CUDA architecture 'native' support + flexible CMAKE_<LANG>_*_LAUNCHER for ccache
 ARG CMAKE_VERSION=3.26.4
-
-RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
-   tar zxf cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz && \
-   rm cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
-ENV PATH /usr/local/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
+# default x86_64 from x86 build, aarch64 cmake for arm build
+ARG CMAKE_ARCH=x86_64
+RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
+   tar zxf cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
+   rm cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz
+ENV PATH /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin:$PATH
 
 # ccache for interactive builds
 ARG CCACHE_VERSION=4.6
@@ -51,7 +49,7 @@ RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v
    cd ccache-${CCACHE_VERSION} && \
    mkdir build && \
    cd build && \
-   scl enable devtoolset-${DEVTOOLSET_VERSION} \
+   scl enable gcc-toolset-${TOOLSET_VERSION} \
       "cmake .. \
          -DCMAKE_BUILD_TYPE=Release \
          -DZSTD_FROM_INTERNET=ON \

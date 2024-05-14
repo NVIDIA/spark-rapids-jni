@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,30 +24,27 @@ set -e
 SCRIPTDIR=$(cd $(dirname $0); pwd)
 
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
-CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
 USE_GDS=${USE_GDS:-ON}
 export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
+# Make CUDA_VERSION consistent with the file run-in-docker
+export CUDA_VERSION=${CUDA_VERSION:-11.8.0}
+CUDA_CLASSIFIER=cuda${CUDA_VERSION%%.*}
+BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
   exit 1
 fi
 
-_CUDF_CLEAN_SKIP=""
-# if ccache is enabled and libcudf.clean.skip not provided
-# by the user remove the cpp build directory
-#
-if [[ "$CCACHE_DISABLE" != "1" ]]; then
-  if [[ ! "$*" =~ " -Dlibcudf.clean.skip=" ]]; then
-    # Don't skip clean if ccache is enabled
-    # unless the user overrides
-    _CUDF_CLEAN_SKIP="-Dlibcudf.clean.skip=false"
-  fi
+# Set env for arm64 build, The possible values of 'uname -m' : [x86_64/i386/aarch64/mips/...]
+if [ "$(uname -m)" == "aarch64" ]; then
+  USE_GDS="OFF" # The GDS cuFiles RDMA libraries are not included in the arm64 CUDA toolkit.
+  BUILD_FAULTINJ="OFF" # libcupti_static.a linked by cufaultinj, does not exist in the arm64 CUDA toolkit.
 fi
 
 $SCRIPTDIR/run-in-docker mvn \
     -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
-    -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=$CUDF_USE_PER_THREAD_DEFAULT_STREAM \
     -DUSE_GDS=$USE_GDS \
-    $_CUDF_CLEAN_SKIP \
+    -DBUILD_FAULTINJ=${BUILD_FAULTINJ} \
+    -Dcuda.version=$CUDA_CLASSIFIER \
     "$@"
