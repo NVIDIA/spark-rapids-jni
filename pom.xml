@@ -338,6 +338,11 @@
     </profile>
     <profile>
       <id>arm64</id>
+      <activation>
+        <os>
+          <arch>aarch64</arch>
+        </os>
+      </activation>
       <properties>
         <jni.classifier>${cuda.version}-arm64</jni.classifier>
       </properties>
