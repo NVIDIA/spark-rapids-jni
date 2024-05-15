@@ -52,8 +52,9 @@ namespace {
 template <typename DecimalType>
 struct decimal_to_non_ansi_string_fn {
   column_device_view d_decimals;
-  size_type* d_offsets{};
-  char* d_chars{};
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   /**
    * @brief Calculates the size of the string required to convert the element, in base-10 format.
@@ -162,13 +163,13 @@ struct decimal_to_non_ansi_string_fn {
   __device__ void operator()(size_type idx)
   {
     if (d_decimals.is_null(idx)) {
-      if (d_chars == nullptr) { d_offsets[idx] = 0; }
+      if (d_chars == nullptr) { d_sizes[idx] = 0; }
       return;
     }
     if (d_chars != nullptr) {
       decimal_to_non_ansi_string(idx);
     } else {
-      d_offsets[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
+      d_sizes[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
     }
   }
 };

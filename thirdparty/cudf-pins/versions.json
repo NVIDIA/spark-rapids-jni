@@ -33,6 +33,11 @@
           "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
         },
         {
+          "file" : "cccl/kernel_pointer_hiding.diff",
+          "fixed_in" : "2.4",
+          "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
+        },
+        {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
           "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
@@ -62,7 +67,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7b0231c8241164c8a0511cd737e7098cb7ccea3e",
+      "git_tag" : "6ed7bccb42d82eb1ac60a98dfd460a7785881949",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.06"
     },
@@ -78,7 +83,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "56c53beb6fb0cafd265b7fcc3df78ae487811b22",
+      "git_tag" : "2101cb31d0210b609cd02c88f9b538e10881d91d",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -139,7 +144,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9e6db746f1a4a6361fb9fadf381f749dc52faaea",
+      "git_tag" : "f11c8ca44ec4ab282157e7a1d7be5a3abafe8c57",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.06"
     },

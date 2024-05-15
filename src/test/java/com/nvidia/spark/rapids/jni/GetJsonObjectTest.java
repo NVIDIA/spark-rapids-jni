@@ -169,12 +169,14 @@ public class GetJsonObjectTest {
     String JSON4 = "['a','b','\"C\"']";
     // \\u4e2d\\u56FD is 中国
     String JSON5 = "'\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'";
+    String JSON6 = "['\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b']"; 
 
     String expectedStr1 = "{\"a\":\"A\"}";
     String expectedStr2 = "{\"a\":\"A\\\"\"}";
     String expectedStr3 = "{\"a\":\"B'\"}";
     String expectedStr4 = "[\"a\",\"b\",\"\\\"C\\\"\"]";
     String expectedStr5 = "中国\"'\\/\b\f\n\r\t\b";
+    String expectedStr6 = "中国\\\"'\\\\/\\b\\f\\n\\r\\t\\b";
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
@@ -309,7 +311,7 @@ public class GetJsonObjectTest {
    * case path 5: case (START_ARRAY, Subscript :: Wildcard :: Subscript ::
    * Wildcard :: xs), set flatten style
    * case path 2: case (START_ARRAY, Nil) if style == FlattenStyle
-   * 
+   *
    * First use path5 [*][*] to enable flatten style.
    */
   @Test

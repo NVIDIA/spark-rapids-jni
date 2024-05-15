@@ -807,7 +807,7 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
   // Values in the interval [1E-3, 1E7) are special.
   if (scientificNotation) {
     // Print in the format x.xxxxxE-yy.
-    for (int i = 0; i < olength - 1; ++i) {
+    for (auto i = 0; i < olength - 1; ++i) {
       int const c = output % 10;
       output /= 10;
       result[index + olength - i] = (char)('0' + c);
@@ -836,23 +836,23 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
       // Decimal dot is before any of the digits.
       result[index++] = '0';
       result[index++] = '.';
-      for (int i = -1; i > exp; i--) {
+      for (auto i = -1; i > exp; i--) {
         result[index++] = '0';
       }
       int current = index;
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         result[current + olength - i - 1] = (char)('0' + output % 10);
         output /= 10;
         index++;
       }
     } else if (exp + 1 >= static_cast<int32_t>(olength)) {
       // Decimal dot is after any of the digits.
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         result[index + olength - i - 1] = (char)('0' + output % 10);
         output /= 10;
       }
       index += olength;
-      for (int i = olength; i < exp + 1; i++) {
+      for (auto i = olength; i < exp + 1; i++) {
         result[index++] = '0';
       }
       result[index++] = '.';
@@ -860,7 +860,7 @@ __device__ inline int to_chars(floating_decimal_64 const v, bool const sign, cha
     } else {
       // Decimal dot is somewhere between the digits.
       int current = index + 1;
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         if (olength - i - 1 == exp) {
           result[current + olength - i - 1] = '.';
           current--;
@@ -926,7 +926,7 @@ __device__ inline int to_chars(floating_decimal_32 const v, bool const sign, cha
 
   if (scientificNotation) {
     // Print in the format x.xxxxxE-yy.
-    for (int i = 0; i < olength - 1; i++) {
+    for (auto i = 0; i < olength - 1; i++) {
       int c = output % 10;
       output /= 10;
       result[index + olength - i] = (char)('0' + c);
@@ -950,23 +950,23 @@ __device__ inline int to_chars(floating_decimal_32 const v, bool const sign, cha
       // Decimal dot is before any of the digits.
       result[index++] = '0';
       result[index++] = '.';
-      for (int i = -1; i > exp; i--) {
+      for (auto i = -1; i > exp; i--) {
         result[index++] = '0';
       }
       int current = index;
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         result[current + olength - i - 1] = (char)('0' + output % 10);
         output /= 10;
         index++;
       }
     } else if (exp + 1 >= olength) {
       // Decimal dot is after any of the digits.
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         result[index + olength - i - 1] = (char)('0' + output % 10);
         output /= 10;
       }
       index += olength;
-      for (int i = olength; i < exp + 1; i++) {
+      for (auto i = olength; i < exp + 1; i++) {
         result[index++] = '0';
       }
       result[index++] = '.';
@@ -974,7 +974,7 @@ __device__ inline int to_chars(floating_decimal_32 const v, bool const sign, cha
     } else {
       // Decimal dot is somewhere between the digits.
       int current = index + 1;
-      for (int i = 0; i < olength; i++) {
+      for (auto i = 0; i < olength; i++) {
         if (olength - i - 1 == exp) {
           result[current + olength - i - 1] = '.';
           current--;
@@ -1284,7 +1284,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     if (digits == 0) { return index; }
     result[index++]  = '.';
     int actual_round = digits;
-    for (int i = -1; i > exp; i--) {
+    for (auto i = -1; i > exp; i--) {
       index_for_carrier = index;
       result[index++]   = '0';
       actual_round--;
@@ -1301,14 +1301,14 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
       rounded_output -= POW10_TABLE[actual_olength];
     }
     int current = index;
-    for (int i = 0; i < actual_olength; i++) {
+    for (auto i = 0; i < actual_olength; i++) {
       result[current + actual_olength - i - 1] = (char)('0' + rounded_output % 10);
       rounded_output /= 10;
       index++;
     }
     actual_round -= actual_olength;
     if (actual_round > 0) {
-      for (int i = 0; i < actual_round; i++) {
+      for (auto i = 0; i < actual_round; i++) {
         result[index++] = '0';
       }
     }
@@ -1317,7 +1317,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     int integer_len = index + exp + 1 + exp / 3;
     int sep_cnt     = 0;
     int rev_index   = 0;
-    for (int i = olength; i < exp + 1; i++) {
+    for (auto i = olength; i < exp + 1; i++) {
       result[integer_len - (rev_index++) - 1] = '0';
       sep_cnt++;
       if (sep_cnt == 3) {
@@ -1325,7 +1325,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
         sep_cnt                                 = 0;
       }
     }
-    for (int i = 0; i < olength; i++) {
+    for (auto i = 0; i < olength; i++) {
       if (sep_cnt == 3) {
         result[integer_len - (rev_index++) - 1] = ',';
         sep_cnt                                 = 0;
@@ -1337,7 +1337,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     index = integer_len;
     if (digits == 0) { return index; }
     result[index++] = '.';
-    for (int i = 0; i < digits; i++) {
+    for (auto i = 0; i < digits; i++) {
       result[index++] = '0';
     }
   } else {
@@ -1356,7 +1356,7 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     int32_t formated_integer_len = index + integer_len + (integer_len - 1) / 3;
     int32_t sep_cnt              = 0;
     int rev_index                = 0;
-    for (int i = 0; i < integer_len; i++) {
+    for (auto i = 0; i < integer_len; i++) {
       if (sep_cnt == 3) {
         result[formated_integer_len - (rev_index++) - 1] = ',';
         sep_cnt                                          = 0;
@@ -1369,11 +1369,11 @@ __device__ inline int to_formatted_chars(T const v, bool const sign, char* const
     if (digits == 0) { return index; }
     result[index++] = '.';
     int current     = index;
-    for (int i = 0; i < tailing_zero; i++) {
+    for (auto i = 0; i < tailing_zero; i++) {
       result[current + digits - i - 1] = '0';
       index++;
     }
-    for (int i = tailing_zero; i < digits; i++) {
+    for (auto i = tailing_zero; i < digits; i++) {
       result[current + digits - i - 1] = (char)('0' + decimal % 10);
       decimal /= 10;
       index++;
@@ -1430,7 +1430,7 @@ __device__ inline int copy_format_special_str(char* const result,
   } else {
     result[sign + 1] = '.';
   }
-  for (int i = 0; i < digits; i++) {
+  for (auto i = 0; i < digits; i++) {
     result[sign + 2 + i] = '0';
   }
   return sign + 2 + digits;
