@@ -30,9 +30,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_str
   try {
     cudf::jni::auto_set_device(env);
 
-    // printf("StringDigitsPatternJni.cpp:
-    // Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_stringDigitsPattern\n");
-
     cudf::column_view* cv = reinterpret_cast<cudf::column_view*>(column_view);
     cudf::strings_column_view scv(*cv);
     cudf::string_scalar* ss_scalar = reinterpret_cast<cudf::string_scalar*>(target);
