@@ -28,7 +28,8 @@ ARG TARGETPLATFORM=linux/amd64
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
 ARG TOOLSET_VERSION=11
 ### Install basic requirements
-RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git
+RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git && \
+  alternatives --set python /usr/bin/python3
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir -m 777 /usr/local/rapids /rapids
 
