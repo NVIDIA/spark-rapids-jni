@@ -28,8 +28,10 @@ ARG TARGETPLATFORM=linux/amd64
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
 ARG TOOLSET_VERSION=11
 ### Install basic requirements
+# pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git && \
-  alternatives --set python /usr/bin/python3
+  alternatives --set python /usr/bin/python3 && \
+  python -m pip install requests 'urllib3<2.0'
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir -m 777 /usr/local/rapids /rapids
 
