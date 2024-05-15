@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "740889f413af9b1ae1d81eb1e5a4a9fb4ce9cf97",
+      "git_tag" : "6a28035c2b49b432dc63f5ee7524d76b4ed2d762",
       "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "14.0.2"
+      "version" : "16.0.0"
     },
     "CCCL" : 
     {
@@ -67,7 +67,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6ed7bccb42d82eb1ac60a98dfd460a7785881949",
+      "git_tag" : "4355c292cb4ddd54efe2d5220d004816c29f3dd1",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.06"
     },
@@ -94,6 +94,14 @@
       "git_tag" : "365b823cedb281cd0240ca601aba9b78771f91a3",
       "git_url" : "https://github.com/dmlc/dlpack.git",
       "version" : "0.8"
+    },
+    "flatbuffers" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "595bf0007ab1929570c7671f091313c8fc20644e",
+      "git_url" : "https://github.com/google/flatbuffers.git",
+      "version" : "24.3.25"
     },
     "fmt" : 
     {
@@ -144,7 +152,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "f11c8ca44ec4ab282157e7a1d7be5a3abafe8c57",
+      "git_tag" : "32cd537a55b81726940bb698013a0d684e338c86",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.06"
     },
