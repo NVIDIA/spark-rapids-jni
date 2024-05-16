@@ -387,7 +387,7 @@ __device__ bool evaluate_path(json_parser& p,
   // There is a same constant in JSONUtil.java, keep them consistent when changing
   // Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
   // or GPU reports cudaErrorIllegalAddress
-  constexpr int max_path_depth = 8;
+  constexpr int max_path_depth = 16;
 
   // define stack; plus 1 indicates root context task needs an extra memory
   context stack[max_path_depth + 1];
