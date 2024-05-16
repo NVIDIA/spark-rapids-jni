@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "740889f413af9b1ae1d81eb1e5a4a9fb4ce9cf97",
+      "git_tag" : "6a28035c2b49b432dc63f5ee7524d76b4ed2d762",
       "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "14.0.2"
+      "version" : "16.0.0"
     },
     "CCCL" : 
     {
@@ -31,6 +31,11 @@
           "file" : "cccl/revert_pr_211.diff",
           "fixed_in" : "",
           "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
+        },
+        {
+          "file" : "cccl/kernel_pointer_hiding.diff",
+          "fixed_in" : "2.4",
+          "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
         },
         {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
@@ -62,7 +67,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ff837fffda2bf4afa0dc80bc482a18f5645b4901",
+      "git_tag" : "4355c292cb4ddd54efe2d5220d004816c29f3dd1",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.06"
     },
@@ -89,6 +94,14 @@
       "git_tag" : "365b823cedb281cd0240ca601aba9b78771f91a3",
       "git_url" : "https://github.com/dmlc/dlpack.git",
       "version" : "0.8"
+    },
+    "flatbuffers" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "595bf0007ab1929570c7671f091313c8fc20644e",
+      "git_url" : "https://github.com/google/flatbuffers.git",
+      "version" : "24.3.25"
     },
     "fmt" : 
     {
@@ -139,7 +152,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e13b253fdfa19ccdf563be5fbf4ffa1cdc6b87a0",
+      "git_tag" : "8ee39ad591fb4f76be625f9c0cd2963172e62e32",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.06"
     },

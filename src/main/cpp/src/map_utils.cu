@@ -16,10 +16,6 @@
 
 #include "map_utils_debug.cuh"
 
-//
-#include <limits>
-
-//
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
@@ -31,12 +27,12 @@
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
-//
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 #include <rmm/resource_ref.hpp>
 
-//
+#include <cub/device/device_radix_sort.cuh>
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
@@ -52,9 +48,7 @@
 #include <thrust/transform.h>
 #include <thrust/transform_reduce.h>
 
-//
-#include <cub/device/device_radix_sort.cuh>
-#include <cuda/functional>
+#include <limits>
 
 namespace spark_rapids_jni {
 
@@ -521,8 +515,9 @@ struct substring_fn {
   cudf::device_span<char const> const d_string;
   cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
 
-  cudf::size_type* d_offsets{};
-  char* d_chars{};
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   __device__ void operator()(cudf::size_type const idx)
   {
@@ -531,7 +526,7 @@ struct substring_fn {
     if (d_chars) {
       memcpy(d_chars + d_offsets[idx], d_string.data() + range.first, size);
     } else {
-      d_offsets[idx] = size;
+      d_sizes[idx] = size;
     }
   }
 };
