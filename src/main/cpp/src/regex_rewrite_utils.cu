@@ -44,23 +44,25 @@ namespace spark_rapids_jni {
 
 /**
  * @brief Utility to return a bool column indicating the presence of
- * a given target string in a strings column.
- *
- * Null string entries return corresponding null output column entries.
+ * a given prefix string followed by at leasat range_len characters
+ * with code points in the range [start, end] in each string of the input column.
  *
  * @tparam BoolFunction Return bool value given two strings.
  *
- * @param strings Column of strings to check for target.
- * @param target UTF-8 encoded string to check in strings column.
- * @param pfn Returns bool value if target is found in the given string.
+ * @param strings Column of strings to check for prefix.
+ * @param prefix UTF-8 encoded string to check in strings column.
+ * @param range_len Minimum number of characters to check after the prefix.
+ * @param start Minimum code point value to check for in the range.
+ * @param end Maximum code point value to check for in the range.
+ * @param pfn Returns bool value if prefix is found in the given string.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned column's device memory.
  * @return New BOOL column.
  */
 template <typename BoolFunction>
 std::unique_ptr<cudf::column> literal_range_pattern_fn(cudf::strings_column_view const& strings,
-                                                       cudf::string_scalar const& target,
-                                                       int const d,
+                                                       cudf::string_scalar const& prefix,
+                                                       int const range_len,
                                                        int const start,
                                                        int const end,
                                                        BoolFunction pfn,
@@ -70,9 +72,9 @@ std::unique_ptr<cudf::column> literal_range_pattern_fn(cudf::strings_column_view
   auto strings_count = strings.size();
   if (strings_count == 0) return cudf::make_empty_column(cudf::type_id::BOOL8);
 
-  CUDF_EXPECTS(target.is_valid(stream), "Parameter target must be valid.");
+  CUDF_EXPECTS(prefix.is_valid(stream), "Parameter prefix must be valid.");
 
-  auto d_target       = cudf::string_view(target.data(), target.size());
+  auto d_prefix       = cudf::string_view(prefix.data(), prefix.size());
   auto strings_column = cudf::column_device_view::create(strings.parent(), stream);
   auto d_strings      = *strings_column;
   // create output column
@@ -90,9 +92,10 @@ std::unique_ptr<cudf::column> literal_range_pattern_fn(cudf::strings_column_view
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(strings_count),
     d_results,
-    [d_strings, pfn, d_target, d, start, end] __device__(cudf::size_type idx) {
+    [d_strings, pfn, d_prefix, range_len, start, end] __device__(cudf::size_type idx) {
       if (!d_strings.is_null(idx)) {
-        return bool{pfn(d_strings.element<cudf::string_view>(idx), d_target, d, start, end)};
+        return bool{
+          pfn(d_strings.element<cudf::string_view>(idx), d_prefix, range_len, start, end)};
       }
       return false;
     });
@@ -101,38 +104,39 @@ std::unique_ptr<cudf::column> literal_range_pattern_fn(cudf::strings_column_view
 }
 
 std::unique_ptr<cudf::column> literal_range_pattern(cudf::strings_column_view const& input,
-                                                    cudf::string_scalar const& target,
-                                                    int const d,
+                                                    cudf::string_scalar const& prefix,
+                                                    int const range_len,
                                                     int const start,
                                                     int const end,
                                                     rmm::cuda_stream_view stream,
                                                     rmm::mr::device_memory_resource* mr)
 {
-  auto pfn = [] __device__(
-               cudf::string_view d_string, cudf::string_view d_target, int d, int start, int end) {
-    int const n = d_string.length(), m = d_target.length();
-    for (int i = 0; i <= n - m - d; i++) {
-      bool match = true;
-      for (int j = 0; j < m; j++) {
-        if (d_string[i + j] != d_target[j]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
-        for (int j = 0; j < d; j++) {
-          auto code_point = cudf::strings::detail::utf8_to_codepoint(d_string[i + m + j]);
-          if (code_point < start || code_point > end) {
+  auto pfn =
+    [] __device__(
+      cudf::string_view d_string, cudf::string_view d_prefix, int range_len, int start, int end) {
+      int const n = d_string.length(), m = d_prefix.length();
+      for (int i = 0; i <= n - m - range_len; i++) {
+        bool match = true;
+        for (int j = 0; j < m; j++) {
+          if (d_string[i + j] != d_prefix[j]) {
             match = false;
             break;
           }
         }
-        if (match) { return true; }
+        if (match) {
+          for (int j = 0; j < range_len; j++) {
+            auto code_point = cudf::strings::detail::utf8_to_codepoint(d_string[i + m + j]);
+            if (code_point < start || code_point > end) {
+              match = false;
+              break;
+            }
+          }
+          if (match) { return true; }
+        }
       }
-    }
-    return false;
-  };
-  return literal_range_pattern_fn(input, target, d, start, end, pfn, stream, mr);
+      return false;
+    };
+  return literal_range_pattern_fn(input, prefix, range_len, start, end, pfn, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
