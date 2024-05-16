@@ -30,7 +30,7 @@
 #include <cudf/utilities/error.hpp>
 
 namespace spark_rapids_jni {
-std::unique_ptr<cudf::column> string_digits_pattern(
+std::unique_ptr<cudf::column> literal_range_pattern(
   cudf::strings_column_view const& input,
   cudf::string_scalar const& target,
   int const d,

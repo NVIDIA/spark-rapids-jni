@@ -24,28 +24,28 @@ import com.nvidia.spark.rapids.jni.JSONUtils;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-public class StringDigitsPatternTest {
+public class RegexRewriteUtilsTest {
 
   @Test
-  void stringDigitsPatternTest() {
+  void testLiteralRangePattern() {
     int d = 3;
     try (ColumnVector inputCv = ColumnVector.fromStrings(
         "abc123", "aabc123", "aabc12", "abc1232", "aabc1232");
         Scalar pattern = Scalar.fromString("abc");
         ColumnVector expected = ColumnVector.fromBooleans(true, true, false, true, true);
-        ColumnVector actual = StringDigitsPattern.stringDigitsPattern(inputCv, pattern, d, 48, 57)) {
+        ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 48, 57)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
 
   @Test
-  void stringDigitsPatternChineseTest() {
+  void testLiteralRangePatternChinese() {
     int d = 2;
     try (ColumnVector inputCv = ColumnVector.fromStrings(
         "数据砖块", "火花-迅速英伟达", "英伟达Nvidia", "火花-迅速");
         Scalar pattern = Scalar.fromString("英");
         ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false);
-        ColumnVector actual = StringDigitsPattern.stringDigitsPattern(inputCv, pattern, d, 19968, 40869)) {
+        ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 19968, 40869)) {
       assertColumnsAreEqual(expected, actual);
     }
   }

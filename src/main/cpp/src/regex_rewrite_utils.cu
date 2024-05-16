@@ -58,7 +58,7 @@ namespace spark_rapids_jni {
  * @return New BOOL column.
  */
 template <typename BoolFunction>
-std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view const& strings,
+std::unique_ptr<cudf::column> literal_range_pattern_fn(cudf::strings_column_view const& strings,
                                                        cudf::string_scalar const& target,
                                                        int const d,
                                                        int const start,
@@ -100,7 +100,7 @@ std::unique_ptr<cudf::column> string_digits_pattern_fn(cudf::strings_column_view
   return results;
 }
 
-std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view const& input,
+std::unique_ptr<cudf::column> literal_range_pattern(cudf::strings_column_view const& input,
                                                     cudf::string_scalar const& target,
                                                     int const d,
                                                     int const start,
@@ -132,7 +132,7 @@ std::unique_ptr<cudf::column> string_digits_pattern(cudf::strings_column_view co
     }
     return false;
   };
-  return string_digits_pattern_fn(input, target, d, start, end, pfn, stream, mr);
+  return literal_range_pattern_fn(input, target, d, start, end, pfn, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

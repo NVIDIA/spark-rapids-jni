@@ -18,15 +18,15 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
-public class StringDigitsPattern {
+public class RegexRewriteUtils {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static ColumnVector stringDigitsPattern(ColumnVector input, Scalar pattern, int d, int start, int end) {
+  public static ColumnVector literalRangePattern(ColumnVector input, Scalar pattern, int d, int start, int end) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(stringDigitsPattern(input.getNativeView(), CudfAccessor.getScalarHandle(pattern), d, start, end));
+    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(pattern), d, start, end));
   }
 
-  private static native long stringDigitsPattern(long input, long pattern, int d, int start, int end);
+  private static native long literalRangePattern(long input, long pattern, int d, int start, int end);
 }

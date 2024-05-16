@@ -17,11 +17,11 @@
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
 #include "jni_utils.hpp"
-#include "string_digits_pattern.hpp"
+#include "regex_rewrite_utils.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_stringDigitsPattern(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_RegexRewriteUtils_literalRangePattern(
   JNIEnv* env, jclass, jlong column_view, jlong target, jint d, jint start, jint end)
 {
   JNI_NULL_CHECK(env, column_view, "input column is null", 0);
@@ -34,7 +34,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringDigitsPattern_str
     cudf::strings_column_view scv(*cv);
     cudf::string_scalar* ss_scalar = reinterpret_cast<cudf::string_scalar*>(target);
     return cudf::jni::release_as_jlong(
-      spark_rapids_jni::string_digits_pattern(scv, *ss_scalar, d, start, end));
+      spark_rapids_jni::literal_range_pattern(scv, *ss_scalar, d, start, end));
   }
   CATCH_STD(env, 0);
 }
