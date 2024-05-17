@@ -16,26 +16,30 @@
 
 #pragma once
 
-#include <cudf/column/column_device_view.cuh>
-#include <cudf/column/column_factories.hpp>
-#include <cudf/detail/iterator.cuh>
-#include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/scalar/scalar_factories.hpp>
-#include <cudf/strings/detail/utilities.hpp>
-#include <cudf/strings/find.hpp>
-#include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/error.hpp>
 
 namespace spark_rapids_jni {
+/**
+ * @brief Check if input string contains regex pattern `literal[start-end]{len,}`, which means
+ * a literal string followed by a range of characters in the range of start to end, with at least
+ * len characters.
+ *
+ * @param strings Column of strings to check for literal.
+ * @param literal UTF-8 encoded string to check in strings column.
+ * @param len Minimum number of characters to check after the literal.
+ * @param start Minimum UTF-8 codepoint value to check for in the range.
+ * @param end Maximum UTF-8 codepoint value to check for in the range.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned column's device memory.
+ */
 std::unique_ptr<cudf::column> literal_range_pattern(
   cudf::strings_column_view const& input,
-  cudf::string_scalar const& target,
-  int const d,
+  cudf::string_scalar const& literal,
+  int const len,
   int const start,
   int const end,
-  rmm::cuda_stream_view stream        = rmm::cuda_stream_default,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 }  // namespace spark_rapids_jni

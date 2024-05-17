@@ -20,8 +20,6 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Scalar;
 import org.junit.jupiter.api.Test;
 
-import com.nvidia.spark.rapids.jni.JSONUtils;
-
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class RegexRewriteUtilsTest {
@@ -42,7 +40,7 @@ public class RegexRewriteUtilsTest {
   void testLiteralRangePatternChinese() {
     int d = 2;
     try (ColumnVector inputCv = ColumnVector.fromStrings(
-        "数据砖块", "火花-迅速英伟达", "英伟达Nvidia", "火花-迅速");
+        "数据砖块", "火花-急流英伟达", "英伟达Nvidia", "火花-急流");
         Scalar pattern = Scalar.fromString("英");
         ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false);
         ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 19968, 40869)) {

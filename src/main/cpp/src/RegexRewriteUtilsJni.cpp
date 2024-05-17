@@ -22,15 +22,15 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_RegexRewriteUtils_literalRangePattern(
-  JNIEnv* env, jclass, jlong column_view, jlong target, jint d, jint start, jint end)
+  JNIEnv* env, jclass, jlong input, jlong target, jint d, jint start, jint end)
 {
-  JNI_NULL_CHECK(env, column_view, "input column is null", 0);
+  JNI_NULL_CHECK(env, input, "input column is null", 0);
   JNI_NULL_CHECK(env, target, "target is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
 
-    cudf::column_view* cv = reinterpret_cast<cudf::column_view*>(column_view);
+    cudf::column_view* cv = reinterpret_cast<cudf::column_view*>(input);
     cudf::strings_column_view scv(*cv);
     cudf::string_scalar* ss_scalar = reinterpret_cast<cudf::string_scalar*>(target);
     return cudf::jni::release_as_jlong(

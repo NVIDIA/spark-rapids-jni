@@ -23,10 +23,22 @@ public class RegexRewriteUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static ColumnVector literalRangePattern(ColumnVector input, Scalar pattern, int d, int start, int end) {
+/**
+ * @brief Check if input string contains regex pattern `literal[start-end]{len,}`, which means
+ * a literal string followed by a range of characters in the range of start to end, with at least
+ * len characters.
+ *
+ * @param strings Column of strings to check for literal.
+ * @param literal UTF-8 encoded string to check in strings column.
+ * @param len Minimum number of characters to check after the literal.
+ * @param start Minimum UTF-8 codepoint value to check for in the range.
+ * @param end Maximum UTF-8 codepoint value to check for in the range.
+ * @return ColumnVector of booleans where true indicates the string contains the pattern.
+ */
+  public static ColumnVector literalRangePattern(ColumnVector input, Scalar literal, int len, int start, int end) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(pattern), d, start, end));
+    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(literal), len, start, end));
   }
 
-  private static native long literalRangePattern(long input, long pattern, int d, int start, int end);
+  private static native long literalRangePattern(long input, long literal, int len, int start, int end);
 }
