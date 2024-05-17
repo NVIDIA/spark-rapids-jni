@@ -33,7 +33,7 @@ namespace spark_rapids_jni {
 /**
  * path instruction type
  */
-enum class path_instruction_type { SUBSCRIPT, WILDCARD, KEY, INDEX, NAMED };
+enum class path_instruction_type { WILDCARD, INDEX, NAMED };
 
 /**
  * Extracts json object from a json string based on json path specified, and

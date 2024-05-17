@@ -27,9 +27,7 @@ public class JSONUtils {
   public static final int MAX_PATH_DEPTH = 16;
 
   public enum PathInstructionType {
-    SUBSCRIPT,
     WILDCARD,
-    KEY,
     INDEX,
     NAMED
   }

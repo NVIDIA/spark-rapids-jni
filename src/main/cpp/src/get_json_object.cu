@@ -799,10 +799,6 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   for (auto const& inst : instructions) {
     auto const& [type, name, index] = inst;
     switch (type) {
-      case path_instruction_type::SUBSCRIPT:
-      case path_instruction_type::KEY:
-        // skip SUBSCRIPT and KEY to save stack size in `evaluate_path`
-        break;
       case path_instruction_type::WILDCARD:
         path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
         break;
