@@ -35,8 +35,9 @@ template <typename FloatType>
 struct format_float_fn {
   cudf::column_device_view d_floats;
   int digits;
-  cudf::size_type* d_offsets;
+  cudf::size_type* d_sizes;
   char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   __device__ cudf::size_type compute_output_size(FloatType const value) const
   {
@@ -56,13 +57,13 @@ struct format_float_fn {
   __device__ void operator()(cudf::size_type const idx) const
   {
     if (d_floats.is_null(idx)) {
-      if (d_chars == nullptr) { d_offsets[idx] = 0; }
+      if (d_chars == nullptr) { d_sizes[idx] = 0; }
       return;
     }
     if (d_chars != nullptr) {
       format_float(idx);
     } else {
-      d_offsets[idx] = compute_output_size(d_floats.element<FloatType>(idx));
+      d_sizes[idx] = compute_output_size(d_floats.element<FloatType>(idx));
     }
   }
 };

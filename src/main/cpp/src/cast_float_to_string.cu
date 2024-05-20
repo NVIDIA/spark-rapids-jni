@@ -34,8 +34,9 @@ namespace {
 template <typename FloatType>
 struct float_to_string_fn {
   cudf::column_device_view d_floats;
-  cudf::size_type* d_offsets;
+  cudf::size_type* d_sizes;
   char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   __device__ cudf::size_type compute_output_size(cudf::size_type idx) const
   {
@@ -56,13 +57,13 @@ struct float_to_string_fn {
   __device__ void operator()(cudf::size_type idx) const
   {
     if (d_floats.is_null(idx)) {
-      if (d_chars == nullptr) { d_offsets[idx] = 0; }
+      if (d_chars == nullptr) { d_sizes[idx] = 0; }
       return;
     }
     if (d_chars != nullptr) {
       float_to_string(idx);
     } else {
-      d_offsets[idx] = compute_output_size(idx);
+      d_sizes[idx] = compute_output_size(idx);
     }
   }
 };
