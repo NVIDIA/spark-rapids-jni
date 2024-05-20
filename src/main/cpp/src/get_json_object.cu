@@ -40,7 +40,6 @@
 
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <thrust/optional.h>
 #include <thrust/pair.h>

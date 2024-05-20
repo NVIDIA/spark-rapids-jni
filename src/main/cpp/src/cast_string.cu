@@ -25,7 +25,6 @@
 
 #include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>

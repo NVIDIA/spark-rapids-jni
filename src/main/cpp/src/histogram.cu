@@ -33,8 +33,6 @@
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 
-#include <rmm/resource_ref.hpp>
-
 //
 #include <thrust/binary_search.h>
 #include <thrust/for_each.h>
