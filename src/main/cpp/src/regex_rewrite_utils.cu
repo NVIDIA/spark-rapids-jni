@@ -35,7 +35,7 @@ namespace spark_rapids_jni {
 namespace {
 
 struct literal_range_pattern_fn {
-  __device__ bool operator()(
+  __device__ bool operator() const (
     cudf::string_view d_string, cudf::string_view d_prefix, int range_len, int start, int end)
   {
     int const n = d_string.length(), m = d_prefix.length();
@@ -71,7 +71,7 @@ std::unique_ptr<cudf::column> find_literal_range_pattern(cudf::strings_column_vi
                                                          rmm::device_async_resource_ref mr)
 {
   auto const strings_count = strings.size();
-  if (strings_count == 0) return cudf::make_empty_column(cudf::type_id::BOOL8);
+  if (strings_count == 0) { return cudf::make_empty_column(cudf::type_id::BOOL8); }
 
   CUDF_EXPECTS(prefix.is_valid(stream), "Parameter prefix must be valid.");
 
@@ -92,10 +92,10 @@ std::unique_ptr<cudf::column> find_literal_range_pattern(cudf::strings_column_vi
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(strings_count),
     d_results,
-    [d_strings, d_prefix, range_len, start, end] __device__(cudf::size_type idx) {
+    [d_strings, d_prefix, range_len, start, end, check_fn = literal_range_pattern_fn{}] __device__(cudf::size_type idx) {
       if (!d_strings.is_null(idx)) {
-        return bool{literal_range_pattern_fn{}(
-          d_strings.element<cudf::string_view>(idx), d_prefix, range_len, start, end)};
+        return check_fn(
+          d_strings.element<cudf::string_view>(idx), d_prefix, range_len, start, end);
       }
       return false;
     });
