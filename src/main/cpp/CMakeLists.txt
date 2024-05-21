@@ -162,6 +162,7 @@ add_library(
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
+  src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
@@ -178,6 +179,7 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
+  src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
