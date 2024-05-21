@@ -954,9 +954,7 @@ std::unique_ptr<cudf::column> get_json_object(
 {
   if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
-  if (instructions.size() > max_path_depth) {
-    CUDF_FAIL("JSONPath query exceeds maximum depth");
-  }
+  if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
 
   // get a string buffer to store all the names and convert to device
   std::string all_names;
