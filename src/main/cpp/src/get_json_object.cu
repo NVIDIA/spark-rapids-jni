@@ -43,6 +43,12 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
+// path max depth limitation
+// There is a same constant in JSONUtil.java, keep them consistent when changing
+// Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
+// or GPU reports cudaErrorIllegalAddress
+constexpr int max_path_depth = 16;
+
 /**
  * write JSON style
  */
@@ -382,12 +388,6 @@ __device__ bool evaluate_path(json_parser& p,
     // used to save child JSON generator for case path 8
     json_generator child_g;
   };
-
-  // path max depth limitation
-  // There is a same constant in JSONUtil.java, keep them consistent when changing
-  // Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
-  // or GPU reports cudaErrorIllegalAddress
-  constexpr int max_path_depth = 16;
 
   // define stack; plus 1 indicates root context task needs an extra memory
   context stack[max_path_depth + 1];
@@ -953,6 +953,8 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::mr::device_memory_resource* mr)
 {
   if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
+
+  if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
 
   // get a string buffer to store all the names and convert to device
   std::string all_names;
