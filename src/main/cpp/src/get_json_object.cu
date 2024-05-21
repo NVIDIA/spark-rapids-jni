@@ -387,7 +387,7 @@ __device__ bool evaluate_path(json_parser& p,
   // There is a same constant in JSONUtil.java, keep them consistent when changing
   // Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
   // or GPU reports cudaErrorIllegalAddress
-  constexpr int max_path_depth = 8;
+  constexpr int max_path_depth = 16;
 
   // define stack; plus 1 indicates root context task needs an extra memory
   context stack[max_path_depth + 1];
@@ -799,10 +799,6 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   for (auto const& inst : instructions) {
     auto const& [type, name, index] = inst;
     switch (type) {
-      case path_instruction_type::SUBSCRIPT:
-      case path_instruction_type::KEY:
-        // skip SUBSCRIPT and KEY to save stack size in `evaluate_path`
-        break;
       case path_instruction_type::WILDCARD:
         path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
         break;

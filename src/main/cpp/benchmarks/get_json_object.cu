@@ -142,10 +142,8 @@ void BM_get_json_object(nvbench::state& state)
 
   using path_instruction_type = spark_rapids_jni::path_instruction_type;
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
-  instructions.emplace_back(path_instruction_type::KEY, "", -1);
   instructions.emplace_back(path_instruction_type::NAMED, "struct", -1);
   for (int i = 0; i < max_depth - list_depth; ++i) {
-    instructions.emplace_back(path_instruction_type::KEY, "", -1);
     instructions.emplace_back(path_instruction_type::NAMED, "0", -1);
   }
 
