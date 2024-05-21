@@ -35,8 +35,8 @@ namespace spark_rapids_jni {
 namespace {
 
 struct literal_range_pattern_fn {
-  __device__ bool operator()
-    const(cudf::string_view d_string, cudf::string_view d_prefix, int range_len, int start, int end)
+  __device__ bool operator()(
+    cudf::string_view d_string, cudf::string_view d_prefix, int range_len, int start, int end) const
   {
     int const n = d_string.length(), m = d_prefix.length();
     for (int i = 0; i <= n - m - range_len; i++) {
