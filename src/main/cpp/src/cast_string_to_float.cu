@@ -25,6 +25,8 @@
 #include <cudf/strings/detail/convert/string_to_float.cuh>
 #include <cudf/utilities/bit.hpp>
 
+#include <rmm/resource_ref.hpp>
+
 #include <cub/warp/warp_reduce.cuh>
 
 using namespace cudf;
@@ -655,7 +657,7 @@ std::unique_ptr<column> string_to_float(data_type dtype,
                                         strings_column_view const& string_col,
                                         bool ansi_mode,
                                         rmm::cuda_stream_view stream,
-                                        rmm::mr::device_memory_resource* mr)
+                                        rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(dtype == data_type{type_id::FLOAT32} || dtype == data_type{type_id::FLOAT64},
                "invalid float data type");
