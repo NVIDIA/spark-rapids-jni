@@ -241,11 +241,11 @@ class string_to_float {
                                           (_warp_lane == 1 && (_c == 'A' || _c == 'a')) ||
                                           (_warp_lane == 2 && (_c == 'N' || _c == 'n')));
     if (nan_mask == 0x7) {
-      // if we start with 'nan', then even if we have other garbage character(excluding whitespaces), this is a null row.
-      // but for e.g. : "nan   " cases. spark will treat the as "nan", when the trailing characters
-      // are whitespaces, it is still a valid string.
-      // if we're in ansi mode and this is not -precisely- nan, report that so that we can throw
-      // an exception later.
+      // if we start with 'nan', then even if we have other garbage character(excluding
+      // whitespaces), this is a null row. but for e.g. : "nan   " cases. spark will treat the as
+      // "nan", when the trailing characters are whitespaces, it is still a valid string. if we're
+      // in ansi mode and this is not -precisely- nan, report that so that we can throw an exception
+      // later.
 
       // move forward the curren position by 3
       _bpos += 3;
@@ -257,8 +257,8 @@ class string_to_float {
       // if we're at the end
       if (_bpos == _len) { return true; }
       // if we reach out here, it means that we have other garbage character.
-       _valid  = false;
-       _except = true;
+      _valid  = false;
+      _except = true;
     }
     return false;
   }
@@ -319,7 +319,6 @@ class string_to_float {
       // string but also have additional characters, making this whole thing bogus/null
       _valid = false;
 
-      // TODO: whether or not set _expect to true?
       return true;
     }
     return false;
