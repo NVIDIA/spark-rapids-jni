@@ -247,7 +247,7 @@ class string_to_float {
       // in ansi mode and this is not -precisely- nan, report that so that we can throw an exception
       // later.
 
-      // move forward the curren position by 3
+      // move forward the current position by 3
       _bpos += 3;
       _c = __shfl_down_sync(0xffffffff, _c, 3);
 
