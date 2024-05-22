@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6a28035c2b49b432dc63f5ee7524d76b4ed2d762",
+      "git_tag" : "7dd1d34074af176d9e861a360e135ae57b21cf96",
       "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "16.0.0"
+      "version" : "16.1.0"
     },
     "CCCL" : 
     {
