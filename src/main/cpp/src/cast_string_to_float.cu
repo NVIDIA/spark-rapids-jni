@@ -241,15 +241,24 @@ class string_to_float {
                                           (_warp_lane == 1 && (_c == 'A' || _c == 'a')) ||
                                           (_warp_lane == 2 && (_c == 'N' || _c == 'n')));
     if (nan_mask == 0x7) {
-      // if we start with 'nan', then even if we have other garbage character, this is a null row.
-      //
+      // if we start with 'nan', then even if we have other garbage character(excluding whitespaces), this is a null row.
+      // but for e.g. : "nan   " cases. spark will treat the as "nan", when the trailing characters
+      // are whitespaces, it is still a valid string.
       // if we're in ansi mode and this is not -precisely- nan, report that so that we can throw
       // an exception later.
-      if (_len != 3) {
-        _valid  = false;
-        _except = _len != 3;
-      }
-      return true;
+
+      // move forward the curren position by 3
+      _bpos += 3;
+      _c = __shfl_down_sync(0xffffffff, _c, 3);
+
+      // remove the trailing whitespaces, if there exits
+      remove_leading_whitespace();
+
+      // if we're at the end
+      if (_bpos == _len) { return true; }
+      // if we reach out here, it means that we have other garbage character.
+       _valid  = false;
+       _except = true;
     }
     return false;
   }
@@ -295,13 +304,31 @@ class string_to_float {
                                                  (_warp_lane == 4 && (_c == 'Y' || _c == 'y')));
       if (infinity_mask == 0x1f) {
         _bpos += 5;
+        _c = __shfl_down_sync(0xffffffff, _c, 5);
         // if we're at the end
         if (_bpos == _len) { return true; }
       }
+// For debug
+//       int len_int = _len;
+//       int bpos_int = _bpos;
+//       printf("I am before _trailing white space _bpos %d : _len %d \n", bpos_int, len_int);
+
+      // remove the remaining whitespace if exits
+      remove_leading_whitespace();
+// For debug
+//       len_int = _len;
+//       bpos_int = _bpos;
+//
+//       printf("I am after _trailing white space  _bpos %d : _len %d \n", bpos_int, len_int);
+
+      // if we're at the end
+      if (_bpos == _len) { return true; }
 
       // if we reach here for any reason, it means we have "inf" or "infinity" at the start of the
       // string but also have additional characters, making this whole thing bogus/null
       _valid = false;
+
+      // TODO: whether or not set _expect to true?
       return true;
     }
     return false;
