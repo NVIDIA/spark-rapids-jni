@@ -308,18 +308,9 @@ class string_to_float {
         // if we're at the end
         if (_bpos == _len) { return true; }
       }
-// For debug
-//       int len_int = _len;
-//       int bpos_int = _bpos;
-//       printf("I am before _trailing white space _bpos %d : _len %d \n", bpos_int, len_int);
 
       // remove the remaining whitespace if exits
       remove_leading_whitespace();
-// For debug
-//       len_int = _len;
-//       bpos_int = _bpos;
-//
-//       printf("I am after _trailing white space  _bpos %d : _len %d \n", bpos_int, len_int);
 
       // if we're at the end
       if (_bpos == _len) { return true; }
