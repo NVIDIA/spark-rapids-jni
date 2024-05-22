@@ -319,7 +319,6 @@ class string_to_float {
       // string but also have additional characters, making this whole thing bogus/null
       _valid = false;
 
-      // TODO: whether or not set _expect to true?
       return true;
     }
     return false;
