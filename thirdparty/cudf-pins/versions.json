@@ -67,17 +67,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "261445be7993df57f624a3f4ee9fd15e7d26bb5e",
+      "git_tag" : "474ba658ff2a49cff7f7bc2e5e24be7866195aaf",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.06"
-    },
-    "NVTX3" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
-      "git_url" : "https://github.com/NVIDIA/NVTX.git",
-      "version" : "3.1.0"
+      "version" : "24.08"
     },
     "cuco" : 
     {
@@ -148,13 +140,21 @@
       },
       "version" : "3.0.6"
     },
+    "nvtx3" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "version" : "3.1.0"
+    },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "46e153c18d17b07526d6ff2e04859fcbbd706879",
+      "git_tag" : "f16de1f515fb7ae56bddb9999e7a35cdc3caab95",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.06"
+      "version" : "24.08"
     },
     "spdlog" : 
     {
