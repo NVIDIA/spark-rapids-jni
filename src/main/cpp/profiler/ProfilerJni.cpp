@@ -405,7 +405,7 @@ void update_activity_enable(bool enable)
     }
   } else {
     for (CUpti_ActivityKind const id : activity_ids) {
-      check_cupti(cuptiActivityEnable(id), "Error disabling device activity");
+      check_cupti(cuptiActivityDisable(id), "Error disabling device activity");
     }
     check_cupti(cuptiActivityFlushAll(0), "Error flushing activity records");
   }
