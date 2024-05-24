@@ -24,6 +24,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
@@ -206,7 +207,7 @@ struct subscriber_state {
 // Global variables
 subscriber_state* State = nullptr;
 uint64_t Flush_period_msec;
-uint64_t Last_flush_time_msec;
+std::atomic_uint64_t Last_flush_time_msec;
 
 JavaVM* get_jvm(JNIEnv* env)
 {
