@@ -71,14 +71,6 @@
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.06"
     },
-    "NVTX3" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
-      "git_url" : "https://github.com/NVIDIA/NVTX.git",
-      "version" : "3.1.0"
-    },
     "cuco" : 
     {
       "always_download" : true,
@@ -147,6 +139,14 @@
         "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-major}.x.tgz"
       },
       "version" : "3.0.6"
+    },
+    "nvtx3" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "version" : "3.1.0"
     },
     "rmm" : 
     {
