@@ -390,16 +390,15 @@ void writer_thread_process(JavaVM* vm, jobject j_writer, size_t buffer_size, siz
 // Enable/disable capture of CUPTI activity events
 void update_activity_enable(bool enable)
 {
-  CUpti_ActivityKind const activity_ids[] = {
-    CUPTI_ACTIVITY_KIND_DEVICE,
-    CUPTI_ACTIVITY_KIND_DRIVER,
-    CUPTI_ACTIVITY_KIND_RUNTIME,
-    CUPTI_ACTIVITY_KIND_MEMCPY,
-    CUPTI_ACTIVITY_KIND_MEMSET,
-    CUPTI_ACTIVITY_KIND_NAME,
-    CUPTI_ACTIVITY_KIND_MARKER,
-    CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL,
-    CUPTI_ACTIVITY_KIND_OVERHEAD};
+  CUpti_ActivityKind const activity_ids[] = {CUPTI_ACTIVITY_KIND_DEVICE,
+                                             CUPTI_ACTIVITY_KIND_DRIVER,
+                                             CUPTI_ACTIVITY_KIND_RUNTIME,
+                                             CUPTI_ACTIVITY_KIND_MEMCPY,
+                                             CUPTI_ACTIVITY_KIND_MEMSET,
+                                             CUPTI_ACTIVITY_KIND_NAME,
+                                             CUPTI_ACTIVITY_KIND_MARKER,
+                                             CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL,
+                                             CUPTI_ACTIVITY_KIND_OVERHEAD};
   if (enable) {
     for (CUpti_ActivityKind const id : activity_ids) {
       check_cupti(cuptiActivityEnable(id), "Error enabling device activity");
