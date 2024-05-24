@@ -246,8 +246,14 @@ uint64_t timestamp_now()
 {
   timespec info;
   if (clock_gettime(CLOCK_MONOTONIC_RAW, &info) != 0) {
-    std::cerr << "PROFILER: Unable to determine current time, aborting!" << std::endl;
-    abort();
+    static bool have_logged_error = false;
+    if (!have_logged_error) {
+      std::cerr << "PROFILER: Unable to determine current time!" << std::endl;
+      have_logged_error = true;
+    }
+    // No idea what time it is, so return the last flush time which will effectively
+    // disable periodic flushing but avoid pathologic flushing on every kernel launch.
+    return Last_flush_time_msec;
   }
   return info.tv_sec * 1e3 + info.tv_nsec / 1e6;
 }
