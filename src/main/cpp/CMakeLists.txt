@@ -255,7 +255,7 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
-    nvtx3-cpp
+    nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
     ${PARQUET_LIB}
     ${THRIFT_LIB}
