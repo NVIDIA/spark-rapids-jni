@@ -17,6 +17,7 @@
 #include "profiler_debug.hpp"
 
 #include <iostream>
+#include <sstream>
 
 namespace spark_rapids_jni::profiler {
 
@@ -43,8 +44,13 @@ std::string activity_object_kind_to_string(CUpti_ActivityObjectKind kind)
     case CUPTI_ACTIVITY_OBJECT_DEVICE: return "DEVICE";
     case CUPTI_ACTIVITY_OBJECT_CONTEXT: return "CONTEXT";
     case CUPTI_ACTIVITY_OBJECT_STREAM: return "STREAM";
-    case CUPTI_ACTIVITY_OBJECT_UNKNOWN:
-    default: return "UNKNOWN";
+    case CUPTI_ACTIVITY_OBJECT_UNKNOWN: return "UNKNOWN";
+    default:
+    {
+      std::ostringstream oss;
+      oss << "UNRECOGNIZED(" << kind << ")";
+      return oss.str();
+    }
   }
 }
 
@@ -113,7 +119,12 @@ std::string activity_kind_to_string(CUpti_ActivityKind kind)
     case CUPTI_ACTIVITY_KIND_MEMORY_POOL: return "CUPTI_ACTIVITY_KIND_MEMORY_POOL";
     case CUPTI_ACTIVITY_KIND_GRAPH_TRACE: return "CUPTI_ACTIVITY_KIND_GRAPH_TRACE";
     case CUPTI_ACTIVITY_KIND_JIT: return "CUPTI_ACTIVITY_KIND_JIT";
-    default: return "UNKNOWN";
+    default:
+    {
+      std::ostringstream oss;
+      oss << "UNRECOGNIZED(" << kind << ")";
+      return oss.str();
+    }
   }
 }
 

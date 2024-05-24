@@ -385,8 +385,6 @@ void update_activity_enable(bool enable)
 {
   if (enable) {
     check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DEVICE), "Error enabling device activity");
-    // check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONTEXT), "Error enabling context
-    // activity");
     check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER), "Error enabling driver activity");
     check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME),
                 "Error enabling runtime activity");
@@ -400,8 +398,6 @@ void update_activity_enable(bool enable)
                 "Error enabling overhead activity");
   } else {
     check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DEVICE), "Error enabling device activity");
-    // check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONTEXT), "Error enabling context
-    // activity");
     check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER), "Error enabling driver activity");
     check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME),
                 "Error enabling runtime activity");
@@ -451,6 +447,9 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_Profiler_nativeInit(JNIE
                 << " milliseconds" << std::endl;
       Flush_period_msec    = static_cast<uint64_t>(flush_period_msec);
       Last_flush_time_msec = timestamp_now();
+      // CUPTI's periodic flush does not appear to work in this environment. As a workaround,
+      // register a callback for all the various ways a GPU kernel gets launched. The callback
+      // checks if the flush period has elapsed since we last flushed, and if so, forces a flush.
       CUpti_CallbackId const driver_launch_callback_ids[] = {
         CUPTI_DRIVER_TRACE_CBID_cuGraphLaunch,
         CUPTI_DRIVER_TRACE_CBID_cuGraphLaunch_ptsz,

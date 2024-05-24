@@ -74,7 +74,6 @@ template <>
 struct std::hash<thread_id> {
   std::size_t operator()(thread_id const& t) const
   {
-    // TODO: use a real hash
     return std::hash<uint32_t>{}(t.pid) ^ (std::hash<uint32_t>{}(t.tid) << 1);
   }
 };
@@ -94,7 +93,6 @@ template <>
 struct std::hash<stream_id> {
   std::size_t operator()(stream_id const& s) const
   {
-    // TODO: use a real hash
     return std::hash<uint32_t>{}(s.device) ^ (std::hash<uint32_t>{}(s.context) << 1) ^
            (std::hash<uint32_t>{}(s.stream) << 2);
   }
