@@ -383,32 +383,24 @@ void writer_thread_process(JavaVM* vm, jobject j_writer, size_t buffer_size, siz
 // Enable/disable capture of CUPTI activity events
 void update_activity_enable(bool enable)
 {
+  CUpti_ActivityKind const activity_ids[] = {
+    CUPTI_ACTIVITY_KIND_DEVICE,
+    CUPTI_ACTIVITY_KIND_DRIVER,
+    CUPTI_ACTIVITY_KIND_RUNTIME,
+    CUPTI_ACTIVITY_KIND_MEMCPY,
+    CUPTI_ACTIVITY_KIND_MEMSET,
+    CUPTI_ACTIVITY_KIND_NAME,
+    CUPTI_ACTIVITY_KIND_MARKER,
+    CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL,
+    CUPTI_ACTIVITY_KIND_OVERHEAD};
   if (enable) {
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DEVICE), "Error enabling device activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER), "Error enabling driver activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME),
-                "Error enabling runtime activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_MEMCPY), "Error enabling memcpy activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_MEMSET), "Error enabling memset activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_NAME), "Error enabling name activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_MARKER), "Error enabling marker activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL),
-                "Error enabling concurrent kernel activity");
-    check_cupti(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_OVERHEAD),
-                "Error enabling overhead activity");
+    for (CUpti_ActivityKind const id : activity_ids) {
+      check_cupti(cuptiActivityEnable(id), "Error enabling device activity");
+    }
   } else {
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DEVICE), "Error enabling device activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER), "Error enabling driver activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME),
-                "Error enabling runtime activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_MEMCPY), "Error enabling memcpy activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_MEMSET), "Error enabling memset activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_NAME), "Error enabling name activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_MARKER), "Error enabling marker activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL),
-                "Error enabling concurrent kernel activity");
-    check_cupti(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_OVERHEAD),
-                "Error enabling overhead activity");
+    for (CUpti_ActivityKind const id : activity_ids) {
+      check_cupti(cuptiActivityEnable(id), "Error disabling device activity");
+    }
     check_cupti(cuptiActivityFlushAll(0), "Error flushing activity records");
   }
 }
