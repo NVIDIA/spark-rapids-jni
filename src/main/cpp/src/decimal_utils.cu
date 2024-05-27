@@ -1172,4 +1172,139 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
                    dec128_sub(overflows_view.begin<bool>(), sub_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
+
+std::unique_ptr<cudf::column> floating_point_to_decimal(cudf::column_view const& input,
+                                                        cudf::data_type output_type,
+                                                        rmm::cuda_stream_view stream)
+{
+  auto output = cudf::make_fixed_point_column(
+    output_type,
+    input.size(),
+    cudf::detail::copy_bitmask(input, stream, rmm::mr::get_current_device_resource()),
+    input.null_count(),
+    stream);
+
+  auto const decimal_places = -output_type.scale();
+
+  // CUDF_EXPECTS(input.type().id() == cudf::type_id::FLOAT64, "Expect float64");
+
+  // using DecimalType = device_storage_type_t<T>;
+
+  if (input.type().id() == cudf::type_id::FLOAT32) {
+    using Type = float;
+#if 1
+    if (output_type.id() == cudf::type_id::DECIMAL32) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int32_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
+                                                       : std::numeric_limits<double>::max();
+                          auto const rounded =
+                            std::lround(scale * std::nextafter(static_cast<double>(x), direction));
+                          return static_cast<int32_t>(rounded);
+                        });
+    } else if (output_type.id() == cudf::type_id::DECIMAL64) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int64_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
+                                                       : std::numeric_limits<double>::max();
+                          auto const rounded =
+                            std::lround(scale * std::nextafter(static_cast<double>(x), direction));
+                          return static_cast<int64_t>(rounded);
+                        });
+    } else {
+      thrust::transform(
+        rmm::exec_policy(stream),
+        input.begin<Type>(),
+        input.end<Type>(),
+        output->mutable_view().begin<__int128_t>(),
+        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+          auto const direction =
+            x < 0 ? std::numeric_limits<double>::lowest() : std::numeric_limits<double>::max();
+          return static_cast<__int128_t>(std::llround(scale * std::nextafter(x, direction)));
+        });
+    }
+#else
+    if (output_type.id() == cudf::type_id::DECIMAL32) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int32_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
+                                                       : std::numeric_limits<Type>::max();
+                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
+                          return static_cast<int32_t>(rounded);
+                        });
+    } else if (output_type.id() == cudf::type_id::DECIMAL64) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int64_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
+                                                       : std::numeric_limits<Type>::max();
+                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
+                          return static_cast<int64_t>(rounded);
+                        });
+    } else {
+      thrust::transform(
+        rmm::exec_policy(stream),
+        input.begin<Type>(),
+        input.end<Type>(),
+        output->mutable_view().begin<__int128_t>(),
+        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+          auto const direction =
+            x < 0 ? std::numeric_limits<Type>::lowest() : std::numeric_limits<Type>::max();
+          return static_cast<__int128_t>(std::llround(scale * std::nextafter(x, direction)));
+        });
+    }
+#endif
+  } else {
+    using Type = double;
+    if (output_type.id() == cudf::type_id::DECIMAL32) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int32_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
+                                                       : std::numeric_limits<Type>::max();
+                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
+                          return static_cast<int32_t>(rounded);
+                        });
+    } else if (output_type.id() == cudf::type_id::DECIMAL64) {
+      thrust::transform(rmm::exec_policy(stream),
+                        input.begin<Type>(),
+                        input.end<Type>(),
+                        output->mutable_view().begin<int64_t>(),
+                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
+                                                       : std::numeric_limits<Type>::max();
+                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
+                          return static_cast<int64_t>(rounded);
+                        });
+    } else {
+      thrust::transform(
+        rmm::exec_policy(stream),
+        input.begin<Type>(),
+        input.end<Type>(),
+        output->mutable_view().begin<__int128_t>(),
+        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
+          auto const direction =
+            x < 0 ? std::numeric_limits<Type>::lowest() : std::numeric_limits<Type>::max();
+          return static_cast<__int128_t>(std::llround(scale * std::nextafter(x, direction)));
+        });
+    }
+  }
+  output->set_null_count(input.null_count());
+
+  return output;
+}
+
 }  // namespace cudf::jni

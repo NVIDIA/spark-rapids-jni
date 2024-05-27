@@ -110,4 +110,19 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtr
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_floatingPointToDecimal(
+  JNIEnv* env, jclass, jlong input_handle, jint output_type_id, jint decimal_scale)
+{
+  JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
+    return cudf::jni::release_as_jlong(cudf::jni::floating_point_to_decimal(
+      *input,
+      cudf::data_type{static_cast<cudf::type_id>(output_type_id),
+                      static_cast<int>(decimal_scale)}));
+  }
+  CATCH_STD(env, 0);
+}
+
 }  // extern "C"

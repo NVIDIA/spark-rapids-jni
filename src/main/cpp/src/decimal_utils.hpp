@@ -62,4 +62,20 @@ std::unique_ptr<cudf::table> sub_decimal128(
   cudf::column_view const& b,
   int32_t quotient_scale,
   rmm::cuda_stream_view stream = cudf::get_default_stream());
+
+/**
+ * @brief Convert a column of floating point values to decimal type.
+ *
+ * TODO
+ *
+ * @param input
+ * @param output_type
+ * @param stream
+ * @return
+ */
+std::unique_ptr<cudf::column> floating_point_to_decimal(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  rmm::cuda_stream_view stream = cudf::get_default_stream());
+
 }  // namespace cudf::jni
