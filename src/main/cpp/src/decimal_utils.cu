@@ -1192,7 +1192,6 @@ std::unique_ptr<cudf::column> floating_point_to_decimal(cudf::column_view const&
 
   if (input.type().id() == cudf::type_id::FLOAT32) {
     using Type = float;
-#if 1
     if (output_type.id() == cudf::type_id::DECIMAL32) {
       thrust::transform(rmm::exec_policy(stream),
                         input.begin<Type>(),
@@ -1229,42 +1228,7 @@ std::unique_ptr<cudf::column> floating_point_to_decimal(cudf::column_view const&
           return static_cast<__int128_t>(std::llround(scale * std::nextafter(x, direction)));
         });
     }
-#else
-    if (output_type.id() == cudf::type_id::DECIMAL32) {
-      thrust::transform(rmm::exec_policy(stream),
-                        input.begin<Type>(),
-                        input.end<Type>(),
-                        output->mutable_view().begin<int32_t>(),
-                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
-                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
-                                                       : std::numeric_limits<Type>::max();
-                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
-                          return static_cast<int32_t>(rounded);
-                        });
-    } else if (output_type.id() == cudf::type_id::DECIMAL64) {
-      thrust::transform(rmm::exec_policy(stream),
-                        input.begin<Type>(),
-                        input.end<Type>(),
-                        output->mutable_view().begin<int64_t>(),
-                        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
-                          auto const direction = x < 0 ? std::numeric_limits<Type>::lowest()
-                                                       : std::numeric_limits<Type>::max();
-                          auto const rounded   = std::lround(scale * std::nextafter(x, direction));
-                          return static_cast<int64_t>(rounded);
-                        });
-    } else {
-      thrust::transform(
-        rmm::exec_policy(stream),
-        input.begin<Type>(),
-        input.end<Type>(),
-        output->mutable_view().begin<__int128_t>(),
-        [scale = std::pow(10, decimal_places)] __device__(auto const x) {
-          auto const direction =
-            x < 0 ? std::numeric_limits<Type>::lowest() : std::numeric_limits<Type>::max();
-          return static_cast<__int128_t>(std::llround(scale * std::nextafter(x, direction)));
-        });
-    }
-#endif
+
   } else {
     using Type = double;
     if (output_type.id() == cudf::type_id::DECIMAL32) {
