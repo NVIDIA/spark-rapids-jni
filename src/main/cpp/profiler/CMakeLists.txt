@@ -65,7 +65,7 @@ find_library(CUPTI_LIBRARY_PATH cupti_static PATHS
 )
 
 target_link_libraries(profilerjni
-  PRIVATE ${CUPTI_LIBRARY_PATH} nvtx3-cpp flatbuffers::flatbuffers
+  PRIVATE ${CUPTI_LIBRARY_PATH} nvtx3::nvtx3-cpp flatbuffers::flatbuffers
 )
 
 file(READ "${SPARK_RAPIDS_JNI_FBS_DIR}/profiler.fbs" SPARK_RAPIDS_JNI_PROFILER_SCHEMA)
