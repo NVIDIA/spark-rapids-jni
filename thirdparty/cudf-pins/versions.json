@@ -33,11 +33,6 @@
           "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
         },
         {
-          "file" : "${current_json_dir}/revert_pr_211_cccl_2.5.0.diff",
-          "fixed_in" : "",
-          "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
-        },
-        {
           "file" : "cccl/kernel_pointer_hiding.diff",
           "fixed_in" : "2.4",
           "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
@@ -48,27 +43,12 @@
           "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
         },
         {
-          "file" : "${current_json_dir}/thrust_disable_64bit_dispatching_cccl_2.5.0.diff",
-          "fixed_in" : "",
-          "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
-        },
-        {
           "file" : "${current_json_dir}/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
         },
         {
-          "file" : "${current_json_dir}/thrust_faster_sort_compile_times_cccl_2.5.0.diff",
-          "fixed_in" : "",
-          "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
-        },
-        {
           "file" : "${current_json_dir}/thrust_faster_scan_compile_times.diff",
-          "fixed_in" : "",
-          "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
-        },
-        {
-          "file" : "${current_json_dir}/thrust_faster_scan_compile_times_cccl_2.5.0.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
@@ -87,9 +67,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "1d87e5f7a19993e12726b610a9491d58748201b7",
+      "git_tag" : "474ba658ff2a49cff7f7bc2e5e24be7866195aaf",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.06"
+      "version" : "24.08"
     },
     "cuco" : 
     {
@@ -172,9 +152,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "dc1e17a03ed2dbc9329ccecc27922e414250f45a",
+      "git_tag" : "15c04666e20712f30882a903bfad79e208d8e852",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.06"
+      "version" : "24.08"
     },
     "spdlog" : 
     {
