@@ -188,14 +188,27 @@ public class DecimalUtils {
     return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
   }
 
+  public static class CastedResult {
+    public final ColumnVector column;
+    public final boolean hasInvalid;
+
+    public CastedResult(ColumnVector column, boolean hasInvalid) {
+      this.column = column;
+      this.hasInvalid = hasInvalid;
+    }
+  }
+
   /**
    * @param input
    * @param outputType
    * @return
    */
-  public static ColumnVector floatingPointToDecimal(ColumnView input, DType outputType) {
-    return new ColumnVector(floatingPointToDecimal(
-        input.getNativeView(), outputType.getTypeId().getNativeId(), outputType.getScale()));
+  public static CastedResult floatingPointToDecimal(ColumnView input, DType outputType,
+                                                    int precision) {
+    long[] result = floatingPointToDecimal(
+        input.getNativeView(), outputType.getTypeId().getNativeId(), precision,
+        outputType.getScale());
+    return new CastedResult(new ColumnVector(result[0]), result[1] != 0);
   }
 
   private static native long[] multiply128(long viewA, long viewB, int productScale,
@@ -210,6 +223,7 @@ public class DecimalUtils {
 
   private static native long[] subtract128(long viewA, long viewB, int targetScale);
 
-  private static native long floatingPointToDecimal(long inputHandle, int outputTypeId,
-                                                    int scale);
+  private static native long[] floatingPointToDecimal(long inputHandle, int outputTypeId,
+                                                      int precision,
+                                                      int scale);
 }

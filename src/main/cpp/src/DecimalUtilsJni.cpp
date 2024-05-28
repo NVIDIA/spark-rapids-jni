@@ -110,17 +110,22 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtr
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_floatingPointToDecimal(
-  JNIEnv* env, jclass, jlong input_handle, jint output_type_id, jint decimal_scale)
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_floatingPointToDecimal(
+  JNIEnv* env, jclass, jlong input_handle, jint output_type_id, jint precision, jint decimal_scale)
 {
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
-    return cudf::jni::release_as_jlong(cudf::jni::floating_point_to_decimal(
+    cudf::jni::native_jlongArray output(env, 2);
+
+    auto [casted_col, has_invalid] = cudf::jni::floating_point_to_decimal(
       *input,
-      cudf::data_type{static_cast<cudf::type_id>(output_type_id),
-                      static_cast<int>(decimal_scale)}));
+      cudf::data_type{static_cast<cudf::type_id>(output_type_id), static_cast<int>(decimal_scale)},
+      precision);
+    output[0] = cudf::jni::release_as_jlong(std::move(casted_col));
+    output[1] = static_cast<jlong>(has_invalid);
+    return output.get_jArray();
   }
   CATCH_STD(env, 0);
 }

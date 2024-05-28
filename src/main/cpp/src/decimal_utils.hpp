@@ -73,9 +73,10 @@ std::unique_ptr<cudf::table> sub_decimal128(
  * @param stream
  * @return
  */
-std::unique_ptr<cudf::column> floating_point_to_decimal(
+std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
+  int32_t precision,
   rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 }  // namespace cudf::jni
