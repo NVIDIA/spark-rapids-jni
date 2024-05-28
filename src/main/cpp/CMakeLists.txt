@@ -152,6 +152,7 @@ set(CUDFJNI_INCLUDE_DIRS
 add_library(
   spark_rapids_jni SHARED
   src/BloomFilterJni.cpp
+  src/CaseWhenJni.cpp
   src/CastStringJni.cpp
   src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
@@ -167,6 +168,7 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
+  src/case_when.cu
   src/cast_decimal_to_string.cu
   src/format_float.cu
   src/cast_float_to_string.cu
