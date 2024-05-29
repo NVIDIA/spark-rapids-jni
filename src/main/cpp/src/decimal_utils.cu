@@ -1229,26 +1229,27 @@ struct float_to_decimal_fn {
       auto const bound       = std::pow(10, precision);
       auto const d_input_ptr = cudf::column_device_view::create(input, stream);
 
-      thrust::transform(rmm::exec_policy(stream),
-                        thrust::make_counting_iterator(0),
-                        thrust::make_counting_iterator(input.size()),
-                        output.begin<DecimalRepType>(),
-                        [has_invalid,
-                         decimal_places,
-                         input        = *d_input_ptr,
-                         min_ex_bound = -bound,
-                         max_ex_bound = bound,
-                         validity     = validity_begin,
-                         scale        = std::pow(10, decimal_places)] __device__(auto const idx) {
-                          auto const x = input.element<FloatType>(idx);
+      thrust::transform(
+        rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(input.size()),
+        output.begin<DecimalRepType>(),
+        [has_invalid,
+         decimal_places,
+         input        = *d_input_ptr,
+         min_ex_bound = -bound,
+         max_ex_bound = bound,
+         validity     = validity_begin,
+         scale        = std::pow(10, decimal_places)] __device__(auto const idx) {
+          auto const x = input.element<FloatType>(idx);
 
-                          // printf("x: %20.18f\n", x);
+          // printf("x: %20.18f\n", x);
 
-                          if (input.is_null(idx) || std::isnan(x) || std::isinf(x)) {
-                            // printf("nan/inf/null for x: %20.18f\n", x);
-                            validity[idx] = false;
-                            return DecimalRepType{0};
-                          }
+          if (input.is_null(idx) || std::isnan(x) || std::isinf(x)) {
+            // printf("nan/inf/null for x: %20.18f\n", x);
+            validity[idx] = false;
+            return DecimalRepType{0};
+          }
 
 #if 0
                           auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
@@ -1261,19 +1262,18 @@ struct float_to_decimal_fn {
                           //        scaled_rounded,
                           //        scale * std::nextafter(static_cast<double>(x), direction));
 #endif
-                          auto const scaled_rounded = scaled_round(x, decimal_places);
+          auto const scaled_rounded = scaled_round<double>(static_cast<double>(x), decimal_places);
 
-                          auto const is_out_of_bound =
-                            (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
-                          if (is_out_of_bound) {
-                            *has_invalid = true;
-                            // printf("out of bound, x = %20.18f\n", x);
-                          }
+          auto const is_out_of_bound =
+            (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
+          if (is_out_of_bound) {
+            *has_invalid = true;
+            // printf("out of bound, x = %20.18f\n", x);
+          }
 
-                          validity[idx] = !is_out_of_bound;
-                          return is_out_of_bound ? DecimalRepType{0}
-                                                 : static_cast<DecimalRepType>(scaled_rounded);
-                        });
+          validity[idx] = !is_out_of_bound;
+          return is_out_of_bound ? DecimalRepType{0} : static_cast<DecimalRepType>(scaled_rounded);
+        });
     }
   }
 };
