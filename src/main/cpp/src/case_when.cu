@@ -54,7 +54,9 @@ struct select_first_true_fn {
     bool found_true                  = false;
     cudf::size_type first_true_index = col_num;
     for (auto col_idx = 0; !found_true && col_idx < col_num; col_idx++) {
-      if (d_table.column(col_idx).element<bool>(row_idx)) {
+      auto const& col = d_table.column(col_idx);
+      if (!col.is_null(row_idx) && col.element<bool>(row_idx)) {
+        // Predicate is true and not null
         found_true       = true;
         first_true_index = col_idx;
       }
@@ -114,7 +116,7 @@ std::unique_ptr<cudf::column> select_from_index(
                       cudf::size_type scalar_idx = d_select_index.element<cudf::size_type>(row_idx);
 
                       // return <str_ptr, str_size> pair
-                      if (scalar_idx < num_of_scalar) {
+                      if (scalar_idx < num_of_scalar && !d_scalars.is_null(scalar_idx)) {
                         auto const d_str = d_scalars.element<cudf::string_view>(scalar_idx);
                         return str_view{d_str.data(), d_str.size_bytes()};
                       } else {
