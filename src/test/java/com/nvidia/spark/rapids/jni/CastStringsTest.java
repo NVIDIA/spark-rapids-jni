@@ -59,8 +59,6 @@ public class CastStringsTest {
     }
   }
 
-
-  //This is for testing the CastStrings class with the input of "inf" etc string
   @Test
   void castToFloatsInfTest(){
     // The test data: Table.TestBuilder object with a column containing the string "inf"
@@ -86,7 +84,6 @@ public class CastStringsTest {
     }
   }
 
-  //This is for testing the CastStrings class with the input of "nan " etc string
   @Test
   void castToFloatNanTest(){
     // The test data: Table.TestBuilder object with a column containing the string "inf"
@@ -111,7 +108,6 @@ public class CastStringsTest {
       }
     }
   }
-
 
   @Test
   void castToIntegerNoStripTest() {
