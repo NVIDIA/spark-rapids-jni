@@ -304,9 +304,9 @@ class string_to_float {
                                                  (_warp_lane == 4 && (_c == 'Y' || _c == 'y')));
       if (infinity_mask == 0x1f) {
         _bpos += 5;
-        _c = __shfl_down_sync(0xffffffff, _c, 5);
         // if we're at the end
         if (_bpos == _len) { return true; }
+        _c = __shfl_down_sync(0xffffffff, _c, 5);
       }
 
       // remove the remaining whitespace if exits
