@@ -63,10 +63,10 @@ public class CastStringsTest {
   void castToFloatsInfTest(){
     // The test data: Table.TestBuilder object with a column containing the string "inf"
     Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column("INFINITY ", "inf", "+inf ", " -INF  ");
+    tb2.column("INFINITY ", "inf", "+inf ", " -INF  ", "INFINITY AND BEYOND", "INF");
 
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.column(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY);
+    tb.column(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, Float.POSITIVE_INFINITY);
 
     try (Table expected = tb.build()) {
       List<ColumnVector> result = new ArrayList<>();
@@ -75,6 +75,7 @@ public class CastStringsTest {
           ColumnVector string_col = origTable.getColumn(i);
           result.add(CastStrings.toFloat(string_col, false, expected.getColumn(i).getType()));
         }
+        System.out.println(result);
         try (Table result_tbl = new Table(result.toArray(new ColumnVector[result.size()]))) {
           AssertUtils.assertTablesAreEqual(expected, result_tbl);
         }
@@ -86,7 +87,6 @@ public class CastStringsTest {
 
   @Test
   void castToFloatNanTest(){
-    // The test data: Table.TestBuilder object with a column containing the string "inf"
     Table.TestBuilder tb2 = new Table.TestBuilder();
     tb2.column("nan", "nan ", " nan ", "NAN", "nAn ", " NAn ");
 
