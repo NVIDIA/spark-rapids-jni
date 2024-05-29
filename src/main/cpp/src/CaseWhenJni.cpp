@@ -20,6 +20,7 @@
 #include <vector>
 
 extern "C" {
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CaseWhen_selectFirstTrueIndex(
   JNIEnv* env, jclass, jlongArray bool_cols)
 {

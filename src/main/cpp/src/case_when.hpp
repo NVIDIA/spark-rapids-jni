@@ -34,26 +34,39 @@
 namespace spark_rapids_jni {
 
 /**
- * select the first column index with true value.
+ *
+ * Select the column index for the first true in bool columns.
+ * For the row does not contain true, use end index(number of columns).
+ *
  * e.g.:
- * column 0 in table: true,  false, false
- * column 1 in table: false, true,  false
- * column 2 in table: false, false, true
- * 
- * return column: 0, 1, 2
-*/
+ *   column 0 in table: true,  false, false, false
+ *   column 1 in table: false, true,  false, false
+ *   column 2 in table: false, false, true, false
+ *
+ *   1st row is: true, flase, false; first true index is 0
+ *   2nd row is: false, true, false; first true index is 1
+ *   3rd row is: false, flase, false; first true index is 2
+ *   4th row is: false, false, false; do not find true, set index to the end index 3
+ *
+ *   output column: 0, 1, 2, 3
+ *   In the `case when` context, here 3 index means using NULL value.
+ *
+ */
 std::unique_ptr<cudf::column> select_first_true_index(
   cudf::table_view const& when_bool_columns,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
 /**
- * Select strings int scalar column according to index column
- * scalar column: s0, s1, s2
- * index  column: 0,  1,  2,  2,  1,  0,  3
- * output column: s0, s1, s2, s2, s1, s0, null
- * 
-*/
+ *
+ * Select strings in scalar column according to index column.
+ * If index is out of bound, use NULL value
+ * e.g.:
+ *   scalar column: s0, s1, s2
+ *   index  column: 0,  1,  2,  2,  1,  0,  3
+ *   output column: s0, s1, s2, s2, s1, s0, NULL
+ *
+ */
 std::unique_ptr<cudf::column> select_from_index(
   cudf::strings_column_view const& then_and_else_scalar_column,
   cudf::column_view const& select_index_column,
