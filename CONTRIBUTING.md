@@ -355,7 +355,7 @@ conda install -c conda-forge pre-commit
 pip install pre-commit
 ```
 
-Then, run pre-commit hooks before committing your code. This wil reformat the stagged files:
+Then, run pre-commit hooks before committing your code. This will reformat the staged files:
 ```
 pre-commit run
 ```
