@@ -161,10 +161,10 @@ public class CastStringsTest {
   @Test
   void castToFloatNanTest(){
     Table.TestBuilder tb2 = new Table.TestBuilder();
-    tb2.column("nan", "nan ", " nan ", "NAN", "nAn ", " NAn ");
+    tb2.column("nan", "nan ", " nan ", "NAN", "nAn ", " NAn ", "Nan 0", "nan  nan");
 
     Table.TestBuilder tb = new Table.TestBuilder();
-    tb.column(Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN);
+    tb.column(Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN, null, null);
 
     try (Table expected = tb.build()) {
       List<ColumnVector> result = new ArrayList<>();
