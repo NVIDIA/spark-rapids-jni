@@ -1180,6 +1180,35 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
 
 namespace {
 
+template <typename FloatingType>
+bool __device__ does_conversion_truncate(FloatingType floating, int const exp10)
+{
+  int const exp2 = std::ilogb(floating) - (std::numeric_limits<FloatingType>::digits - 1);
+  int const corresponding_exp2 = -299 * exp10 / 90;
+  // std::cout << "Exps: " << exp2 << ", " << corresponding_exp2  << ", " << exp10 << "\n";
+  return (exp2 < corresponding_exp2) || ((exp2 == corresponding_exp2) && (exp2 < 0));
+}
+
+template <typename FloatingType>
+FloatingType __device__ fix_before_round(FloatingType floating, int const exp10)
+{
+  if (!does_conversion_truncate(floating, exp10)) {
+    // std::cout << "no truncates\n";
+    return floating;
+  }
+  // std::cout << "truncates\n";
+  auto const direction = floating < 0 ? std::numeric_limits<FloatingType>::lowest()
+                                      : std::numeric_limits<FloatingType>::max();
+  return std::nextafter(floating, direction);
+}
+
+template <typename FloatingType>
+FloatingType __device__ scaled_round(FloatingType floating, int const exp10)
+{
+  auto const scale_factor = std::pow(10, exp10);
+  return std::round(scale_factor * fix_before_round(floating, exp10));
+}
+
 struct float_to_decimal_fn {
   template <typename FloatType, typename DecimalType>
   void operator()(cudf::column_view const& input,
@@ -1205,6 +1234,7 @@ struct float_to_decimal_fn {
                         thrust::make_counting_iterator(input.size()),
                         output.begin<DecimalRepType>(),
                         [has_invalid,
+                         decimal_places,
                          input        = *d_input_ptr,
                          min_ex_bound = -bound,
                          max_ex_bound = bound,
@@ -1212,29 +1242,32 @@ struct float_to_decimal_fn {
                          scale        = std::pow(10, decimal_places)] __device__(auto const idx) {
                           auto const x = input.element<FloatType>(idx);
 
-                          // printf("x: %15.10f\n", x);
+                          // printf("x: %20.18f\n", x);
 
                           if (input.is_null(idx) || std::isnan(x) || std::isinf(x)) {
-                            // printf("nan/inf/null for x: %15.10f\n", x);
+                            // printf("nan/inf/null for x: %20.18f\n", x);
                             validity[idx] = false;
                             return DecimalRepType{0};
                           }
 
+#if 0
                           auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
                                                        : std::numeric_limits<double>::max();
                           // TODO: handle overflow due to scaling
                           auto const scaled_rounded =
                             std::round(scale * std::nextafter(static_cast<double>(x), direction));
 
-                          // printf("scaled rounded: %15.10f | %15.10f\n",
+                          // printf("scaled rounded: %20.18f | %20.18f\n",
                           //        scaled_rounded,
                           //        scale * std::nextafter(static_cast<double>(x), direction));
+#endif
+                          auto const scaled_rounded = scaled_round(x, decimal_places);
 
                           auto const is_out_of_bound =
                             (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
                           if (is_out_of_bound) {
                             *has_invalid = true;
-                            // printf("out of bound, x = %15.10f\n", x);
+                            // printf("out of bound, x = %20.18f\n", x);
                           }
 
                           validity[idx] = !is_out_of_bound;
