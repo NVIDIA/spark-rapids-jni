@@ -309,7 +309,7 @@ class string_to_float {
         _c = __shfl_down_sync(0xffffffff, _c, 5);
       }
 
-      // remove the remaining whitespace if exits
+      // remove the remaining whitespace if exists
       remove_leading_whitespace();
 
       // if we're at the end
