@@ -35,6 +35,7 @@
 #include <cudf/utilities/span.hpp>
 
 #include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
 
 #include <thrust/pair.h>
 #include <thrust/tuple.h>
@@ -790,7 +791,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   cudf::string_scalar const& all_names_scalar,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   int name_pos = 0;
 
@@ -950,7 +951,7 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
 
@@ -1018,7 +1019,7 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   return detail::get_json_object(input, instructions, stream, mr);
 }

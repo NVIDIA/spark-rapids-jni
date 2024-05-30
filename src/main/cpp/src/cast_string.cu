@@ -650,7 +650,7 @@ struct string_to_integer_impl {
                                      bool ansi_mode,
                                      bool strip,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr)
+                                     rmm::device_async_resource_ref mr)
   {
     if (string_col.size() == 0) {
       return std::make_unique<column>(
@@ -695,7 +695,7 @@ struct string_to_integer_impl {
                                      bool ansi_mode,
                                      bool strip,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr)
+                                     rmm::device_async_resource_ref mr)
   {
     CUDF_FAIL("Invalid integer column type");
   }
@@ -722,7 +722,7 @@ struct string_to_decimal_impl {
                                      bool ansi_mode,
                                      bool strip,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr)
+                                     rmm::device_async_resource_ref mr)
   {
     using Type = device_storage_type_t<T>;
 
@@ -764,7 +764,7 @@ struct string_to_decimal_impl {
                                      bool ansi_mode,
                                      bool strip,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr)
+                                     rmm::device_async_resource_ref mr)
   {
     CUDF_FAIL("Invalid decimal column type");
   }
@@ -789,7 +789,7 @@ std::unique_ptr<column> string_to_integer(data_type dtype,
                                           bool ansi_mode,
                                           bool strip,
                                           rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+                                          rmm::device_async_resource_ref mr)
 {
   return type_dispatcher(
     dtype, detail::string_to_integer_impl{}, string_col, ansi_mode, strip, stream, mr);
@@ -814,7 +814,7 @@ std::unique_ptr<column> string_to_decimal(int32_t precision,
                                           bool ansi_mode,
                                           bool strip,
                                           rmm::cuda_stream_view stream,
-                                          rmm::mr::device_memory_resource* mr)
+                                          rmm::device_async_resource_ref mr)
 {
   data_type dtype = [precision, scale]() {
     if (precision <= cuda::std::numeric_limits<int32_t>::digits10)

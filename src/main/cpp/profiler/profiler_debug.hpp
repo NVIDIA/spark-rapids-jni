@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,15 @@
 
 #pragma once
 
-#include <cudf/column/column_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
+#include <cupti.h>
 
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/resource_ref.hpp>
+#include <cstdint>
+#include <string>
 
-#include <memory>
+namespace spark_rapids_jni::profiler {
 
-namespace spark_rapids_jni {
+std::string activity_kind_to_string(CUpti_ActivityKind kind);
 
-std::unique_ptr<cudf::column> from_json(
-  cudf::column_view const& input,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+void print_cupti_buffer(uint8_t* buffer, size_t valid_size);
 
-}  // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni::profiler

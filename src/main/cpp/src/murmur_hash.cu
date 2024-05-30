@@ -187,7 +187,7 @@ void check_hash_compatibility(cudf::table_view const& input)
 std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
                                               uint32_t seed,
                                               rmm::cuda_stream_view stream,
-                                              rmm::mr::device_memory_resource* mr)
+                                              rmm::device_async_resource_ref mr)
 {
   auto output =
     cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<murmur_hash_value_type>()),
