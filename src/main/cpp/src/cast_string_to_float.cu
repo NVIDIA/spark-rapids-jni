@@ -102,7 +102,7 @@ class string_to_float {
     int sign = check_for_sign();
 
     // check for leading nan
-    if (check_for_nan()) {
+    if (check_for_nan(sign)) {
       _out[_row] = NAN;
       compute_validity(_valid, _except);
       return;
@@ -236,7 +236,7 @@ class string_to_float {
 
   // returns true if we encountered 'nan'
   // potentially changes:  valid/except
-  __device__ bool check_for_nan()
+  __device__ bool check_for_nan(int const& sign)
   {
     auto const nan_mask = __ballot_sync(0xffffffff,
                                         (_warp_lane == 0 && (_c == 'N' || _c == 'n')) ||
@@ -256,8 +256,8 @@ class string_to_float {
       // remove the trailing whitespaces, if there exits
       remove_leading_whitespace();
 
-      // if we're at the end
-      if (_bpos == _len) { return true; }
+      // if we're at the end and sign is not '-', because Spark treats '-nan' as null
+      if (_bpos == _len && sign != -1) { return true; }
       // if we reach out here, it means that we have other garbage character.
       _valid  = false;
       _except = true;
