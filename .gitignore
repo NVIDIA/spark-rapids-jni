@@ -44,6 +44,10 @@ DartConfiguration.tcl
 dependency-reduced-pom.xml
 hs_err*.log
 target/
+*.class
+*.jar
+*.war
+*.ear
 
 ## VSCode IDE
 .vscode
@@ -52,3 +56,12 @@ target/
 cufile.log
 rmm_log.txt
 sanitizer_for_pid_*.log
+
+## Maven Wrapper
+.mvn/
+mvnw
+mvnw.cmd
+
+## Operating System Files
+Thumbs.db
+ehthumbs.db
