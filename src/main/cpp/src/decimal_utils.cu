@@ -1239,8 +1239,7 @@ struct float_to_decimal_fn {
          input        = *d_input_ptr,
          min_ex_bound = -bound,
          max_ex_bound = bound,
-         validity     = validity_begin,
-         scale        = std::pow(10, decimal_places)] __device__(auto const idx) {
+         validity     = validity_begin] __device__(auto const idx) {
           auto const x = input.element<FloatType>(idx);
 
           // printf("x: %20.18f\n", x);
