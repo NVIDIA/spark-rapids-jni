@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
-import ai.rapids.cudf.HostColumnVector.Builder;
 
 import org.junit.jupiter.api.Test;
 
@@ -44,38 +43,16 @@ public class CaseWhenTest {
     }
   }
 
-  public static ColumnVector fromBooleansWithNulls(Boolean... values) {
-    Byte[] bytes = new Byte[values.length];
-    for (int i = 0; i < values.length; i++) {
-      if (values[i] == null) {
-        bytes[i] = null;
-      } else {
-        bytes[i] = values[i] ? (byte) 1 : (byte) 0;
-      }
-    }
-
-    try (Builder builder = HostColumnVector.builder(DType.BOOL8, bytes.length)) {
-      for (Byte bool : bytes) {
-        if (bool == null) {
-          builder.appendNull();
-        } else {
-          builder.append(bool.byteValue());
-        }
-      }
-      return builder.buildAndPutOnDevice();
-    }
-  }
-
   @Test
   void selectIndexTestWithNull() {
     try (
-        ColumnVector b0 = fromBooleansWithNulls(
+        ColumnVector b0 = ColumnVector.fromBoxedBooleans(
             null, false, false, null, false);
-        ColumnVector b1 = fromBooleansWithNulls(
+        ColumnVector b1 = ColumnVector.fromBoxedBooleans(
             null, null, false, true, true);
-        ColumnVector b2 = fromBooleansWithNulls(
+        ColumnVector b2 = ColumnVector.fromBoxedBooleans(
             null, null, false, true, false);
-        ColumnVector b3 = fromBooleansWithNulls(
+        ColumnVector b3 = ColumnVector.fromBoxedBooleans(
             null, null, null, true, null);
         ColumnVector expected = ColumnVector.fromInts(4, 4, 4, 1, 1)) {
       ColumnVector[] boolColumns = new ColumnVector[] { b0, b1, b2, b3 };
