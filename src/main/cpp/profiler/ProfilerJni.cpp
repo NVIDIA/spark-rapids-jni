@@ -184,7 +184,8 @@ struct free_buffer_tracker {
 void writer_thread_process(JavaVM* vm,
                            jobject j_writer,
                            size_t buffer_size,
-                           size_t flush_threshold);
+                           size_t flush_threshold,
+                           bool async_alloc_capture);
 
 struct subscriber_state {
   CUpti_SubscriberHandle subscriber_handle;
@@ -363,11 +364,16 @@ void setup_nvtx_env(JNIEnv* env, jstring j_lib_path)
 }
 
 // Main processing loop for the background writer thread
-void writer_thread_process(JavaVM* vm, jobject j_writer, size_t buffer_size, size_t flush_threshold)
+void writer_thread_process(JavaVM* vm,
+                           jobject j_writer,
+                           size_t buffer_size,
+                           size_t flush_threshold,
+                           bool async_alloc_capture)
 {
   try {
     JNIEnv* env = attach_to_jvm(vm);
-    profiler_serializer serializer(env, j_writer, buffer_size, flush_threshold);
+    profiler_serializer serializer(
+      env, j_writer, buffer_size, flush_threshold, async_alloc_capture);
     auto buffer = State->completed_buffers.get();
     while (buffer) {
       serializer.process_cupti_buffer(buffer->data(), buffer->valid_size());
@@ -419,12 +425,14 @@ extern "C" {
 
 using namespace spark_rapids_jni::profiler;
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_Profiler_nativeInit(JNIEnv* env,
-                                                                            jclass,
-                                                                            jstring j_lib_path,
-                                                                            jobject j_writer,
-                                                                            jlong write_buffer_size,
-                                                                            jint flush_period_msec)
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_Profiler_nativeInit(JNIEnv* env,
+                                                     jclass,
+                                                     jstring j_lib_path,
+                                                     jobject j_writer,
+                                                     jlong write_buffer_size,
+                                                     jint flush_period_msec,
+                                                     bool async_alloc_capture)
 {
   try {
     setup_nvtx_env(env, j_lib_path);
@@ -432,9 +440,13 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_Profiler_nativeInit(JNIE
     auto writer = static_cast<jobject>(env->NewGlobalRef(j_writer));
     if (!writer) { throw std::runtime_error("Unable to create a global reference to writer"); }
     State                = new subscriber_state(writer, write_buffer_size);
-    State->writer_thread = std::thread(
-      writer_thread_process, get_jvm(env), writer, write_buffer_size, write_buffer_size);
-    auto rc = cuptiSubscribe(&State->subscriber_handle, callback_handler, nullptr);
+    State->writer_thread = std::thread(writer_thread_process,
+                                       get_jvm(env),
+                                       writer,
+                                       write_buffer_size,
+                                       write_buffer_size,
+                                       async_alloc_capture);
+    auto rc              = cuptiSubscribe(&State->subscriber_handle, callback_handler, nullptr);
     check_cupti(rc, "Error initializing CUPTI");
     rc = cuptiEnableCallback(1,
                              State->subscriber_handle,

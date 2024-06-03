@@ -197,11 +197,13 @@ ShmemLimitConfig to_shmem_limit_config(CUpti_FuncShmemLimitConfig c)
 
 }  // anonymous namespace
 
-profiler_serializer::profiler_serializer(JNIEnv* env,
-                                         jobject writer,
-                                         size_t buffer_size,
-                                         size_t flush_threshold)
-  : env_(env), j_writer_(writer), flush_threshold_(flush_threshold), fbb_(buffer_size)
+profiler_serializer::profiler_serializer(
+  JNIEnv* env, jobject writer, size_t buffer_size, size_t flush_threshold, bool capture_allocs)
+  : env_(env),
+    j_writer_(writer),
+    flush_threshold_(flush_threshold),
+    fbb_(buffer_size),
+    capture_allocs_(capture_allocs)
 {
   auto writer_class = env->GetObjectClass(writer);
   if (!writer_class) { throw std::runtime_error("Failed to locate class of data writer"); }
@@ -332,6 +334,14 @@ void profiler_serializer::process_api_activity(CUpti_ActivityAPI const* r)
       case CUPTI_RUNTIME_TRACE_CBID_cudaGetLastError_v3020:
       case CUPTI_RUNTIME_TRACE_CBID_cudaPeekAtLastError_v3020:
       case CUPTI_RUNTIME_TRACE_CBID_cudaDeviceGetAttribute_v5000: return;
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020:
+        if (capture_allocs_) { break; }
+        return;
       default: break;
     }
   } else {
