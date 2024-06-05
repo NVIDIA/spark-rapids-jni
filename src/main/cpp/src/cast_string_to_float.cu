@@ -102,7 +102,7 @@ class string_to_float {
     int sign = check_for_sign();
 
     // check for leading nan
-    if (check_for_nan()) {
+    if (check_for_nan(sign)) {
       _out[_row] = NAN;
       compute_validity(_valid, _except);
       return;
@@ -236,22 +236,31 @@ class string_to_float {
 
   // returns true if we encountered 'nan'
   // potentially changes:  valid/except
-  __device__ bool check_for_nan()
+  __device__ bool check_for_nan(int const& sign)
   {
     auto const nan_mask = __ballot_sync(0xffffffff,
                                         (_warp_lane == 0 && (_c == 'N' || _c == 'n')) ||
                                           (_warp_lane == 1 && (_c == 'A' || _c == 'a')) ||
                                           (_warp_lane == 2 && (_c == 'N' || _c == 'n')));
     if (nan_mask == 0x7) {
-      // if we start with 'nan', then even if we have other garbage character, this is a null row.
-      //
-      // if we're in ansi mode and this is not -precisely- nan, report that so that we can throw
-      // an exception later.
-      if (_len != 3) {
-        _valid  = false;
-        _except = _len != 3;
-      }
-      return true;
+      // if we start with 'nan', then even if we have other garbage character(excluding
+      // whitespaces), this is a null row. but for e.g. : "nan   " cases. spark will treat the as
+      // "nan", when the trailing characters are whitespaces, it is still a valid string. if we're
+      // in ansi mode and this is not -precisely- nan, report that so that we can throw an exception
+      // later.
+
+      // move forward the current position by 3
+      _bpos += 3;
+      _c = __shfl_down_sync(0xffffffff, _c, 3);
+
+      // remove the trailing whitespaces, if there exits
+      remove_leading_whitespace();
+
+      // if we're at the end and sign is not '-', because Spark treats '-nan' as null
+      if (_bpos == _len && sign != -1) { return true; }
+      // if we reach out here, it means that we have other garbage character.
+      _valid  = false;
+      _except = true;
     }
     return false;
   }
@@ -299,11 +308,19 @@ class string_to_float {
         _bpos += 5;
         // if we're at the end
         if (_bpos == _len) { return true; }
+        _c = __shfl_down_sync(0xffffffff, _c, 5);
       }
+
+      // remove the remaining whitespace if exists
+      remove_leading_whitespace();
+
+      // if we're at the end
+      if (_bpos == _len) { return true; }
 
       // if we reach here for any reason, it means we have "inf" or "infinity" at the start of the
       // string but also have additional characters, making this whole thing bogus/null
       _valid = false;
+
       return true;
     }
     return false;
