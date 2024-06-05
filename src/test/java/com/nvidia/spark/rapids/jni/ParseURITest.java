@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -159,6 +159,27 @@ public class ParseURITest {
     }
   }
 
+  void testPath(String[] testData) {
+    String[] expectedPathStrings = new String[testData.length];
+    for (int i=0; i<testData.length; i++) {
+      String path = null;
+      try {
+        URI uri = new URI(testData[i]);
+        path = uri.getRawPath();
+      } catch (URISyntaxException ex) {
+        // leave the path null if URI is invalid
+      } catch (NullPointerException ex) {
+        // leave the path null if URI is null
+      }
+      expectedPathStrings[i] = path;
+    }
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+      ColumnVector expectedPath = ColumnVector.fromStrings(expectedPathStrings);
+      ColumnVector pathResult = ParseURI.parseURIPath(v0)) {
+      AssertUtils.assertColumnsAreEqual(expectedPath, pathResult);
+    }
+  }
+
   @Test
   void parseURISparkTest() {
     String[] testData = {
@@ -286,6 +307,7 @@ public class ParseURITest {
     testQuery(testData);
     testQuery(testData, "query");
     testQuery(testData, queries);
+    testPath(testData);
   }
 
   @Test
@@ -300,6 +322,7 @@ public class ParseURITest {
     testHost(testData);
     testQuery(testData);
     testQuery(testData, "query");
+    testPath(testData);
   }
 
   @Test
@@ -316,6 +339,7 @@ public class ParseURITest {
     testHost(testData);
     testQuery(testData);
     testQuery(testData, "query");
+    testPath(testData);
   }
 
   @Test
@@ -345,5 +369,6 @@ public class ParseURITest {
     testHost(testData);
     testQuery(testData);
     testQuery(testData, "query");
+    testPath(testData);
   }
 }

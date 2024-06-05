@@ -25,6 +25,7 @@
 struct ParseURIProtocolTests : public cudf::test::BaseFixture {};
 struct ParseURIHostTests : public cudf::test::BaseFixture {};
 struct ParseURIQueryTests : public cudf::test::BaseFixture {};
+struct ParseURIPathTests : public cudf::test::BaseFixture {};
 
 enum class test_types {
   SIMPLE,
@@ -79,8 +80,7 @@ cudf::test::strings_column_wrapper get_test_data(test_types t)
          "http://[fe80::7:8%eth0]",
          "http://[fe80::7:8%1]",
          "http://foo.bar/abc/\\\\\\http://foo.bar/abc.gif\\\\\\",
-         "www.nvidia.com:8100/servlet/"
-         "impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
+         "www.nvidia.com:8100/servlet/impc.DisplayCredits?primekey_in=2000041100:05:14115240636",
          "https://nvidia.com/2Ru15Ss ",
          "http://www.nvidia.com/plugins//##",
          "www.nvidia.com:81/Free.fr/L7D9qw9X4S-aC0&amp;D4X0/Panels&amp;solutionId=0X54a/"
@@ -406,4 +406,110 @@ TEST_F(ParseURIQueryTests, Queries)
 
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
   }
+}
+
+TEST_F(ParseURIPathTests, Simple)
+{
+  auto const col    = get_test_data(test_types::SIMPLE);
+  auto const result = spark_rapids_jni::parse_uri_to_path(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper const expected({"/s/uri",
+                                                     "",
+                                                     "/to/a/cool/file",
+                                                     "/path/to/file",
+                                                     "/www.nvidia.com",
+                                                     "",
+                                                     "/network/path/to/file",
+                                                     "nvidia.com",
+                                                     "www.nvidia.com/s/uri"},
+                                                    {1, 1, 1, 1, 1, 0, 1, 1, 1});
+
+  cudf::test::print(result->view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+}
+
+TEST_F(ParseURIPathTests, SparkEdges)
+{
+  auto const col    = get_test_data(test_types::SPARK_EDGES);
+  auto const result = spark_rapids_jni::parse_uri_to_path(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper const expected(
+    {"/https&",
+     "//www.nvidia.com",
+     "",
+     "",
+     "",
+     "/absolute/path",
+     "",
+     "",
+     "",
+     "",
+     "/absolute/path",
+     "",
+     "",
+     "/q/This%20is%20a%20query",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "/file;param",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "",
+     "/",
+     "/",
+     "/"},
+    {1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1,
+     1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1});
+
+  cudf::test::print(result->view());
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+}
+
+TEST_F(ParseURIPathTests, IP6)
+{
+  auto const col    = get_test_data(test_types::IPv6);
+  auto const result = spark_rapids_jni::parse_uri_to_path(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper const expected(
+    {"", "", "", "", "", "", "", "/path/to/file", "", ""}, {1, 1, 1, 1, 1, 1, 1, 1, 0, 0});
+
+  cudf::test::print(result->view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+}
+
+TEST_F(ParseURIPathTests, IP4)
+{
+  auto const col    = get_test_data(test_types::IPv4);
+  auto const result = spark_rapids_jni::parse_uri_to_path(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper const expected({"/", "/", "/", "/", "/", "/path/to/file"});
+
+  cudf::test::print(result->view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+}
+
+TEST_F(ParseURIPathTests, UTF8)
+{
+  auto const col    = get_test_data(test_types::UTF8);
+  auto const result = spark_rapids_jni::parse_uri_to_path(cudf::strings_column_view{col});
+
+  cudf::test::strings_column_wrapper const expected({"/%4EV%49%44%49%41", "", "/123", ""},
+                                                    {1, 1, 1, 0});
+
+  cudf::test::print(result->view());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
 }

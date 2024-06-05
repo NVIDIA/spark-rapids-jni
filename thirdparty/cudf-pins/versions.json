@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "740889f413af9b1ae1d81eb1e5a4a9fb4ce9cf97",
+      "git_tag" : "7dd1d34074af176d9e861a360e135ae57b21cf96",
       "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "14.0.2"
+      "version" : "16.1.0"
     },
     "CCCL" : 
     {
@@ -33,7 +33,22 @@
           "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
         },
         {
+          "file" : "${current_json_dir}/revert_pr_211_cccl_2.5.0.diff",
+          "fixed_in" : "",
+          "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
+        },
+        {
+          "file" : "cccl/kernel_pointer_hiding.diff",
+          "fixed_in" : "2.4",
+          "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
+        },
+        {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
+          "fixed_in" : "",
+          "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
+        },
+        {
+          "file" : "${current_json_dir}/thrust_disable_64bit_dispatching_cccl_2.5.0.diff",
           "fixed_in" : "",
           "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
         },
@@ -43,7 +58,17 @@
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
         },
         {
+          "file" : "${current_json_dir}/thrust_faster_sort_compile_times_cccl_2.5.0.diff",
+          "fixed_in" : "",
+          "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
+        },
+        {
           "file" : "${current_json_dir}/thrust_faster_scan_compile_times.diff",
+          "fixed_in" : "",
+          "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
+        },
+        {
+          "file" : "${current_json_dir}/thrust_faster_scan_compile_times_cccl_2.5.0.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
@@ -62,23 +87,15 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5e69e97c42504c17a333a36e1796dce4b83150a4",
+      "git_tag" : "1d87e5f7a19993e12726b610a9491d58748201b7",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.04"
-    },
-    "NVTX3" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
-      "git_url" : "https://github.com/NVIDIA/NVTX.git",
-      "version" : "3.1.0"
+      "version" : "24.06"
     },
     "cuco" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "56c53beb6fb0cafd265b7fcc3df78ae487811b22",
+      "git_tag" : "2101cb31d0210b609cd02c88f9b538e10881d91d",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -89,6 +106,14 @@
       "git_tag" : "365b823cedb281cd0240ca601aba9b78771f91a3",
       "git_url" : "https://github.com/dmlc/dlpack.git",
       "version" : "0.8"
+    },
+    "flatbuffers" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "595bf0007ab1929570c7671f091313c8fc20644e",
+      "git_url" : "https://github.com/google/flatbuffers.git",
+      "version" : "24.3.25"
     },
     "fmt" : 
     {
@@ -114,6 +139,14 @@
       "git_url" : "https://github.com/rapidsai/jitify.git",
       "version" : "2.0.0"
     },
+    "nanoarrow" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "11e73a8c85b45e3d49c8c541b4e1497a649fe03c",
+      "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
+      "version" : "0.5.0"
+    },
     "nvcomp" : 
     {
       "always_download" : true,
@@ -127,13 +160,21 @@
       },
       "version" : "3.0.6"
     },
+    "nvtx3" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "version" : "3.1.0"
+    },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e14a2291301ce9c8ef76b2b2404eb02336584724",
+      "git_tag" : "dc1e17a03ed2dbc9329ccecc27922e414250f45a",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.04"
+      "version" : "24.06"
     },
     "spdlog" : 
     {

@@ -16,10 +16,6 @@
 
 #include "map_utils_debug.cuh"
 
-//
-#include <limits>
-
-//
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
@@ -31,11 +27,11 @@
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
-//
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
-//
+#include <cub/device/device_radix_sort.cuh>
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
@@ -51,9 +47,7 @@
 #include <thrust/transform.h>
 #include <thrust/transform_reduce.h>
 
-//
-#include <cub/device/device_radix_sort.cuh>
-#include <cuda/functional>
+#include <limits>
 
 namespace spark_rapids_jni {
 
@@ -520,8 +514,9 @@ struct substring_fn {
   cudf::device_span<char const> const d_string;
   cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
 
-  cudf::size_type* d_offsets{};
-  char* d_chars{};
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   __device__ void operator()(cudf::size_type const idx)
   {
@@ -530,7 +525,7 @@ struct substring_fn {
     if (d_chars) {
       memcpy(d_chars + d_offsets[idx], d_string.data() + range.first, size);
     } else {
-      d_offsets[idx] = size;
+      d_sizes[idx] = size;
     }
   }
 };
@@ -543,7 +538,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   rmm::device_uvector<int8_t> const& key_or_value,
   rmm::device_uvector<char> const& unified_json_buff,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   auto const is_key = cuda::proclaim_return_type<bool>(
     [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
@@ -584,7 +579,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
   rmm::device_uvector<NodeIndexT> const& parent_node_ids,
   rmm::device_uvector<int8_t> const& key_or_value,
   rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr)
+  rmm::device_async_resource_ref mr)
 {
   // Count the number of children nodes for the json object nodes.
   // These object nodes are given as one row of the input json strings column.
@@ -648,7 +643,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 
 std::unique_ptr<cudf::column> from_json(cudf::column_view const& input,
                                         rmm::cuda_stream_view stream,
-                                        rmm::mr::device_memory_resource* mr)
+                                        rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Invalid input format");
 

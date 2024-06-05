@@ -18,7 +18,7 @@
 # NOTE:
 #     this script is for jenkins only, and should not be used for local development
 #     run with ci/Dockerfile in jenkins:
-#         scl enable devtoolset-11 rh-python38 "ci/submodule-sync.sh"
+#         scl enable gcc-toolset-11 ci/submodule-sync.sh
 
 set -ex
 

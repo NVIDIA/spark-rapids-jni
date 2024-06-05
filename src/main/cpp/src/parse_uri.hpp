@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,13 +21,14 @@
 #include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <memory>
 
 namespace spark_rapids_jni {
 
 /**
- * @brief Parse protocol and copy from the input string column to the output char buffer.
+ * @brief Parse protocol and copy from the input string column to the output string column.
  *
  * @param input Input string column of URIs to parse
  * @param stream Stream on which to operate.
@@ -36,11 +37,11 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> parse_uri_to_protocol(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
- * @brief Parse host and copy from the input string column to the output char buffer.
+ * @brief Parse host and copy from the input string column to the output string column.
  *
  * @param input Input string column of URIs to parse
  * @param stream Stream on which to operate.
@@ -49,11 +50,11 @@ std::unique_ptr<cudf::column> parse_uri_to_protocol(
  */
 std::unique_ptr<cudf::column> parse_uri_to_host(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
- * @brief Parse query and copy from the input string column to the output char buffer.
+ * @brief Parse query and copy from the input string column to the output string column.
  *
  * @param input Input string column of URIs to parse
  * @param stream Stream on which to operate.
@@ -62,8 +63,8 @@ std::unique_ptr<cudf::column> parse_uri_to_host(
  */
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Parse query and copy from the input string column to the output string column.
@@ -77,8 +78,8 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
   std::string const& query_match,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Parse query and copy from the input string column to the output string column.
@@ -92,7 +93,20 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
   cudf::strings_column_view const& query_match,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Parse path and copy from the input string column to the output string column.
+ *
+ * @param input Input string column of URIs to parse
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return std::unique_ptr<column> String column of paths parsed.
+ */
+std::unique_ptr<cudf::column> parse_uri_to_path(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni

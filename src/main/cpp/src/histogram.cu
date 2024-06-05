@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 #include "histogram.hpp"
 
-//
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
@@ -33,7 +32,6 @@
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 
-//
 #include <thrust/binary_search.h>
 #include <thrust/for_each.h>
 #include <thrust/functional.h>
@@ -42,7 +40,6 @@
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/scan.h>
 
-//
 #include <type_traits>
 
 namespace spark_rapids_jni {
@@ -69,7 +66,7 @@ struct fill_percentile_fn {
     auto const has_all_nulls = start >= end;
 
     auto const percentage_idx = idx % percentages.size();
-    if (out_validity && percentage_idx == 0) {
+    if (percentage_idx == 0) {
       // If the histogram only contains null elements, the output percentile will be null.
       out_validity[histogram_idx] = has_all_nulls ? 0 : 1;
     }
@@ -170,7 +167,7 @@ struct percentile_dispatcher {
                          bool has_null,
                          cudf::size_type num_histograms,
                          rmm::cuda_stream_view stream,
-                         rmm::mr::device_memory_resource* mr) const
+                         rmm::device_async_resource_ref mr) const
   {
     // Returns all nulls for totally empty input.
     if (data.size() == 0 || percentages.size() == 0) {
@@ -191,7 +188,13 @@ struct percentile_dispatcher {
                                 stream,
                                 mr);
 
-    auto const fill_percentile = [&](auto const sorted_validity_it, auto const out_validity) {
+    // We may always have nulls in the output due to either:
+    // - Having nulls in the input, and/or,
+    // - Having empty histograms.
+    auto out_validities =
+      rmm::device_uvector<int8_t>(num_histograms, stream, rmm::mr::get_current_device_resource());
+
+    auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =
         thrust::make_permutation_iterator(data.begin<T>(), ordered_indices);
       thrust::for_each_n(rmm::exec_policy(stream),
@@ -203,22 +206,20 @@ struct percentile_dispatcher {
                                             accumulated_counts,
                                             percentages,
                                             percentiles->mutable_view().begin<double>(),
-                                            out_validity});
+                                            out_validities.begin()});
     };
 
     if (!has_null) {
-      fill_percentile(thrust::make_constant_iterator(true), nullptr);
+      fill_percentile(thrust::make_constant_iterator(true));
     } else {
       auto const sorted_validity_it = thrust::make_permutation_iterator(
         cudf::detail::make_validity_iterator<false>(data), ordered_indices);
-      auto out_validities =
-        rmm::device_uvector<int8_t>(num_histograms, stream, rmm::mr::get_current_device_resource());
-      fill_percentile(sorted_validity_it, out_validities.begin());
-
-      auto [null_mask, null_count] = cudf::detail::valid_if(
-        out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
-      if (null_count > 0) { return {std::move(percentiles), std::move(null_mask), null_count}; }
+      fill_percentile(sorted_validity_it);
     }
+
+    auto [null_mask, null_count] = cudf::detail::valid_if(
+      out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
+    if (null_count > 0) { return {std::move(percentiles), std::move(null_mask), null_count}; }
 
     return {std::move(percentiles), rmm::device_buffer{}, 0};
   }
@@ -256,7 +257,7 @@ std::unique_ptr<cudf::column> wrap_in_list(std::unique_ptr<cudf::column>&& input
                                            cudf::size_type num_histograms,
                                            cudf::size_type num_percentages,
                                            rmm::cuda_stream_view stream,
-                                           rmm::mr::device_memory_resource* mr)
+                                           rmm::device_async_resource_ref mr)
 {
   if (input->size() == 0) {
     return cudf::lists::detail::make_empty_lists_column(input->type(), stream, mr);
@@ -283,7 +284,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                                                         cudf::column_view const& frequencies,
                                                         bool output_as_lists,
                                                         rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource* mr)
+                                                        rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(
     !frequencies.has_nulls(), "The input frequencies must not have nulls.", std::invalid_argument);
@@ -429,7 +430,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
                                                         std::vector<double> const& percentages,
                                                         bool output_as_list,
                                                         rmm::cuda_stream_view stream,
-                                                        rmm::mr::device_memory_resource* mr)
+                                                        rmm::device_async_resource_ref mr)
 {
   check_input(input, percentages);
 

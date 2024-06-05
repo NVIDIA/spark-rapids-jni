@@ -25,6 +25,7 @@
 
 //
 #include <rmm/exec_policy.hpp>
+#include <rmm/resource_ref.hpp>
 
 //
 #include <cuda/functional>
@@ -56,7 +57,7 @@ __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day co
 // This is to match with Apache Spark's `localRebaseGregorianToJulianDays` function.
 std::unique_ptr<cudf::column> gregorian_to_julian_days(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
-                                                       rmm::mr::device_memory_resource* mr)
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_DAYS,
                "The input column type must be microsecond timestamp.",
@@ -127,7 +128,7 @@ __device__ __inline__ cuda::std::chrono::year_month_day julian_from_days(int32_t
 // `localRebaseJulianToGregorianDays` function.
 std::unique_ptr<cudf::column> julian_to_gregorian_days(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
-                                                       rmm::mr::device_memory_resource* mr)
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_DAYS,
                "The input column type must be microsecond timestamp.",
@@ -227,7 +228,7 @@ __device__ __inline__ time_components get_time_components(int64_t micros)
 // fixed to UTC.
 std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const& input,
                                                          rmm::cuda_stream_view stream,
-                                                         rmm::mr::device_memory_resource* mr)
+                                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
                "The input column type must be microsecond timestamp.",
@@ -290,7 +291,7 @@ std::unique_ptr<cudf::column> gregorian_to_julian_micros(cudf::column_view const
 // fixed to UTC.
 std::unique_ptr<cudf::column> julian_to_gregorian_micros(cudf::column_view const& input,
                                                          rmm::cuda_stream_view stream,
-                                                         rmm::mr::device_memory_resource* mr)
+                                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
                "The input column type must be microsecond timestamp.",
