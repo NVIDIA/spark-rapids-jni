@@ -154,7 +154,7 @@ class string_to_float {
     // construct the final float value
     if (_warp_lane == 0) {
       // base value
-      double digitsf = sign >= 0 ? static_cast<double>(digits) : static_cast<double>(digits);
+      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
 
       // exponent
       int exp_ten = exp_base + manual_exp;
