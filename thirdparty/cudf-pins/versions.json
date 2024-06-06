@@ -87,7 +87,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2b3cbd067a689353bf522f9f1368fb886236b48e",
+      "git_tag" : "43ce81964f3fb28dae95c3867f1905f26bc84e31",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.08"
     },
@@ -172,7 +172,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8597c22a93b0950517c6c80b94f41f8e3313dd80",
+      "git_tag" : "6902af9e17f3e9c41d23bd3b5855b2f4f51c83d6",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.08"
     },
