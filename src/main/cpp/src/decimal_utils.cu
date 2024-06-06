@@ -21,7 +21,9 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/fixed_point/floating_conversion.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/unary.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
@@ -1180,6 +1182,7 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
 
 namespace {
 
+#if 1
 template <typename FloatingType>
 bool __device__ does_conversion_truncate(FloatingType floating, int const exp10)
 {
@@ -1202,12 +1205,17 @@ FloatingType __device__ fix_before_round(FloatingType floating, int const exp10)
   return std::nextafter(floating, direction);
 }
 
-template <typename FloatingType>
+template <typename FloatingType, typename IntType>
 FloatingType __device__ scaled_round(FloatingType floating, int const exp10)
 {
-  auto const scale_factor = std::pow(10, exp10);
-  return std::round(scale_factor * fix_before_round(floating, exp10));
+  //  auto const scale_factor = std::pow(10, exp10);
+  //  return std::round(scale_factor * fix_before_round(floating, exp10));
+  return static_cast<FloatingType>(
+    numeric::detail::convert_floating_to_integral<IntType, FloatingType>(
+      fix_before_round(floating, exp10), numeric::scale_type{-exp10}));
 }
+
+#endif
 
 struct float_to_decimal_fn {
   template <typename FloatType, typename DecimalType>
@@ -1219,10 +1227,10 @@ struct float_to_decimal_fn {
                   int32_t precision,
                   rmm::cuda_stream_view stream) const
   {
-    if constexpr ((std::is_same_v<FloatType, float> || std::is_same_v<FloatType, double>)&&(
-                    std::is_same_v<DecimalType, numeric::decimal32> ||
-                    std::is_same_v<DecimalType, numeric::decimal64> ||
-                    std::is_same_v<DecimalType, numeric::decimal128>)) {
+    if constexpr ((std::is_same_v<FloatType, float> || std::is_same_v<FloatType, double>) &&
+                  (std::is_same_v<DecimalType, numeric::decimal32> ||
+                   std::is_same_v<DecimalType, numeric::decimal64> ||
+                   std::is_same_v<DecimalType, numeric::decimal128>)) {
       using DecimalRepType = cudf::device_storage_type_t<DecimalType>;
 
       // Exclusive bound
@@ -1261,7 +1269,16 @@ struct float_to_decimal_fn {
                           //        scaled_rounded,
                           //        scale * std::nextafter(static_cast<double>(x), direction));
 #endif
-          auto const scaled_rounded = scaled_round<double>(static_cast<double>(x), decimal_places);
+          auto const scaled_rounded =
+            scaled_round<FloatType, DecimalType::rep>(static_cast<FloatType>(x), decimal_places);
+
+          //          auto const scaled_rounded =
+          //            scaled_round<DecimalType::rep, double>(static_cast<double>(x),
+          //            decimal_places);
+
+          //          auto const scaled_rounded =
+          //            numeric::detail::convert_floating_to_integral<DecimalType::rep, FloatType>(
+          //              x, numeric::scale_type{-decimal_places});
 
           auto const is_out_of_bound =
             (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
