@@ -37,6 +37,7 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/functional>
 #include <thrust/pair.h>
 #include <thrust/tuple.h>
 
@@ -892,7 +893,7 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
                               cudf::detail::input_offsetalator d_offsets,
                               cudf::device_span<path_instruction const> path_commands,
-                              thrust::pair<char*, cudf::size_type>* out_stringviews,
+                              thrust::pair<char const*, cudf::size_type>* out_stringviews,
                               char* out_buf,
                               cudf::bitmask_type* out_validity,
                               cudf::size_type* out_valid_count,
@@ -913,23 +914,27 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
     if (str.size_bytes() > 0) {
       out_string = out_buf + d_offsets[tid];
 
-      // TODO: remove this
-      auto const dst_size = d_offsets[tid + 1] - d_offsets[tid];
+      // TODO: remove usage of this in get_json_obj_single
+      auto const scratch_size = d_offsets[tid + 1] - d_offsets[tid];
 
-      // TODO: use std::tie
+      // TODO: simplify
 
       // process one single row
       auto [success, output_size] = get_json_object_single(
-        str, {path_commands.data(), path_commands.size()}, out_string, dst_size);
+        str, {path_commands.data(), path_commands.size()}, out_string, scratch_size);
       if (success) { is_valid = true; }
       out_size = static_cast<cudf::size_type>(output_size);
+
+      if (out_size > scratch_size) { *has_out_of_bound = true; }
     }
 
-    uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
-    // 0th lane of the warp writes the validity.
-    if (!(tid % cudf::detail::warp_size)) {
-      out_validity[cudf::word_index(tid)] = valid_mask;
-      warp_valid_count += __popc(valid_mask);
+    if (out_validity != nullptr) {
+      uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
+      // 0th lane of the warp writes the validity.
+      if (!(tid % cudf::detail::warp_size)) {
+        out_validity[cudf::word_index(tid)] = valid_mask;
+        warp_valid_count += __popc(valid_mask);
+      }
     }
 
     // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
@@ -940,10 +945,12 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
     active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 
-  // Sum the valid counts across the whole block.
-  auto const block_valid_count =
-    cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-  if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
+  if (out_valid_count != nullptr) {
+    // Sum the valid counts across the whole block.
+    auto const block_valid_count =
+      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
+    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
+  }
 }
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -974,11 +981,11 @@ std::unique_ptr<cudf::column> get_json_object(
   // size so that we will not write output strings into an out-of-bound position.
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
   // data corruption.
-  constexpr auto padding_ratio = 1.1;
+  constexpr auto padding_ratio = 1.01;
   auto output_scratch          = rmm::device_uvector<char>(
     static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
   auto output_stringview =
-    rmm::device_uvector<thrust::pair<char*, cudf::size_type>>(input.size(), stream);
+    rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>(input.size(), stream);
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
   constexpr int block_size = 512;
@@ -986,11 +993,10 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *d_input_ptr,
-      path_commands,
-      sizes.data(),
       in_offsets,
-      nullptr,
-      nullptr,
+      path_commands,
+      output_stringview.data(),
+      output_scratch.data(),
       static_cast<cudf::bitmask_type*>(validity.data()),
       d_valid_count.data(),
       has_out_of_bound.data());
@@ -1003,24 +1009,33 @@ std::unique_ptr<cudf::column> get_json_object(
     return output;
   }
 
-  // We had out-of-bound write.
+  // From here, we had out-of-bound write.
+  // This scratch buffer is no longer needed.
+  output_scratch = rmm::device_uvector<char>{0, stream};
+
   // The string sizes computed in the previous kernel call will be used to allocate a new char
   // buffer to store the output.
+  auto const size_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [string_pairs = output_stringview.data()] __device__(auto const idx) {
+        return string_pairs[idx].second;
+      }));
   auto [offsets, output_size] =
-    cudf::strings::detail::make_offsets_child_column(sizes.begin(), sizes.end(), stream, mr);
+    cudf::strings::detail::make_offsets_child_column(size_it, size_it + input.size(), stream, mr);
   auto chars             = rmm::device_uvector<char>(output_size, stream, mr);
   auto const out_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
 
-  has_out_of_bound.set_value_async(false, stream);
+  has_out_of_bound.set_value_to_zero_async(stream);
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *d_input_ptr,
-      path_commands,
-      sizes.data(),
       out_offsets,
+      path_commands,
+      nullptr /*out_stringviews*/,
       chars.data(),
-      static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data(),
+      nullptr /*out_validity*/,
+      nullptr /*out_valid_count*/,
       has_out_of_bound.data());
 
   // This step should handle out-of-bound write. If it is still detected, there must be
