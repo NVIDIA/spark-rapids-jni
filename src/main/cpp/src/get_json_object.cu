@@ -832,28 +832,19 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @param path_commands_size The command buffer size.
  * @param out_buf Buffer user to store the results of the query
  *                (nullptr in the size computation step)
- * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
 __device__ thrust::pair<bool, cudf::size_type> get_json_object_single(
-  char_range input,
-  cudf::device_span<path_instruction const> path_commands,
-  char* out_buf,
-  size_t out_buf_size)
+  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
 {
   json_parser j_parser(input);
   j_parser.next_token();
   // JSON validation check
   if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
 
-  // First pass: preprocess sizes.
-  // Second pass: writes output.
-  // The generator automatically determines which pass based on `out_buf`.
-  // If `out_buf_size` is zero, pass in `nullptr` to avoid generator writing trash output.
-  json_generator generator((out_buf_size == 0) ? nullptr : out_buf);
+  json_generator generator(out_buf);
 
-  bool const success = evaluate_path(
-    j_parser, generator, write_style::RAW, {path_commands.data(), path_commands.size()});
+  bool const success = evaluate_path(j_parser, generator, write_style::RAW, path_commands);
 
   if (!success) {
     // generator may contain trash output, e.g.: generator writes some output,
@@ -896,62 +887,32 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
                               cudf::device_span<path_instruction const> path_commands,
                               thrust::pair<char const*, cudf::size_type>* out_stringviews,
                               char* out_buf,
-                              // cudf::bitmask_type* out_validity,
-                              // cudf::size_type* out_valid_count,
                               bool* has_out_of_bound)
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
 
   auto tid = cudf::detail::grid_1d::global_thread_id();
-  // auto warp_valid_count = cudf::size_type{0};
-  // auto active_threads   = __ballot_sync(0xffff'ffffu, tid < col.size());
-
   while (tid < col.size()) {
+    char* const dst          = out_buf + d_offsets[tid];
     bool is_valid            = false;
-    char* out_string         = nullptr;
     cudf::size_type out_size = 0;
 
     auto const str = col.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
-      out_string = out_buf + d_offsets[tid];
+      auto const in_size = d_offsets[tid + 1] - d_offsets[tid];
 
-      // TODO: remove usage of this in get_json_obj_single
-      auto const scratch_size = d_offsets[tid + 1] - d_offsets[tid];
-
-      // TODO: simplify
-
-      // process one single row
-      auto [success, output_size] = get_json_object_single(
-        str, {path_commands.data(), path_commands.size()}, out_string, scratch_size);
-      if (success) { is_valid = true; }
-      out_size = static_cast<cudf::size_type>(output_size);
-
-      if (out_size > scratch_size) { *has_out_of_bound = true; }
+      // If `in_size == 0`, do not pass in the dst pointer to prevent writing garbage data.
+      thrust::tie(is_valid, out_size) =
+        get_json_object_single(str, path_commands, in_size != 0 ? dst : nullptr);
+      if (out_size > in_size) { *has_out_of_bound = true; }
     }
-
-    // if (out_validity != nullptr) {
-    //   uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
-    //   // 0th lane of the warp writes the validity.
-    //   if (!(tid % cudf::detail::warp_size)) {
-    //     out_validity[cudf::word_index(tid)] = valid_mask;
-    //     warp_valid_count += __popc(valid_mask);
-    //   }
-    // }
 
     // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
     // second time due to out-of-bound write in the first launch.
-    if (out_stringviews) { out_stringviews[tid] = {is_valid ? out_string : nullptr, out_size}; }
+    if (out_stringviews) { out_stringviews[tid] = {is_valid ? dst : nullptr, out_size}; }
 
     tid += stride;
-    // active_threads = __ballot_sync(active_threads, tid < col.size());
   }
-
-  // if (out_valid_count != nullptr) {
-  //   // Sum the valid counts across the whole block.
-  //   auto const block_valid_count =
-  //     cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-  //   if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
-  // }
 }
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -973,10 +934,6 @@ std::unique_ptr<cudf::column> get_json_object(
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets  = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
-  // auto validity =
-  //   cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
-  // auto d_valid_count = rmm::device_scalar<cudf::size_type>{0, stream};
-
   // A buffer to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
   // size so that we will not write output strings into an out-of-bound position.
@@ -992,23 +949,20 @@ std::unique_ptr<cudf::column> get_json_object(
   constexpr int block_size = 512;
   cudf::detail::grid_1d const grid{input.size(), block_size};
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr,
-      in_offsets,
-      path_commands,
-      out_stringviews.data(),
-      output_scratch.data(),
-      // static_cast<cudf::bitmask_type*>(validity.data()),
-      // d_valid_count.data(),
-      has_out_of_bound.data());
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
+                                                                         in_offsets,
+                                                                         path_commands,
+                                                                         out_stringviews.data(),
+                                                                         output_scratch.data(),
+                                                                         has_out_of_bound.data());
 
   // If we didn't see any out-of-bound write, everything is good so far.
-  // Just gather the output strings.
+  // Just gather the output strings and return.
   if (!has_out_of_bound.value(stream)) {
     return cudf::make_strings_column(out_stringviews, stream, mr);
   }
+  // From here, we had out-of-bound write. Although this is very rare, it may still happen.
 
-  // From here, we had out-of-bound write.
   // This scratch buffer is no longer needed.
   output_scratch = rmm::device_uvector<char>{0, stream};
 
@@ -1030,7 +984,7 @@ std::unique_ptr<cudf::column> get_json_object(
   auto [null_mask, null_count] =
     cudf::detail::valid_if(out_stringviews.begin(), out_stringviews.end(), validator, stream, mr);
 
-  // No longer need it. Free up memory for now.
+  // No longer need it from here. Free up memory for now.
   out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{0, stream};
 
   auto chars             = rmm::device_uvector<char>(output_size, stream, mr);
@@ -1044,11 +998,9 @@ std::unique_ptr<cudf::column> get_json_object(
       path_commands,
       nullptr /*out_stringviews*/,
       chars.data(),
-      // nullptr /*out_validity*/,
-      // nullptr /*out_valid_count*/,
       has_out_of_bound.data());
 
-  // This step should handle out-of-bound write. If it is still detected, there must be
+  // This kernel call should not see out-of-bound write. If it is still detected, there must be
   // something wrong happened.
   CUDF_EXPECTS(!has_out_of_bound.value(stream),
                "Unexpected out-of-bound write in get_json_object kernel.");
