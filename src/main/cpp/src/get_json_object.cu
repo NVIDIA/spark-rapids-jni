@@ -892,10 +892,11 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
                               cudf::device_span<path_instruction const> path_commands,
                               cudf::size_type* d_sizes,
-                              cudf::detail::input_offsetalator output_offsets,
+                              cudf::detail::input_offsetalator d_offsets,
                               char* out_buf,
                               cudf::bitmask_type* out_validity,
-                              cudf::size_type* out_valid_count)
+                              cudf::size_type* out_valid_count,
+                              bool* has_out_of_bound)
 {
   auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::detail::grid_1d::grid_stride();
@@ -907,9 +908,8 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
     bool is_valid               = false;
     cudf::string_view const str = col.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
-      char* dst = out_buf != nullptr ? out_buf + output_offsets[tid] : nullptr;
-      size_t const dst_size =
-        out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
+      char* dst             = out_buf != nullptr ? out_buf + d_offsets[tid] : nullptr;
+      size_t const dst_size = out_buf != nullptr ? d_offsets[tid + 1] - d_offsets[tid] : 0;
 
       // process one single row
       auto [result, output_size] =
@@ -953,64 +953,87 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
-
   if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+  if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  // get a string buffer to store all the names and convert to device
   std::string all_names;
   for (auto const& inst : instructions) {
     all_names += std::get<1>(inst);
   }
-  cudf::string_scalar all_names_scalar(all_names, true, stream);
-  // parse the json_path into a command buffer
-  auto path_commands = construct_path_commands(
+  auto const all_names_scalar = cudf::string_scalar(all_names, true, stream);
+  auto const path_commands    = construct_path_commands(
     instructions, all_names_scalar, stream, rmm::mr::get_current_device_resource());
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
+  auto const in_offsets  = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
-  // compute output sizes
-  auto sizes = rmm::device_uvector<cudf::size_type>(
-    input.size(), stream, rmm::mr::get_current_device_resource());
-  auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
+  auto validity =
+    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
+  auto d_valid_count = rmm::device_scalar<cudf::size_type>{0, stream};
+
+  // A buffer to store the output strings without knowing their sizes.
+  // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
+  // size so that we will not write output strings into an out-of-bound position.
+  // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
+  // data corruption.
+  constexpr auto padding_ratio = 1.1;
+  auto output_scratch =
+    rmm::device_buffer(static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
+  auto output_stringview =
+    rmm::device_uvector<thrust::pair<char*, cudf::size_type>>(input.size(), stream);
+  auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
   constexpr int block_size = 512;
   cudf::detail::grid_1d const grid{input.size(), block_size};
-  auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
-  // preprocess sizes (returned in the offsets buffer)
-  get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr, path_commands, sizes.data(), d_offsets, nullptr, nullptr, nullptr);
-
-  // convert sizes to offsets
-  auto [offsets, output_size] =
-    cudf::strings::detail::make_offsets_child_column(sizes.begin(), sizes.end(), stream, mr);
-  d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
-
-  // allocate output string column
-  rmm::device_uvector<char> chars(output_size, stream, mr);
-
-  // potential optimization : if we know that all outputs are valid, we could
-  // skip creating the validity mask altogether
-  rmm::device_buffer validity =
-    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
-
-  // compute results
-  rmm::device_scalar<cudf::size_type> d_valid_count{0, stream};
-
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       *d_input_ptr,
       path_commands,
       sizes.data(),
-      d_offsets,
+      in_offsets,
+      nullptr,
+      nullptr,
+      static_cast<cudf::bitmask_type*>(validity.data()),
+      d_valid_count.data(),
+      has_out_of_bound.data());
+
+  // If we didn't see any out-of-bound write, everything is good so far.
+  // Just gather the output strings.
+  if (!has_out_of_bound.value(stream)) {
+    auto output = cudf::make_strings_column(output_stringview, stream, mr);
+    output->set_null_mask(std::move(validity), input.size() - d_valid_count.value(stream));
+    return output;
+  }
+
+  // We had out-of-bound write.
+  // The string sizes computed in the previous kernel call will be used to allocate a new char
+  // buffer to store the output.
+  auto [offsets, output_size] =
+    cudf::strings::detail::make_offsets_child_column(sizes.begin(), sizes.end(), stream, mr);
+  auto chars             = rmm::device_uvector<char>(output_size, stream, mr);
+  auto const out_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
+
+  has_out_of_bound.set_value_async(false, stream);
+  get_json_object_kernel<block_size>
+    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
+      *d_input_ptr,
+      path_commands,
+      sizes.data(),
+      out_offsets,
       chars.data(),
       static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data());
+      d_valid_count.data(),
+      has_out_of_bound.data());
 
-  return make_strings_column(input.size(),
-                             std::move(offsets),
-                             chars.release(),
-                             input.size() - d_valid_count.value(stream),
-                             std::move(validity));
+  // This step should handle out-of-bound write. If it is still detected, there must be
+  // something wrong happened.
+  CUDF_EXPECTS(!has_out_of_bound.value(stream),
+               "Unexpected out-of-bound write in get_json_object kernel.");
+
+  return cudf::make_strings_column(input.size(),
+                                   std::move(offsets),
+                                   chars.release(),
+                                   input.size() - d_valid_count.value(stream),
+                                   std::move(validity));
 }
 
 }  // namespace detail
