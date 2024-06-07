@@ -33,41 +33,41 @@ jobs:
       args: ${{ env.args }}
 
     # This job only runs for pull request comments
-    if: contains( '\
-      abellina,\
-      anfeng,\
-      firestarman,\
-      GaryShen2008,\
-      jlowe,\
-      mythrocks,\
-      nartal1,\
-      nvdbaranec,\
-      NvTimLiu,\
-      razajafri,\
-      revans2,\
-      rwlee,\
-      sameerz,\
-      tgravescs,\
-      wbo4958,\
-      wjxiz1992,\
-      sperlingxx,\
-      YanxuanLiu,\
-      hyperbolic2346,\
-      gerashegalov,\
-      ttnghia,\
-      nvliyuan,\
-      res-life,\
-      HaoYang670,\
-      NVnavkumar,\
-      yinqingh,\
-      thirtiseven,\
-      parthosa,\
-      liurenjie1024,\
-      binmahone,\
-      pmattione-nvidia,\
-      Feng-Jiang28,\
-      pxLi,\
-      ', format('{0},', github.actor)) && github.event.comment.body == 'build'
+    if: contains( fromJson('[
+      "abellina",
+      "anfeng",
+      "firestarman",
+      "GaryShen2008",
+      "jlowe",
+      "mythrocks",
+      "nartal1",
+      "nvdbaranec",
+      "NvTimLiu",
+      "razajafri",
+      "revans2",
+      "rwlee",
+      "sameerz",
+      "tgravescs",
+      "wbo4958",
+      "wjxiz1992",
+      "sperlingxx",
+      "YanxuanLiu",
+      "hyperbolic2346",
+      "gerashegalov",
+      "ttnghia",
+      "nvliyuan",
+      "res-life",
+      "HaoYang670",
+      "NVnavkumar",
+      "yinqingh",
+      "thirtiseven",
+      "parthosa",
+      "liurenjie1024",
+      "binmahone",
+      "pmattione-nvidia",
+      "Feng-Jiang28",
+      "pxLi"
+      ]'), format('{0},', github.actor)) && github.event.comment.body == 'build'
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci
