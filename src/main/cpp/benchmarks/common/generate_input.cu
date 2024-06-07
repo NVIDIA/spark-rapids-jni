@@ -32,6 +32,7 @@
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 
+#include <cuda/functional>
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
@@ -358,12 +359,13 @@ rmm::device_uvector<cudf::size_type> sample_indices_with_run_length(cudf::size_t
     // This is gather.
     auto avg_repeated_sample_indices_iterator = thrust::make_transform_iterator(
       thrust::make_counting_iterator(0),
-      [rb              = run_lens.begin(),
-       re              = run_lens.end(),
-       samples_indices = samples_indices.begin()] __device__(cudf::size_type i) {
-        auto sample_idx = thrust::upper_bound(thrust::seq, rb, re, i) - rb;
-        return samples_indices[sample_idx];
-      });
+      cuda::proclaim_return_type<cudf::size_type>(
+        [rb              = run_lens.begin(),
+         re              = run_lens.end(),
+         samples_indices = samples_indices.begin()] __device__(cudf::size_type i) {
+          auto sample_idx = thrust::upper_bound(thrust::seq, rb, re, i) - rb;
+          return samples_indices[sample_idx];
+        }));
     rmm::device_uvector<cudf::size_type> repeated_sample_indices(num_rows,
                                                                  cudf::get_default_stream());
     thrust::copy(thrust::device,
@@ -519,10 +521,10 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
 
   return cudf::make_strings_column(
     num_rows,
-    std::move(offsets),
-    std::move(chars->release().data.release()[0]),
-    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{},
-    null_count);
+    std::make_unique<cudf::column>(std::move(offsets), rmm::device_buffer{}, 0),
+    chars.release(),
+    null_count,
+    profile.get_null_frequency().has_value() ? std::move(result_bitmask) : rmm::device_buffer{});
 }
 
 /**

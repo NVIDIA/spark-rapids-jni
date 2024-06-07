@@ -32,7 +32,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.04.00
+  VERSION 24.06.00
   LANGUAGES C CXX CUDA
 )
 
@@ -44,6 +44,7 @@ option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" OFF)
 option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
 option(BUILD_FAULTINJ "Configure CMake to build fault injection" ON)
+option(BUILD_PROFILER "Configure CMake to build profiler" ON)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
@@ -60,6 +61,12 @@ set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
+if(NOT SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR)
+  set(SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR ${SPARK_RAPIDS_JNI_BINARY_DIR}/generated/include)
+endif()
+if(NOT SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR)
+  set(SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR ${SPARK_RAPIDS_JNI_BINARY_DIR}/generated/src)
+endif()
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -94,6 +101,21 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
 
+# version header
+find_package(Git REQUIRED)
+execute_process(COMMAND
+  "${GIT_EXECUTABLE}" describe --abbrev=40 --always --dirty --long
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE SPARK_RAPIDS_JNI_COMMIT_DETAILS
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+configure_file(
+  src/spark_rapids_jni_version.cpp.in
+  "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/spark_rapids_jni_version.cpp"
+  @ONLY
+)
+
 # find NVTX
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
 
@@ -110,6 +132,8 @@ endif()
 
 # cudf
 if(BUILD_TESTS)
+  include(${rapids-cmake-dir}/cpm/gtest.cmake)
+  rapids_cpm_gtest(BUILD_STATIC)
   rapids_find_package(cudf REQUIRED COMPONENTS testing)
 else()
   rapids_find_package(cudf REQUIRED)
@@ -160,6 +184,7 @@ add_library(
   src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
+  src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
@@ -176,6 +201,7 @@ add_library(
   src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
+  src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/timezones.cu
   src/utilities.cu
@@ -229,7 +255,7 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
-    nvtx3-cpp
+    nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
     ${PARQUET_LIB}
     ${THRIFT_LIB}
@@ -252,7 +278,7 @@ add_dependencies(cudfjnistub spark_rapids_jni)
 if(USE_GDS)
   include(${CUDF_DIR}/cpp/cmake/Modules/FindcuFile.cmake)
   find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
+    HINTS "${SPARK_RAPIDS_JNI_BINARY_DIR}/../libcudfjni"
   )
   add_library(cufilejni SHARED src/emptyfile.cpp)
   set_target_properties(
@@ -295,4 +321,8 @@ endif()
 
 if(SPARK_RAPIDS_JNI_BUILD_FAULTINJ)
   add_subdirectory(faultinj)
+endif()
+
+if(BUILD_PROFILER)
+  add_subdirectory(profiler)
 endif()

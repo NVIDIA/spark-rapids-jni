@@ -52,8 +52,9 @@ namespace {
 template <typename DecimalType>
 struct decimal_to_non_ansi_string_fn {
   column_device_view d_decimals;
-  size_type* d_offsets{};
-  char* d_chars{};
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
 
   /**
    * @brief Calculates the size of the string required to convert the element, in base-10 format.
@@ -162,13 +163,13 @@ struct decimal_to_non_ansi_string_fn {
   __device__ void operator()(size_type idx)
   {
     if (d_decimals.is_null(idx)) {
-      if (d_chars == nullptr) { d_offsets[idx] = 0; }
+      if (d_chars == nullptr) { d_sizes[idx] = 0; }
       return;
     }
     if (d_chars != nullptr) {
       decimal_to_non_ansi_string(idx);
     } else {
-      d_offsets[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
+      d_sizes[idx] = compute_output_size(d_decimals.element<DecimalType>(idx));
     }
   }
 };
@@ -180,7 +181,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
   template <typename T, std::enable_if_t<cudf::is_fixed_point<T>()>* = nullptr>
   std::unique_ptr<column> operator()(column_view const& input,
                                      rmm::cuda_stream_view stream,
-                                     rmm::mr::device_memory_resource* mr) const
+                                     rmm::device_async_resource_ref mr) const
   {
     using DecimalType = device_storage_type_t<T>;  // underlying value type
 
@@ -199,7 +200,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
   template <typename T, std::enable_if_t<not cudf::is_fixed_point<T>()>* = nullptr>
   std::unique_ptr<column> operator()(column_view const&,
                                      rmm::cuda_stream_view,
-                                     rmm::mr::device_memory_resource*) const
+                                     rmm::device_async_resource_ref) const
   {
     CUDF_FAIL("Values for decimal_to_non_ansi_string function must be a decimal type.");
   }
@@ -209,7 +210,7 @@ struct dispatch_decimal_to_non_ansi_string_fn {
 
 std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
                                                    rmm::cuda_stream_view stream,
-                                                   rmm::mr::device_memory_resource* mr)
+                                                   rmm::device_async_resource_ref mr)
 {
   if (input.is_empty()) return make_empty_column(type_id::STRING);
   return type_dispatcher(input.type(), dispatch_decimal_to_non_ansi_string_fn{}, input, stream, mr);
@@ -221,7 +222,7 @@ std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
 
 std::unique_ptr<column> decimal_to_non_ansi_string(column_view const& input,
                                                    rmm::cuda_stream_view stream,
-                                                   rmm::mr::device_memory_resource* mr)
+                                                   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::decimal_to_non_ansi_string(input, stream, mr);
