@@ -480,6 +480,10 @@
                 <exec dir="${native.build.path}"
                       failonerror="true"
                       executable="cmake">
+                  <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
+                  <env key="CUDF_ROOT" value="${cudf.path}"/>
+                  <env key="CUDF_INSTALL_DIR" value="${libcudf.install.path}"/>
+                  <env key="CUDFJNI_BUILD_DIR" value="${libcudfjni.build.path}"/>
                   <arg value="${basedir}/src/main/cpp"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>

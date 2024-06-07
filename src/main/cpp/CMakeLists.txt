@@ -14,7 +14,7 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include(../../../thirdparty/cudf/rapids_config.cmake)
+include("$ENV{CUDF_ROOT}/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -79,14 +79,14 @@ set_property(
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
 set(CUDF_INSTALL_DIR
-  "${PROJECT_BINARY_DIR}/../libcudf-install"
+  "$ENV{CUDF_INSTALL_DIR}"
   CACHE STRING "path to libcudf install root"
 )
 
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
 
 set(CUDF_DIR
-  "${PROJECT_BINARY_DIR}/../../thirdparty/cudf"
+  "$ENV{CUDF_ROOT}"
   CACHE STRING "path to cudf repository"
 )
 
@@ -141,13 +141,13 @@ endif()
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
+  HINTS "$ENV{CUDFJNI_BUILD_DIR}"
 )
 
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib64"
-  HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib"
+  HINTS "$ENV{CUDF_INSTALL_DIR}/lib64"
+  HINTS "$ENV{CUDF_INSTALL_DIR}/lib"
 )
 
 # Internal parquet headers
