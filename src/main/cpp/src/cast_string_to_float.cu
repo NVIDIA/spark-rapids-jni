@@ -140,7 +140,9 @@ class string_to_float {
         _except = true;
       }
 
-      if (_warp_lane == 0) { _out[_row] = sign >= 0 ? static_cast<double>(0) : -static_cast<double>(0); }
+      if (_warp_lane == 0) {
+        _out[_row] = sign >= 0 ? static_cast<double>(0) : -static_cast<double>(0);
+      }
       compute_validity(_valid, _except);
       return;
     }
@@ -162,7 +164,7 @@ class string_to_float {
       // final value
       if (exp_ten > std::numeric_limits<double>::max_exponent10) {
         _out[_row] = sign >= 0 ? std::numeric_limits<double>::infinity()
-                              : -std::numeric_limits<double>::infinity();
+                               : -std::numeric_limits<double>::infinity();
       } else {
         // make sure we don't produce a subnormal number.
         // - a normal number is one where the leading digit of the floating point rep is not zero.
