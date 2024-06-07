@@ -14,7 +14,24 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include("$ENV{CUDF_ROOT}/rapids_config.cmake")
+set(CUDF_DIR
+  "$ENV{CUDF_ROOT}"
+  CACHE STRING "path to cudf repository"
+)
+set(CUDF_INSTALL_DIR
+  "$ENV{CUDF_INSTALL_DIR}"
+  CACHE STRING "path to libcudf install root"
+)
+set(CUDFJNI_BUILD_DIR
+  "$ENV{CUDFJNI_BUILD_DIR}"
+  CACHE STRING "path to libcudfjni build root"
+)
+set(CUDF_CPP_BUILD_DIR
+  "$ENV{CUDF_CPP_BUILD_DIR}"
+  CACHE STRING "path to libcudf build root"
+)
+
+include("${CUDF_DIR}/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -78,17 +95,7 @@ set_property(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
-set(CUDF_INSTALL_DIR
-  "$ENV{CUDF_INSTALL_DIR}"
-  CACHE STRING "path to libcudf install root"
-)
-
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
-
-set(CUDF_DIR
-  "$ENV{CUDF_ROOT}"
-  CACHE STRING "path to cudf repository"
-)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type("Release")
@@ -141,31 +148,31 @@ endif()
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "$ENV{CUDFJNI_BUILD_DIR}"
+  HINTS "${CUDFJNI_BUILD_DIR}"
 )
 
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "$ENV{CUDF_INSTALL_DIR}/lib64"
-  HINTS "$ENV{CUDF_INSTALL_DIR}/lib"
+  HINTS "${CUDF_INSTALL_DIR}/lib64"
+  HINTS "${CUDF_INSTALL_DIR}/lib"
 )
 
 # Internal parquet headers
 set (GENERATED_PARQUET_INCLUDE
-    "${CUDF_DIR}/cpp/build/_deps/arrow-src/cpp/src/"
+    "${CUDF_CPP_BUILD_DIR}/_deps/arrow-src/cpp/src/"
     CACHE STRING "generated parquet thrift headers"
 )
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDF_DIR}/cpp/build/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDF_DIR}/cpp/build/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
 )
 
 # ##################################################################################################
