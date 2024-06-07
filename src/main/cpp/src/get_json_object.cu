@@ -833,7 +833,7 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  * @param out_buf_size Size of the output buffer
  * @returns A pair containing the result code and the output buffer.
  */
-__device__ thrust::pair<bool, size_t> get_json_object_single(
+__device__ thrust::pair<bool, cudf::size_type> get_json_object_single(
   char_range input,
   cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
@@ -860,7 +860,7 @@ __device__ thrust::pair<bool, size_t> get_json_object_single(
     generator.set_output_len_zero();
   }
 
-  return {success, generator.get_output_len()};
+  return {success, static_cast<cudf::size_type>(generator.get_output_len())};
 }
 
 /**
@@ -890,61 +890,60 @@ template <int block_size>
 // of registers over spilling.
 __launch_bounds__(block_size, 1) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view col,
-                              cudf::device_span<path_instruction const> path_commands,
-                              cudf::size_type* d_sizes,
                               cudf::detail::input_offsetalator d_offsets,
+                              cudf::device_span<path_instruction const> path_commands,
+                              thrust::pair<char*, cudf::size_type>* out_stringviews,
                               char* out_buf,
                               cudf::bitmask_type* out_validity,
                               cudf::size_type* out_valid_count,
                               bool* has_out_of_bound)
 {
-  auto tid          = cudf::detail::grid_1d::global_thread_id();
   auto const stride = cudf::detail::grid_1d::grid_stride();
 
-  cudf::size_type warp_valid_count{0};
+  auto tid              = cudf::detail::grid_1d::global_thread_id();
+  auto warp_valid_count = cudf::size_type{0};
+  auto active_threads   = __ballot_sync(0xffff'ffffu, tid < col.size());
 
-  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
   while (tid < col.size()) {
-    bool is_valid               = false;
-    cudf::string_view const str = col.element<cudf::string_view>(tid);
+    bool is_valid            = false;
+    char* out_string         = nullptr;
+    cudf::size_type out_size = 0;
+
+    auto const str = col.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
-      char* dst             = out_buf != nullptr ? out_buf + d_offsets[tid] : nullptr;
-      size_t const dst_size = out_buf != nullptr ? d_offsets[tid + 1] - d_offsets[tid] : 0;
+      out_string = out_buf + d_offsets[tid];
+
+      // TODO: remove this
+      auto const dst_size = d_offsets[tid + 1] - d_offsets[tid];
+
+      // TODO: use std::tie
 
       // process one single row
-      auto [result, output_size] =
-        get_json_object_single(str, {path_commands.data(), path_commands.size()}, dst, dst_size);
-      if (result) { is_valid = true; }
-
-      // filled in only during the precompute step. during the compute step, the
-      // offsets are fed back in so we do -not- want to write them out
-      if (out_buf == nullptr) { d_sizes[tid] = static_cast<cudf::size_type>(output_size); }
-    } else {
-      // valid JSON length is always greater than 0
-      // if `str` size len is zero, output len is 0 and `is_valid` is false
-      if (out_buf == nullptr) { d_sizes[tid] = 0; }
+      auto [success, output_size] = get_json_object_single(
+        str, {path_commands.data(), path_commands.size()}, out_string, dst_size);
+      if (success) { is_valid = true; }
+      out_size = static_cast<cudf::size_type>(output_size);
     }
 
-    // validity filled in only during the output step
-    if (out_validity != nullptr) {
-      uint32_t mask = __ballot_sync(active_threads, is_valid);
-      // 0th lane of the warp writes the validity
-      if (!(tid % cudf::detail::warp_size)) {
-        out_validity[cudf::word_index(tid)] = mask;
-        warp_valid_count += __popc(mask);
-      }
+    uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
+    // 0th lane of the warp writes the validity.
+    if (!(tid % cudf::detail::warp_size)) {
+      out_validity[cudf::word_index(tid)] = valid_mask;
+      warp_valid_count += __popc(valid_mask);
     }
+
+    // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
+    // second time due to out-of-bound write in the first launch.
+    if (out_stringviews) { out_stringviews[tid] = {out_string, out_size}; }
 
     tid += stride;
     active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 
-  // sum the valid counts across the whole block
-  if (out_valid_count != nullptr) {
-    cudf::size_type block_valid_count =
-      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
-  }
+  // Sum the valid counts across the whole block.
+  auto const block_valid_count =
+    cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
+  if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
 }
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -976,8 +975,8 @@ std::unique_ptr<cudf::column> get_json_object(
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
   // data corruption.
   constexpr auto padding_ratio = 1.1;
-  auto output_scratch =
-    rmm::device_buffer(static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
+  auto output_scratch          = rmm::device_uvector<char>(
+    static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
   auto output_stringview =
     rmm::device_uvector<thrust::pair<char*, cudf::size_type>>(input.size(), stream);
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
