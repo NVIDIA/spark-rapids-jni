@@ -24,6 +24,7 @@
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utilities.hpp>
@@ -895,15 +896,15 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
                               cudf::device_span<path_instruction const> path_commands,
                               thrust::pair<char const*, cudf::size_type>* out_stringviews,
                               char* out_buf,
-                              cudf::bitmask_type* out_validity,
-                              cudf::size_type* out_valid_count,
+                              // cudf::bitmask_type* out_validity,
+                              // cudf::size_type* out_valid_count,
                               bool* has_out_of_bound)
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
 
   auto tid              = cudf::detail::grid_1d::global_thread_id();
   auto warp_valid_count = cudf::size_type{0};
-  auto active_threads   = __ballot_sync(0xffff'ffffu, tid < col.size());
+  // auto active_threads   = __ballot_sync(0xffff'ffffu, tid < col.size());
 
   while (tid < col.size()) {
     bool is_valid            = false;
@@ -928,29 +929,29 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
       if (out_size > scratch_size) { *has_out_of_bound = true; }
     }
 
-    if (out_validity != nullptr) {
-      uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
-      // 0th lane of the warp writes the validity.
-      if (!(tid % cudf::detail::warp_size)) {
-        out_validity[cudf::word_index(tid)] = valid_mask;
-        warp_valid_count += __popc(valid_mask);
-      }
-    }
+    // if (out_validity != nullptr) {
+    //   uint32_t valid_mask = __ballot_sync(active_threads, is_valid);
+    //   // 0th lane of the warp writes the validity.
+    //   if (!(tid % cudf::detail::warp_size)) {
+    //     out_validity[cudf::word_index(tid)] = valid_mask;
+    //     warp_valid_count += __popc(valid_mask);
+    //   }
+    // }
 
     // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
     // second time due to out-of-bound write in the first launch.
-    if (out_stringviews) { out_stringviews[tid] = {out_string, out_size}; }
+    if (out_stringviews) { out_stringviews[tid] = {is_valid ? out_string : nullptr, out_size}; }
 
     tid += stride;
-    active_threads = __ballot_sync(active_threads, tid < col.size());
+    // active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 
-  if (out_valid_count != nullptr) {
-    // Sum the valid counts across the whole block.
-    auto const block_valid_count =
-      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
-  }
+  // if (out_valid_count != nullptr) {
+  //   // Sum the valid counts across the whole block.
+  //   auto const block_valid_count =
+  //     cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
+  //   if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
+  // }
 }
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -972,9 +973,9 @@ std::unique_ptr<cudf::column> get_json_object(
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets  = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
-  auto validity =
-    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
-  auto d_valid_count = rmm::device_scalar<cudf::size_type>{0, stream};
+  // auto validity =
+  //   cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
+  // auto d_valid_count = rmm::device_scalar<cudf::size_type>{0, stream};
 
   // A buffer to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
@@ -997,16 +998,14 @@ std::unique_ptr<cudf::column> get_json_object(
       path_commands,
       output_stringview.data(),
       output_scratch.data(),
-      static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data(),
+      // static_cast<cudf::bitmask_type*>(validity.data()),
+      // d_valid_count.data(),
       has_out_of_bound.data());
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings.
   if (!has_out_of_bound.value(stream)) {
-    auto output = cudf::make_strings_column(output_stringview, stream, mr);
-    output->set_null_mask(std::move(validity), input.size() - d_valid_count.value(stream));
-    return output;
+    return cudf::make_strings_column(output_stringview, stream, mr);
   }
 
   // From here, we had out-of-bound write.
@@ -1034,8 +1033,8 @@ std::unique_ptr<cudf::column> get_json_object(
       path_commands,
       nullptr /*out_stringviews*/,
       chars.data(),
-      nullptr /*out_validity*/,
-      nullptr /*out_valid_count*/,
+      // nullptr /*out_validity*/,
+      // nullptr /*out_valid_count*/,
       has_out_of_bound.data());
 
   // This step should handle out-of-bound write. If it is still detected, there must be
@@ -1043,11 +1042,14 @@ std::unique_ptr<cudf::column> get_json_object(
   CUDF_EXPECTS(!has_out_of_bound.value(stream),
                "Unexpected out-of-bound write in get_json_object kernel.");
 
-  return cudf::make_strings_column(input.size(),
-                                   std::move(offsets),
-                                   chars.release(),
-                                   input.size() - d_valid_count.value(stream),
-                                   std::move(validity));
+  auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
+    return item.first != nullptr;
+  };
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    output_stringview.begin(), output_stringview.end(), validator, stream, mr);
+
+  return cudf::make_strings_column(
+    input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
 }
 
 }  // namespace detail
