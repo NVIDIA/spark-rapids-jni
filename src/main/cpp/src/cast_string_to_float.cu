@@ -112,7 +112,7 @@ class string_to_float {
     if (check_for_inf()) {
       if (_warp_lane == 0) {
         _out[_row] =
-          sign > 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
+          sign >= 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
       }
       compute_validity(_valid, _except);
       return;
@@ -140,7 +140,9 @@ class string_to_float {
         _except = true;
       }
 
-      if (_warp_lane == 0) { _out[_row] = sign * static_cast<double>(0); }
+      if (_warp_lane == 0) {
+        _out[_row] = sign >= 0 ? static_cast<double>(0) : -static_cast<double>(0);
+      }
       compute_validity(_valid, _except);
       return;
     }
@@ -154,15 +156,15 @@ class string_to_float {
     // construct the final float value
     if (_warp_lane == 0) {
       // base value
-      double digitsf = sign * static_cast<double>(digits);
+      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
 
       // exponent
       int exp_ten = exp_base + manual_exp;
 
       // final value
       if (exp_ten > std::numeric_limits<double>::max_exponent10) {
-        _out[_row] = sign > 0 ? std::numeric_limits<double>::infinity()
-                              : -std::numeric_limits<double>::infinity();
+        _out[_row] = sign >= 0 ? std::numeric_limits<double>::infinity()
+                               : -std::numeric_limits<double>::infinity();
       } else {
         // make sure we don't produce a subnormal number.
         // - a normal number is one where the leading digit of the floating point rep is not zero.
@@ -256,8 +258,8 @@ class string_to_float {
       // remove the trailing whitespaces, if there exits
       remove_leading_whitespace();
 
-      // if we're at the end and sign is not '-', because Spark treats '-nan' as null
-      if (_bpos == _len && sign != -1) { return true; }
+      // if we're at the end and there is no sign, because Spark treats '-nan' and '+nan' as null.
+      if (_bpos == _len && sign == 0) { return true; }
       // if we reach out here, it means that we have other garbage character.
       _valid  = false;
       _except = true;
@@ -265,12 +267,16 @@ class string_to_float {
     return false;
   }
 
-  // returns 1 or -1 to indicate sign
+  // The `sign` variables is initialized to 0, indicating no sign.
+  // If a sign is detected, it sets `sign` to 1, indicating `+` sign.
+  // If `-` is then detected, it sets `sign` to -1.
+  // returns 1, 0, -1 to indicate signs.
   __device__ int check_for_sign()
   {
     auto const sign_mask = __ballot_sync(0xffffffff, _warp_lane == 0 && (_c == '+' || _c == '-'));
-    int sign             = 1;
+    int sign             = 0;
     if (sign_mask) {
+      sign = 1;
       // NOTE: warp lane 0 is the only thread that ever reads `sign`, so technically it would be
       // valid to just check if(c == '-'), but that would leave other threads with an incorrect
       // value. if this code ever changes, that could lead to hard-to-find bugs.
