@@ -81,6 +81,7 @@
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
+    <CUDF_BUILD_TYPE>Release</CUDF_BUILD_TYPE>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
     <BUILD_CUDF_TESTS>OFF</BUILD_CUDF_TESTS>
@@ -411,6 +412,7 @@
                       executable="cmake"
                       if:true="${needConfigure}">
                   <arg value="${cudf.path}/cpp"/>
+                  <arg value="-DCMAKE_BUILD_TYPE=${CUDF_BUILD_TYPE}"/>
                   <arg value="-DBUILD_SHARED_LIBS=OFF"/>
                   <arg value="-DBUILD_TESTS=${BULD_CUDF_TESTS}"/>
                   <arg value="-DBUILD_BENCHMARKS=${BULD_CUDF_BENCHMARKS}"/>

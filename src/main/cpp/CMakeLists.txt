@@ -285,7 +285,7 @@ add_dependencies(cudfjnistub spark_rapids_jni)
 if(USE_GDS)
   include(${CUDF_DIR}/cpp/cmake/Modules/FindcuFile.cmake)
   find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${SPARK_RAPIDS_JNI_BINARY_DIR}/../libcudfjni"
+    HINTS "${CUDFJNI_BUILD_DIR}"
   )
   add_library(cufilejni SHARED src/emptyfile.cpp)
   set_target_properties(
