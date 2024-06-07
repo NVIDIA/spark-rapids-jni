@@ -985,8 +985,8 @@ std::unique_ptr<cudf::column> get_json_object(
   constexpr auto padding_ratio = 1.01;
   auto output_scratch          = rmm::device_uvector<char>(
     static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
-  auto output_stringview =
-    rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>(input.size(), stream);
+  auto out_stringviews =
+    rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{input.size(), stream};
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
   constexpr int block_size = 512;
@@ -996,7 +996,7 @@ std::unique_ptr<cudf::column> get_json_object(
       *d_input_ptr,
       in_offsets,
       path_commands,
-      output_stringview.data(),
+      out_stringviews.data(),
       output_scratch.data(),
       // static_cast<cudf::bitmask_type*>(validity.data()),
       // d_valid_count.data(),
@@ -1005,7 +1005,7 @@ std::unique_ptr<cudf::column> get_json_object(
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings.
   if (!has_out_of_bound.value(stream)) {
-    return cudf::make_strings_column(output_stringview, stream, mr);
+    return cudf::make_strings_column(out_stringviews, stream, mr);
   }
 
   // From here, we had out-of-bound write.
@@ -1017,11 +1017,22 @@ std::unique_ptr<cudf::column> get_json_object(
   auto const size_it = cudf::detail::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<cudf::size_type>(
-      [string_pairs = output_stringview.data()] __device__(auto const idx) {
+      [string_pairs = out_stringviews.data()] __device__(auto const idx) {
         return string_pairs[idx].second;
       }));
   auto [offsets, output_size] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + input.size(), stream, mr);
+
+  // Also compute the null mask using the stored char pointers.
+  auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
+    return item.first != nullptr;
+  };
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(out_stringviews.begin(), out_stringviews.end(), validator, stream, mr);
+
+  // No longer need it. Free up memory for now.
+  out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{0, stream};
+
   auto chars             = rmm::device_uvector<char>(output_size, stream, mr);
   auto const out_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
 
@@ -1041,12 +1052,6 @@ std::unique_ptr<cudf::column> get_json_object(
   // something wrong happened.
   CUDF_EXPECTS(!has_out_of_bound.value(stream),
                "Unexpected out-of-bound write in get_json_object kernel.");
-
-  auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
-    return item.first != nullptr;
-  };
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    output_stringview.begin(), output_stringview.end(), validator, stream, mr);
 
   return cudf::make_strings_column(
     input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
