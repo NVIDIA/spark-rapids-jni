@@ -907,6 +907,7 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
       if (out_size > in_size) { *has_out_of_bound = true; }
     }
 
+    // Write out `nullptr` in the output string_view to indicate that the output is a null.
     // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
     // second time due to out-of-bound write in the first launch.
     if (out_stringviews) { out_stringviews[tid] = {is_valid ? dst : nullptr, out_size}; }
