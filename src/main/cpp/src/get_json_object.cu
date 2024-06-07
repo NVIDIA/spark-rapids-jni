@@ -902,8 +902,8 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
 
-  auto tid              = cudf::detail::grid_1d::global_thread_id();
-  auto warp_valid_count = cudf::size_type{0};
+  auto tid = cudf::detail::grid_1d::global_thread_id();
+  // auto warp_valid_count = cudf::size_type{0};
   // auto active_threads   = __ballot_sync(0xffff'ffffu, tid < col.size());
 
   while (tid < col.size()) {
@@ -985,8 +985,8 @@ std::unique_ptr<cudf::column> get_json_object(
   constexpr auto padding_ratio = 1.01;
   auto output_scratch          = rmm::device_uvector<char>(
     static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
-  auto out_stringviews =
-    rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{input.size(), stream};
+  auto out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
+    static_cast<std::size_t>(input.size()), stream};
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
   constexpr int block_size = 512;
