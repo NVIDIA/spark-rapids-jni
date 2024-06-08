@@ -890,7 +890,7 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
                               bool* has_out_of_bound)
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
-  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < col.size() tid += stride) {
+  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < col.size(); tid += stride) {
     char* const dst          = out_buf + d_offsets[tid];
     bool is_valid            = false;
     cudf::size_type out_size = 0;
@@ -943,27 +943,23 @@ std::unique_ptr<cudf::column> get_json_object(
     static_cast<std::size_t>(input.size()), stream};
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
-  // constexpr int num_warps_per_threadblock = 4;
+  constexpr int blocks_per_SM = 1;
+  constexpr int block_size    = 256;
+  auto const num_blocks       = [&] {
+    int device_id{};
+    cudaDeviceProp props{};
+    CUDF_CUDA_TRY(cudaGetDevice(&device_id));
+    CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
+    return props.multiProcessorCount * blocks_per_SM;
+  }();
 
-  int device_id{};
-  cudaDeviceProp props{};
-  CUDF_CUDA_TRY(cudaGetDevice(&device_id));
-  CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
-  int numSMs = props.multiProcessorCount;
-
-  constexpr int blocksPerSM = 1;
-  constexpr int block_size  = 256;
-  int numBlocks             = numSMs * blocksPerSM;
-
-  // constexpr int block_size = num_warps_per_threadblock * cudf::detail::warp_size;
-  // cudf::detail::grid_1d const grid{input.size(), num_warps_per_threadblock};
   get_json_object_kernel<block_size>
-    <<<numBlocks, block_size, 0, stream.value()>>>(*d_input_ptr,
-                                                   in_offsets,
-                                                   path_commands,
-                                                   out_stringviews.data(),
-                                                   output_scratch.data(),
-                                                   has_out_of_bound.data());
+    <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
+                                                    in_offsets,
+                                                    path_commands,
+                                                    out_stringviews.data(),
+                                                    output_scratch.data(),
+                                                    has_out_of_bound.data());
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
@@ -1001,12 +997,12 @@ std::unique_ptr<cudf::column> get_json_object(
 
   has_out_of_bound.set_value_to_zero_async(stream);
   get_json_object_kernel<block_size>
-    <<<numBlocks, block_size, 0, stream.value()>>>(*d_input_ptr,
-                                                   out_offsets,
-                                                   path_commands,
-                                                   nullptr /*out_stringviews*/,
-                                                   chars.data(),
-                                                   has_out_of_bound.data());
+    <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
+                                                    out_offsets,
+                                                    path_commands,
+                                                    nullptr /*out_stringviews*/,
+                                                    chars.data(),
+                                                    has_out_of_bound.data());
 
   // This kernel call should not see out-of-bound write. If it is still detected, there must be
   // something wrong happened.
