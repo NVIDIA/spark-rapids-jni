@@ -13,7 +13,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "36f379f29660761fe033a1306ca9dab6a88cb65c",
+      "git_tag" : "fde1cf79bde6744b6739636f502b5edfefe302e1",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
@@ -73,7 +73,7 @@
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "version" : "2.2.0"
+      "version" : "2.5.0"
     },
     "GTest" : 
     {
@@ -87,7 +87,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "43ce81964f3fb28dae95c3867f1905f26bc84e31",
+      "git_tag" : "33e333b7409756926f2c9bba949d3aa70c9516ea",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.08"
     },
@@ -95,7 +95,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2101cb31d0210b609cd02c88f9b538e10881d91d",
+      "git_tag" : "6923b3b1e526b3305de81f784fdca26736caf5ba",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -172,7 +172,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6902af9e17f3e9c41d23bd3b5855b2f4f51c83d6",
+      "git_tag" : "49fcfeb771098c38b4fb83e969b2ae63f5dc66ab",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.08"
     },
