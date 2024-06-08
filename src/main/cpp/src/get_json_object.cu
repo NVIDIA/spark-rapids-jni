@@ -890,9 +890,7 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
                               bool* has_out_of_bound)
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
-
-  auto tid = cudf::detail::grid_1d::global_thread_id();
-  while (tid < col.size()) {
+  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < col.size() tid += stride) {
     char* const dst          = out_buf + d_offsets[tid];
     bool is_valid            = false;
     cudf::size_type out_size = 0;
@@ -911,8 +909,6 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
     // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
     // second time due to out-of-bound write in the first launch.
     if (out_stringviews) { out_stringviews[tid] = {is_valid ? dst : nullptr, out_size}; }
-
-    tid += stride;
   }
 }
 
@@ -947,15 +943,27 @@ std::unique_ptr<cudf::column> get_json_object(
     static_cast<std::size_t>(input.size()), stream};
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
-  constexpr int block_size = 512;
-  cudf::detail::grid_1d const grid{input.size(), block_size};
+  // constexpr int num_warps_per_threadblock = 4;
+
+  int device_id{};
+  cudaDeviceProp props{};
+  CUDF_CUDA_TRY(cudaGetDevice(&device_id));
+  CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
+  int numSMs = props.multiProcessorCount;
+
+  constexpr int blocksPerSM = 1;
+  constexpr int block_size  = 256;
+  int numBlocks             = numSMs * blocksPerSM;
+
+  // constexpr int block_size = num_warps_per_threadblock * cudf::detail::warp_size;
+  // cudf::detail::grid_1d const grid{input.size(), num_warps_per_threadblock};
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(*d_input_ptr,
-                                                                         in_offsets,
-                                                                         path_commands,
-                                                                         out_stringviews.data(),
-                                                                         output_scratch.data(),
-                                                                         has_out_of_bound.data());
+    <<<numBlocks, block_size, 0, stream.value()>>>(*d_input_ptr,
+                                                   in_offsets,
+                                                   path_commands,
+                                                   out_stringviews.data(),
+                                                   output_scratch.data(),
+                                                   has_out_of_bound.data());
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
@@ -993,13 +1001,12 @@ std::unique_ptr<cudf::column> get_json_object(
 
   has_out_of_bound.set_value_to_zero_async(stream);
   get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr,
-      out_offsets,
-      path_commands,
-      nullptr /*out_stringviews*/,
-      chars.data(),
-      has_out_of_bound.data());
+    <<<numBlocks, block_size, 0, stream.value()>>>(*d_input_ptr,
+                                                   out_offsets,
+                                                   path_commands,
+                                                   nullptr /*out_stringviews*/,
+                                                   chars.data(),
+                                                   has_out_of_bound.data());
 
   // This kernel call should not see out-of-bound write. If it is still detected, there must be
   // something wrong happened.
