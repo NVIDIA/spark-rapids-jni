@@ -936,9 +936,16 @@ std::unique_ptr<cudf::column> get_json_object(
   // size so that we will not write output strings into an out-of-bound position.
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
   // data corruption.
-  constexpr auto padding_ratio = 1.01;
-  auto output_scratch          = rmm::device_uvector<char>(
-    static_cast<std::size_t>(input.chars_size(stream) * padding_ratio), stream);
+  auto const scratch_size = [&] {
+    auto const char_size    = input.chars_size(stream);
+    auto const avg_row_size = char_size / input.size();
+
+    auto constexpr padding_rows = 100;
+    // Pad the scratch buffer by an additional size that is a multiple of the average row size.
+    return char_size + avg_row_size * padding_rows;
+    //
+  }();
+  auto output_scratch  = rmm::device_uvector<char>(scratch_size, stream);
   auto out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
     static_cast<std::size_t>(input.size()), stream};
   auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
