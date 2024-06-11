@@ -827,12 +827,9 @@ rmm::device_uvector<path_instruction> construct_path_commands(
  *
  *
  * @param input The incoming json string
- * @param input_len Size of the incoming json string
- * @param path_commands_ptr The command buffer to be applied to the string.
- * @param path_commands_size The command buffer size.
- * @param out_buf Buffer user to store the results of the query
- *                (nullptr in the size computation step)
- * @returns A pair containing the result code and the output buffer.
+ * @param path_commands The command buffer to be applied to the string
+ * @param out_buf Buffer user to store the string resulted from the query
+ * @returns A pair containing the result code and the output buffer
  */
 __device__ thrust::pair<bool, cudf::size_type> get_json_object_single(
   char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
@@ -859,19 +856,17 @@ __device__ thrust::pair<bool, cudf::size_type> get_json_object_single(
 /**
  * @brief Kernel for running the JSONPath query.
  *
- * This kernel operates in a 2-pass way. On the first pass it computes the
- * output sizes. On the second pass, it fills in the provided output buffers
- * (chars and validity).
+ * This kernel writes out the output strings and their lengths at the same time. If any output
+ * length exceed buffer size limit, a boolean flag will be turned on to inform to the caller.
+ * In such situation, another (larger) output buffer will be generated and the kernel is launched
+ * again. Otherwise, launching this kernel only once is sufficient to produce the desired output.
  *
- * @param col Device view of the incoming string
+ * @param input The input JSON strings stored in a strings column
+ * @param offsets Offsets to the output locations in the output buffer
  * @param path_commands JSONPath command buffer
- * @param d_sizes a buffer used to write the output sizes in the first pass,
- *        and is read back in on the second pass to compute offsets.
- * @param output_offsets Buffer used to store the string offsets for the results
- *        of the query
- * @param out_buf Buffer used to store the results of the query
- * @param out_validity Output validity buffer
- * @param out_valid_count Output count of # of valid bits
+ * @param out_stringviews The output array to store pointers to the output strings and their sizes
+ * @param out_buf Buffer used to store the strings resulted from the query
+ * @param has_out_of_bound Flag to indicate if any output string has length exceeds its buffer size
  */
 template <int block_size>
 // We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
@@ -882,27 +877,27 @@ template <int block_size>
 // the performance is really bad. This essentially tells NVCC to prefer using lots
 // of registers over spilling.
 __launch_bounds__(block_size, 1) CUDF_KERNEL
-  void get_json_object_kernel(cudf::column_device_view col,
-                              cudf::detail::input_offsetalator d_offsets,
+  void get_json_object_kernel(cudf::column_device_view input,
+                              cudf::detail::input_offsetalator offsets,
                               cudf::device_span<path_instruction const> path_commands,
                               thrust::pair<char const*, cudf::size_type>* out_stringviews,
                               char* out_buf,
                               bool* has_out_of_bound)
 {
   auto const stride = cudf::detail::grid_1d::grid_stride();
-  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < col.size(); tid += stride) {
-    char* const dst          = out_buf + d_offsets[tid];
+  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < input.size(); tid += stride) {
+    char* const dst          = out_buf + offsets[tid];
     bool is_valid            = false;
     cudf::size_type out_size = 0;
 
-    auto const str = col.element<cudf::string_view>(tid);
+    auto const str = input.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
-      auto const in_size = d_offsets[tid + 1] - d_offsets[tid];
+      auto const max_size = offsets[tid + 1] - offsets[tid];
 
-      // If `in_size == 0`, do not pass in the dst pointer to prevent writing garbage data.
+      // If `max_size == 0`, do not pass in the dst pointer to prevent writing garbage data.
       thrust::tie(is_valid, out_size) =
-        get_json_object_single(str, path_commands, in_size != 0 ? dst : nullptr);
-      if (out_size > in_size) { *has_out_of_bound = true; }
+        get_json_object_single(str, path_commands, max_size != 0 ? dst : nullptr);
+      if (out_size > max_size) { *has_out_of_bound = true; }
     }
 
     // Write out `nullptr` in the output string_view to indicate that the output is a null.
