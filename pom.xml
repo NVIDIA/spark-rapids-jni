@@ -81,8 +81,11 @@
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
+    <CUDF_BUILD_TYPE>Release</CUDF_BUILD_TYPE>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
+    <BUILD_CUDF_TESTS>OFF</BUILD_CUDF_TESTS>
+    <BUILD_CUDF_BENCHMARKS>OFF</BUILD_CUDF_BENCHMARKS>
     <BUILD_FAULTINJ>ON</BUILD_FAULTINJ>
     <BUILD_PROFILER>ON</BUILD_PROFILER>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
@@ -93,16 +96,16 @@
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
     <hadoop.version>3.2.4</hadoop.version>
     <junit.version>5.8.1</junit.version>
-    <libcudf.build.path>${cudf.path}/cpp/build</libcudf.build.path>
+    <libcudf.build.path>${project.build.directory}/libcudf/cmake-build/</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
-    <libcudf.clean.skip>true</libcudf.clean.skip>
+    <libcudf.clean.skip>false</libcudf.clean.skip>
     <libcudf.install.path>${project.build.directory}/libcudf-install</libcudf.install.path>
     <libcudf.dependency.mode>pinned</libcudf.dependency.mode>
     <libcudfjni.build.path>${project.build.directory}/libcudfjni</libcudfjni.build.path>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <mockito.version>2.25.0</mockito.version>
-    <native.build.path>${project.build.directory}/cmake-build</native.build.path>
+    <native.build.path>${project.build.directory}/jni/cmake-build</native.build.path>
     <parquet.version>1.10.0</parquet.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
@@ -322,11 +325,12 @@
                           failonerror="true"
                           executable="cmake">
                         <arg value="--build"/>
-                        <arg value="${project.build.directory}/cmake-build"/>
+                        <arg value="${native.build.path}"/>
                         <arg value="--target"/>
                         <arg value="test"/>
                     </exec>
                   </target>
+                  <skip>${skipTests}</skip>
                 </configuration>
                 <goals>
                   <goal>run</goal>
@@ -392,18 +396,48 @@
             <id>build-libcudf</id>
             <phase>validate</phase>
             <configuration>
-              <target>
-                <property name="cudf.path" value="${cudf.path}"/>
-                <property name="libcudf.build.path" value="${libcudf.build.path}"/>
-                <property name="libcudf.build.configure" value="${libcudf.build.configure}"/>
-                <property name="libcudf.install.path" value="${libcudf.install.path}"/>
-                <property name="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
-                <property name="GPU_ARCHS" value="${GPU_ARCHS}"/>
-                <property name="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
-                <property name="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
-                <property name="USE_GDS" value="${USE_GDS}"/>
-                <property name="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
-                <ant antfile="build-libcudf.xml" target="build-libcudf"/>
+              <target xmlns:if="ant:if">
+                <condition property="needConfigure">
+                  <or>
+                    <istrue value="${libcudf.build.configure}"/>
+                    <not>
+                      <available file="${libcudf.build.path}/CMakeCache.txt"/>
+                    </not>
+                  </or>
+                </condition>
+                <mkdir dir="${libcudf.install.path}"/>
+                <mkdir dir="${libcudf.build.path}"/>
+                <exec dir="${libcudf.build.path}"
+                      failonerror="true"
+                      executable="cmake"
+                      if:true="${needConfigure}">
+                  <arg value="${cudf.path}/cpp"/>
+                  <arg value="-DCMAKE_BUILD_TYPE=${CUDF_BUILD_TYPE}"/>
+                  <arg value="-DBUILD_SHARED_LIBS=OFF"/>
+                  <arg value="-DBUILD_TESTS=${BUILD_CUDF_TESTS}"/>
+                  <arg value="-DBUILD_BENCHMARKS=${BUILD_CUDF_BENCHMARKS}"/>
+                  <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
+                  <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
+                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
+                  <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
+                  <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
+                  <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
+                  <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
+                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
+                  <arg value="-DLIBCUDF_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
+                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
+                  <arg value="-DUSE_GDS=${USE_GDS}" />
+                  <arg value="-C=${cudf.pin.path}/setup.cmake"/>
+                </exec>
+                <exec dir="${libcudf.build.path}"
+                      failonerror="true"
+                      executable="cmake">
+                  <arg value="--build"/>
+                  <arg value="${libcudf.build.path}"/>
+                  <arg value="--target"/>
+                  <arg value="install"/>
+                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
+                </exec>
               </target>
             </configuration>
             <goals>
@@ -454,6 +488,10 @@
                 <exec dir="${native.build.path}"
                       failonerror="true"
                       executable="cmake">
+                  <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
+                  <env key="CUDF_ROOT" value="${cudf.path}"/>
+                  <env key="CUDF_INSTALL_DIR" value="${libcudf.install.path}"/>
+                  <env key="CUDFJNI_BUILD_DIR" value="${libcudfjni.build.path}"/>
                   <arg value="${basedir}/src/main/cpp"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
