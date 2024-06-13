@@ -39,7 +39,10 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <thrust/functional.h>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/pair.h>
+#include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
 
 namespace spark_rapids_jni {
@@ -932,13 +935,18 @@ std::unique_ptr<cudf::column> get_json_object(
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
   // data corruption.
   auto const scratch_size = [&] {
-    auto const char_size    = input.chars_size(stream);
-    auto const avg_row_size = char_size / input.size();
+    auto const max_row_size = thrust::transform_reduce(
+      rmm::exec_policy(stream),
+      thrust::make_counting_iterator(0),
+      thrust::make_counting_iterator(input.size()),
+      cuda::proclaim_return_type<int64_t>(
+        [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
+      int64_t{0},
+      thrust::maximum{});
 
+    // Pad the scratch buffer by an additional size that is a multiple of max row size.
     auto constexpr padding_rows = 100;
-    // Pad the scratch buffer by an additional size that is a multiple of the average row size.
-    return char_size + avg_row_size * padding_rows;
-    //
+    return input.chars_size(stream) + max_row_size * padding_rows;
   }();
   auto output_scratch  = rmm::device_uvector<char>(scratch_size, stream);
   auto out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
