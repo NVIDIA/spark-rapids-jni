@@ -609,9 +609,10 @@ public class GetJsonObjectTest {
     // This is equivalent to the path '$'.
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {};
     try (
-        ColumnVector input = ColumnVector.fromStrings("['\n']", "['\n\n\n\n\n\n\n\n\n\n']");
+        ColumnVector input = ColumnVector.fromStrings("['\n']", "['\n\n\n\n\n\n\n\n\n\n']",
+            "", "", "", "", "", "", "", "");
         ColumnVector expected = ColumnVector.fromStrings("[\"\\n\"]",
-            "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]");
+            "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]", null, null, null, null, null, null, null, null);
         ColumnVector actual = JSONUtils.getJsonObject(input, query)) {
       assertColumnsAreEqual(expected, actual);
     }
