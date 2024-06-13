@@ -945,7 +945,7 @@ std::unique_ptr<cudf::column> get_json_object(
       thrust::maximum{});
 
     // Pad the scratch buffer by an additional size that is a multiple of max row size.
-    auto constexpr padding_rows = 100;
+    auto constexpr padding_rows = 10;
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
   auto output_scratch  = rmm::device_uvector<char>(scratch_size, stream);
