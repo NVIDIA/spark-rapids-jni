@@ -18,11 +18,13 @@
 
 # Run a command in a Docker container with devtoolset
 
-set -e
+set -ex
 
+SCRIPTPATH=$(readlink -f "$0")
 # Base paths relative to this script's location
-SCRIPTDIR=$(cd $(dirname $0); pwd)
+SCRIPTDIR=$(cd $(dirname $SCRIPTPATH); pwd)
 REPODIR=$SCRIPTDIR/..
+WORKDIR=${WORKDIR:-$REPODIR}
 
 CUDA_VERSION=${CUDA_VERSION:-11.8.0}
 DOCKER_CMD=${DOCKER_CMD:-docker}
@@ -55,7 +57,13 @@ if (( $# == 0 )); then
   DOCKER_OPTS="${DOCKER_OPTS} -it"
   RUN_CMD="/bin/bash"
 else
-  RUN_CMD="${@@Q}"
+  THIS_FILE=$(basename $SCRIPTPATH)
+  ARG0_CMD=$(basename "$0")
+  if [[ "$THIS_FILE" != "$ARG0_CMD" ]]; then
+    RUN_CMD="${ARG0_CMD} ${@@Q}"
+  else
+    RUN_CMD="${@@Q}"
+  fi
 fi
 
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
@@ -63,10 +71,10 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \
   -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
-  -v "$REPODIR:$REPODIR:rw" \
+  -v "$WORKDIR:$WORKDIR:rw" \
   -v "$LOCAL_CCACHE_DIR:$LOCAL_CCACHE_DIR:rw" \
   -v "$LOCAL_MAVEN_REPO:$LOCAL_MAVEN_REPO:rw" \
-  --workdir "$REPODIR" \
+  --workdir "$WORKDIR" \
   -e CCACHE_DIR="$LOCAL_CCACHE_DIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
   -e CMAKE_CXX_COMPILER_LAUNCHER="ccache" \
