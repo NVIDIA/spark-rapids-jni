@@ -61,28 +61,4 @@ public class CaseWhenTest {
       }
     }
   }
-
-  @Test
-  void selectTest() {
-    try (ColumnVector values = ColumnVector.fromStrings(
-        "s0", "s1", "s2", "s3");
-        ColumnVector selects = ColumnVector.fromInts(0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 6);
-        ColumnVector expected = ColumnVector.fromStrings("s0", "s1", "s2", "s3", "s3", "s2", "s1", "s0", null, null,
-            null);
-        ColumnVector actual = CaseWhen.selectFromIndex(values, selects)) {
-      assertColumnsAreEqual(expected, actual);
-    }
-  }
-
-  @Test
-  void selectTestWillNull() {
-    try (ColumnVector values = ColumnVector.fromStrings(
-        "s0", null, "s2", "s3");
-        ColumnVector selects = ColumnVector.fromInts(0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 6);
-        ColumnVector expected = ColumnVector.fromStrings("s0", null, "s2", "s3", "s3", "s2", null, "s0", null, null,
-            null);
-        ColumnVector actual = CaseWhen.selectFromIndex(values, selects)) {
-      assertColumnsAreEqual(expected, actual);
-    }
-  }
 }

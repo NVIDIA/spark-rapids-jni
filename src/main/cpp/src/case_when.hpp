@@ -45,7 +45,7 @@ namespace spark_rapids_jni {
  *
  *   1st row is: true, flase, false; first true index is 0
  *   2nd row is: false, true, false; first true index is 1
- *   3rd row is: false, flase, false; first true index is 2
+ *   3rd row is: false, flase, true; first true index is 2
  *   4th row is: false, false, false; do not find true, set index to the end index 3
  *
  *   output column: 0, 1, 2, 3
@@ -54,22 +54,6 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> select_first_true_index(
   cudf::table_view const& when_bool_columns,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
-
-/**
- *
- * Select strings in scalar column according to index column.
- * If index is out of bound, use NULL value
- * e.g.:
- *   scalar column: s0, s1, s2
- *   index  column: 0,  1,  2,  2,  1,  0,  3
- *   output column: s0, s1, s2, s2, s1, s0, NULL
- *
- */
-std::unique_ptr<cudf::column> select_from_index(
-  cudf::strings_column_view const& then_and_else_scalar_column,
-  cudf::column_view const& select_index_column,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 

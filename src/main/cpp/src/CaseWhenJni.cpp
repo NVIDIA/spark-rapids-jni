@@ -34,22 +34,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CaseWhen_selectFirstTru
   }
   CATCH_STD(env, 0);
 }
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CaseWhen_selectFromIndex(JNIEnv* env,
-                                                                                  jclass,
-                                                                                  jlong scalar_cols,
-                                                                                  jlong index_col)
-{
-  JNI_NULL_CHECK(env, scalar_cols, "Column handles is null", 0);
-  JNI_NULL_CHECK(env, index_col, "Column handles is null", 0);
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const scalar_column_view      = reinterpret_cast<cudf::column_view const*>(scalar_cols);
-    auto const scalar_strings_col_view = cudf::strings_column_view{*scalar_column_view};
-    auto const index_column_view       = reinterpret_cast<cudf::column_view const*>(index_col);
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::select_from_index(scalar_strings_col_view, *index_column_view));
-  }
-  CATCH_STD(env, 0);
-}
 }

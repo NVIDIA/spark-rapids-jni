@@ -41,11 +41,8 @@ import ai.rapids.cudf.*;
  *     bool column 2: [false, true,  false, flase]  // bool_2_expr result
  *     bool column 3: [false, false, true,  flase]  // bool_3_expr result
  *   Execute `selectFirstTrueIndex` to get the column index for the first true in bool columns.
- *   Generate a column to store salars: "value_1", "value_1", "value_1", "value_else"
- *   Execute `selectFromIndex` to generate the final output column
- * For more details, refer to the functions in this class:
- *   `selectFirstTrueIndex`
- *   `selectFromIndex`
+ *   Generate a column to store salars: "value_1", "value_2", "value_3", "value_else"
+ *   Execute `Table.gather` to generate the final output column
  *
  */
 public class CaseWhen {
@@ -62,7 +59,7 @@ public class CaseWhen {
    *
    *   1st row is: true, flase, false; first true index is 0
    *   2nd row is: false, true, false; first true index is 1
-   *   3rd row is: false, flase, false; first true index is 2
+   *   3rd row is: false, flase, true; first true index is 2
    *   4th row is: false, false, false; do not find true, set index to the end index 3
    *
    *   output column: 0, 1, 2, 3
@@ -73,7 +70,7 @@ public class CaseWhen {
     for (ColumnVector cv : boolColumns) {
       assert(cv.getType().equals(DType.BOOL8)) : "Columns must be bools";
     }
-    
+
     long[] boolHandles = new long[boolColumns.length];
     for (int i = 0; i < boolColumns.length; ++i) {
       boolHandles[i] = boolColumns[i].getNativeView();
@@ -82,24 +79,5 @@ public class CaseWhen {
     return new ColumnVector(selectFirstTrueIndex(boolHandles));
   }
 
-  /**
-   *
-   * Select strings in scalar column according to index column.
-   * If index is out of bound, use NULL value
-   * e.g.:
-   *   scalar column: s0, s1, s2
-   *   index  column: 0,  1,  2,  2,  1,  0,  3
-   *   output column: s0, s1, s2, s2, s1, s0, NULL
-   *
-  */
-  public static ColumnVector selectFromIndex(ColumnVector scalarCol, ColumnVector indexCol) {
-    assert(scalarCol.getType().equals(DType.STRING)) : "Scalar column must be a String";
-    assert(indexCol.getType().equals(DType.INT32)) : "Index column must be a INT32";
-
-    return new ColumnVector(selectFromIndex(scalarCol.getNativeView(), indexCol.getNativeView()));
-  }
-
   private static native long selectFirstTrueIndex(long[] boolHandles);
-
-  private static native long selectFromIndex(long scalarHandle, long indexHandle);
 }
