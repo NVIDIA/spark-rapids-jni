@@ -23,6 +23,7 @@ set -e
 # Base paths relative to this script's location
 SCRIPTDIR=$(cd $(dirname $0); pwd)
 REPODIR=$SCRIPTDIR/..
+WORKDIR=${WORKDIR:-$REPODIR}
 
 CUDA_VERSION=${CUDA_VERSION:-11.8.0}
 DOCKER_CMD=${DOCKER_CMD:-docker}
