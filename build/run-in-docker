@@ -18,13 +18,11 @@
 
 # Run a command in a Docker container with devtoolset
 
-set -ex
+set -e
 
-SCRIPTPATH=$(readlink -f "$0")
 # Base paths relative to this script's location
-SCRIPTDIR=$(cd $(dirname $SCRIPTPATH); pwd)
+SCRIPTDIR=$(cd $(dirname $0); pwd)
 REPODIR=$SCRIPTDIR/..
-WORKDIR=${WORKDIR:-$REPODIR}
 
 CUDA_VERSION=${CUDA_VERSION:-11.8.0}
 DOCKER_CMD=${DOCKER_CMD:-docker}
@@ -57,13 +55,7 @@ if (( $# == 0 )); then
   DOCKER_OPTS="${DOCKER_OPTS} -it"
   RUN_CMD="/bin/bash"
 else
-  THIS_FILE=$(basename $SCRIPTPATH)
-  ARG0_CMD=$(basename "$0")
-  if [[ "$THIS_FILE" != "$ARG0_CMD" ]]; then
-    RUN_CMD="${ARG0_CMD} ${@@Q}"
-  else
-    RUN_CMD="${@@Q}"
-  fi
+  RUN_CMD="${@@Q}"
 fi
 
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
