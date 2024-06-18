@@ -31,9 +31,9 @@ public class GetJsonObjectTest {
         namedPath("k") };
     try (ColumnVector jsonCv = ColumnVector.fromStrings(
         "{\"k\": \"v\"}");
-        ColumnVector expected = ColumnVector.fromStrings(
-            "v");
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+         ColumnVector expected = ColumnVector.fromStrings(
+             "v");
+         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -169,7 +169,7 @@ public class GetJsonObjectTest {
     String JSON4 = "['a','b','\"C\"']";
     // \\u4e2d\\u56FD is 中国
     String JSON5 = "'\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'";
-    String JSON6 = "['\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b']"; 
+    String JSON6 = "['\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b']";
 
     String expectedStr1 = "{\"a\":\"A\"}";
     String expectedStr2 = "{\"a\":\"A\\\"\"}";
@@ -600,6 +600,23 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * This test is when the JNI kernel is called twice. It happens when the output JSON strings
+   * have lengths that are larger than their corresponding input.
+   */
+  @Test
+  void getJsonObjectTest_JNIKernelCalledTwice() {
+    // This is equivalent to the path '$'.
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {};
+    try (
+        ColumnVector input = ColumnVector.fromStrings("['\n']", "['\n\n\n\n\n\n\n\n\n\n']",
+            "", "", "", "", "", "", "", "");
+        ColumnVector expected = ColumnVector.fromStrings("[\"\\n\"]",
+            "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]", null, null, null, null, null, null, null, null);
+        ColumnVector actual = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
 
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);

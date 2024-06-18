@@ -16,8 +16,6 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.NativeDepsLoader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,18 +25,32 @@ import java.nio.ByteBuffer;
 public class Profiler {
   private static final long DEFAULT_WRITE_BUFFER_SIZE = 1024 * 1024;
   private static final int DEFAULT_FLUSH_PERIOD_MILLIS = 0;
+  private static final boolean DEFAULT_ALLOC_ASYNC_CAPTURING = false;
   private static DataWriter writer = null;
 
   /**
    * Initialize the profiler in a standby state. The start method must be called after this
    * to start collecting profiling data.
-   * @param w data writer for writing profiling data
+   * @param config profiler configuration
    */
-  public static void init(DataWriter w) {
-    init(w, DEFAULT_WRITE_BUFFER_SIZE, DEFAULT_FLUSH_PERIOD_MILLIS);
+  public static void init(DataWriter w, Config config) {
+    if (writer == null) {
+      File libPath;
+      try {
+        libPath = NativeDepsLoader.loadNativeDep("profilerjni", true);
+      } catch (IOException e) {
+        throw new RuntimeException("Error loading profiler library", e);
+      }
+      nativeInit(libPath.getAbsolutePath(), w, config.writeBufferSize, config.flushPeriodMillis,
+          config.allocAsyncCapturing);
+      writer = w;
+    } else {
+      throw new IllegalStateException("Already initialized");
+    }
   }
 
   /**
+   * Deprecated. Use init(Config) instead.
    * Initialize the profiler in a standby state. The start method must be called after this
    * to start collecting profiling data.
    * @param w data writer for writing profiling data
@@ -50,18 +62,11 @@ public class Profiler {
    *                          flushing.
    */
   public static void init(DataWriter w, long writeBufferSize, int flushPeriodMillis) {
-    if (writer == null) {
-      File libPath;
-      try {
-        libPath = NativeDepsLoader.loadNativeDep("profilerjni", true);
-      } catch (IOException e) {
-        throw new RuntimeException("Error loading profiler library", e);
-      }
-      nativeInit(libPath.getAbsolutePath(), w, writeBufferSize, flushPeriodMillis);
-      writer = w;
-    } else {
-      throw new IllegalStateException("Already initialized");
-    }
+    Config config = new Config.Builder()
+        .withWriteBufferSize(writeBufferSize)
+        .withFlushPeriodMillis(flushPeriodMillis)
+        .build();
+    init(w, config);
   }
 
   /**
@@ -105,7 +110,8 @@ public class Profiler {
   }
 
   private static native void nativeInit(String libPath, DataWriter writer,
-                                        long writeBufferSize, int flushPeriodMillis);
+                                        long writeBufferSize, int flushPeriodMillis,
+                                        boolean allocAsyncCapturing);
 
   private static native void nativeStart();
 
@@ -121,5 +127,61 @@ public class Profiler {
      * @param data profiling data to be written
      */
     void write(ByteBuffer data);
+  }
+
+  /** Profiler configuration class. **/
+  public static class Config {
+    private final long writeBufferSize;
+    private final int flushPeriodMillis;
+    private final boolean allocAsyncCapturing;
+
+    Config(Builder builder) {
+      this.writeBufferSize = builder.writeBufferSize;
+      this.flushPeriodMillis = builder.flushPeriodMillis;
+      this.allocAsyncCapturing = builder.allocAsyncCapturing;
+    }
+
+    /** Builder interface for profiler configuration. **/
+    public static class Builder {
+      private long writeBufferSize = DEFAULT_WRITE_BUFFER_SIZE;
+      private int flushPeriodMillis = DEFAULT_FLUSH_PERIOD_MILLIS;
+      private boolean allocAsyncCapturing = DEFAULT_ALLOC_ASYNC_CAPTURING;
+
+      /**
+       * Configure the size of the host memory buffer used for collecting profiling data.
+       * Recommended to be between 1 to 8 MB in size to balance callback overhead with
+       * latency.
+       * @param writeBufferSize size of buffer in bytes
+       */
+      public Builder withWriteBufferSize(long writeBufferSize) {
+        this.writeBufferSize = writeBufferSize;
+        return this;
+      }
+
+      /**
+       * Configure the time period to explicitly flush collected profiling data to the writer.
+       * @param flushPeriodMillis time period in milliseconds. A value <= 0 will disable explicit
+       *                          flushing.
+       */
+      public Builder withFlushPeriodMillis(int flushPeriodMillis) {
+        this.flushPeriodMillis = flushPeriodMillis;
+        return this;
+      }
+
+      /**
+       * Configure whether async allocation and free events are captured by the profiler.
+       * @param allocAsyncCapturing true if async allocation and free events should be captured,
+       *                            false otherwise.
+       */
+      public Builder withAllocAsyncCapturing(boolean allocAsyncCapturing) {
+        this.allocAsyncCapturing = allocAsyncCapturing;
+        return this;
+      }
+
+      /** Build a profiler configuration object. */
+      public Config build() {
+        return new Config(this);
+      }
+    }
   }
 }

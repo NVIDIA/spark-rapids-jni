@@ -88,8 +88,9 @@ else
   echo "Test failed, will update the result"
 fi
 
+LIBCUDF_BUILD_PATH=$(${MVN} help:evaluate -Dexpression=libcudf.build.path -q -DforceStdout)
 # Extract the rapids-cmake sha1 that we need to pin too
-rapids_cmake_sha=$(git -C thirdparty/cudf/cpp/build/_deps/rapids-cmake-src/ rev-parse HEAD)
+rapids_cmake_sha=$(git -C ${LIBCUDF_BUILD_PATH}/_deps/rapids-cmake-src/ rev-parse HEAD)
 echo "Update rapids-cmake pinned SHA1 to ${rapids_cmake_sha}"
 echo "${rapids_cmake_sha}" > thirdparty/cudf-pins/rapids-cmake.sha
 
