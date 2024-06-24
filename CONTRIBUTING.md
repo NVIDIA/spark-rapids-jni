@@ -61,6 +61,18 @@ the Docker container.
 The script passes all of its arguments onto the Maven command run inside the Docker container,
 so it should be invoked as one would invoke Maven, e.g.: `build/build-in-docker clean package`
 
+#### Using spark-rapids-jni Docker Container with other Repos
+
+Spark RAPIDS project spans multiple repos. Some issues are discovered in
+spark-rapids-jni but they need to be made easily reproducible in the cudf repo
+
+To this end export WORKDIR with the path pointing to a different repo
+
+```
+export WORKDIR=~/gits/rapidsai/cudf
+~/gits/NVIDIA/spark-rapids-jni/build/run-in-docker head README.md
+```
+
 ### cudf Submodule and Build
 
 [RAPIDS cuDF](https://github.com/rapidsai/cudf) is being used as a submodule in this project.
