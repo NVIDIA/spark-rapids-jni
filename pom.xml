@@ -463,7 +463,7 @@
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
                   <arg value="-DUSE_GDS=${USE_GDS}"/>
-                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
+                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=pinned"/>
                   <arg value="-C=${cudf.pin.path}/setup.cmake"/>
                 </exec>
                 <exec dir="${libcudfjni.build.path}"
@@ -501,7 +501,7 @@
                   <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
                   <arg value="-DBUILD_FAULTINJ=${BUILD_FAULTINJ}"/>
                   <arg value="-DBUILD_PROFILER=${BUILD_PROFILER}"/>
-                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
+                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=pinned"/>
                   <arg value="-C=${cudf.pin.path}/setup.cmake"/>
                 </exec>
                 <exec dir="${native.build.path}"

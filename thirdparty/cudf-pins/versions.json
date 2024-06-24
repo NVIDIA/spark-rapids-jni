@@ -1,6 +1,14 @@
 {
   "packages" : 
   {
+    "Arrow" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "7dd1d34074af176d9e861a360e135ae57b21cf96",
+      "git_url" : "https://github.com/apache/arrow.git",
+      "version" : "16.1.0"
+    },
     "CCCL" : 
     {
       "always_download" : true,
@@ -40,13 +48,114 @@
       "git_url" : "https://github.com/google/googletest.git",
       "version" : "1.13.0"
     },
+    "KvikIO" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "3cc6678e16f9c41833c9e7b2779e417bbc258181",
+      "git_url" : "https://github.com/rapidsai/kvikio.git",
+      "version" : "24.08"
+    },
+    "cuco" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "6923b3b1e526b3305de81f784fdca26736caf5ba",
+      "git_url" : "https://github.com/NVIDIA/cuCollections.git",
+      "version" : "0.0.1"
+    },
+    "dlpack" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "365b823cedb281cd0240ca601aba9b78771f91a3",
+      "git_url" : "https://github.com/dmlc/dlpack.git",
+      "version" : "0.8"
+    },
+    "flatbuffers" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "595bf0007ab1929570c7671f091313c8fc20644e",
+      "git_url" : "https://github.com/google/flatbuffers.git",
+      "version" : "24.3.25"
+    },
+    "fmt" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "f5e54359df4c26b6230fc61d38aa294581393084",
+      "git_url" : "https://github.com/fmtlib/fmt.git",
+      "patches" : 
+      [
+        {
+          "file" : "fmt/fix_10_1_1_version.diff",
+          "fixed_in" : "10.2.0",
+          "issue" : "fmt 10.1.1 produces a CMake package with version 10.1.0"
+        }
+      ],
+      "version" : "10.1.1"
+    },
+    "jitify" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "e38b993f4cb3207745735c51d4f61cdaa735b7ac",
+      "git_url" : "https://github.com/rapidsai/jitify.git",
+      "version" : "2.0.0"
+    },
+    "nanoarrow" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "11e73a8c85b45e3d49c8c541b4e1497a649fe03c",
+      "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
+      "version" : "0.5.0"
+    },
+    "nvcomp" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "v2.2.0",
+      "git_url" : "https://github.com/NVIDIA/nvcomp.git",
+      "proprietary_binary" : 
+      {
+        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-major}.x.tgz",
+        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-major}.x.tgz"
+      },
+      "version" : "3.0.6"
+    },
     "nvtx3" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "v${version}",
+      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
       "version" : "3.1.0"
+    },
+    "rmm" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "1ab4920e50a07a97ec717db514ad9a3dccc9939a",
+      "git_url" : "https://github.com/rapidsai/rmm.git",
+      "version" : "24.08"
+    },
+    "spdlog" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "7e635fca68d014934b4af8a1cf874f63989352b7",
+      "git_url" : "https://github.com/gabime/spdlog.git",
+      "patches" : 
+      [
+        {
+          "file" : "spdlog/nvcc_constexpr_fix.diff",
+          "fixed_in" : "1.13",
+          "issue" : "Fix constexpr mismatch between spdlog and fmt [https://github.com/gabime/spdlog/issues/2856]"
+        }
+      ],
+      "version" : "1.12.0"
     }
   }
 }
