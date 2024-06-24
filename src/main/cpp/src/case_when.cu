@@ -64,7 +64,7 @@ struct select_first_true_fn {
 
 std::unique_ptr<cudf::column> select_first_true_index(cudf::table_view const& when_bool_columns,
                                                       rmm::cuda_stream_view stream,
-                                                      rmm::mr::device_memory_resource* mr)
+                                                      rmm::device_async_resource_ref mr)
 {
   // checks
   auto const num_columns = when_bool_columns.num_columns();
