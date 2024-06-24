@@ -30,6 +30,7 @@ set(CUDF_CPP_BUILD_DIR
   "$ENV{CUDF_CPP_BUILD_DIR}"
   CACHE STRING "path to libcudf build root"
 )
+set(CUDA_STATIC_RUNTIME ON)
 
 include("${CUDF_DIR}/rapids_config.cmake")
 include(rapids-cmake)
@@ -267,6 +268,7 @@ target_link_libraries(
     ${PARQUET_LIB}
     ${THRIFT_LIB}
 )
+rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
 # all of the code is built into libcudf.so that is statically linked to the CUDA runtime library.
@@ -303,8 +305,8 @@ if(USE_GDS)
     -Wl,--no-whole-archive
     spark_rapids_jni
     ${cuFile_LIBRARIES}
-    CUDA::cudart_static
   )
+  rapids_cuda_set_runtime(cufilejni USE_STATIC ON)
 endif()
 
 # ##################################################################################################
