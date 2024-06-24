@@ -54,7 +54,7 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> select_first_true_index(
   cudf::table_view const& when_bool_columns,
-  rmm::cuda_stream_view stream        = cudf::get_default_stream(),
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni

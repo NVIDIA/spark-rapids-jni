@@ -75,7 +75,7 @@ std::unique_ptr<cudf::column> select_first_true_index(cudf::table_view const& wh
   }
   // make output column
   auto ret = cudf::make_numeric_column(
-    cudf::data_type{cudf::type_id::INT32}, row_count, cudf::mask_state::ALL_VALID, stream, mr);
+    cudf::data_type{cudf::type_id::INT32}, row_count, cudf::mask_state::UNALLOCATED, stream, mr);
 
   // select first true index
   auto const d_table_ptr = cudf::table_device_view::create(when_bool_columns, stream);
@@ -91,7 +91,7 @@ std::unique_ptr<cudf::column> select_first_true_index(cudf::table_view const& wh
 
 std::unique_ptr<cudf::column> select_first_true_index(cudf::table_view const& when_bool_columns,
                                                       rmm::cuda_stream_view stream,
-                                                      rmm::mr::device_memory_resource* mr)
+                                                      rmm::device_async_resource_ref mr)
 {
   return detail::select_first_true_index(when_bool_columns, stream, mr);
 }
