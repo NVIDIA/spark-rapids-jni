@@ -618,7 +618,7 @@ class string_to_float {
 };
 
 template <typename T, size_type block_size>
-__global__ void string_to_float_kernel(T* out,
+CUDF_KERNEL void string_to_float_kernel(T* out,
                                        bitmask_type* validity,
                                        int32_t* ansi_except,
                                        size_type* valid_count,

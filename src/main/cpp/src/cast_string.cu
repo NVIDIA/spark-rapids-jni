@@ -156,7 +156,7 @@ process_value(bool first_value, T current_val, T const new_digit, bool adding)
  * @param ansi_mode true if ansi mode is required, which is more strict and throws
  */
 template <typename T>
-void __global__ string_to_integer_kernel(T* out,
+void CUDF_KERNEL string_to_integer_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
                                          size_type const* offsets,
@@ -386,10 +386,9 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
  * @param scale scale of desired decimals
  * @param precision precision of desired decimals
  * @param ansi_mode true if ansi mode is required, which is more strict and throws
- * @return __global__
  */
 template <typename T>
-__global__ void string_to_decimal_kernel(T* out,
+CUDF_KERNEL void string_to_decimal_kernel(T* out,
                                          bitmask_type* validity,
                                          const char* const chars,
                                          size_type const* offsets,
