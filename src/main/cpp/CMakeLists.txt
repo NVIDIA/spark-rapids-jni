@@ -30,6 +30,7 @@ set(CUDF_CPP_BUILD_DIR
   "$ENV{CUDF_CPP_BUILD_DIR}"
   CACHE STRING "path to libcudf build root"
 )
+# libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
 include("${CUDF_DIR}/rapids_config.cmake")
