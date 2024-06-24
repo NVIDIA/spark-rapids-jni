@@ -52,4 +52,19 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_xxhash64(JNIEnv* e
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_hiveHash(JNIEnv* env,
+                                                                       jclass,
+                                                                       jlongArray column_handles)
+{
+  JNI_NULL_CHECK(env, column_handles, "array of column handles is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto column_views =
+      cudf::jni::native_jpointerArray<cudf::column_view>{env, column_handles}.get_dereferenced();
+    return cudf::jni::release_as_jlong(spark_rapids_jni::hive_hash(cudf::table_view{column_views}));
+  }
+  CATCH_STD(env, 0);
+}
 }

@@ -134,4 +134,18 @@ std::unique_ptr<cudf::column> xxhash64(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+/**
+ * @brief Computes the Hive hash value of each row in the input set of columns.
+ *
+ * @param input The table of columns to hash
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> hive_hash(
+  cudf::table_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

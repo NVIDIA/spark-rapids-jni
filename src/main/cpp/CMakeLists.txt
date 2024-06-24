@@ -213,6 +213,7 @@ add_library(
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
+  src/hive_hash.cu
   src/zorder.cu
 )
 
