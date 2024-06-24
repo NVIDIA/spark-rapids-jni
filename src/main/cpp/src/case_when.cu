@@ -25,6 +25,7 @@
 
 namespace spark_rapids_jni {
 namespace detail {
+namespace {
 
 /**
  * Select the column index for the first true in bool columns for the specified row
@@ -61,6 +62,8 @@ struct select_first_true_fn {
     return col_num;
   }
 };
+
+}  // anonymous namespace
 
 std::unique_ptr<cudf::column> select_first_true_index(cudf::table_view const& when_bool_columns,
                                                       rmm::cuda_stream_view stream,

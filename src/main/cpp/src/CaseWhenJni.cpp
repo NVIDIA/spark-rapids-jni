@@ -17,8 +17,6 @@
 #include "case_when.hpp"
 #include "cudf_jni_apis.hpp"
 
-#include <vector>
-
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CaseWhen_selectFirstTrueIndex(
