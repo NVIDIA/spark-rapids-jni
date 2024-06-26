@@ -28,3 +28,6 @@ ${MVN} verify ${MVN_MIRROR} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
   -DBUILD_TESTS=ON
+
+build_name=$($MVN help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
+. ci/check-cuda-dependencies.sh "target/${build_name}-cuda11.jar"
