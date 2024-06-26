@@ -618,14 +618,14 @@ class string_to_float {
 };
 
 template <typename T, size_type block_size>
-__global__ void string_to_float_kernel(T* out,
-                                       bitmask_type* validity,
-                                       int32_t* ansi_except,
-                                       size_type* valid_count,
-                                       const char* const chars,
-                                       size_type const* offsets,
-                                       bitmask_type const* incoming_null_mask,
-                                       size_type const num_rows)
+CUDF_KERNEL void string_to_float_kernel(T* out,
+                                        bitmask_type* validity,
+                                        int32_t* ansi_except,
+                                        size_type* valid_count,
+                                        const char* const chars,
+                                        size_type const* offsets,
+                                        bitmask_type const* incoming_null_mask,
+                                        size_type const num_rows)
 {
   size_type const tid = threadIdx.x + (blockDim.x * blockIdx.x);
   size_type const row = tid / 32;

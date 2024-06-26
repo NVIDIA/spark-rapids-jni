@@ -770,13 +770,13 @@ uri_parts __device__ validate_uri(const char* str,
  * @param out_offsets Offsets to the start of the chunks
  * @param out_validity Bitmask of validity data, updated in function
  */
-__global__ void parse_uri_char_counter(column_device_view const in_strings,
-                                       URI_chunks chunk,
-                                       char const* const base_ptr,
-                                       size_type* const out_lengths,
-                                       size_type* const out_offsets,
-                                       bitmask_type* out_validity,
-                                       thrust::optional<column_device_view const> query_match)
+CUDF_KERNEL void parse_uri_char_counter(column_device_view const in_strings,
+                                        URI_chunks chunk,
+                                        char const* const base_ptr,
+                                        size_type* const out_lengths,
+                                        size_type* const out_offsets,
+                                        bitmask_type* out_validity,
+                                        thrust::optional<column_device_view const> query_match)
 {
   // thread per row
   auto const tid = cudf::detail::grid_1d::global_thread_id();
@@ -850,11 +850,11 @@ __global__ void parse_uri_char_counter(column_device_view const in_strings,
  * @param offsets Offset value of each string associated with `out_chars`
  * @param out_chars Character buffer for the output string column
  */
-__global__ void parse_uri(column_device_view const in_strings,
-                          char const* const base_ptr,
-                          size_type const* const src_offsets,
-                          size_type const* const offsets,
-                          char* const out_chars)
+CUDF_KERNEL void parse_uri(column_device_view const in_strings,
+                           char const* const base_ptr,
+                           size_type const* const src_offsets,
+                           size_type const* const offsets,
+                           char* const out_chars)
 {
   auto const tid = cudf::detail::grid_1d::global_thread_id();
 
