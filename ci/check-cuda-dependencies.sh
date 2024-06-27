@@ -15,18 +15,21 @@
 # limitations under the License.
 #
 
-# common script to help check if libcudf.so has dynamical link to cuda libs
+# common script to help check if packaged *.so files have dynamical link to CUDA Runtime
 
 set -exo pipefail
 
 jar_path=$1
 tmp_path=/tmp/"jni-$(date "+%Y%m%d%H%M%S")"
-unzip -j "${jar_path}" "*64/Linux/libcudf.so" -d "${tmp_path}"
+unzip -j "${jar_path}" "*64/Linux/*.so" -d "${tmp_path}"
 
-if objdump -p "${tmp_path}/libcudf.so" | grep NEEDED | grep -q cuda; then
-    echo "dynamical link to CUDA lib found in libcudf.so..."
-    ldd "${tmp_path}/libcudf.so"
-    exit 1
-else
-    echo "no dynamical link to CUDA lib found in libcudf.so"
-fi
+find "$tmp_path" -type f -name "*.so" | while read -r so_file; do
+    # Check if *.so file has a dynamic link to CUDA Runtime
+    if objdump -p "$so_file" | grep NEEDED | grep -qi cudart; then
+        echo "Dynamic link to CUDA lib found in $so_file..."
+        ldd "$so_file"
+        exit 1
+    else
+        echo "No dynamic link to CUDA lib found in $so_file"
+    fi
+done

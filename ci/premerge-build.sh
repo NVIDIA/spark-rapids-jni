@@ -29,5 +29,6 @@ ${MVN} verify ${MVN_MIRROR} \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
   -DBUILD_TESTS=ON
 
-build_name=$($MVN help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
-. ci/check-cuda-dependencies.sh "target/${build_name}-cuda11.jar"
+build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
+cuda_version=$(${MVN} help:evaluate -Dexpression=cuda.version -q -DforceStdout)
+. ci/check-cuda-dependencies.sh "target/${build_name}-${cuda_version}.jar"

@@ -48,5 +48,5 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DBUILD_TESTS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
   -DUSE_SANITIZER=${USE_SANITIZER}
 
-build_name=$($MVN help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
+build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
 . ci/check-cuda-dependencies.sh "target/${build_name}-${artifact_suffix}.jar"
