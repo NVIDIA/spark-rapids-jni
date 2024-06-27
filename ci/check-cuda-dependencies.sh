@@ -26,10 +26,10 @@ unzip -j "${jar_path}" "*64/Linux/*.so" -d "${tmp_path}"
 find "$tmp_path" -type f -name "*.so" | while read -r so_file; do
     # Check if *.so file has a dynamic link to CUDA Runtime
     if objdump -p "$so_file" | grep NEEDED | grep -qi cudart; then
-        echo "Dynamic link to CUDA lib found in $so_file..."
+        echo "Dynamic link to CUDA Runtime found in $so_file..."
         ldd "$so_file"
         exit 1
     else
-        echo "No dynamic link to CUDA lib found in $so_file"
+        echo "No dynamic link to CUDA Runtime found in $so_file"
     fi
 done
