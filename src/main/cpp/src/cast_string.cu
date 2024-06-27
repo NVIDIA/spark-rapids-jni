@@ -156,7 +156,7 @@ process_value(bool first_value, T current_val, T const new_digit, bool adding)
  * @param ansi_mode true if ansi mode is required, which is more strict and throws
  */
 template <typename T>
-void CUDF_KERNEL string_to_integer_kernel(T* out,
+CUDF_KERNEL void string_to_integer_kernel(T* out,
                                           bitmask_type* validity,
                                           const char* const chars,
                                           size_type const* offsets,
