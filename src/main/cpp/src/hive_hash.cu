@@ -134,11 +134,11 @@ template <>
 hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_us>::operator()(
   cudf::timestamp_us const& key) const
 {
-  auto time_as_long = *reinterpret_cast<int64_t const*>(&key);
-  constexpr int MICRO_PER_SEC = 1000000;
+  auto time_as_long            = *reinterpret_cast<int64_t const*>(&key);
+  constexpr int MICRO_PER_SEC  = 1000000;
   constexpr int NANO_PER_MICRO = 1000;
 
-  int64_t ts = time_as_long / MICRO_PER_SEC;
+  int64_t ts  = time_as_long / MICRO_PER_SEC;
   int64_t tns = (time_as_long % MICRO_PER_SEC) * NANO_PER_MICRO;
 
   int64_t result = ts;
@@ -160,7 +160,6 @@ hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_us>::oper
 template <template <typename> class hash_function, typename Nullate>
 class hive_device_row_hasher {
  public:
-
   CUDF_HOST_DEVICE hive_device_row_hasher(Nullate check_nulls, cudf::table_device_view t) noexcept
     : _check_nulls{check_nulls}, _table{t}
   {
@@ -200,7 +199,9 @@ class hive_device_row_hasher {
     using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
 
     __device__ element_hasher_adapter(Nullate check_nulls) noexcept
-      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH} {}
+      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH}
+    {
+    }
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ hive_hash_value_t operator()(cudf::column_device_view const& col,
