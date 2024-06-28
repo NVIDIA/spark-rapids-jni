@@ -37,7 +37,7 @@ using hive_hash_value_t = int32_t;
 constexpr hive_hash_value_t HIVE_HASH_FACTOR = 31;
 constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
 
-hive_hash_value_t __device__ inline compute_int(int32_t const& key) { return key; }
+hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
 
 hive_hash_value_t __device__ inline compute_long(int64_t const& key)
 {
