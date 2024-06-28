@@ -59,7 +59,7 @@ struct hive_hash_function {
 
   constexpr hive_hash_function() = delete;
   // 'seed' is not used in 'hive_hash_function', but required by 'element_hasher'.
-  constexpr hive_hash_function(uint32_t seed) {}
+  constexpr hive_hash_function(uint32_t) {}
 
   [[nodiscard]] result_t __device__ inline operator()(Key const& key) const
   {
