@@ -71,8 +71,8 @@ template <>
 hive_hash_value_t __device__ inline hive_hash_function<cudf::string_view>::operator()(
   cudf::string_view const& key) const
 {
-  auto data = reinterpret_cast<int8_t const*>(key.data());
-  auto len  = key.size_bytes();
+  auto const data = reinterpret_cast<int8_t const*>(key.data());
+  auto const len  = key.size_bytes();
   return compute_bytes(data, len);
 }
 
