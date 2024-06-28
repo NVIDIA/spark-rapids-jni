@@ -477,6 +477,17 @@ public class HashTest {
   }
 
   @Test
+  void testHiveHashTimestamps() {
+    try (ColumnVector v = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        0L, null, 100L, -100L, 0x123456789abcdefL, null, -0x123456789abcdefL);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromInts(
+          0, 0, 100000, 99999, -660040456, 0, 486894999)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
   void testHiveHashMixed() {
     try (ColumnVector strings = ColumnVector.fromStrings(
           "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721",

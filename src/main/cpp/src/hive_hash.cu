@@ -55,13 +55,10 @@ hive_hash_value_t __device__ inline compute_bytes(int8_t const* data, cudf::size
 
 template <typename Key>
 struct hive_hash_function {
-  using result_t = hive_hash_value_t;
-
-  constexpr hive_hash_function() = delete;
   // 'seed' is not used in 'hive_hash_function', but required by 'element_hasher'.
   constexpr hive_hash_function(uint32_t) {}
 
-  [[nodiscard]] result_t __device__ inline operator()(Key const& key) const
+  [[nodiscard]] hive_hash_value_t __device__ inline operator()(Key const& key) const
   {
     CUDF_UNREACHABLE("Unsupported type for hive hash");
   }
@@ -133,6 +130,25 @@ hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_D>::opera
   return compute_int(*p_int);
 }
 
+template <>
+hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_us>::operator()(
+  cudf::timestamp_us const& key) const
+{
+  auto time_as_long = *reinterpret_cast<int64_t const*>(&key);
+  constexpr int MICRO_PER_SEC = 1000000;
+  constexpr int NANO_PER_MICRO = 1000;
+
+  int64_t ts = time_as_long / MICRO_PER_SEC;
+  int64_t tns = (time_as_long % MICRO_PER_SEC) * NANO_PER_MICRO;
+
+  int64_t result = ts;
+  result <<= 30;
+  result |= tns;
+
+  result = (static_cast<uint64_t>(result) >> 32) ^ result;
+  return static_cast<hive_hash_value_t>(result);
+}
+
 /**
  * @brief Computes the hash value of a row in the given table.
  *
@@ -144,6 +160,7 @@ hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_D>::opera
 template <template <typename> class hash_function, typename Nullate>
 class hive_device_row_hasher {
  public:
+
   CUDF_HOST_DEVICE hive_device_row_hasher(Nullate check_nulls, cudf::table_device_view t) noexcept
     : _check_nulls{check_nulls}, _table{t}
   {
@@ -166,8 +183,8 @@ class hive_device_row_hasher {
       HIVE_INIT_HASH,
       cuda::proclaim_return_type<hive_hash_value_t>(
         [row_index, nulls = this->_check_nulls] __device__(auto hash, auto const& column) {
-          auto cur_hash = cudf::type_dispatcher<dispatch_void_if_nested>(
-            column.type(), element_hasher_adapter<hash_function>{nulls}, column, row_index);
+          auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+            column.type(), element_hasher_adapter{nulls}, column, row_index);
           return HIVE_HASH_FACTOR * hash + cur_hash;
         }));
   }
@@ -178,19 +195,18 @@ class hive_device_row_hasher {
    *
    * Only supported non nested types now
    */
-  template <template <typename> class hash_fn>
   class element_hasher_adapter {
    public:
-    __device__ element_hasher_adapter(Nullate check_nulls) noexcept : _check_nulls(check_nulls) {}
+    using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
 
-    using hash_functor = cudf::experimental::row::hash::element_hasher<hash_fn, Nullate>;
+    __device__ element_hasher_adapter(Nullate check_nulls) noexcept
+      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH} {}
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ hive_hash_value_t operator()(cudf::column_device_view const& col,
                                             cudf::size_type row_index) const noexcept
     {
-      auto const hasher = hash_functor{_check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH};
-      return hasher.template operator()<T>(col, row_index);
+      return this->hash_functor.template operator()<T>(col, row_index);
     }
 
     template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
@@ -200,7 +216,8 @@ class hive_device_row_hasher {
       CUDF_UNREACHABLE("Nested type is not supported");
     }
 
-    Nullate const _check_nulls;  ///< Whether to check for nulls
+   private:
+    hash_functor_t const hash_functor;
   };
 
   Nullate const _check_nulls;

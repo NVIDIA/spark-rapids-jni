@@ -16,7 +16,7 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
-#include "hash.cuh"
+#include "hash.hpp"
 #include "jni_utils.hpp"
 
 extern "C" {
