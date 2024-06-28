@@ -39,9 +39,9 @@ constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
 
 hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
 
-hive_hash_value_t __device__ inline compute_long(int64_t const& key)
+hive_hash_value_t __device__ inline compute_long(int64_t key)
 {
-  return ((uint64_t)key >> 32) ^ key;
+  return (static_cast<uint64_t>(key) >> 32) ^ key;
 }
 
 hive_hash_value_t __device__ inline compute_bytes(int8_t const* data, cudf::size_type const len)
