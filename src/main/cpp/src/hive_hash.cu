@@ -165,7 +165,7 @@ class hive_device_row_hasher {
       _table.end(),
       HIVE_INIT_HASH,
       cuda::proclaim_return_type<hive_hash_value_t>(
-        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
+        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto const& column) {
           auto cur_hash = cudf::type_dispatcher(
             column.type(), element_hasher_adapter<hash_function>{nulls}, column, row_index);
           return HIVE_HASH_FACTOR * hash + cur_hash;
