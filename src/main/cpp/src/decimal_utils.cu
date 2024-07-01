@@ -15,12 +15,17 @@
  */
 
 #include "decimal_utils.hpp"
+#include "jni_utils.hpp"
 
+#include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/utilities/type_dispatcher.hpp>
 
+#include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 
 #include <cmath>
@@ -1172,4 +1177,148 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
                    dec128_sub(overflows_view.begin<bool>(), sub_view, a, b));
   return std::make_unique<cudf::table>(std::move(columns));
 }
+
+namespace {
+
+template <typename FloatingType>
+bool __device__ does_conversion_truncate(FloatingType floating, int const exp10)
+{
+  int const exp2 = std::ilogb(floating) - (std::numeric_limits<FloatingType>::digits - 1);
+  int const corresponding_exp2 = -299 * exp10 / 90;
+  // std::cout << "Exps: " << exp2 << ", " << corresponding_exp2  << ", " << exp10 << "\n";
+  return (exp2 < corresponding_exp2) || ((exp2 == corresponding_exp2) && (exp2 < 0));
+}
+
+template <typename FloatingType>
+FloatingType __device__ fix_before_round(FloatingType floating, int const exp10)
+{
+  if (!does_conversion_truncate(floating, exp10)) {
+    // std::cout << "no truncates\n";
+    return floating;
+  }
+  // std::cout << "truncates\n";
+  auto const direction = floating < 0 ? std::numeric_limits<FloatingType>::lowest()
+                                      : std::numeric_limits<FloatingType>::max();
+  return std::nextafter(floating, direction);
+}
+
+template <typename FloatingType>
+FloatingType __device__ scaled_round(FloatingType floating, int const exp10)
+{
+  auto const scale_factor = std::pow(10, exp10);
+  return std::round(scale_factor * fix_before_round(floating, exp10));
+}
+
+struct float_to_decimal_fn {
+  template <typename FloatType, typename DecimalType>
+  void operator()(cudf::column_view const& input,
+                  cudf::mutable_column_view const& output,
+                  int8_t* validity_begin,
+                  bool* has_invalid,
+                  int32_t decimal_places,
+                  int32_t precision,
+                  rmm::cuda_stream_view stream) const
+  {
+    if constexpr ((std::is_same_v<FloatType, float> || std::is_same_v<FloatType, double>)&&(
+                    std::is_same_v<DecimalType, numeric::decimal32> ||
+                    std::is_same_v<DecimalType, numeric::decimal64> ||
+                    std::is_same_v<DecimalType, numeric::decimal128>)) {
+      using DecimalRepType = cudf::device_storage_type_t<DecimalType>;
+
+      // Exclusive bound
+      auto const bound       = std::pow(10, precision);
+      auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+
+      thrust::transform(
+        rmm::exec_policy(stream),
+        thrust::make_counting_iterator(0),
+        thrust::make_counting_iterator(input.size()),
+        output.begin<DecimalRepType>(),
+        [has_invalid,
+         decimal_places,
+         input        = *d_input_ptr,
+         min_ex_bound = -bound,
+         max_ex_bound = bound,
+         validity     = validity_begin,
+         scale        = std::pow(10, decimal_places)] __device__(auto const idx) {
+          auto const x = input.element<FloatType>(idx);
+
+          // printf("x: %20.18f\n", x);
+
+          if (input.is_null(idx) || std::isnan(x) || std::isinf(x)) {
+            // printf("nan/inf/null for x: %20.18f\n", x);
+            validity[idx] = false;
+            return DecimalRepType{0};
+          }
+
+#if 0
+                          auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
+                                                       : std::numeric_limits<double>::max();
+                          // TODO: handle overflow due to scaling
+                          auto const scaled_rounded =
+                            std::round(scale * std::nextafter(static_cast<double>(x), direction));
+
+                          // printf("scaled rounded: %20.18f | %20.18f\n",
+                          //        scaled_rounded,
+                          //        scale * std::nextafter(static_cast<double>(x), direction));
+#endif
+          auto const scaled_rounded = scaled_round<double>(static_cast<double>(x), decimal_places);
+
+          auto const is_out_of_bound =
+            (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
+          if (is_out_of_bound) {
+            *has_invalid = true;
+            // printf("out of bound, x = %20.18f\n", x);
+          }
+
+          validity[idx] = !is_out_of_bound;
+          return is_out_of_bound ? DecimalRepType{0} : static_cast<DecimalRepType>(scaled_rounded);
+        });
+    }
+  }
+};
+
+}  // namespace
+
+std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  int32_t precision,
+  rmm::cuda_stream_view stream)
+{
+  auto output = cudf::make_fixed_point_column(
+    output_type,
+    input.size(),
+    cudf::detail::copy_bitmask(input, stream, rmm::mr::get_current_device_resource()),
+    input.null_count(),
+    stream);
+
+  auto const decimal_places = -output_type.scale();
+
+  rmm::device_uvector<int8_t> validity(
+    input.size(), stream, rmm::mr::get_current_device_resource());
+  rmm::device_scalar<bool> has_invalid(false, stream, rmm::mr::get_current_device_resource());
+
+  cudf::double_type_dispatcher(input.type(),
+                               output_type,
+                               float_to_decimal_fn{},
+                               input,
+                               output->mutable_view(),
+                               validity.begin(),
+                               has_invalid.data(),
+                               decimal_places,
+                               precision,
+                               stream);
+
+  auto [null_mask, null_count] = cudf::detail::valid_if(validity.begin(),
+                                                        validity.end(),
+                                                        thrust::identity{},
+                                                        stream,
+                                                        rmm::mr::get_current_device_resource());
+
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+
+  return {std::move(output), has_invalid.value(stream)};
+}
+
 }  // namespace cudf::jni
