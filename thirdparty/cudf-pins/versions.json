@@ -62,6 +62,14 @@
       "git_shallow" : false,
       "git_tag" : "6923b3b1e526b3305de81f784fdca26736caf5ba",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
+      "patches" : 
+      [
+        {
+          "file" : "${current_json_dir}/cuco_noexcept.diff",
+          "fixed_in" : "",
+          "issue" : "Remove erroneous noexcept clauses on cuco functions that may throw [https://github.com/rapidsai/cudf/issues/16059]"
+        }
+      ],
       "version" : "0.0.1"
     },
     "dlpack" : 
