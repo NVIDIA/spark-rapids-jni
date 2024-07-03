@@ -1023,6 +1023,20 @@ std::unique_ptr<cudf::column> get_json_object(
     input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
 }
 
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    instruction_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  std::vector<std::unique_ptr<cudf::column>> output;
+  for (auto const& instructions : instruction_paths) {
+    output.emplace_back(spark_rapids_jni::get_json_object(input, instructions, stream, mr));
+  }
+  return output;
+}
+
 }  // namespace detail
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -1032,6 +1046,16 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::device_async_resource_ref mr)
 {
   return detail::get_json_object(input, instructions, stream, mr);
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    instruction_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  return detail::get_json_object_multiple_paths(input, instruction_paths, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
