@@ -32,104 +32,180 @@ namespace detail {
 
 namespace {
 
+template <typename IndexIterator>
+std::unique_ptr<column> compute_substrings_from_fn(column_device_view const& d_column,
+                                                   IndexIterator starts,
+                                                   IndexIterator stops,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::mr::device_memory_resource* mr)
+{
+  auto results = rmm::device_uvector<string_view>(d_column.size(), stream);
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::counting_iterator<size_type>(0),
+                    thrust::counting_iterator<size_type>(d_column.size()),
+                    results.begin(),
+                    substring_from_fn{d_column, starts, stops});
+  return make_strings_column(results, string_view{nullptr, 0}, stream, mr);
+}
+
+
 /**
- * @brief Kernel to update start and end positions for substring_index.
+ * @brief Compute slice indices for each string.
+ *
+ * When slice_strings is invoked with a delimiter string and a delimiter count, we need to
+ * compute the start and end indices of the substring. This function accomplishes that.
  */
-template <bool forward>
-struct substring_index_fn {
-    column_device_view d_column;
-    string_view d_delimiter;
-    size_type count;
-    size_type* d_start_positions;
-    size_type* d_end_positions;
+template <typename DelimiterItrT>
+void compute_substring_indices(column_device_view const& d_column,
+                               DelimiterItrT const delim_itr,
+                               size_type delimiter_count,
+                               size_type* start_char_pos,
+                               size_type* end_char_pos,
+                               rmm::cuda_stream_view stream,
+                               rmm::mr::device_memory_resource*)
+{
+  auto strings_count = d_column.size();
 
-    __device__ void operator()(size_type idx) const {
-        auto const& col_val = d_column.element<string_view>(idx);
-        if (col_val.empty()) return;
+  thrust::for_each_n(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<size_type>(0),
+    strings_count,
+    [delim_itr, delimiter_count, start_char_pos, end_char_pos, d_column] __device__(size_type idx) {
+      auto const& delim_val_pair = delim_itr[idx];
+      auto const& delim_val      = delim_val_pair.first;  // Don't use it yet
 
-        size_type pos = 0;
-        size_type char_pos = string_view::npos;
-        for (size_type i = 0; i < count; ++i) {
-            char_pos = forward ? col_val.find(d_delimiter, pos) : col_val.rfind(d_delimiter, 0, pos);
-            if (char_pos == string_view::npos) break;
-            pos = forward ? char_pos + d_delimiter.size() : char_pos;
+      // If the column value for this row is null, result is null.
+      // If the delimiter count is 0, result is empty string.
+      // If the global delimiter or the row specific delimiter is invalid or if it is empty, row
+      // value is empty.
+      if (d_column.is_null(idx) || !delim_val_pair.second || delim_val.empty()) return;
+      auto const& col_val = d_column.element<string_view>(idx);
+
+      // If the column value for the row is empty, the row value is empty.
+      if (!col_val.empty()) {
+        auto const col_val_len   = col_val.length();
+        auto const delimiter_len = delim_val.length();
+
+        auto nsearches           = (delimiter_count < 0) ? -delimiter_count : delimiter_count;
+        bool const left_to_right = (delimiter_count > 0);
+
+        size_type start_pos = start_char_pos[idx];
+        size_type end_pos   = col_val_len;
+        size_type char_pos  = -1;
+
+        end_char_pos[idx] = col_val_len;
+
+        for (auto i = 0; i < nsearches; ++i) {
+          char_pos = left_to_right ? col_val.find(delim_val, start_pos)
+                                   : col_val.rfind(delim_val, 0, end_pos);
+          if (char_pos == string_view::npos) return;
+          if (left_to_right)
+            start_pos = char_pos + delimiter_len;
+          else
+            end_pos = char_pos;
         }
-
-        if (forward) {
-            d_start_positions[idx] = (char_pos == string_view::npos) ? 0 : pos;
-            d_end_positions[idx] = (char_pos == string_view::npos) ? col_val.size() : char_pos;
-        } else {
-            d_start_positions[idx] = (char_pos == string_view::npos) ? 0 : char_pos + d_delimiter.size();
-            d_end_positions[idx] = (char_pos == string_view::npos) ? col_val.size() : pos;
-        }
-    }
-};
+        if (left_to_right)
+          end_char_pos[idx] = char_pos;
+        else
+          start_char_pos[idx] = end_pos + delimiter_len;
+      }
+    });
+}
 
 }  // namespace
-
-std::unique_ptr<column> substring_index(
-    strings_column_view const& strings,
-    string_scalar const& delimiter,
-    size_type count,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource())
+template <typename DelimiterItrT>
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
+                                      DelimiterItrT const delimiter_itr,
+                                      size_type count,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::mr::device_memory_resource* mr)
 {
-    CUDF_FUNC_RANGE();
+  auto strings_count = strings.size();
+  // If there aren't any rows, return an empty strings column
+  if (strings_count == 0) { return make_empty_column(type_id::STRING); }
 
-    auto strings_count = strings.size();
-    if (strings_count == 0) {
-        return make_empty_column(data_type{type_id::STRING});
-    }
+  // Compute the substring indices first
+  auto start_chars_pos_vec = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
+                                                     strings_count,
+                                                     stream,
+                                                     rmm::mr::get_current_device_resource());
+  auto stop_chars_pos_vec  = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
+                                                    strings_count,
+                                                    stream,
+                                                    rmm::mr::get_current_device_resource());
 
-    auto d_column = column_device_view::create(strings.parent(), stream);
-    auto d_delimiter = string_view(delimiter.data(), delimiter.size());
+  auto start_char_pos = start_chars_pos_vec->mutable_view().data<size_type>();
+  auto end_char_pos   = stop_chars_pos_vec->mutable_view().data<size_type>();
 
-    auto start_positions = make_numeric_column(
-        data_type{type_to_id<size_type>()}, strings_count, mask_state::UNALLOCATED, stream, mr);
-    auto end_positions = make_numeric_column(
-        data_type{type_to_id<size_type>()}, strings_count, mask_state::UNALLOCATED, stream, mr);
+  auto strings_column = column_device_view::create(strings.parent(), stream);
+  auto d_column       = *strings_column;
 
-    auto d_start_positions = start_positions->mutable_view().data<size_type>();
-    auto d_end_positions = end_positions->mutable_view().data<size_type>();
+  // If delimiter count is 0, the output column will contain empty strings
+  if (count != 0) {
+    // Compute the substring indices first
+    compute_substring_indices(
+      d_column, delimiter_itr, count, start_char_pos, end_char_pos, stream, mr);
+  }
 
-    // Initialize start and end positions
-    thrust::fill(rmm::exec_policy(stream), d_start_positions, d_start_positions + strings_count, 0);
-    thrust::fill(rmm::exec_policy(stream), d_end_positions, d_end_positions + strings_count, -1);
-
-    if (count == 0) {
-        return make_empty_column(data_type{type_id::STRING});
-    }
-
-    // Compute the substring indices
-    if (count > 0) {
-        // Positive count: find positions from the left
-        thrust::for_each_n(rmm::exec_policy(stream),
-                           thrust::make_counting_iterator<size_type>(0),
-                           strings_count,
-                           substring_index_fn<true>{*d_column, d_delimiter, count, d_start_positions, d_end_positions});
-    } else {
-        // Negative count: find positions from the right
-        thrust::for_each_n(rmm::exec_policy(stream),
-                           thrust::make_counting_iterator<size_type>(0),
-                           strings_count,
-                           substring_index_fn<false>{*d_column, d_delimiter, -count, d_start_positions, d_end_positions});
-    }
-
-    // Extract the substrings using the computed start and end positions
-    auto result_column = slice_strings(strings, start_positions->view(), end_positions->view(), stream, mr);
-    return result_column;
+  // Extract the substrings using the indices next
+  auto starts_iter =
+    cudf::detail::indexalator_factory::make_input_iterator(start_chars_pos_vec->view());
+  auto stops_iter =
+    cudf::detail::indexalator_factory::make_input_iterator(stop_chars_pos_vec->view());
+  return compute_substrings_from_fn(d_column, starts_iter, stops_iter, stream, mr);
 }
+
+
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
+                                      strings_column_view const& delimiters,
+                                      size_type count,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::mr::device_memory_resource* mr)
+{
+  CUDF_EXPECTS(strings.size() == delimiters.size(),
+               "Strings and delimiters column sizes do not match");
+  auto delimiters_dev_view_ptr = cudf::column_device_view::create(delimiters.parent(), stream);
+  auto delimiters_dev_view     = *delimiters_dev_view_ptr;
+  return (delimiters_dev_view.nullable())
+           ? detail::substring_index(
+               strings,
+               cudf::detail::make_pair_iterator<string_view, true>(delimiters_dev_view),
+               count,
+               stream,
+               mr)
+           : detail::substring_index(
+               strings,
+               cudf::detail::make_pair_iterator<string_view, false>(delimiters_dev_view),
+               count,
+               stream,
+               mr);
+}
+
 
 } // namespace detail
 
-std::unique_ptr<column> substring_index(
-    strings_column_view const& strings,
-    string_scalar const& delimiter,
-    size_type count,
-    rmm::cuda_stream_view stream,
-    rmm::mr::device_memory_resource* mr)
+// external API
+
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
+                                      string_scalar const& delimiter,
+                                      size_type count,
+                                      rmm::mr::device_memory_resource* mr)
 {
-    return detail::substring_index(strings, delimiter, count, stream, mr);
+  CUDF_FUNC_RANGE();
+  return detail::substring_index(strings,
+                               cudf::detail::make_pair_iterator<string_view>(delimiter),
+                               count,
+                               cudf::get_default_stream(),
+                               mr);
+}
+
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
+                                      strings_column_view const& delimiters,
+                                      size_type count,
+                                      rmm::mr::device_memory_resource* mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::substring_index(strings, delimiters, count, cudf::get_default_stream(), mr);
 }
 
 } // namespace strings

@@ -31,7 +31,7 @@ std::unique_ptr<column> substring_index(
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-std::unique_ptr<column> slice_strings(
+std::unique_ptr<column> substring_index(
     strings_column_view const& strings,
     string_column_view const& delimiter,
     size_type count,
