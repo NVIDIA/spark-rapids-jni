@@ -28,7 +28,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SubstringIndex_substrin
     auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
     auto delimiter_scalar = reinterpret_cast<cudf::string_scalar*>(delimiter_handle);
     return cudf::jni::release_as_jlong(
-      cudf::strings::substring_index(*strings_view, *delimiter_scalar, count));
+      spark_rapids_jni::substring_index(*strings_view, *delimiter_scalar, count));
   }
   CATCH_STD(env, 0);
 }
@@ -42,7 +42,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SubstringIndex_substrin
     auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
     auto delimiter_view = reinterpret_cast<cudf::strings_column_view*>(delimiter_handle);
     return cudf::jni::release_as_jlong(
-      cudf::strings::substring_index(*strings_view, *delimiter_view, count));
+      cspark_rapids_jni::substring_index(*strings_view, *delimiter_view, count));
   }
   CATCH_STD(env, 0);
 }
