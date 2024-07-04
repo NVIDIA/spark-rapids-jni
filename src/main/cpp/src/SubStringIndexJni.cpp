@@ -25,10 +25,11 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SubstringIndex_substrin
   JNI_NULL_CHECK(env, delimiter_handle, "delimiter scalar handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
+    cudf::strings_column_view strings_view{*reinterpret_cast<cudf::column_view const*>(strings_handle)};
+    //auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
     auto delimiter_scalar = reinterpret_cast<cudf::string_scalar*>(delimiter_handle);
     return cudf::jni::release_as_jlong(
-      spark_rapids_jni::substring_index(*strings_view, *delimiter_scalar, count));
+      spark_rapids_jni::substring_index(strings_view, *delimiter_scalar, count));
   }
   CATCH_STD(env, 0);
 }
@@ -39,10 +40,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SubstringIndex_substrin
   JNI_NULL_CHECK(env, delimiter_handle, "delimiter column handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
-    auto delimiter_view = reinterpret_cast<cudf::strings_column_view*>(delimiter_handle);
+
+    cudf::strings_column_view strings_view{*reinterpret_cast<cudf::column_view const*>(strings_handle)};
+    cudf::strings_column_view delimiter_view{*reinterpret_cast<cudf::column_view const*>(delimiter_handle)};
+    //auto strings_view = reinterpret_cast<cudf::strings_column_view*>(strings_handle);
+    //auto delimiter_view = reinterpret_cast<cudf::strings_column_view*>(delimiter_handle);
     return cudf::jni::release_as_jlong(
-      cspark_rapids_jni::substring_index(*strings_view, *delimiter_view, count));
+      spark_rapids_jni::substring_index(strings_view, delimiter_view, count));
   }
   CATCH_STD(env, 0);
 }

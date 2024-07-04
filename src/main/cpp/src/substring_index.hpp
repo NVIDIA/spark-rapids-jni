@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- #pragma once
+#pragma once
 
 #include <cudf/column/column.hpp>
 #include <cudf/scalar/scalar.hpp>
@@ -21,21 +21,17 @@
 
 #include <rmm/mr/device/per_device_resource.hpp>
 
-namespace cudf{
-namespace strings{
+namespace spark_rapids_jni{
 
-std::unique_ptr<column> substring_index(
-    strings_column_view const& strings,
-    string_scalar const& delimiter,
-    size_type count,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+std::unique_ptr<cudf::column> substring_index(
+    cudf::strings_column_view const& strings,
+    cudf::string_scalar const& delimiter,
+    cudf::size_type count,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
-std::unique_ptr<column> substring_index(
-    strings_column_view const& strings,
-    string_column_view const& delimiter,
-    size_type count,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
-}   // namespace strings
-}   // namespace cudf
+std::unique_ptr<cudf::column> substring_index(
+    cudf::strings_column_view const& strings,
+    cudf::strings_column_view const& delimiter,
+    cudf::size_type count,
+    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+}   // namespace spark_rapids_jni

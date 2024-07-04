@@ -13,21 +13,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "substring_index.hpp"
+
+#include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/indexalator.cuh>
+#include <cudf/detail/iterator.cuh>
+#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/scalar/scalar_device_view.cuh>
+#include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/slice.hpp>
+#include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf/strings/detail/find.hpp>
-#include <cudf/strings/detail/slice_strings.hpp>
-#include <cudf/scalar/scalar.hpp>
+#include <cudf/utilities/default_stream.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/exec_policy.hpp>
+
 #include <thrust/for_each.h>
+#include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
 
-namespace cudf {
-namespace strings {
+namespace spark_rapids_jni {
+
 namespace detail {
 
 namespace {
@@ -189,7 +199,7 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
 std::unique_ptr<column> substring_index(strings_column_view const& strings,
                                       string_scalar const& delimiter,
                                       size_type count,
-                                      rmm::mr::device_memory_resource* mr)
+                                      rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::substring_index(strings,
@@ -202,11 +212,10 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
 std::unique_ptr<column> substring_index(strings_column_view const& strings,
                                       strings_column_view const& delimiters,
                                       size_type count,
-                                      rmm::mr::device_memory_resource* mr)
+                                      rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::substring_index(strings, delimiters, count, cudf::get_default_stream(), mr);
 }
 
-} // namespace strings
-} // namespace cudf
+} // namespace spark_rapids_jni

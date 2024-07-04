@@ -218,6 +218,8 @@ add_library(
   src/utilities.cu
   src/xxhash64.cu
   src/zorder.cu
+  src/substring_index.cu
+  src/SubStringIndexJni.cpp
 )
 
 set_target_properties(
