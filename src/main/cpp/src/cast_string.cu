@@ -775,6 +775,7 @@ struct string_to_decimal_impl {
  * @brief Convert a string column into an integer column.
  *
  * @param dtype Type of column to return.
+ * @param dtype Type of column to return.
  * @param string_col Incoming string column to convert to integers.
  * @param ansi_mode If true, strict conversion and throws on erorr.
  *                  If false, null invalid entries.

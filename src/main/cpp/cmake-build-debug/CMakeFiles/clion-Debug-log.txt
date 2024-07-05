@@ -1,0 +1,57 @@
+/home/fejiang/.local/share/JetBrains/Toolbox/apps/clion/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" -S /home/fejiang/IdeaProjects/spark-rapids-jni/src/main/cpp -B /home/fejiang/IdeaProjects/spark-rapids-jni/src/main/cpp/cmake-build-debug
+CMake Deprecation Warning:
+  Support for "Extra Generators" like
+
+    CodeBlocks
+
+  is deprecated and will be removed from a future version of CMake.  IDEs may
+  use the cmake-file-api(7) to view CMake-generated project build trees.
+
+
+CMake Error at CMakeLists.txt:36 (include):
+  include could not find requested file:
+
+    /rapids_config.cmake
+
+
+CMake Error at CMakeLists.txt:37 (include):
+  include could not find requested file:
+
+    rapids-cmake
+
+
+CMake Error at CMakeLists.txt:38 (include):
+  include could not find requested file:
+
+    rapids-cpm
+
+
+CMake Error at CMakeLists.txt:39 (include):
+  include could not find requested file:
+
+    rapids-cuda
+
+
+CMake Error at CMakeLists.txt:40 (include):
+  include could not find requested file:
+
+    rapids-export
+
+
+CMake Error at CMakeLists.txt:41 (include):
+  include could not find requested file:
+
+    rapids-find
+
+
+CMake Error at CMakeLists.txt:42 (include):
+  include could not find requested file:
+
+    rapids-cpm
+
+
+CMake Error at CMakeLists.txt:43 (rapids_cpm_init):
+  Unknown CMake command "rapids_cpm_init".
+
+
+-- Configuring incomplete, errors occurred!
