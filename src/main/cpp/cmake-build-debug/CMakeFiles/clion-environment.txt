@@ -1,4 +1,0 @@
-ToolSet: 1.0 (local)Ninja: 1.11.1@/home/fejiang/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja
-Options: 
-
-Options:
