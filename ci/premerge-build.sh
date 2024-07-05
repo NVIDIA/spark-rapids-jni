@@ -27,7 +27,7 @@ ${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON
+  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON
 
 build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
 cuda_version=$(${MVN} help:evaluate -Dexpression=cuda.version -q -DforceStdout)
