@@ -21,17 +21,17 @@
 
 #include <rmm/mr/device/per_device_resource.hpp>
 
-namespace spark_rapids_jni{
+namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> substring_index(
-    cudf::strings_column_view const& strings,
-    cudf::string_scalar const& delimiter,
-    cudf::size_type count,
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  cudf::strings_column_view const& strings,
+  cudf::string_scalar const& delimiter,
+  cudf::size_type count,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 std::unique_ptr<cudf::column> substring_index(
-    cudf::strings_column_view const& strings,
-    cudf::strings_column_view const& delimiter,
-    cudf::size_type count,
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-}   // namespace spark_rapids_jni
+  cudf::strings_column_view const& strings,
+  cudf::strings_column_view const& delimiter,
+  cudf::size_type count,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+}  // namespace spark_rapids_jni
