@@ -26,10 +26,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SubstringIndex_substrin
   JNI_NULL_CHECK(env, delimiter_handle, "delimiter scalar handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
+    auto const input          = reinterpret_cast<cudf::column_view const*>(input_handle);
     auto const strings_column = cudf::strings_column_view{*input};
     auto const delimiter_jstr = cudf::jni::native_jstring(env, delimiter_obj);
-    auto const delimiter = std::string(delimiter_jstr.get(), delimiter_jstr.size_bytes());
+    auto const delimiter      = std::string(delimiter_jstr.get(), delimiter_jstr.size_bytes());
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::substring_index(strings_column, cudf::string_scalar{delimiter}, count));
   }
