@@ -192,30 +192,30 @@ std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& s
   return compute_substrings_from_fn(d_column, starts_iter, stops_iter, stream, mr);
 }
 
-std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
-                                              cudf::strings_column_view const& delimiters,
-                                              cudf::size_type count,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::device_async_resource_ref mr)
-{
-  CUDF_EXPECTS(strings.size() == delimiters.size(),
-               "Strings and delimiters column sizes do not match");
-  auto delimiters_dev_view_ptr = cudf::column_device_view::create(delimiters.parent(), stream);
-  auto delimiters_dev_view     = *delimiters_dev_view_ptr;
-  return (delimiters_dev_view.nullable())
-           ? detail::substring_index(
-               strings,
-               cudf::detail::make_pair_iterator<cudf::string_view, true>(delimiters_dev_view),
-               count,
-               stream,
-               mr)
-           : detail::substring_index(
-               strings,
-               cudf::detail::make_pair_iterator<cudf::string_view, false>(delimiters_dev_view),
-               count,
-               stream,
-               mr);
-}
+// std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
+//                                               cudf::strings_column_view const& delimiters,
+//                                               cudf::size_type count,
+//                                               rmm::cuda_stream_view stream,
+//                                               rmm::device_async_resource_ref mr)
+// {
+//   CUDF_EXPECTS(strings.size() == delimiters.size(),
+//                "Strings and delimiters column sizes do not match");
+//   auto delimiters_dev_view_ptr = cudf::column_device_view::create(delimiters.parent(), stream);
+//   auto delimiters_dev_view     = *delimiters_dev_view_ptr;
+//   return (delimiters_dev_view.nullable())
+//            ? detail::substring_index(
+//                strings,
+//                cudf::detail::make_pair_iterator<cudf::string_view, true>(delimiters_dev_view),
+//                count,
+//                stream,
+//                mr)
+//            : detail::substring_index(
+//                strings,
+//                cudf::detail::make_pair_iterator<cudf::string_view, false>(delimiters_dev_view),
+//                count,
+//                stream,
+//                mr);
+// }
 
 }  // namespace detail
 
@@ -234,13 +234,13 @@ std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& s
                                  mr);
 }
 
-std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
-                                              cudf::strings_column_view const& delimiters,
-                                              cudf::size_type count,
-                                              rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return detail::substring_index(strings, delimiters, count, cudf::get_default_stream(), mr);
-}
+// std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
+//                                               cudf::strings_column_view const& delimiters,
+//                                               cudf::size_type count,
+//                                               rmm::device_async_resource_ref mr)
+// {
+//   CUDF_FUNC_RANGE();
+//   return detail::substring_index(strings, delimiters, count, cudf::get_default_stream(), mr);
+// }
 
 }  // namespace spark_rapids_jni

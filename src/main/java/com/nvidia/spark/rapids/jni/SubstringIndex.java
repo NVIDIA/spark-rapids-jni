@@ -24,18 +24,18 @@ public class SubstringIndex {
     }
 
     public static ColumnVector substringIndex(ColumnView cv, String delimiter, int count){
-        return new ColumnVector(substringIndexScalar(cv.getNativeView(), delimiter, count));
+        return new ColumnVector(substringIndex(cv.getNativeView(), delimiter, count));
     }
 
 
-    public static ColumnVector substringIndex(ColumnView cv, ColumnView delimiterView, int count){
-        assert delimiterView.getType().equals(DType.STRING) : "column type must be a String";
-        return new ColumnVector(substringIndexColumn(cv.getNativeView(), delimiterView.getNativeView(), count));
-    }
+//    public static ColumnVector substringIndex(ColumnView cv, ColumnView delimiterView, int count){
+//        assert delimiterView.getType().equals(DType.STRING) : "column type must be a String";
+//        return new ColumnVector(substringIndexColumn(cv.getNativeView(), delimiterView.getNativeView(), count));
+//    }
 
-    private static native long substringIndexScalar(long columnView, String delimiter, int count) throws CudfException;
+    private static native long substringIndex(long columnView, String delimiter, int count) throws CudfException;
 
-    private static native long substringIndexColumn(long columnView, long delimiterView, int count) throws CudfException;
+    //private static native long substringIndexColumn(long columnView, long delimiterView, int count) throws CudfException;
 
 
 }

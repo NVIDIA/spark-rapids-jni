@@ -36,15 +36,15 @@ using namespace cudf;
 
 struct SubstringIndexTest : public ::test::BaseFixture {};
 
-TEST_F(SubstringIndexTest, Error)
-{
-  cudf::test::strings_column_wrapper strings{"this string intentionally left blank"};
-  auto strings_view = cudf::strings_column_view(strings);
-  auto delim_col    = cudf::test::strings_column_wrapper({"", ""});
-  EXPECT_THROW(
-    spark_rapids_jni::substring_index(strings_view, cudf::strings_column_view{delim_col}, -1),
-    cudf::logic_error);
-}
+// TEST_F(SubstringIndexTest, Error)
+//{
+//   cudf::test::strings_column_wrapper strings{"this string intentionally left blank"};
+//   auto strings_view = cudf::strings_column_view(strings);
+//   auto delim_col    = cudf::test::strings_column_wrapper({"", ""});
+//   EXPECT_THROW(
+//     spark_rapids_jni::substring_index(strings_view, cudf::strings_column_view{delim_col}, -1),
+//     cudf::logic_error);
+// }
 
 // TEST_F(SubstringIndexTest, ZeroSizeStringsColumn)
 //   auto results = cudf::strings::slice_strings(strings_view, 1, 2);
