@@ -18,13 +18,13 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
-public class SubstringIndex {
+public class GpuSubstringIndex {
     static{
         NativeDepsLoader.loadNativeDeps();
     }
 
-    public static ColumnVector substringIndex(ColumnView cv, String delimiter, int count){
-        return new ColumnVector(substringIndex(cv.getNativeView(), delimiter, count));
+    public static ColumnVector gpuSubstringIndex(ColumnView cv, String delimiter, int count){
+        return new ColumnVector(gpuSubstringIndex(cv.getNativeView(), delimiter, count));
     }
 
 
@@ -33,7 +33,7 @@ public class SubstringIndex {
 //        return new ColumnVector(substringIndexColumn(cv.getNativeView(), delimiterView.getNativeView(), count));
 //    }
 
-    private static native long substringIndex(long columnView, String delimiter, int count) throws CudfException;
+    private static native long gpuSubstringIndex(long columnView, String delimiter, int count) throws CudfException;
 
     //private static native long substringIndexColumn(long columnView, long delimiterView, int count) throws CudfException;
 

@@ -3,15 +3,14 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Table;
-import org.checkerframework.checker.units.qual.A;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class SubstringIndexTest {
+public class GpuSubstringIndexTest {
     @Test
-    void substringIndexTest(){
+    void gpuSubstringIndexTest(){
         Table.TestBuilder tb = new Table.TestBuilder();
         tb.column( "www.apache.org");
         tb.column("www.apache");
@@ -37,7 +36,7 @@ public class SubstringIndexTest {
             try (Table origTable = tb2.build()){
                 for(int i = 0; i < origTable.getNumberOfColumns(); i++){
                     ColumnVector string_col = origTable.getColumn(i);
-                    result.add(SubstringIndex.substringIndex(string_col, delimiterArray[i], countArray[i]));
+                    result.add(GpuSubstringIndex.gpuSubstringIndex(string_col, delimiterArray[i], countArray[i]));
                 }
                 try (Table result_tbl = new Table(
                         result.toArray(new ColumnVector[result.size()]))){
