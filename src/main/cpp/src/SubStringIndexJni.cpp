@@ -19,7 +19,7 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSubstringIndex_gpuSubstringIndex(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSubstringIndexUtils_substringIndex(
   JNIEnv* env, jclass, jlong strings_handle, jstring delimiter_object, jint count)
 {
   JNI_NULL_CHECK(env, strings_handle, "strings column handle is null", 0);

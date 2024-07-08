@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-public class GpuSubstringIndexTest {
+public class GpuSubstringIndexUtilsTest {
     @Test
     void gpuSubstringIndexTest(){
         Table.TestBuilder tb = new Table.TestBuilder();
@@ -36,7 +36,7 @@ public class GpuSubstringIndexTest {
             try (Table origTable = tb2.build()){
                 for(int i = 0; i < origTable.getNumberOfColumns(); i++){
                     ColumnVector string_col = origTable.getColumn(i);
-                    result.add(GpuSubstringIndex.gpuSubstringIndex(string_col, delimiterArray[i], countArray[i]));
+                    result.add(GpuSubstringIndexUtils.substringIndex(string_col, delimiterArray[i], countArray[i]));
                 }
                 try (Table result_tbl = new Table(
                         result.toArray(new ColumnVector[result.size()]))){
