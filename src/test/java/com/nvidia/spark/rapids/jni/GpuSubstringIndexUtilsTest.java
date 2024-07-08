@@ -19,6 +19,7 @@ public class GpuSubstringIndexUtilsTest {
         tb.column("org");
         tb.column("apache.org");
         tb.column("www.apache.org");
+        tb.column("");
 
         try(Table expected = tb.build()){
             Table.TestBuilder tb2 = new Table.TestBuilder();
@@ -29,9 +30,10 @@ public class GpuSubstringIndexUtilsTest {
             tb2.column("www.apache.org");
             tb2.column("www.apache.org");
             tb2.column("www.apache.org");
+            tb2.column("");
 
-            String[] delimiterArray = new String[]{".", ".", ".", ".",".", ".", "."};
-            int[] countArray = new int[]{3, 2, 1, 0, -1, -2, -3};
+            String[] delimiterArray = new String[]{".", ".", ".", ".",".", ".", ".", "."};
+            int[] countArray = new int[]{3, 2, 1, 0, -1, -2, -3, -2};
             List<ColumnVector> result = new ArrayList<>();
             try (Table origTable = tb2.build()){
                 for(int i = 0; i < origTable.getNumberOfColumns(); i++){
