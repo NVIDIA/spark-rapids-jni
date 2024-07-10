@@ -29,9 +29,4 @@ std::unique_ptr<cudf::column> substring_index(
   cudf::size_type count,
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
-// std::unique_ptr<cudf::column> substring_index(
-//   cudf::strings_column_view const& strings,
-//   cudf::strings_column_view const& delimiter,
-//   cudf::size_type count,
-//   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 }  // namespace spark_rapids_jni
