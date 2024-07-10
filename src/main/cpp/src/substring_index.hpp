@@ -23,6 +23,14 @@
 
 namespace spark_rapids_jni {
 
+/**
+ * @brief Returns the substring of strings before count occurrence of the delimiter delim.
+ *
+ * @param strings Strings column
+ * @param delimiter The delimiter string used to slice string
+ * @param count Specify the occurrence of the delimiter
+ * @return A string column used to store the result
+ */
 std::unique_ptr<cudf::column> substring_index(
   cudf::strings_column_view const& strings,
   cudf::string_scalar const& delimiter,
