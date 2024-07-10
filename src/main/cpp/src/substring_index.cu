@@ -44,44 +44,6 @@ namespace detail {
 
 namespace {
 
-template <typename IndexIterator>
-struct substring_from_fn {
-  column_device_view const d_column;
-  IndexIterator const starts;
-  IndexIterator const stops;
-  __device__ string_view operator()(size_type idx) const
-  {
-    if (d_column.is_null(idx)) { return string_view{nullptr, 0}; }
-    auto const d_str  = d_column.template element<string_view>(idx);
-    auto const length = d_str.length();
-    auto const start  = std::max(starts[idx], 0);
-    if (start >= length) { return string_view{}; }
-    auto const stop = stops[idx];
-    auto const end  = (((stop < 0) || (stop > length)) ? length : stop);
-    return start < end ? d_str.substr(start, end - start) : string_view{};
-  }
-  substring_from_fn(column_device_view const& d_column, IndexIterator starts, IndexIterator stops)
-    : d_column(d_column), starts(starts), stops(stops)
-  {
-  }
-};
-
-template <typename IndexIterator>
-std::unique_ptr<column> compute_substrings_from_fn(column_device_view const& d_column,
-                                                   IndexIterator starts,
-                                                   IndexIterator stops,
-                                                   rmm::cuda_stream_view stream,
-                                                   rmm::device_async_resource_ref mr)
-{
-  auto results = rmm::device_uvector<string_view>(d_column.size(), stream);
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::counting_iterator<size_type>(0),
-                    thrust::counting_iterator<size_type>(d_column.size()),
-                    results.begin(),
-                    substring_from_fn{d_column, starts, stops});
-  return make_strings_column(results, string_view{nullptr, 0}, stream, mr);
-}
-
 /**
  * @brief Compute slice indices for each string.
  *
@@ -181,12 +143,8 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
       d_column, delimiter_itr, count, start_char_pos, end_char_pos, stream, mr);
   }
 
-  // Extract the substrings using the indices next
-  auto starts_iter =
-    cudf::detail::indexalator_factory::make_input_iterator(start_chars_pos_vec->view());
-  auto stops_iter =
-    cudf::detail::indexalator_factory::make_input_iterator(stop_chars_pos_vec->view());
-  return compute_substrings_from_fn(d_column, starts_iter, stops_iter, stream, mr);
+  return cudf::strings::slice_strings(
+    strings, start_chars_pos_vec->view(), stop_chars_pos_vec->view(), stream, mr);
 }
 
 }  // namespace detail
