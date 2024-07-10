@@ -197,6 +197,7 @@ add_library(
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/case_when.cu
@@ -214,13 +215,12 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
   src/hive_hash.cu
   src/zorder.cu
-  src/substring_index.cu
-  src/SubStringIndexJni.cpp
 )
 
 set_target_properties(
