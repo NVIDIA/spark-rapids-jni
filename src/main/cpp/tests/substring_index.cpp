@@ -38,18 +38,17 @@ struct SubstringIndexTests : public test::BaseFixture {};
 
 TEST_F(SubstringIndexTests, ScalarDelimiter)
 {
-    auto col0 = test::strings_column_wrapper({"www.yahoo.com",
-                                                       "www.apache..org",
-                                                       "tennis...com",
-                                                       "nvidia....com",
-                                                       "google...........com",
-                                                       "microsoft...c.....co..m"});
+  auto col0 = test::strings_column_wrapper({"www.yahoo.com",
+                                            "www.apache..org",
+                                            "tennis...com",
+                                            "nvidia....com",
+                                            "google...........com",
+                                            "microsoft...c.....co..m"});
 
-       auto exp_results = test::strings_column_wrapper(
-         {"www.yahoo.com", "www.apache.", "tennis..", "nvidia..", "google..", "microsoft.."});
+  auto exp_results = test::strings_column_wrapper(
+    {"www.yahoo.com", "www.apache.", "tennis..", "nvidia..", "google..", "microsoft.."});
 
-       auto results =
-         spark_rapids_jni::substring_index(strings_column_view{col0}, string_scalar("."), 3);
-       CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, exp_results);
-
+  auto results =
+    spark_rapids_jni::substring_index(strings_column_view{col0}, string_scalar("."), 3);
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, exp_results);
 }

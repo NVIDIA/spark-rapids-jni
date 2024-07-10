@@ -68,10 +68,10 @@ struct substring_from_fn {
 
 template <typename IndexIterator>
 std::unique_ptr<column> compute_substrings_from_fn(column_device_view const& d_column,
-                                                         IndexIterator starts,
-                                                         IndexIterator stops,
-                                                         rmm::cuda_stream_view stream,
-                                                         rmm::device_async_resource_ref mr)
+                                                   IndexIterator starts,
+                                                   IndexIterator stops,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
 {
   auto results = rmm::device_uvector<string_view>(d_column.size(), stream);
   thrust::transform(rmm::exec_policy(stream),
@@ -103,8 +103,7 @@ void compute_substring_indices(column_device_view const& d_column,
     rmm::exec_policy(stream),
     thrust::make_counting_iterator<size_type>(0),
     strings_count,
-    [delim_itr, delimiter_count, start_char_pos, end_char_pos, d_column] __device__(
-      size_type idx) {
+    [delim_itr, delimiter_count, start_char_pos, end_char_pos, d_column] __device__(size_type idx) {
       auto const& delim_val_pair = delim_itr[idx];
       auto const& delim_val      = delim_val_pair.first;  // Don't use it yet
 
@@ -150,26 +149,24 @@ void compute_substring_indices(column_device_view const& d_column,
 
 template <typename DelimiterItrT>
 std::unique_ptr<column> substring_index(strings_column_view const& strings,
-                                              DelimiterItrT const delimiter_itr,
-                                              size_type count,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::device_async_resource_ref mr)
+                                        DelimiterItrT const delimiter_itr,
+                                        size_type count,
+                                        rmm::cuda_stream_view stream,
+                                        rmm::device_async_resource_ref mr)
 {
   auto strings_count = strings.size();
   // If there aren't any rows, return an empty strings column
   if (strings_count == 0) { return make_empty_column(type_id::STRING); }
 
   // Compute the substring indices first
-  auto start_chars_pos_vec =
-    make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
-                                  strings_count,
-                                  stream,
-                                  rmm::mr::get_current_device_resource());
-  auto stop_chars_pos_vec =
-    make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
-                                  strings_count,
-                                  stream,
-                                  rmm::mr::get_current_device_resource());
+  auto start_chars_pos_vec = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
+                                                     strings_count,
+                                                     stream,
+                                                     rmm::mr::get_current_device_resource());
+  auto stop_chars_pos_vec  = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
+                                                    strings_count,
+                                                    stream,
+                                                    rmm::mr::get_current_device_resource());
 
   auto start_char_pos = start_chars_pos_vec->mutable_view().data<size_type>();
   auto end_char_pos   = stop_chars_pos_vec->mutable_view().data<size_type>();
@@ -197,9 +194,9 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
 // external API
 
 std::unique_ptr<column> substring_index(strings_column_view const& strings,
-                                              string_scalar const& delimiter,
-                                              size_type count,
-                                              rmm::device_async_resource_ref mr)
+                                        string_scalar const& delimiter,
+                                        size_type count,
+                                        rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::substring_index(strings,
