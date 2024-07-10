@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Test;
 
@@ -52,8 +53,10 @@ public class GpuSubstringIndexUtilsTest {
             tb2.column("大千世界大千世界");
             tb2.column("www||apache||org");
 
-
-            String[] delimiterArray = new String[]{".", ".", ".", ".",".", ".", ".", ".", "千", "||"};
+            Scalar dotScalar = Scalar.fromString(".");
+            Scalar cnChar = Scalar.fromString("千");
+            Scalar verticalBar = Scalar.fromString("||");
+            Scalar[] delimiterArray = new Scalar[]{dotScalar, dotScalar, dotScalar, dotScalar,dotScalar, dotScalar, dotScalar, dotScalar, cnChar, verticalBar};
             int[] countArray = new int[]{3, 2, 1, 0, -1, -2, -3, -2, 2, 2};
             List<ColumnVector> result = new ArrayList<>();
             try (Table origTable = tb2.build()){
