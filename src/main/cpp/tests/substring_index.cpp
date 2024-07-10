@@ -34,30 +34,22 @@
 
 using namespace cudf;
 
-struct SubstringIndexTest : public ::test::BaseFixture {};
+struct SubstringIndexTests : public test::BaseFixture {};
 
-// TEST_F(SubstringIndexTest, Error)
-//{
-//   cudf::test::strings_column_wrapper strings{"this string intentionally left blank"};
-//   auto strings_view = cudf::strings_column_view(strings);
-//   auto delim_col    = cudf::test::strings_column_wrapper({"", ""});
-//   EXPECT_THROW(
-//     spark_rapids_jni::substring_index(strings_view, cudf::strings_column_view{delim_col}, -1),
-//     cudf::logic_error);
-// }
+TEST_F(SubstringIndexTests, ScalarDelimiter)
+{
+    auto col0 = test::strings_column_wrapper({"www.yahoo.com",
+                                                       "www.apache..org",
+                                                       "tennis...com",
+                                                       "nvidia....com",
+                                                       "google...........com",
+                                                       "microsoft...c.....co..m"});
 
-// TEST_F(SubstringIndexTest, ZeroSizeStringsColumn)
-//   auto results = cudf::strings::slice_strings(strings_view, 1, 2);
-//   cudf::test::expect_column_empty(results->view());
-//
-//   results = spark_rapids_jni::substring_index((strings_view, cudf::string_scalar("foo"), 1);
-//   cudf::test::expect_column_empty(results->view());
-//
-//   cudf::column_view starts_column(cudf::data_type{cudf::type_id::INT32}, 0, nullptr, nullptr, 0);
-//   cudf::column_view stops_column(cudf::data_type{cudf::type_id::INT32}, 0, nullptr, nullptr, 0);
-//   results = spark_rapids_jni::substring_index((strings_view, starts_column, stops_column);
-//   cudf::test::expect_column_empty(results->view());
-//
-//   results = spark_rapids_jni::substring_index((strings_view, strings_view, 1);
-//   cudf::test::expect_column_empty(results->view());
-// }
+       auto exp_results = test::strings_column_wrapper(
+         {"www.yahoo.com", "www.apache.", "tennis..", "nvidia..", "google..", "microsoft.."});
+
+       auto results =
+         spark_rapids_jni::substring_index(strings_column_view{col0}, string_scalar("."), 3);
+       CUDF_TEST_EXPECT_COLUMNS_EQUAL(*results, exp_results);
+
+}

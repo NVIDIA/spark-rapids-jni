@@ -67,7 +67,7 @@ struct substring_from_fn {
 };
 
 template <typename IndexIterator>
-std::unique_ptr<cudf::column> compute_substrings_from_fn(cudf::column_device_view const& d_column,
+std::unique_ptr<column> compute_substrings_from_fn(column_device_view const& d_column,
                                                          IndexIterator starts,
                                                          IndexIterator stops,
                                                          rmm::cuda_stream_view stream,
@@ -79,7 +79,7 @@ std::unique_ptr<cudf::column> compute_substrings_from_fn(cudf::column_device_vie
                     thrust::counting_iterator<size_type>(d_column.size()),
                     results.begin(),
                     substring_from_fn{d_column, starts, stops});
-  return cudf::make_strings_column(results, cudf::string_view{nullptr, 0}, stream, mr);
+  return make_strings_column(results, string_view{nullptr, 0}, stream, mr);
 }
 
 /**
@@ -89,11 +89,11 @@ std::unique_ptr<cudf::column> compute_substrings_from_fn(cudf::column_device_vie
  * compute the start and end indices of the substring. This function accomplishes that.
  */
 template <typename DelimiterItrT>
-void compute_substring_indices(cudf::column_device_view const& d_column,
+void compute_substring_indices(column_device_view const& d_column,
                                DelimiterItrT const delim_itr,
-                               cudf::size_type delimiter_count,
-                               cudf::size_type* start_char_pos,
-                               cudf::size_type* end_char_pos,
+                               size_type delimiter_count,
+                               size_type* start_char_pos,
+                               size_type* end_char_pos,
                                rmm::cuda_stream_view stream,
                                rmm::device_async_resource_ref)
 {
@@ -101,10 +101,10 @@ void compute_substring_indices(cudf::column_device_view const& d_column,
 
   thrust::for_each_n(
     rmm::exec_policy(stream),
-    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<size_type>(0),
     strings_count,
     [delim_itr, delimiter_count, start_char_pos, end_char_pos, d_column] __device__(
-      cudf::size_type idx) {
+      size_type idx) {
       auto const& delim_val_pair = delim_itr[idx];
       auto const& delim_val      = delim_val_pair.first;  // Don't use it yet
 
@@ -113,7 +113,7 @@ void compute_substring_indices(cudf::column_device_view const& d_column,
       // If the global delimiter or the row specific delimiter is invalid or if it is empty, row
       // value is empty.
       if (d_column.is_null(idx) || !delim_val_pair.second || delim_val.empty()) return;
-      auto const& col_val = d_column.element<cudf::string_view>(idx);
+      auto const& col_val = d_column.element<string_view>(idx);
 
       // If the column value for the row is empty, the row value is empty.
       if (!col_val.empty()) {
@@ -123,9 +123,9 @@ void compute_substring_indices(cudf::column_device_view const& d_column,
         auto nsearches           = (delimiter_count < 0) ? -delimiter_count : delimiter_count;
         bool const left_to_right = (delimiter_count > 0);
 
-        cudf::size_type start_pos = start_char_pos[idx];
-        cudf::size_type end_pos   = col_val_len;
-        cudf::size_type char_pos  = -1;
+        size_type start_pos = start_char_pos[idx];
+        size_type end_pos   = col_val_len;
+        size_type char_pos  = -1;
 
         end_char_pos[idx] = col_val_len;
 
@@ -149,32 +149,32 @@ void compute_substring_indices(cudf::column_device_view const& d_column,
 }  // namespace
 
 template <typename DelimiterItrT>
-std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
                                               DelimiterItrT const delimiter_itr,
-                                              cudf::size_type count,
+                                              size_type count,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
   auto strings_count = strings.size();
   // If there aren't any rows, return an empty strings column
-  if (strings_count == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
+  if (strings_count == 0) { return make_empty_column(type_id::STRING); }
 
   // Compute the substring indices first
   auto start_chars_pos_vec =
-    cudf::make_column_from_scalar(cudf::numeric_scalar<cudf::size_type>(0, true, stream),
+    make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
                                   strings_count,
                                   stream,
                                   rmm::mr::get_current_device_resource());
   auto stop_chars_pos_vec =
-    cudf::make_column_from_scalar(cudf::numeric_scalar<cudf::size_type>(0, true, stream),
+    make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
                                   strings_count,
                                   stream,
                                   rmm::mr::get_current_device_resource());
 
-  auto start_char_pos = start_chars_pos_vec->mutable_view().data<cudf::size_type>();
-  auto end_char_pos   = stop_chars_pos_vec->mutable_view().data<cudf::size_type>();
+  auto start_char_pos = start_chars_pos_vec->mutable_view().data<size_type>();
+  auto end_char_pos   = stop_chars_pos_vec->mutable_view().data<size_type>();
 
-  auto strings_column = cudf::column_device_view::create(strings.parent(), stream);
+  auto strings_column = column_device_view::create(strings.parent(), stream);
   auto d_column       = *strings_column;
 
   // If delimiter count is 0, the output column will contain empty strings
@@ -192,55 +192,20 @@ std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& s
   return compute_substrings_from_fn(d_column, starts_iter, stops_iter, stream, mr);
 }
 
-// std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
-//                                               cudf::strings_column_view const& delimiters,
-//                                               cudf::size_type count,
-//                                               rmm::cuda_stream_view stream,
-//                                               rmm::device_async_resource_ref mr)
-// {
-//   CUDF_EXPECTS(strings.size() == delimiters.size(),
-//                "Strings and delimiters column sizes do not match");
-//   auto delimiters_dev_view_ptr = cudf::column_device_view::create(delimiters.parent(), stream);
-//   auto delimiters_dev_view     = *delimiters_dev_view_ptr;
-//   return (delimiters_dev_view.nullable())
-//            ? detail::substring_index(
-//                strings,
-//                cudf::detail::make_pair_iterator<cudf::string_view, true>(delimiters_dev_view),
-//                count,
-//                stream,
-//                mr)
-//            : detail::substring_index(
-//                strings,
-//                cudf::detail::make_pair_iterator<cudf::string_view, false>(delimiters_dev_view),
-//                count,
-//                stream,
-//                mr);
-// }
-
 }  // namespace detail
 
 // external API
 
-std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
-                                              cudf::string_scalar const& delimiter,
-                                              cudf::size_type count,
+std::unique_ptr<column> substring_index(strings_column_view const& strings,
+                                              string_scalar const& delimiter,
+                                              size_type count,
                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   return detail::substring_index(strings,
-                                 cudf::detail::make_pair_iterator<cudf::string_view>(delimiter),
+                                 cudf::detail::make_pair_iterator<string_view>(delimiter),
                                  count,
                                  cudf::get_default_stream(),
                                  mr);
 }
-
-// std::unique_ptr<cudf::column> substring_index(cudf::strings_column_view const& strings,
-//                                               cudf::strings_column_view const& delimiters,
-//                                               cudf::size_type count,
-//                                               rmm::device_async_resource_ref mr)
-// {
-//   CUDF_FUNC_RANGE();
-//   return detail::substring_index(strings, delimiters, count, cudf::get_default_stream(), mr);
-// }
-
 }  // namespace spark_rapids_jni
