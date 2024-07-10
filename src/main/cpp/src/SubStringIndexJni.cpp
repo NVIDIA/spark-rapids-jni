@@ -26,8 +26,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSubstringIndexUtils_
   JNI_NULL_CHECK(env, delimiter, "delimiter scalar handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const input          = reinterpret_cast<cudf::column_view const*>(strings_handle);
-    auto const strings_column = cudf::strings_column_view{*input};
+    auto const input               = reinterpret_cast<cudf::column_view const*>(strings_handle);
+    auto const strings_column      = cudf::strings_column_view{*input};
     cudf::string_scalar* ss_scalar = reinterpret_cast<cudf::string_scalar*>(delimiter);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::substring_index(strings_column, *ss_scalar, count));
