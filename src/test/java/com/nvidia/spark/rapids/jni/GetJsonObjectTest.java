@@ -442,9 +442,9 @@ public class GetJsonObjectTest {
     };
 
     String JSON1 = "[ {'k': [0, 1, 2]}, {'k': [10, 11, 12]}, {'k': [20, 21, 22]}  ]";
-    String JSON2 = "[ {'k': [0, 1, 2]}, {'k': {10, 11, 12}}, {'k': [20, 21, 22]}, {'k': 'abc'}  ]";
+    String JSON2 = "[ {'k': [0, 1, 2]}, {'k': {'a': 'b'}}, {'k': [10, 11, 12]}, {'k': 'abc'}  ]";
     String expectedStr1 = "[[0,1,2],[10,11,12],[20,21,22]]";
-    String expectedStr2 = "[[0,1,2],[20,21,22]]";
+    String expectedStr2 = "[[0,1,2],[10,11,12]]";
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
