@@ -490,7 +490,6 @@ __device__ bool evaluate_path(json_parser& p,
             }
           }
           // Mark task is done regardless whether the expected child was found.
-          // If it was not found, the root context should eventially still not be dirty.
           ctx.task_is_done = true;
         } else {
           // below is 1st enter
