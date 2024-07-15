@@ -60,10 +60,10 @@ __device__ inline std::pair<cudf::size_type, cudf::bitmask_type> gpu_get_hash_ma
 }
 
 template <bool nullable>
-__global__ void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
-                                     cudf::size_type bloom_filter_bits,
-                                     cudf::column_device_view input,
-                                     cudf::size_type num_hashes)
+CUDF_KERNEL void gpu_bloom_filter_put(cudf::bitmask_type* const bloom_filter,
+                                      cudf::size_type bloom_filter_bits,
+                                      cudf::column_device_view input,
+                                      cudf::size_type num_hashes)
 {
   size_t const tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid >= input.size()) { return; }

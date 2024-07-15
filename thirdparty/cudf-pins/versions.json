@@ -13,30 +13,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "36f379f29660761fe033a1306ca9dab6a88cb65c",
+      "git_tag" : "e21d607157218540cd7c45461213fb96adf720b7",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
-        {
-          "file" : "cccl/bug_fixes.diff",
-          "fixed_in" : "2.3",
-          "issue" : "CCCL installs header-search.cmake files in nondeterministic order and has a typo in checking target creation that leads to duplicates"
-        },
-        {
-          "file" : "cccl/hide_kernels.diff",
-          "fixed_in" : "2.3",
-          "issue" : "Mark all cub and thrust kernels with hidden visibility [https://github.com/nvidia/cccl/pulls/443]"
-        },
-        {
-          "file" : "cccl/revert_pr_211.diff",
-          "fixed_in" : "",
-          "issue" : "thrust::copy introduced a change in behavior that causes failures with cudaErrorInvalidValue."
-        },
-        {
-          "file" : "cccl/kernel_pointer_hiding.diff",
-          "fixed_in" : "2.4",
-          "issue" : "Hide APIs that accept kernel pointers [https://github.com/NVIDIA/cccl/pull/1395]"
-        },
         {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
@@ -53,7 +33,7 @@
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "version" : "2.2.0"
+      "version" : "2.5.0"
     },
     "GTest" : 
     {
@@ -67,15 +47,15 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "261445be7993df57f624a3f4ee9fd15e7d26bb5e",
+      "git_tag" : "363e2d65c02b216baf33e4219f27c0102936edee",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.06"
+      "version" : "24.08"
     },
     "cuco" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2101cb31d0210b609cd02c88f9b538e10881d91d",
+      "git_tag" : "c41624641bcd6f6ae8d10d92c4b7f32f3a33e620",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -152,9 +132,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "dc1e17a03ed2dbc9329ccecc27922e414250f45a",
+      "git_tag" : "b8b67f8ceb52b50bf1c16d4f3305b7885de5c3ea",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.06"
+      "version" : "24.08"
     },
     "spdlog" : 
     {

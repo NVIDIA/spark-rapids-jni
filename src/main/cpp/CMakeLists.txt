@@ -14,7 +14,26 @@
 
 cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
 
-include(../../../thirdparty/cudf/rapids_config.cmake)
+set(CUDF_DIR
+  "$ENV{CUDF_ROOT}"
+  CACHE STRING "path to cudf repository"
+)
+set(CUDF_INSTALL_DIR
+  "$ENV{CUDF_INSTALL_DIR}"
+  CACHE STRING "path to libcudf install root"
+)
+set(CUDFJNI_BUILD_DIR
+  "$ENV{CUDFJNI_BUILD_DIR}"
+  CACHE STRING "path to libcudfjni build root"
+)
+set(CUDF_CPP_BUILD_DIR
+  "$ENV{CUDF_CPP_BUILD_DIR}"
+  CACHE STRING "path to libcudf build root"
+)
+# libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
+set(CUDA_STATIC_RUNTIME ON)
+
+include("${CUDF_DIR}/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -32,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.06.00
+  VERSION 24.08.00
   LANGUAGES C CXX CUDA
 )
 
@@ -44,6 +63,7 @@ option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" OFF)
 option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
 option(BUILD_FAULTINJ "Configure CMake to build fault injection" ON)
+option(BUILD_PROFILER "Configure CMake to build profiler" ON)
 
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
@@ -60,6 +80,12 @@ set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
+if(NOT SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR)
+  set(SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR ${SPARK_RAPIDS_JNI_BINARY_DIR}/generated/include)
+endif()
+if(NOT SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR)
+  set(SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR ${SPARK_RAPIDS_JNI_BINARY_DIR}/generated/src)
+endif()
 
 # Set RMM logging level
 set(RMM_LOGGING_LEVEL
@@ -71,17 +97,7 @@ set_property(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
-set(CUDF_INSTALL_DIR
-  "${PROJECT_BINARY_DIR}/../libcudf-install"
-  CACHE STRING "path to libcudf install root"
-)
-
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
-
-set(CUDF_DIR
-  "${PROJECT_BINARY_DIR}/../../thirdparty/cudf"
-  CACHE STRING "path to cudf repository"
-)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type("Release")
@@ -93,6 +109,21 @@ include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
+
+# version header
+find_package(Git REQUIRED)
+execute_process(COMMAND
+  "${GIT_EXECUTABLE}" describe --abbrev=40 --always --dirty --long
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  OUTPUT_VARIABLE SPARK_RAPIDS_JNI_COMMIT_DETAILS
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+configure_file(
+  src/spark_rapids_jni_version.cpp.in
+  "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/spark_rapids_jni_version.cpp"
+  @ONLY
+)
 
 # find NVTX
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
@@ -119,31 +150,31 @@ endif()
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
+  HINTS "${CUDFJNI_BUILD_DIR}"
 )
 
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib64"
-  HINTS "${PROJECT_BINARY_DIR}/../libcudf-install/lib"
+  HINTS "${CUDF_INSTALL_DIR}/lib64"
+  HINTS "${CUDF_INSTALL_DIR}/lib"
 )
 
 # Internal parquet headers
 set (GENERATED_PARQUET_INCLUDE
-    "${CUDF_DIR}/cpp/build/_deps/arrow-src/cpp/src/"
+    "${CUDF_CPP_BUILD_DIR}/_deps/arrow-src/cpp/src/"
     CACHE STRING "generated parquet thrift headers"
 )
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDF_DIR}/cpp/build/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDF_DIR}/cpp/build/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
 )
 
 # ##################################################################################################
@@ -152,6 +183,7 @@ set(CUDFJNI_INCLUDE_DIRS
 add_library(
   spark_rapids_jni SHARED
   src/BloomFilterJni.cpp
+  src/CaseWhenJni.cpp
   src/CastStringJni.cpp
   src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
@@ -167,6 +199,7 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
+  src/case_when.cu
   src/cast_decimal_to_string.cu
   src/format_float.cu
   src/cast_float_to_string.cu
@@ -184,6 +217,7 @@ add_library(
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
+  src/hive_hash.cu
   src/zorder.cu
 )
 
@@ -238,6 +272,7 @@ target_link_libraries(
     ${PARQUET_LIB}
     ${THRIFT_LIB}
 )
+rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
 # For backwards-compatibility with the cudf Java bindings and RAPIDS accelerated UDFs,
 # all of the code is built into libcudf.so that is statically linked to the CUDA runtime library.
@@ -256,7 +291,7 @@ add_dependencies(cudfjnistub spark_rapids_jni)
 if(USE_GDS)
   include(${CUDF_DIR}/cpp/cmake/Modules/FindcuFile.cmake)
   find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${PROJECT_BINARY_DIR}/../libcudfjni"
+    HINTS "${CUDFJNI_BUILD_DIR}"
   )
   add_library(cufilejni SHARED src/emptyfile.cpp)
   set_target_properties(
@@ -274,8 +309,8 @@ if(USE_GDS)
     -Wl,--no-whole-archive
     spark_rapids_jni
     ${cuFile_LIBRARIES}
-    CUDA::cudart_static
   )
+  rapids_cuda_set_runtime(cufilejni USE_STATIC ON)
 endif()
 
 # ##################################################################################################
@@ -299,4 +334,8 @@ endif()
 
 if(SPARK_RAPIDS_JNI_BUILD_FAULTINJ)
   add_subdirectory(faultinj)
+endif()
+
+if(BUILD_PROFILER)
+  add_subdirectory(profiler)
 endif()
