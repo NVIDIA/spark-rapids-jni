@@ -589,13 +589,14 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             // add outer array tokens
             ctx.g.write_child_raw_value(
               child_g_start, child_g_len, /* write_outer_array_tokens */ true);
-            ctx.task_is_done = true;
           } else if (ctx.dirty == 1) {
             // remove outer array tokens
             ctx.g.write_child_raw_value(
               child_g_start, child_g_len, /* write_outer_array_tokens */ false);
-            ctx.task_is_done = true;
           }  // else do not write anything
+
+          // Done anyway, since we already reached the end array.
+          ctx.task_is_done = true;
         }
       }
       // case (START_ARRAY, Wildcard :: xs)
