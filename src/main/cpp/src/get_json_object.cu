@@ -847,15 +847,15 @@ construct_path_commands(
   rmm::cuda_stream_view stream)
 {
   std::size_t name_pos{0};
-  auto path_commands = std::make_unique<std::vector<path_instruction>>();
-  path_commands->reserve(instructions.size());
+  auto h_path_commands = std::make_unique<std::vector<path_instruction>>();
+  h_path_commands->reserve(instructions.size());
   for (auto const& [type, name, index] : instructions) {
-    path_commands->emplace_back(path_instruction{type});
+    h_path_commands->emplace_back(path_instruction{type});
 
     if (type == path_instruction_type::INDEX) {
-      path_commands->back().index = index;
+      h_path_commands->back().index = index;
     } else if (type == path_instruction_type::NAMED) {
-      path_commands->back().name =
+      h_path_commands->back().name =
         cudf::string_view(all_names_scalar.data() + name_pos, name.size());
       name_pos += name.size();
     } else if (type != path_instruction_type::WILDCARD) {
@@ -863,9 +863,10 @@ construct_path_commands(
     }
   }
 
+  // h_path_commands needs to be kept alive outside of this function due to async copy.
   return {cudf::detail::make_device_uvector_async(
-            *path_commands, stream, rmm::mr::get_current_device_resource()),
-          std::move(path_commands)};
+            *h_path_commands, stream, rmm::mr::get_current_device_resource()),
+          std::move(h_path_commands)};
 }
 
 std::unique_ptr<cudf::column> get_json_object(
