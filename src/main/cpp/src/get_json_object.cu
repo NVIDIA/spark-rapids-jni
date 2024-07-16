@@ -58,7 +58,7 @@ constexpr int max_path_depth = 16;
 /**
  * write JSON style
  */
-enum class write_style { RAW, QUOTED, FLATTEN };
+enum class write_style : int8_t { RAW, QUOTED, FLATTEN };
 
 /**
  * path instruction
@@ -66,13 +66,13 @@ enum class write_style { RAW, QUOTED, FLATTEN };
 struct path_instruction {
   __device__ inline path_instruction(path_instruction_type _type) : type(_type) {}
 
-  path_instruction_type type;
-
   // used when type is named type
   cudf::string_view name;
 
   // used when type is index
   int index{-1};
+
+  path_instruction_type type;
 };
 
 /**
@@ -87,7 +87,10 @@ class json_generator {
 
   // create a nested child generator based on this parent generator,
   // child generator is a view, parent and child share the same byte array
-  __device__ json_generator new_child_generator() { return json_generator(offset + output_len); }
+  __device__ json_generator new_child_generator() const
+  {
+    return json_generator(offset + output_len);
+  }
 
   // write [
   // add an extra comma if needed,
@@ -126,7 +129,7 @@ class json_generator {
   }
 
   // return true if it's in a array context and it's not writing the first item.
-  __device__ inline bool need_comma() { return (array_depth > 0 && !is_curr_array_empty); }
+  __device__ inline bool need_comma() const { return (array_depth > 0 && !is_curr_array_empty); }
 
   /**
    * write comma accroding to current generator state
@@ -244,7 +247,7 @@ class json_generator {
   // e.g.:  memory is: 1 2 0 0, begin is 1, len is 1, after moving,
   // memory is: 1 1 2 0.
   // Note: should move from end to begin to avoid overwrite buffer
-  __device__ void move_forward(char* begin, size_t len, int forward)
+  static __device__ void move_forward(char* begin, size_t len, int forward)
   {
     // TODO copy by 8 bytes
     char* pos = begin + len + forward - 1;
