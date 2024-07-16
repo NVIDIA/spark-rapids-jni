@@ -41,4 +41,11 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    instruction_array,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni
