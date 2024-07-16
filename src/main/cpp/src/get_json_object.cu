@@ -873,33 +873,69 @@ __launch_bounds__(block_size, 4) CUDF_KERNEL
   }
 }
 
-std::pair<rmm::device_uvector<path_instruction>, std::unique_ptr<std::vector<path_instruction>>>
+std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
+           std::unique_ptr<std::vector<std::vector<path_instruction>>>,
+           cudf::string_scalar,
+           std::string>
 construct_path_commands(
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  cudf::string_scalar const& all_names_scalar,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    instruction_array,
   rmm::cuda_stream_view stream)
 {
-  std::size_t name_pos{0};
-  auto h_path_commands = std::make_unique<std::vector<path_instruction>>();
-  h_path_commands->reserve(instructions.size());
-  for (auto const& [type, name, index] : instructions) {
-    h_path_commands->emplace_back(path_instruction{type});
+  auto h_inst_names = [&] {
+    std::size_t length{0};
+    for (auto const& instructions : instruction_array) {
+      for (auto const& inst : instructions) {
+        length += (std::get<1>(inst)).length();
+      }
+    }
 
-    if (type == path_instruction_type::INDEX) {
-      h_path_commands->back().index = index;
-    } else if (type == path_instruction_type::NAMED) {
-      h_path_commands->back().name =
-        cudf::string_view(all_names_scalar.data() + name_pos, name.size());
-      name_pos += name.size();
-    } else if (type != path_instruction_type::WILDCARD) {
-      CUDF_FAIL("Invalid path instruction type");
+    std::string all_names;
+    all_names.reserve(length);
+    for (auto const& instructions : instruction_array) {
+      for (auto const& inst : instructions) {
+        all_names += std::get<1>(inst);
+      }
+    }
+    return all_names;
+  }();
+  auto d_inst_names = cudf::string_scalar(h_inst_names, true, stream);
+
+  std::size_t name_pos{0};
+  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
+  h_path_commands->reserve(instruction_array.size());
+
+  for (auto const& instructions : instruction_array) {
+    h_path_commands->emplace_back();
+    auto& path_commands = h_path_commands->back();
+    path_commands.reserve(instructions.size());
+
+    for (auto const& [type, name, index] : instructions) {
+      path_commands.emplace_back(path_instruction{type});
+
+      if (type == path_instruction_type::INDEX) {
+        path_commands.back().index = index;
+      } else if (type == path_instruction_type::NAMED) {
+        path_commands.back().name = cudf::string_view(d_inst_names.data() + name_pos, name.size());
+        name_pos += name.size();
+      } else if (type != path_instruction_type::WILDCARD) {
+        CUDF_FAIL("Invalid path instruction type");
+      }
     }
   }
 
+  auto d_path_commands = std::vector<rmm::device_uvector<path_instruction>>{};
+  d_path_commands.reserve(h_path_commands->size());
+  for (auto const& path_commands : *h_path_commands) {
+    d_path_commands.emplace_back(cudf::detail::make_device_uvector_async(
+      path_commands, stream, rmm::mr::get_current_device_resource()));
+  }
+
   // h_path_commands needs to be kept alive outside of this function due to async copy.
-  return {cudf::detail::make_device_uvector_async(
-            *h_path_commands, stream, rmm::mr::get_current_device_resource()),
-          std::move(h_path_commands)};
+  return {std::move(d_path_commands),
+          std::move(h_path_commands),
+          std::move(d_inst_names),
+          std::move(h_inst_names)};
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
@@ -942,42 +978,27 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
 
-  std::vector<std::string> h_inst_names;
-  std::vector<cudf::string_scalar> d_inst_names;
-  std::vector<rmm::device_uvector<path_instruction>> d_json_paths;
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
-  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
   std::vector<json_path_query_data> h_query_data;
+  scratch_buffers.reserve(instruction_array.size());
+  out_stringviews.reserve(instruction_array.size());
+  h_query_data.reserve(instruction_array.size());
+
+  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
+
+  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
+    construct_path_commands(instruction_array, stream);
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& instructions = instruction_array[idx];
     if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
 
-    auto all_names = [&] {
-      std::size_t length{0};
-      for (auto const& inst : instructions) {
-        length += (std::get<1>(inst)).length();
-      }
-
-      std::string all_names;
-      all_names.reserve(length);
-      for (auto const& inst : instructions) {
-        all_names += std::get<1>(inst);
-      }
-      return all_names;
-    }();
-    h_inst_names.emplace_back(std::move(all_names));
-
-    d_inst_names.emplace_back(cudf::string_scalar(h_inst_names.back(), true, stream));
-    d_json_paths.emplace_back(construct_path_commands(
-      instructions, d_inst_names.back(), stream, rmm::mr::get_current_device_resource()));
-
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
 
-    h_query_data.emplace_back(d_json_paths.back(),
+    h_query_data.emplace_back(d_json_paths[idx],
                               in_offsets,
                               out_stringviews.back().data(),
                               scratch_buffers.back().data(),
