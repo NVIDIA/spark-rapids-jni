@@ -83,30 +83,21 @@ struct path_instruction {
  */
 class json_generator {
  public:
-  __device__ json_generator(char* _output) : output(_output), output_len(0) {}
-  __device__ json_generator() : output(nullptr), output_len(0) {}
+  __device__ json_generator(int _offset = 0) : offset(_offset), output_len(0) {}
 
   // create a nested child generator based on this parent generator,
   // child generator is a view, parent and child share the same byte array
-  __device__ json_generator new_child_generator()
-  {
-    if (nullptr == output) {
-      return json_generator();
-    } else {
-      return json_generator(output + output_len);
-    }
-  }
+  __device__ json_generator new_child_generator() { return json_generator(offset + output_len); }
 
   // write [
   // add an extra comma if needed,
   // e.g.: when JSON content is: [[1,2,3]
   // writing a new [ should result: [[1,2,3],[
-  __device__ void write_start_array()
+  __device__ void write_start_array(char* out_begin)
   {
-    try_write_comma();
+    try_write_comma(out_begin);
 
-    if (output) { *(output + output_len) = '['; }
-
+    out_begin[offset + output_len] = '[';
     output_len++;
     array_depth++;
     // new array is empty
@@ -114,14 +105,12 @@ class json_generator {
   }
 
   // write ]
-  __device__ void write_end_array()
+  __device__ void write_end_array(char* out_begin)
   {
-    if (output) { *(output + output_len) = ']'; }
+    out_begin[offset + output_len] = ']';
     output_len++;
-
     // point to parent array
     array_depth--;
-
     // set parent array as non-empty because already had a closed child item.
     is_curr_array_empty = false;
   }
@@ -142,11 +131,11 @@ class json_generator {
   /**
    * write comma accroding to current generator state
    */
-  __device__ void try_write_comma()
+  __device__ void try_write_comma(char* out_begin)
   {
     if (need_comma()) {
       // in array context and writes first item
-      if (output) { *(output + output_len) = ','; }
+      out_begin[offset + output_len] = ',';
       output_len++;
     }
   }
@@ -156,24 +145,16 @@ class json_generator {
    * object/array, then copy to corresponding matched end object/array. return
    * false if JSON format is invalid return true if JSON format is valid
    */
-  __device__ bool copy_current_structure(json_parser& parser)
+  __device__ bool copy_current_structure(json_parser& parser, char* out_begin)
   {
     // first try add comma
-    try_write_comma();
+    try_write_comma(out_begin);
 
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      auto copy_to       = output + output_len;
-      auto [b, copy_len] = parser.copy_current_structure(copy_to);
-      output_len += copy_len;
-      return b;
-    } else {
-      char* copy_to      = nullptr;
-      auto [b, copy_len] = parser.copy_current_structure(copy_to);
-      output_len += copy_len;
-      return b;
-    }
+    auto [b, copy_len] = parser.copy_current_structure(out_begin + offset + output_len);
+    output_len += copy_len;
+    return b;
   }
 
   /**
@@ -183,17 +164,12 @@ class json_generator {
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
    */
-  __device__ void write_raw(json_parser& parser)
+  __device__ void write_raw(json_parser& parser, char* out_begin)
   {
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      auto copied = parser.write_unescaped_text(output + output_len);
-      output_len += copied;
-    } else {
-      auto len = parser.compute_unescaped_len();
-      output_len += len;
-    }
+    auto copied = parser.write_unescaped_text(out_begin + offset + output_len);
+    output_len += copied;
   }
 
   /**
@@ -227,34 +203,32 @@ class json_generator {
    * block
    */
   __device__ void write_child_raw_value(char* child_block_begin,
-                                        size_t child_block_len,
+                                        int child_block_len,
                                         bool write_outer_array_tokens)
   {
     bool insert_comma = need_comma();
 
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      if (write_outer_array_tokens) {
-        if (insert_comma) {
-          *(child_block_begin + child_block_len + 2) = ']';
-          move_forward(child_block_begin, child_block_len, 2);
-          *(child_block_begin + 1) = '[';
-          *(child_block_begin)     = ',';
-        } else {
-          *(child_block_begin + child_block_len + 1) = ']';
-          move_forward(child_block_begin, child_block_len, 1);
-          *(child_block_begin) = '[';
-        }
+    if (write_outer_array_tokens) {
+      if (insert_comma) {
+        *(child_block_begin + child_block_len + 2) = ']';
+        move_forward(child_block_begin, child_block_len, 2);
+        *(child_block_begin + 1) = '[';
+        *(child_block_begin)     = ',';
       } else {
-        if (insert_comma) {
-          move_forward(child_block_begin, child_block_len, 1);
-          *(child_block_begin) = ',';
-        } else {
-          // do not need comma && do not need write outer array tokens
-          // do nothing, because child generator buff is directly after the
-          // parent generator
-        }
+        *(child_block_begin + child_block_len + 1) = ']';
+        move_forward(child_block_begin, child_block_len, 1);
+        *(child_block_begin) = '[';
+      }
+    } else {
+      if (insert_comma) {
+        move_forward(child_block_begin, child_block_len, 1);
+        *(child_block_begin) = ',';
+      } else {
+        // do not need comma && do not need write outer array tokens
+        // do nothing, because child generator buff is directly after the
+        // parent generator
       }
     }
 
@@ -281,9 +255,8 @@ class json_generator {
     }
   }
 
-  __device__ inline size_t get_output_len() const { return output_len; }
-  __device__ inline char* get_output_start_position() const { return output; }
-  __device__ inline char* get_current_output_position() const { return output + output_len; }
+  __device__ inline int get_offset() const { return offset; }
+  __device__ inline int get_output_len() const { return output_len; }
 
   /**
    * generator may contain trash output, e.g.: generator writes some output,
@@ -294,13 +267,14 @@ class json_generator {
   __device__ inline void set_output_len(size_t len) { output_len = len; }
 
  private:
-  char* output;
-  size_t output_len;
+  int offset;  // offset from the global output buffer
+  int output_len;
+
+  int array_depth = 0;
 
   // whether already worte a item in current array
   // used to decide whether add a comma before writing out a new item.
   bool is_curr_array_empty;
-  int array_depth = 0;
 };
 
 /**
@@ -362,37 +336,39 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
  * This function is rewritten from above commented recursive function.
  * this function is equivalent to the above commented recursive function.
  */
-__device__ bool evaluate_path(json_parser& p,
-                              json_generator& root_g,
-                              write_style root_style,
-                              cudf::device_span<path_instruction const> root_path)
+__device__ thrust::pair<bool, cudf::size_type> evaluate_path(
+  char_range input,
+  write_style root_style,
+  cudf::device_span<path_instruction const> root_path,
+  char* out_buff)
 {
   // manually maintained context stack in lieu of calling evaluate_path recursively.
   struct context {
-    // current token
-    json_token token;
-
-    // which case path that this task is from
-    int case_path;
-
     // used to save current generator
     json_generator g;
 
-    write_style style;
+    // used to save child JSON generator for case path 6
+    json_generator child_g;
 
     cudf::device_span<path_instruction const> path;
-    // is this context task is done
-    bool task_is_done;
+
+    // which case path that this task is from
+    int case_path;
 
     // whether written output
     // if dirty > 0, indicates success
     int dirty;
 
+    // current token
+    json_token token;
+
+    write_style style;
+
     // for some case paths
     bool is_first_enter;
 
-    // used to save child JSON generator for case path 8
-    json_generator child_g;
+    // is this context task is done
+    bool task_is_done;
   };
 
   // define stack; plus 1 indicates root context task needs an extra memory
@@ -420,8 +396,12 @@ __device__ bool evaluate_path(json_parser& p,
     stack_pos++;
   };
 
+  json_parser p{input};
+  p.next_token();
+  if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
+
   // put the first context task
-  push_context(p.get_current_token(), -1, root_g, root_style, root_path);
+  push_context(p.get_current_token(), -1, json_generator{}, root_style, root_path);
 
   while (stack_pos > 0) {
     auto& ctx = stack[stack_pos - 1];
@@ -434,7 +414,7 @@ __device__ bool evaluate_path(json_parser& p,
           ctx.style == write_style::RAW) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
-        ctx.g.write_raw(p);
+        ctx.g.write_raw(p, out_buff);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
       }
@@ -445,7 +425,7 @@ __device__ bool evaluate_path(json_parser& p,
         // flatten this array into the parent
         if (json_token::END_ARRAY != p.next_token()) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // push back task
           // add child task
           push_context(p.get_current_token(), 2, ctx.g, ctx.style, {nullptr, 0});
@@ -458,9 +438,9 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
         // general case: just copy the child tree verbatim
-        if (!(ctx.g.copy_current_structure(p))) {
+        if (!(ctx.g.copy_current_structure(p, out_buff))) {
           // JSON validation check
-          return false;
+          return {false, 0};
         }
         ctx.dirty        = 1;
         ctx.task_is_done = true;
@@ -475,17 +455,17 @@ __device__ bool evaluate_path(json_parser& p,
           if (ctx.dirty > 0) {
             while (json_token::END_OBJECT != p.next_token()) {
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // skip value of FIELD_NAME
               if (!p.try_skip_children()) {
                 // JSON validation check
-                return false;
+                return {false, 0};
               }
             }
           }
@@ -498,7 +478,7 @@ __device__ bool evaluate_path(json_parser& p,
           bool found_expected_child = false;
           while (json_token::END_OBJECT != p.next_token()) {
             // JSON validation check
-            if (json_token::ERROR == p.get_current_token()) { return false; }
+            if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
             // need to try more children
             auto match_named = path_match_named(ctx.path);
@@ -508,10 +488,10 @@ __device__ bool evaluate_path(json_parser& p,
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // meets null token, it's not expected, return false
-              if (json_token::VALUE_NULL == p.get_current_token()) { return false; }
+              if (json_token::VALUE_NULL == p.get_current_token()) { return {false, 0}; }
               // push sub task; sub task will update the result of path 4
               push_context(p.get_current_token(),
                            4,
@@ -524,12 +504,12 @@ __device__ bool evaluate_path(json_parser& p,
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // current child is not expected, skip current child
               if (!p.try_skip_children()) {
                 // JSON validation check
-                return false;
+                return {false, 0};
               }
             }
           }
@@ -549,19 +529,19 @@ __device__ bool evaluate_path(json_parser& p,
         // behavior in Hive
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array();
+          ctx.g.write_start_array(out_buff);
         }
 
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           push_context(p.get_current_token(),
                        5,
                        ctx.g,
                        write_style::FLATTEN,
                        {ctx.path.data() + 2, ctx.path.size() - 2});
         } else {
-          ctx.g.write_end_array();
+          ctx.g.write_end_array(out_buff);
           ctx.task_is_done = true;
         }
       }
@@ -594,7 +574,7 @@ __device__ bool evaluate_path(json_parser& p,
 
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // track the number of array elements and only emit an outer array if
           // we've written more than one element, this matches Hive's behavior
           push_context(p.get_current_token(),
@@ -603,8 +583,8 @@ __device__ bool evaluate_path(json_parser& p,
                        next_style,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          char* child_g_start = child_g.get_output_start_position();
-          size_t child_g_len  = child_g.get_output_len();
+          char* child_g_start = out_buff + child_g.get_offset();
+          int child_g_len     = child_g.get_output_len();
           if (ctx.dirty > 1) {
             // add outer array tokens
             ctx.g.write_child_raw_value(
@@ -624,11 +604,11 @@ __device__ bool evaluate_path(json_parser& p,
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array();
+          ctx.g.write_start_array(out_buff);
         }
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           // wildcards can have multiple matches, continually update the dirty
           // count
@@ -638,7 +618,7 @@ __device__ bool evaluate_path(json_parser& p,
                        write_style::QUOTED,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          ctx.g.write_end_array();
+          ctx.g.write_end_array(out_buff);
           ctx.task_is_done = true;
         }
       }
@@ -650,21 +630,21 @@ __device__ bool evaluate_path(json_parser& p,
 
         p.next_token();
         // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return false; }
+        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
         ctx.is_first_enter = false;
 
         int i = idx;
         while (i > 0) {
           if (p.get_current_token() == json_token::END_ARRAY) {
             // terminate, nothing has been written
-            return false;
+            return {false, 0};
           }
 
-          if (!p.try_skip_children()) { return false; }
+          if (!p.try_skip_children()) { return {false, 0}; }
 
           p.next_token();
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           --i;
         }
@@ -683,20 +663,20 @@ __device__ bool evaluate_path(json_parser& p,
 
         p.next_token();
         // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return false; }
+        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
         int i = idx;
         while (i > 0) {
           if (p.get_current_token() == json_token::END_ARRAY) {
             // terminate, nothing has been written
-            return false;
+            return {false, 0};
           }
 
-          if (!p.try_skip_children()) { return false; }
+          if (!p.try_skip_children()) { return {false, 0}; }
 
           p.next_token();
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           --i;
         }
@@ -708,7 +688,7 @@ __device__ bool evaluate_path(json_parser& p,
       // case _ =>
       // case path 12
       else {
-        if (!p.try_skip_children()) { return false; }
+        if (!p.try_skip_children()) { return {false, 0}; }
         // default case path, return false for this task
         ctx.dirty        = 0;
         ctx.task_is_done = true;
@@ -765,9 +745,9 @@ __device__ bool evaluate_path(json_parser& p,
           // post logic:
           while (p.next_token() != json_token::END_ARRAY) {
             // JSON validation check
-            if (json_token::ERROR == p.get_current_token()) { return false; }
+            if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
             // advance the token stream to the end of the array
-            if (!p.try_skip_children()) { return false; }
+            if (!p.try_skip_children()) { return {false, 0}; }
           }
           // task is done
           p_ctx.task_is_done = true;
@@ -786,73 +766,13 @@ __device__ bool evaluate_path(json_parser& p,
     }
   }
 
-  // copy output len
-  root_g.set_output_len(stack[0].g.get_output_len());
-  return stack[0].dirty > 0;
-}
+  auto const success = stack[0].dirty > 0;
+  if (success) { return {true, stack[0].g.get_output_len()}; }
 
-rmm::device_uvector<path_instruction> construct_path_commands(
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  cudf::string_scalar const& all_names_scalar,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  int name_pos = 0;
-
-  // construct the path commands
-  std::vector<path_instruction> path_commands;
-  for (auto const& inst : instructions) {
-    auto const& [type, name, index] = inst;
-    switch (type) {
-      case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
-        break;
-      case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
-        path_commands.back().index = index;
-        break;
-      case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
-        path_commands.back().name =
-          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
-        name_pos += name.size();
-        break;
-      default: CUDF_FAIL("Invalid path instruction type");
-    }
-  }
-  // convert to uvector
-  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
-}
-
-/**
- * @brief Parse a single json string using the provided command buffer
- *
- *
- * @param input The incoming json string
- * @param path_commands The command buffer to be applied to the string
- * @param out_buf Buffer user to store the string resulted from the query
- * @returns A pair containing the result code and the output buffer
- */
-__device__ thrust::pair<bool, cudf::size_type> get_json_object_single(
-  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
-{
-  json_parser j_parser(input);
-  j_parser.next_token();
-  // JSON validation check
-  if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
-
-  json_generator generator(out_buf);
-
-  bool const success = evaluate_path(j_parser, generator, write_style::RAW, path_commands);
-
-  if (!success) {
-    // generator may contain trash output, e.g.: generator writes some output,
-    // then JSON format is invalid, the previous output becomes trash.
-    // set output as zero to tell second step
-    generator.set_output_len_zero();
-  }
-
-  return {success, static_cast<cudf::size_type>(generator.get_output_len())};
+  // generator may contain trash output, e.g.: generator writes some output,
+  // then JSON format is invalid, the previous output becomes trash.
+  // We need to return output size as zero.
+  return {false, 0};
 }
 
 /**
@@ -894,11 +814,10 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
 
     auto const str = input.element<cudf::string_view>(tid);
     if (str.size_bytes() > 0) {
-      auto const max_size = offsets[tid + 1] - offsets[tid];
-
-      // If `max_size == 0`, do not pass in the dst pointer to prevent writing garbage data.
       thrust::tie(is_valid, out_size) =
-        get_json_object_single(str, path_commands, max_size != 0 ? dst : nullptr);
+        evaluate_path(char_range{str}, write_style::RAW, path_commands, dst);
+
+      auto const max_size = offsets[tid + 1] - offsets[tid];
       if (out_size > max_size) { *has_out_of_bound = true; }
     }
 
@@ -907,6 +826,39 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
     // second time due to out-of-bound write in the first launch.
     if (out_stringviews) { out_stringviews[tid] = {is_valid ? dst : nullptr, out_size}; }
   }
+}
+
+rmm::device_uvector<path_instruction> construct_path_commands(
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  cudf::string_scalar const& all_names_scalar,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  int name_pos = 0;
+
+  // construct the path commands
+  std::vector<path_instruction> path_commands;
+  for (auto const& inst : instructions) {
+    auto const& [type, name, index] = inst;
+    switch (type) {
+      case path_instruction_type::WILDCARD:
+        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
+        break;
+      case path_instruction_type::INDEX:
+        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
+        path_commands.back().index = index;
+        break;
+      case path_instruction_type::NAMED:
+        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
+        path_commands.back().name =
+          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+        name_pos += name.size();
+        break;
+      default: CUDF_FAIL("Invalid path instruction type");
+    }
+  }
+  // convert to uvector
+  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
 }
 
 std::unique_ptr<cudf::column> get_json_object(
