@@ -374,12 +374,15 @@ struct context {
 };
 
 /**
+ * @brief Parse a single json string using the provided command buffer.
  *
- * This function is rewritten from above commented recursive function.
- * this function is equivalent to the above commented recursive function.
+ * @param input The incoming json string
+ * @param path_commands The command buffer to be applied to the string
+ * @param out_buf Buffer user to store the string resulted from the query
+ * @return A pair containing the result code and the output size
  */
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
-  char_range input, cudf::device_span<path_instruction const> root_path, char* out_buff)
+  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
 {
   json_parser p{input};
   p.next_token();
@@ -408,7 +411,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   };
 
   // put the first context task
-  push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, root_path);
+  push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
 
   while (stack_size > 0) {
     auto& ctx = stack[stack_size - 1];
@@ -419,7 +422,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.style == write_style::RAW) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
-        ctx.g.write_raw(p, out_buff);
+        ctx.g.write_raw(p, out_buf);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
       }
@@ -446,7 +449,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
         // general case: just copy the child tree verbatim
-        if (!(ctx.g.copy_current_structure(p, out_buff))) {
+        if (!(ctx.g.copy_current_structure(p, out_buf))) {
           // JSON validation check
           return {false, 0};
         }
@@ -536,7 +539,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         // behavior in Hive
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array(out_buff);
+          ctx.g.write_start_array(out_buf);
         }
 
         if (p.next_token() != json_token::END_ARRAY) {
@@ -547,7 +550,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        write_style::FLATTEN,
                        {ctx.path.data() + 2, ctx.path.size() - 2});
         } else {
-          ctx.g.write_end_array(out_buff);
+          ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
       }
@@ -588,7 +591,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        next_style,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          char* child_g_start = out_buff + child_g.get_offset();
+          char* child_g_start = out_buf + child_g.get_offset();
           int child_g_len     = child_g.get_output_len();
           if (ctx.dirty > 1) {
             // add outer array tokens
@@ -610,7 +613,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array(out_buff);
+          ctx.g.write_start_array(out_buf);
         }
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
@@ -623,7 +626,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        write_style::QUOTED,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          ctx.g.write_end_array(out_buff);
+          ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
       }
@@ -870,37 +873,33 @@ __launch_bounds__(block_size, 4) CUDF_KERNEL
   }
 }
 
-rmm::device_uvector<path_instruction> construct_path_commands(
+std::pair<rmm::device_uvector<path_instruction>, std::unique_ptr<std::vector<path_instruction>>>
+construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   cudf::string_scalar const& all_names_scalar,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+  rmm::cuda_stream_view stream)
 {
-  int name_pos = 0;
+  std::size_t name_pos{0};
+  auto h_path_commands = std::make_unique<std::vector<path_instruction>>();
+  h_path_commands->reserve(instructions.size());
+  for (auto const& [type, name, index] : instructions) {
+    h_path_commands->emplace_back(path_instruction{type});
 
-  // construct the path commands
-  std::vector<path_instruction> path_commands;
-  for (auto const& inst : instructions) {
-    auto const& [type, name, index] = inst;
-    switch (type) {
-      case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
-        break;
-      case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
-        path_commands.back().index = index;
-        break;
-      case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
-        path_commands.back().name =
-          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
-        name_pos += name.size();
-        break;
-      default: CUDF_FAIL("Invalid path instruction type");
+    if (type == path_instruction_type::INDEX) {
+      h_path_commands->back().index = index;
+    } else if (type == path_instruction_type::NAMED) {
+      h_path_commands->back().name =
+        cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+      name_pos += name.size();
+    } else if (type != path_instruction_type::WILDCARD) {
+      CUDF_FAIL("Invalid path instruction type");
     }
   }
-  // convert to uvector
-  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
+
+  // h_path_commands needs to be kept alive outside of this function due to async copy.
+  return {cudf::detail::make_device_uvector_async(
+            *h_path_commands, stream, rmm::mr::get_current_device_resource()),
+          std::move(h_path_commands)};
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
