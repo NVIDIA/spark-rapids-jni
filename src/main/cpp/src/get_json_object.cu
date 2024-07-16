@@ -872,10 +872,20 @@ std::unique_ptr<cudf::column> get_json_object(
   if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
   if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  std::string all_names;
-  for (auto const& inst : instructions) {
-    all_names += std::get<1>(inst);
-  }
+  auto const all_names = [&] {
+    std::size_t length{0};
+    for (auto const& inst : instructions) {
+      length += (std::get<1>(inst)).length();
+    }
+
+    std::string all_names;
+    all_names.reserve(length);
+    for (auto const& inst : instructions) {
+      all_names += std::get<1>(inst);
+    }
+    return all_names;
+  }();
+
   auto const all_names_scalar = cudf::string_scalar(all_names, true, stream);
   auto const path_commands    = construct_path_commands(
     instructions, all_names_scalar, stream, rmm::mr::get_current_device_resource());
