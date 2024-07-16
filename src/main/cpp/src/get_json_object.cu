@@ -885,16 +885,16 @@ construct_path_commands(
   auto h_inst_names = [&] {
     std::size_t length{0};
     for (auto const& instructions : instruction_array) {
-      for (auto const& inst : instructions) {
-        length += (std::get<1>(inst)).length();
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { length += name.length(); }
       }
     }
 
     std::string all_names;
     all_names.reserve(length);
     for (auto const& instructions : instruction_array) {
-      for (auto const& inst : instructions) {
-        all_names += std::get<1>(inst);
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { all_names += name; }
       }
     }
     return all_names;
