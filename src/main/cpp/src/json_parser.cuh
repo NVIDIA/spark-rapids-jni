@@ -1386,9 +1386,10 @@ class json_parser {
       return true;
     }
 
+    json_token t;
     int open = 1;
-    while (true) {
-      json_token t = next_token();
+    do {
+      t = next_token();
       if (t == json_token::START_OBJECT || t == json_token::START_ARRAY) {
         ++open;
       } else if (t == json_token::END_OBJECT || t == json_token::END_ARRAY) {
@@ -1396,7 +1397,8 @@ class json_parser {
       } else if (t == json_token::ERROR) {
         return false;
       }
-    }
+    } while (t != json_token::SUCCESS);
+    return false;
   }
 
   __device__ cudf::size_type compute_unescaped_len() const { return write_unescaped_text(nullptr); }
