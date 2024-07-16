@@ -331,6 +331,34 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   }
 }
 
+struct context {
+  // used to save current generator
+  json_generator g;
+
+  // used to save child JSON generator for case path 6
+  json_generator child_g;
+
+  cudf::device_span<path_instruction const> path;
+
+  // which case path that this task is from
+  int case_path;
+
+  // whether written output
+  // if dirty > 0, indicates success
+  int dirty;
+
+  // current token
+  json_token token;
+
+  write_style style;
+
+  // for some case paths
+  bool is_first_enter;
+
+  // is this context task is done
+  bool task_is_done;
+};
+
 /**
  *
  * This function is rewritten from above commented recursive function.
@@ -342,35 +370,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   cudf::device_span<path_instruction const> root_path,
   char* out_buff)
 {
-  // manually maintained context stack in lieu of calling evaluate_path recursively.
-  struct context {
-    // used to save current generator
-    json_generator g;
-
-    // used to save child JSON generator for case path 6
-    json_generator child_g;
-
-    cudf::device_span<path_instruction const> path;
-
-    // which case path that this task is from
-    int case_path;
-
-    // whether written output
-    // if dirty > 0, indicates success
-    int dirty;
-
-    // current token
-    json_token token;
-
-    write_style style;
-
-    // for some case paths
-    bool is_first_enter;
-
-    // is this context task is done
-    bool task_is_done;
-  };
-
   // define stack; plus 1 indicates root context task needs an extra memory
   context stack[max_path_depth + 1];
   int stack_pos = 0;
@@ -868,6 +867,12 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  std::cout << "path instruction size: " << sizeof(path_instruction) << std::endl;
+  std::cout << "json_parser size: " << sizeof(json_parser) << std::endl;
+  std::cout << "json_gen size: " << sizeof(json_generator) << std::endl;
+  std::cout << "context size: " << sizeof(context) << std::endl;
+  exit(0);
+
   if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
   if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
