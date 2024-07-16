@@ -770,12 +770,11 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   }
 
   auto const success = stack[0].dirty > 0;
-  if (success) { return {true, stack[0].g.get_output_len()}; }
 
   // generator may contain trash output, e.g.: generator writes some output,
   // then JSON format is invalid, the previous output becomes trash.
   // We need to return output size as zero.
-  return {false, 0};
+  return {success, success ? stack[0].g.get_output_len() : 0};
 }
 
 /**
@@ -870,12 +869,6 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  std::cout << "path instruction size: " << sizeof(path_instruction) << std::endl;
-  std::cout << "json_parser size: " << sizeof(json_parser) << std::endl;
-  std::cout << "json_gen size: " << sizeof(json_generator) << std::endl;
-  std::cout << "context size: " << sizeof(context) << std::endl;
-  exit(0);
-
   if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
   if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
