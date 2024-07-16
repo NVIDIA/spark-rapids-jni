@@ -334,6 +334,17 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   }
 }
 
+enum class evaluation_case_path : int8_t {
+  INVALID                                           = -1,
+  START_ARRAY___EMPTY_PATH___FLATTEN_STYLE          = 2,
+  START_OBJECT___MATCHED_NAME_PATH                  = 4,
+  START_ARRAY___MATCHED_DOUBLE_WILDCARD             = 5,
+  START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED = 6,
+  START_ARRAY___MATCHED_WILDCARD                    = 7,
+  START_ARRAY___MATCHED_INDEX_AND_WILDCARD          = 8,
+  START_ARRAY___MATCHED_INDEX                       = 9
+};
+
 struct context {
   // used to save current generator
   json_generator g;
@@ -343,12 +354,12 @@ struct context {
 
   cudf::device_span<path_instruction const> path;
 
-  // which case path that this task is from
-  int case_path;
-
   // whether written output
   // if dirty > 0, indicates success
   int dirty;
+
+  // which case path that this task is from
+  evaluation_case_path case_path;
 
   // current token
   json_token token;
@@ -373,43 +384,38 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   cudf::device_span<path_instruction const> root_path,
   char* out_buff)
 {
-  // define stack; plus 1 indicates root context task needs an extra memory
-  context stack[max_path_depth + 1];
-  int stack_pos = 0;
-
-  // push context function
-  auto push_context = [&stack, &stack_pos](json_token _token,
-                                           int _case_path,
-                                           json_generator _g,
-                                           write_style _style,
-                                           cudf::device_span<path_instruction const> _path) {
-    // no need to check stack is full
-    // because Spark-Rapids already checked maximum length of `path_instruction`
-    auto& ctx          = stack[stack_pos];
-    ctx.token          = _token;
-    ctx.case_path      = _case_path;
-    ctx.g              = _g;
-    ctx.style          = _style;
-    ctx.path           = _path;
-    ctx.task_is_done   = false;
-    ctx.dirty          = 0;
-    ctx.is_first_enter = true;
-
-    stack_pos++;
-  };
-
   json_parser p{input};
   p.next_token();
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
+  // define stack; plus 1 indicates root context task needs an extra memory
+  context stack[max_path_depth + 1];
+  int stack_size = 0;
+
+  // push context function
+  auto push_context = [&p, &stack, &stack_size](evaluation_case_path _case_path,
+                                                json_generator _g,
+                                                write_style _style,
+                                                cudf::device_span<path_instruction const> _path) {
+    // no need to check stack is full
+    // because Spark-Rapids already checked maximum length of `path_instruction`
+    auto& ctx          = stack[stack_size++];
+    ctx.g              = _g;
+    ctx.path           = _path;
+    ctx.dirty          = 0;
+    ctx.case_path      = _case_path;
+    ctx.token          = p.get_current_token();
+    ctx.style          = _style;
+    ctx.is_first_enter = true;
+    ctx.task_is_done   = false;
+  };
+
   // put the first context task
-  push_context(p.get_current_token(), -1, json_generator{}, root_style, root_path);
+  push_context(evaluation_case_path::INVALID, json_generator{}, root_style, root_path);
 
-  while (stack_pos > 0) {
-    auto& ctx = stack[stack_pos - 1];
+  while (stack_size > 0) {
+    auto& ctx = stack[stack_size - 1];
     if (!ctx.task_is_done) {
-      // task is not done.
-
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size()) &&
@@ -430,7 +436,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // push back task
           // add child task
-          push_context(p.get_current_token(), 2, ctx.g, ctx.style, {nullptr, 0});
+          push_context(evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE,
+                       ctx.g,
+                       ctx.style,
+                       {nullptr, 0});
         } else {
           // END_ARRAY
           ctx.task_is_done = true;
@@ -495,8 +504,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
               // meets null token, it's not expected, return false
               if (json_token::VALUE_NULL == p.get_current_token()) { return {false, 0}; }
               // push sub task; sub task will update the result of path 4
-              push_context(p.get_current_token(),
-                           4,
+              push_context(evaluation_case_path::START_OBJECT___MATCHED_NAME_PATH,
                            ctx.g,
                            ctx.style,
                            {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -537,8 +545,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
           if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-          push_context(p.get_current_token(),
-                       5,
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_DOUBLE_WILDCARD,
                        ctx.g,
                        write_style::FLATTEN,
                        {ctx.path.data() + 2, ctx.path.size() - 2});
@@ -579,8 +586,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // track the number of array elements and only emit an outer array if
           // we've written more than one element, this matches Hive's behavior
-          push_context(p.get_current_token(),
-                       6,
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED,
                        child_g,
                        next_style,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -615,8 +621,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
           // wildcards can have multiple matches, continually update the dirty
           // count
-          push_context(p.get_current_token(),
-                       7,
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD,
                        ctx.g,
                        write_style::QUOTED,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -653,8 +658,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         }
 
         // i == 0
-        push_context(p.get_current_token(),
-                     8,
+        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX_AND_WILDCARD,
                      ctx.g,
                      write_style::QUOTED,
                      {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -685,8 +689,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         }
 
         // i == 0
-        push_context(
-          p.get_current_token(), 9, ctx.g, ctx.style, {ctx.path.data() + 1, ctx.path.size() - 1});
+        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX,
+                     ctx.g,
+                     ctx.style,
+                     {ctx.path.data() + 1, ctx.path.size() - 1});
       }
       // case _ =>
       // case path 12
@@ -696,52 +702,60 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         ctx.dirty        = 0;
         ctx.task_is_done = true;
       }
-    } else {
-      // current context is done.
-
+    }       // if (!ctx.task_is_done)
+    else {  // current context is done.
       // pop current top context
-      stack_pos--;
+      stack_size--;
 
-      // pop parent task
+      // has no parent task, stack is empty, will exit
+      if (stack_size == 0) { break; }
+
+      // peek parent context task
       // update parent task info according to current task result
-      if (stack_pos > 0) {
-        // peek parent context task
-        auto& p_ctx = stack[stack_pos - 1];
+      auto& p_ctx = stack[stack_size - 1];
 
-        // case (VALUE_STRING, Nil) if style == RawStyle
-        // case path 1
-        if (1 == ctx.case_path) {
-          // never happen
-        }
-        // path 2: case (START_ARRAY, Nil) if style == FlattenStyle
-        // path 5: case (START_ARRAY, Wildcard :: Wildcard :: xs)
-        // path 7: case (START_ARRAY, Wildcard :: xs)
-        else if (2 == ctx.case_path || 5 == ctx.case_path || 7 == ctx.case_path) {
+      switch (ctx.case_path) {
+          // path 2: case (START_ARRAY, Nil) if style == FlattenStyle
+          // path 5: case (START_ARRAY, Wildcard :: Wildcard :: xs)
+          // path 7: case (START_ARRAY, Wildcard :: xs)
+        case evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE:
+        case evaluation_case_path::START_ARRAY___MATCHED_DOUBLE_WILDCARD:
+        case evaluation_case_path::START_ARRAY___MATCHED_WILDCARD: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
+
+          break;
         }
-        // case (START_OBJECT, Named :: xs)
-        // case path 4
-        else if (4 == ctx.case_path) {
+
+          // case (START_OBJECT, Named :: xs)
+          // case path 4
+        case evaluation_case_path::START_OBJECT___MATCHED_NAME_PATH: {
           p_ctx.dirty = ctx.dirty;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
+
+          break;
         }
-        // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
-        // case path 6
-        else if (6 == ctx.case_path) {
+
+          // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
+          // case path 6
+        case evaluation_case_path::START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
           // update child generator for parent task
           p_ctx.child_g = ctx.g;
+
+          break;
         }
-        /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
-        // case path 8
-        // case (START_ARRAY, Index(idx) :: xs)
-        // case path 9
-        else if (8 == ctx.case_path || 9 == ctx.case_path) {
+
+          /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
+          // case path 8
+          // case (START_ARRAY, Index(idx) :: xs)
+          // case path 9
+        case evaluation_case_path::START_ARRAY___MATCHED_INDEX_AND_WILDCARD:
+        case evaluation_case_path::START_ARRAY___MATCHED_INDEX: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
 
@@ -756,18 +770,15 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           p_ctx.task_is_done = true;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
+
+          break;
         }
-        // case path 3: case (_, Nil)
-        // case path 12: case _ =>
-        // others
-        else {
-          // never happen
-        }
-      } else {
-        // has no parent task, stack is empty, will exit
-      }
-    }
-  }
+
+        default:;  // Never happens!
+      }            // end switch (ctx.case_path)
+
+    }  // ctx.task_is_done
+  }    // while (stack_size > 0)
 
   auto const success = stack[0].dirty > 0;
 
