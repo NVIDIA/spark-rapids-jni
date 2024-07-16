@@ -841,37 +841,32 @@ __launch_bounds__(block_size, 1) CUDF_KERNEL
   }
 }
 
-rmm::device_uvector<path_instruction> construct_path_commands(
+std::pair<rmm::device_uvector<path_instruction>, std::unique_ptr<std::vector<path_instruction>>>
+construct_path_commands(
   std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
   cudf::string_scalar const& all_names_scalar,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+  rmm::cuda_stream_view stream)
 {
-  int name_pos = 0;
+  std::size_t name_pos{0};
+  auto path_commands = std::make_unique<std::vector<path_instruction>>();
+  path_commands->reserve(instructions.size());
+  for (auto const& [type, name, index] : instructions) {
+    path_commands->emplace_back(path_instruction{type});
 
-  // construct the path commands
-  std::vector<path_instruction> path_commands;
-  for (auto const& inst : instructions) {
-    auto const& [type, name, index] = inst;
-    switch (type) {
-      case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
-        break;
-      case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
-        path_commands.back().index = index;
-        break;
-      case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
-        path_commands.back().name =
-          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
-        name_pos += name.size();
-        break;
-      default: CUDF_FAIL("Invalid path instruction type");
+    if (type == path_instruction_type::INDEX) {
+      path_commands->back().index = index;
+    } else if (type == path_instruction_type::NAMED) {
+      path_commands->back().name =
+        cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+      name_pos += name.size();
+    } else if (type != path_instruction_type::WILDCARD) {
+      CUDF_FAIL("Invalid path instruction type");
     }
   }
-  // convert to uvector
-  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
+
+  return {cudf::detail::make_device_uvector_async(
+            *path_commands, stream, rmm::mr::get_current_device_resource()),
+          std::move(path_commands)};
 }
 
 std::unique_ptr<cudf::column> get_json_object(
@@ -898,8 +893,8 @@ std::unique_ptr<cudf::column> get_json_object(
   }();
 
   auto const all_names_scalar = cudf::string_scalar(all_names, true, stream);
-  auto const path_commands    = construct_path_commands(
-    instructions, all_names_scalar, stream, rmm::mr::get_current_device_resource());
+  auto const [d_path_commands, h_path_commands] =
+    construct_path_commands(instructions, all_names_scalar, stream);
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets  = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
 
@@ -940,7 +935,7 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
                                                     in_offsets,
-                                                    path_commands,
+                                                    d_path_commands,
                                                     out_stringviews.data(),
                                                     output_scratch.data(),
                                                     has_out_of_bound.data());
@@ -983,7 +978,7 @@ std::unique_ptr<cudf::column> get_json_object(
   get_json_object_kernel<block_size>
     <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
                                                     out_offsets,
-                                                    path_commands,
+                                                    d_path_commands,
                                                     nullptr /*out_stringviews*/,
                                                     chars.data(),
                                                     has_out_of_bound.data());
