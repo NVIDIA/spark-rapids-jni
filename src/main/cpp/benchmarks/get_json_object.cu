@@ -218,6 +218,6 @@ void BM_get_json_object(nvbench::state& state)
 
 NVBENCH_BENCH(BM_get_json_object)
   .set_name("get_json_object")
-  .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 1'000'000'000})
-  .add_int64_axis("max_depth", {2, 4, 6, 8})
+  .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 500'000'000})
+  .add_int64_axis("max_depth", {2, 4, 8})
   .add_int64_axis("long_row", {0, 1});
