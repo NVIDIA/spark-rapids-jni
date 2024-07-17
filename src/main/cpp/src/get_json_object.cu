@@ -1015,6 +1015,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return output;
   }
 
+  // Input is all nulls - just return all null columns.
+  if (input.size() == input.null_count()) {
+    for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+      output.emplace_back(std::make_unique<cudf::column>(input.parent(), stream, mr));
+    }
+    return output;
+  }
+
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
