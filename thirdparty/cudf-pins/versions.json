@@ -47,7 +47,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "363e2d65c02b216baf33e4219f27c0102936edee",
+      "git_tag" : "ab3778c0462c2f713125a4e458f46bcd654b9d54",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.08"
     },
@@ -55,16 +55,8 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6923b3b1e526b3305de81f784fdca26736caf5ba",
+      "git_tag" : "e7b5a389b823bebe465cefe63ad7b0e95f7fb450",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
-      "patches" : 
-      [
-        {
-          "file" : "${current_json_dir}/cuco_noexcept.diff",
-          "fixed_in" : "",
-          "issue" : "Remove erroneous noexcept clauses on cuco functions that may throw [https://github.com/rapidsai/cudf/issues/16059]"
-        }
-      ],
       "version" : "0.0.1"
     },
     "dlpack" : 
@@ -140,7 +132,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b8b67f8ceb52b50bf1c16d4f3305b7885de5c3ea",
+      "git_tag" : "f91ca6f22195868e6493e38975f5c07029bd1977",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.08"
     },

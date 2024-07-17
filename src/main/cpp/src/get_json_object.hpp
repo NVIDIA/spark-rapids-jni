@@ -16,18 +16,11 @@
 
 #pragma once
 
-#include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <rmm/resource_ref.hpp>
 
-#include <thrust/optional.h>
-#include <thrust/pair.h>
-#include <thrust/scan.h>
-#include <thrust/tuple.h>
-
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace spark_rapids_jni {
@@ -35,7 +28,7 @@ namespace spark_rapids_jni {
 /**
  * path instruction type
  */
-enum class path_instruction_type { WILDCARD, INDEX, NAMED };
+enum class path_instruction_type : int8_t { WILDCARD, INDEX, NAMED };
 
 /**
  * Extracts json object from a json string based on json path specified, and
