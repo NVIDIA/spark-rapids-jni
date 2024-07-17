@@ -826,7 +826,7 @@ struct json_path_query_data {
  * @param out_buf Buffer used to store the strings resulted from the query
  * @param has_out_of_bound Flag to indicate if any output string has length exceeds its buffer size
  */
-template <int block_size>
+template <int block_size, int min_block_per_sm>
 // We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
 // the kernel itself. By default NVCC uses a heuristic to find a balance between the
 // maximum number of registers used by a kernel and the parallelism of the kernel.
@@ -834,7 +834,7 @@ template <int block_size>
 // NVCC gets this wrong and we want to avoid spilling all the time or else
 // the performance is really bad. This essentially tells NVCC to prefer using lots
 // of registers over spilling.
-__launch_bounds__(block_size, 4) CUDF_KERNEL
+__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_query_data> query_data)
 {
@@ -1009,16 +1009,17 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
-  constexpr int blocks_per_SM = 4;
-  constexpr int block_size    = 512;
-  auto const num_blocks       = [&] {
+  constexpr int block_size              = 512;
+  constexpr int min_block_per_sm        = 2;
+  constexpr int blocks_count_multiplier = 8;
+  auto const num_blocks                 = [&] {
     int device_id{};
     cudaDeviceProp props{};
     CUDF_CUDA_TRY(cudaGetDevice(&device_id));
     CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
-    return props.multiProcessorCount * blocks_per_SM;
+    return props.multiProcessorCount * blocks_count_multiplier;
   }();
-  get_json_object_kernel<block_size>
+  get_json_object_kernel<block_size, min_block_per_sm>
     <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr, d_query_data);
 
   auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
@@ -1089,8 +1090,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
-  // has_out_of_bound.set_value_to_zero_async(stream);
-  get_json_object_kernel<block_size>
+  get_json_object_kernel<block_size, min_block_per_sm>
     <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr, d_query_data);
 
   // Check out of bound again for sure.
