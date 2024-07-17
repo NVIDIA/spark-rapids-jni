@@ -779,8 +779,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         default:;  // Never happens!
       }            // end switch (ctx.case_path)
 
-    }  // ctx.task_is_done
-  }    // while (stack_size > 0)
+    }              // ctx.task_is_done
+  }                // while (stack_size > 0)
 
   auto const success = stack[0].dirty > 0;
 
