@@ -1029,6 +1029,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
+  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
+    construct_path_commands(json_paths, stream);
 
   auto const [max_row_size, sum_row_size] =
     thrust::transform_reduce(rmm::exec_policy(stream),
@@ -1046,7 +1048,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                    std::max(lhs.first, rhs.first), lhs.second + rhs.second};
                                }));
 
-  // A buffer to store the output strings without knowing their sizes.
+  // We will use scratch buffers to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
   // size so that we will not write output strings into an out-of-bound position.
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
@@ -1057,17 +1059,13 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
 
+  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
   std::vector<json_path_processing_data> h_path_data;
   scratch_buffers.reserve(json_paths.size());
   out_stringviews.reserve(json_paths.size());
   h_path_data.reserve(json_paths.size());
-
-  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
-
-  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
-    construct_path_commands(json_paths, stream);
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& instructions = json_paths[idx];
@@ -1088,12 +1086,13 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
-  // Threshold to decide on using row per thread or row per warp functions.
+  // Threshold to decide on using thread parallel or warp parallel algorithms.
   constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 128;
   auto const exec_thread_parallel =
     (sum_row_size / (input.size() - input.null_count())) < AVG_CHAR_BYTES_THRESHOLD;
   launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
 
+  // Do not use parallel check since we do not have many elements.
   auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
   auto has_no_oob         = std::none_of(
     h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
@@ -1118,6 +1117,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return item.first != nullptr;
   };
 
+  // Rebuild the data only for paths that had out of bound write.
   h_path_data.clear();
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& out_sview = out_stringviews[idx];
@@ -1157,21 +1157,20 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   scratch_buffers.clear();
   out_stringviews.clear();
 
+  // Push data to the GPU and launch the kernel again.
   d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
-
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-
   launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
 
-  // Check out of bound again for sure.
+  // Check out of bound again to make sure everything looks right.
   h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
   has_no_oob         = std::none_of(
     h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
 
   // The last kernel call should not encounter any out-of-bound write.
-  // If it is still detected, there must be something wrong happened.
+  // If OOB is still detected, there must be something wrong happened.
   CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
 
   for (auto const idx : oob_indices) {
