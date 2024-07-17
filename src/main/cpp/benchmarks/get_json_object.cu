@@ -119,9 +119,9 @@ auto generate_long_row_table(std::size_t size_bytes, cudf::size_type max_depth)
 auto generate_short_row_table(std::size_t size_bytes, cudf::size_type max_depth)
 {
   constexpr auto min_list_width   = 1;
-  constexpr auto max_list_width   = 10;
+  constexpr auto max_list_width   = 5;
   constexpr auto min_string_width = 1;
-  constexpr auto max_string_width = 10;
+  constexpr auto max_string_width = 15;
   constexpr auto num_cols         = 3;
 
   data_profile const table_profile =
@@ -184,14 +184,15 @@ void BM_get_json_object(nvbench::state& state)
 
   auto const [json_strings, num_cols] = generate_input(has_long_row, size_bytes, max_depth);
   using path_instruction_type         = spark_rapids_jni::path_instruction_type;
-  srand(0);
+  srand(0);  // for generating JSON paths.
 
   state.set_cuda_stream(nvbench::make_cuda_stream_view(cudf::get_default_stream().value()));
   state.exec(
     nvbench::exec_tag::timer | nvbench::exec_tag::sync,
     [&, num_cols = num_cols, input = json_strings->view()](nvbench::launch& launch, auto& timer) {
       std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
-      auto const col_id = rand() % num_cols;
+      // There is a chance that the cold_id is out of range, so the return will be null.
+      auto const col_id = rand() % (num_cols + std::max(1, num_cols / 4));
       instructions.emplace_back(path_instruction_type::NAMED, "_col" + std::to_string(col_id), -1);
       if (col_id % 3 == 2) {  // struct column
         for (int i = 0; i < max_depth - list_depth; ++i) {
