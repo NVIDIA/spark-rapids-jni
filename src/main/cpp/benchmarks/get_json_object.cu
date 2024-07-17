@@ -176,6 +176,21 @@ auto generate_input(bool has_long_row, std::size_t size_bytes, cudf::size_type m
   return std::pair{std::move(json_strings), input_table->num_columns()};
 }
 
+auto generate_json_path(int num_cols, int max_depth)
+{
+  using path_instruction_type = spark_rapids_jni::path_instruction_type;
+  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
+  // There is a chance that the cold_id is out of range, so the return will be null.
+  auto const col_id = rand() % (num_cols + std::max(1, num_cols / 4));
+  instructions.emplace_back(path_instruction_type::NAMED, "_col" + std::to_string(col_id), -1);
+  if (col_id % 3 == 2) {  // struct column
+    for (int i = 0; i < max_depth - list_depth; ++i) {
+      instructions.emplace_back(path_instruction_type::NAMED, "0", -1);
+    }
+  }
+  return instructions;
+}
+
 void BM_get_json_object(nvbench::state& state)
 {
   auto const size_bytes   = static_cast<cudf::size_type>(state.get_int64("size_bytes"));
@@ -183,23 +198,13 @@ void BM_get_json_object(nvbench::state& state)
   auto const has_long_row = static_cast<bool>(state.get_int64("long_row"));
 
   auto const [json_strings, num_cols] = generate_input(has_long_row, size_bytes, max_depth);
-  using path_instruction_type         = spark_rapids_jni::path_instruction_type;
   srand(0);  // for generating JSON paths.
 
   state.set_cuda_stream(nvbench::make_cuda_stream_view(cudf::get_default_stream().value()));
   state.exec(
     nvbench::exec_tag::timer | nvbench::exec_tag::sync,
     [&, num_cols = num_cols, input = json_strings->view()](nvbench::launch& launch, auto& timer) {
-      std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
-      // There is a chance that the cold_id is out of range, so the return will be null.
-      auto const col_id = rand() % (num_cols + std::max(1, num_cols / 4));
-      instructions.emplace_back(path_instruction_type::NAMED, "_col" + std::to_string(col_id), -1);
-      if (col_id % 3 == 2) {  // struct column
-        for (int i = 0; i < max_depth - list_depth; ++i) {
-          instructions.emplace_back(path_instruction_type::NAMED, "0", -1);
-        }
-      }
-
+      auto const instructions = generate_json_path(num_cols, max_depth);
       timer.start();
       // Can also verify at https://jsonpath.com/.
       [[maybe_unused]] auto const output =
@@ -216,8 +221,43 @@ void BM_get_json_object(nvbench::state& state)
   state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
 }
 
+void BM_get_json_object_multi_paths(nvbench::state& state)
+{
+  auto const size_bytes   = static_cast<cudf::size_type>(state.get_int64("size_bytes"));
+  auto const max_depth    = static_cast<cudf::size_type>(state.get_int64("max_depth"));
+  auto const has_long_row = static_cast<bool>(state.get_int64("long_row"));
+
+  auto const [json_strings, num_cols] = generate_input(has_long_row, size_bytes, max_depth);
+  using path_instruction_type         = spark_rapids_jni::path_instruction_type;
+
+  srand(0);  // for generating JSON paths.
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> paths;
+  for (int i = 0; i < num_cols; ++i) {
+    paths.emplace_back(generate_json_path(num_cols, max_depth));
+  }
+
+  state.set_cuda_stream(nvbench::make_cuda_stream_view(cudf::get_default_stream().value()));
+  state.exec(
+    nvbench::exec_tag::timer | nvbench::exec_tag::sync,
+    [&, num_cols = num_cols, input = json_strings->view()](nvbench::launch& launch, auto& timer) {
+      timer.start();
+      // Can also verify at https://jsonpath.com/.
+      [[maybe_unused]] auto const output =
+        spark_rapids_jni::get_json_object_multiple_paths(cudf::strings_column_view{input}, paths);
+      cudf::get_default_stream().synchronize();
+      timer.stop();
+    });
+  state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
+}
+
 NVBENCH_BENCH(BM_get_json_object)
   .set_name("get_json_object")
+  .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 500'000'000})
+  .add_int64_axis("max_depth", {2, 4, 8})
+  .add_int64_axis("long_row", {0, 1});
+
+NVBENCH_BENCH(BM_get_json_object_multi_paths)
+  .set_name("get_json_object_multi_paths")
   .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 500'000'000})
   .add_int64_axis("max_depth", {2, 4, 8})
   .add_int64_axis("long_row", {0, 1});
