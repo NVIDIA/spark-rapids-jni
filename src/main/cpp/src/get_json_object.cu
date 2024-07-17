@@ -779,8 +779,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         default:;  // Never happens!
       }            // end switch (ctx.case_path)
 
-    }              // ctx.task_is_done
-  }                // while (stack_size > 0)
+    }  // ctx.task_is_done
+  }    // while (stack_size > 0)
 
   auto const success = stack[0].dirty > 0;
 
@@ -1087,7 +1087,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
   // Threshold to decide on using thread parallel or warp parallel algorithms.
-  constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 128;
+  constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 256;
   auto const exec_thread_parallel =
     (sum_row_size / (input.size() - input.null_count())) < AVG_CHAR_BYTES_THRESHOLD;
   launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
