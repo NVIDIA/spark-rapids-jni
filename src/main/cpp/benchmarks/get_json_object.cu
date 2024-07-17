@@ -26,7 +26,7 @@
 #include <get_json_object.hpp>
 #include <nvbench/nvbench.cuh>
 
-#define DEBUG_PRINT
+// #define DEBUG_PRINT
 
 #ifdef DEBUG_PRINT
 
