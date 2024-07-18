@@ -56,6 +56,7 @@ constexpr int max_path_depth = 16;
 enum class write_style : int8_t { RAW, QUOTED, FLATTEN };
 
 /**
+
  * @brief JSON generator used to write out JSON content.
  *
  * Because of get_json_object only outputs JSON object as a whole item,
@@ -1229,8 +1230,7 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return nullptr;
-  // std::move(detail::get_json_object(input, {json_path}, stream, mr).front());
+  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(

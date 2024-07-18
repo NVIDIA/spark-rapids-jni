@@ -24,7 +24,7 @@
 using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 extern "C" {
-#if 0
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(
   JNIEnv* env, jclass, jlong input_column, jobjectArray path_instructions)
 {
@@ -68,7 +68,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
   }
   CATCH_STD(env, 0);
 }
-
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(
   JNIEnv* env, jclass, jlong j_input, jobjectArray j_paths, jintArray j_path_offsets)
@@ -131,5 +130,4 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonO
   }
   CATCH_STD(env, 0);
 }
-#endif
 }
