@@ -47,6 +47,36 @@ struct path_instruction {
 };
 
 /**
+ * @brief The class to store data of a JSON path on the GPU.
+ */
+class json_path_device_storage {
+  json_path_device_storage(rmm::device_uvector<path_instruction>&& _instructions,
+                           cudf::string_scalar&& _instruction_names)
+    : instructions{std::move(_instructions)}, instruction_names{std::move(_instruction_names)}
+  {
+  }
+
+ public:
+  rmm::device_uvector<path_instruction> const instructions;
+
+ private:
+  // This scalar is unused but needs to be kept alive as its data is access through the
+  // `instructions` array.
+  cudf::string_scalar const instruction_names;
+};
+
+/**
+ * @brief Construct the vector containing device data for the input JSON paths.
+ *
+ * All JSON paths are processed at once, to minimize overhead.
+ */
+std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+/**
  * @brief Extract JSON object from a JSON string based on the specified JSON path.
  *
  * If the input JSON string is invalid, or it does not contain the object at the given path, a null
@@ -54,7 +84,7 @@ struct path_instruction {
  */
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  rmm::device_uvector<path_instruction> const& json_path,
+  cudf::device_span<path_instruction const> json_path,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -67,20 +97,7 @@ std::unique_ptr<cudf::column> get_json_object(
  */
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<rmm::device_uvector<path_instruction>> const& json_paths,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-/**
- * @brief generate_device_json_paths
- * @param json_paths
- * @return
- */
-std::pair<std::unique_ptr<std::vector<rmm::device_uvector<path_instruction>>>,
-          std::unique_ptr<cudf::string_scalar>>
-generate_device_json_paths(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
-    json_paths,
+  std::vector<cudf::device_span<path_instruction const>> const& json_paths,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

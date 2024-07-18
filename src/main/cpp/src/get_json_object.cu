@@ -19,6 +19,7 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -43,6 +44,61 @@
 namespace spark_rapids_jni {
 
 namespace detail {
+
+std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  std::vector<std::unique_ptr<json_path_device_storage>> output;
+  std::vector<std::string> h_path_names;
+  std::vector<std::vector<path_instruction>> h_paths;
+  output.reserve(json_paths.size());
+  h_path_names.reserve(json_paths.size());
+  h_paths.reserve(json_paths.size());
+
+  for (auto const& path : json_paths) {
+    // Concatenate all names from path instructions for each path.
+    auto h_names = [&] {
+      std::size_t length{0};
+      for (auto const& [type, name, index] : path) {
+        if (type == path_instruction_type::NAMED) { length += name.length(); }
+      }
+      std::string all_names;
+      all_names.reserve(length);
+      for (auto const& [type, name, index] : path) {
+        if (type == path_instruction_type::NAMED) { all_names += name; }
+      }
+      return all_names;
+    }();
+    h_path_names.emplace_back(std::move(h_names));
+
+    auto h_path = std::vector<path_instruction>{};
+    h_path.reserve(path.size());
+    std::size_t name_pos{0};
+    for (auto const& [type, name, index] : path) {
+      h_path.emplace_back(path_instruction{type});
+
+      if (type == path_instruction_type::INDEX) {
+        h_path.back().index = index;
+      } else if (type == path_instruction_type::NAMED) {
+        h_path.back().name = cudf::string_view(d_names.data() + name_pos, name.size());
+        name_pos += name.size();
+      } else if (type != path_instruction_type::WILDCARD) {
+        CUDF_FAIL("Invalid path instruction type");
+      }
+    }
+    h_paths.emplace_back(std::move(h_path));
+
+    output.emplace_back(std::make_unique<json_path_device_storage>(
+      cudf::detail::make_device_uvector_async(h_paths.back(), stream, mr),
+      cudf::string_scalar(h_path_names.back(), true, stream, mr)));
+  }
+
+  stream.synchronize();  // need to synchronize as h_paths and h_path_names will be destroyed
+  return output;
+}
 
 // path max depth limitation
 // There is a same constant in JSONUtil.java, keep them consistent when changing
@@ -915,140 +971,6 @@ void launch_kernel(bool exec_thread_parallel,
   }
 }
 
-/**
- * @brief Construct the device vector containing necessary data for the input JSON paths.
- *
- * All JSON paths are processed at once, without stream synchronization, to minimize overhead.
- *
- * A tuple of values are returned, however, only the first element is needed for further kernel
- * launch. The remaining are unused but need to be kept alive as they contains data for later
- * asynchronous host-device memcpy.
- */
-std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
-           std::unique_ptr<std::vector<std::vector<path_instruction>>>,
-           cudf::string_scalar,
-           std::string>
-construct_path_commands(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
-    json_paths,
-  rmm::cuda_stream_view stream)
-{
-  // Concatenate all names from path instructions.
-  auto h_inst_names = [&] {
-    std::size_t length{0};
-    for (auto const& instructions : json_paths) {
-      for (auto const& [type, name, index] : instructions) {
-        if (type == path_instruction_type::NAMED) { length += name.length(); }
-      }
-    }
-    std::string all_names;
-    all_names.reserve(length);
-    for (auto const& instructions : json_paths) {
-      for (auto const& [type, name, index] : instructions) {
-        if (type == path_instruction_type::NAMED) { all_names += name; }
-      }
-    }
-    return all_names;
-  }();
-  auto d_inst_names = cudf::string_scalar(h_inst_names, true, stream);
-
-  std::size_t name_pos{0};
-  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
-  h_path_commands->reserve(json_paths.size());
-
-  for (auto const& instructions : json_paths) {
-    h_path_commands->emplace_back();
-    auto& path_commands = h_path_commands->back();
-    path_commands.reserve(instructions.size());
-
-    for (auto const& [type, name, index] : instructions) {
-      path_commands.emplace_back(path_instruction{type});
-
-      if (type == path_instruction_type::INDEX) {
-        path_commands.back().index = index;
-      } else if (type == path_instruction_type::NAMED) {
-        path_commands.back().name = cudf::string_view(d_inst_names.data() + name_pos, name.size());
-        name_pos += name.size();
-      } else if (type != path_instruction_type::WILDCARD) {
-        CUDF_FAIL("Invalid path instruction type");
-      }
-    }
-  }
-
-  auto d_path_commands = std::vector<rmm::device_uvector<path_instruction>>{};
-  d_path_commands.reserve(h_path_commands->size());
-  for (auto const& path_commands : *h_path_commands) {
-    d_path_commands.emplace_back(cudf::detail::make_device_uvector_async(
-      path_commands, stream, rmm::mr::get_current_device_resource()));
-  }
-
-  return {std::move(d_path_commands),
-          std::move(h_path_commands),
-          std::move(d_inst_names),
-          std::move(h_inst_names)};
-}
-
-std::pair<std::unique_ptr<std::vector<rmm::device_uvector<path_instruction>>>,
-          std::unique_ptr<cudf::string_scalar>>
-generate_device_json_paths(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
-    json_paths,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  // Concatenate all names from path instructions.
-  auto h_inst_names = [&] {
-    std::size_t length{0};
-    for (auto const& instructions : json_paths) {
-      for (auto const& [type, name, index] : instructions) {
-        if (type == path_instruction_type::NAMED) { length += name.length(); }
-      }
-    }
-    std::string all_names;
-    all_names.reserve(length);
-    for (auto const& instructions : json_paths) {
-      for (auto const& [type, name, index] : instructions) {
-        if (type == path_instruction_type::NAMED) { all_names += name; }
-      }
-    }
-    return all_names;
-  }();
-  auto d_inst_names = std::make_unique<cudf::string_scalar>(h_inst_names, true, stream);
-
-  std::size_t name_pos{0};
-  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
-  h_path_commands->reserve(json_paths.size());
-
-  for (auto const& instructions : json_paths) {
-    h_path_commands->emplace_back();
-    auto& path_commands = h_path_commands->back();
-    path_commands.reserve(instructions.size());
-
-    for (auto const& [type, name, index] : instructions) {
-      path_commands.emplace_back(path_instruction{type});
-
-      if (type == path_instruction_type::INDEX) {
-        path_commands.back().index = index;
-      } else if (type == path_instruction_type::NAMED) {
-        path_commands.back().name = cudf::string_view(d_inst_names->data() + name_pos, name.size());
-        name_pos += name.size();
-      } else if (type != path_instruction_type::WILDCARD) {
-        CUDF_FAIL("Invalid path instruction type");
-      }
-    }
-  }
-
-  auto d_path_commands = std::make_unique<std::vector<rmm::device_uvector<path_instruction>>>();
-  d_path_commands->reserve(h_path_commands->size());
-  for (auto const& path_commands : *h_path_commands) {
-    d_path_commands->emplace_back(cudf::detail::make_device_uvector_async(
-      path_commands, stream, rmm::mr::get_current_device_resource()));
-  }
-  stream.synchronize();
-
-  return {std::move(d_path_commands), std::move(d_inst_names)};
-}
-
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<rmm::device_uvector<path_instruction>> const& d_json_paths,
@@ -1224,33 +1146,33 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 }  // namespace detail
 
-std::unique_ptr<cudf::column> get_json_object(
-  cudf::strings_column_view const& input,
-  rmm::device_uvector<path_instruction> const& json_path,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
-}
-
-std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
-  cudf::strings_column_view const& input,
-  std::vector<rmm::device_uvector<path_instruction>> const& json_paths,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  return detail::get_json_object(input, json_paths, stream, mr);
-}
-
-std::pair<std::unique_ptr<std::vector<rmm::device_uvector<path_instruction>>>,
-          std::unique_ptr<cudf::string_scalar>>
-generate_device_json_paths(
+std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
   return detail::generate_device_json_paths(json_paths, stream, mr);
+}
+
+std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& input,
+                                              cudf::device_span<path_instruction const> json_path,
+                                              rmm::cuda_stream_view stream,
+                                              rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return std::move(detail::get_json_object(input, {json_path}, stream, mr).front());
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<cudf::device_span<path_instruction const>> const& json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::get_json_object(input, json_paths, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
