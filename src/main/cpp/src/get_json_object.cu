@@ -403,9 +403,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     // because Spark-Rapids already checked maximum length of `path_instruction`
     auto& ctx          = stack[stack_size++];
     ctx.g              = std::move(_g);
-    ctx.path           = _path;
+    ctx.path           = std::move(_path);
     ctx.dirty          = 0;
-    ctx.case_path      = std::move(_case_path);
+    ctx.case_path      = _case_path;
     ctx.token          = p.get_current_token();
     ctx.style          = _style;
     ctx.is_first_enter = true;
@@ -778,7 +778,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
         default:;  // Never happens!
       }            // end switch (ctx.case_path)
-
     }              // ctx.task_is_done
   }                // while (stack_size > 0)
 
