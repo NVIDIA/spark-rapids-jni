@@ -56,21 +56,6 @@ constexpr int max_path_depth = 16;
 enum class write_style : int8_t { RAW, QUOTED, FLATTEN };
 
 /**
- * @brief Instruction along a JSON path.
- */
-struct path_instruction {
-  __device__ inline path_instruction(path_instruction_type _type) : type(_type) {}
-
-  // used when type is named type
-  cudf::string_view name;
-
-  // used when type is index
-  int index{-1};
-
-  path_instruction_type type;
-};
-
-/**
  * @brief JSON generator used to write out JSON content.
  *
  * Because of get_json_object only outputs JSON object as a whole item,
@@ -1002,14 +987,74 @@ construct_path_commands(
           std::move(h_inst_names)};
 }
 
-std::vector<std::unique_ptr<cudf::column>> get_json_object(
-  cudf::strings_column_view const& input,
+std::pair<std::unique_ptr<std::vector<rmm::device_uvector<path_instruction>>>,
+          std::unique_ptr<cudf::string_scalar>>
+generate_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const num_outputs = json_paths.size();
+  // Concatenate all names from path instructions.
+  auto h_inst_names = [&] {
+    std::size_t length{0};
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { length += name.length(); }
+      }
+    }
+    std::string all_names;
+    all_names.reserve(length);
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { all_names += name; }
+      }
+    }
+    return all_names;
+  }();
+  auto d_inst_names = std::make_unique<cudf::string_scalar>(h_inst_names, true, stream);
+
+  std::size_t name_pos{0};
+  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
+  h_path_commands->reserve(json_paths.size());
+
+  for (auto const& instructions : json_paths) {
+    h_path_commands->emplace_back();
+    auto& path_commands = h_path_commands->back();
+    path_commands.reserve(instructions.size());
+
+    for (auto const& [type, name, index] : instructions) {
+      path_commands.emplace_back(path_instruction{type});
+
+      if (type == path_instruction_type::INDEX) {
+        path_commands.back().index = index;
+      } else if (type == path_instruction_type::NAMED) {
+        path_commands.back().name = cudf::string_view(d_inst_names->data() + name_pos, name.size());
+        name_pos += name.size();
+      } else if (type != path_instruction_type::WILDCARD) {
+        CUDF_FAIL("Invalid path instruction type");
+      }
+    }
+  }
+
+  auto d_path_commands = std::make_unique<std::vector<rmm::device_uvector<path_instruction>>>();
+  d_path_commands->reserve(h_path_commands->size());
+  for (auto const& path_commands : *h_path_commands) {
+    d_path_commands->emplace_back(cudf::detail::make_device_uvector_async(
+      path_commands, stream, rmm::mr::get_current_device_resource()));
+  }
+  stream.synchronize();
+
+  return {std::move(d_path_commands), std::move(d_inst_names)};
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object(
+  cudf::strings_column_view const& input,
+  std::vector<rmm::device_uvector<path_instruction>> const& d_json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_outputs = d_json_paths.size();
   std::vector<std::unique_ptr<cudf::column>> output;
 
   // Input is empty or all nulls - just return all null columns.
@@ -1023,8 +1068,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const in_offsets =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
-  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
-    construct_path_commands(json_paths, stream);
 
   auto const [max_row_size, sum_row_size] =
     thrust::transform_reduce(rmm::exec_policy(stream),
@@ -1057,13 +1100,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
   std::vector<json_path_processing_data> h_path_data;
-  scratch_buffers.reserve(json_paths.size());
-  out_stringviews.reserve(json_paths.size());
-  h_path_data.reserve(json_paths.size());
+  scratch_buffers.reserve(d_json_paths.size());
+  out_stringviews.reserve(d_json_paths.size());
+  h_path_data.reserve(d_json_paths.size());
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-    auto const& instructions = json_paths[idx];
-    if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+    // auto const& instructions = json_paths[idx];
+    // if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum
+    // depth"); }
 
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
@@ -1181,21 +1225,32 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  rmm::device_uvector<path_instruction> const& json_path,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
+  return nullptr;
+  // std::move(detail::get_json_object(input, {json_path}, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
+  std::vector<rmm::device_uvector<path_instruction>> const& json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  return detail::get_json_object(input, json_paths, stream, mr);
+}
+
+std::pair<std::unique_ptr<std::vector<rmm::device_uvector<path_instruction>>>,
+          std::unique_ptr<cudf::string_scalar>>
+generate_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return detail::get_json_object(input, json_paths, stream, mr);
+  return detail::generate_device_json_paths(json_paths, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
