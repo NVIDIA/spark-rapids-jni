@@ -809,10 +809,9 @@ struct json_path_processing_data {
  * @param path_data Array containing all path data
  * @param row_path_idx The index to identify row index and path index
  */
-__device__ __forceinline__ void process_row_path(
-  cudf::column_device_view input,
-  cudf::device_span<json_path_processing_data> path_data,
-  int64_t row_path_idx)
+__device__ void process_row_path(cudf::column_device_view input,
+                                 cudf::device_span<json_path_processing_data> path_data,
+                                 int64_t row_path_idx)
 {
   auto const row_idx  = row_path_idx / path_data.size();
   auto const path_idx = row_path_idx % path_data.size();
