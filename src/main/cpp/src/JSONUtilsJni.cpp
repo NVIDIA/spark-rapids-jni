@@ -82,7 +82,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonO
     cudf::jni::auto_set_device(env);
 
     auto const path_offsets = cudf::jni::native_jintArray(env, j_path_offsets).to_vector();
-    CUDF_EXPECTS(path_offsets.size() > 1, "WRONG");  // TODO
+    CUDF_EXPECTS(path_offsets.size() > 1, "Invalid path offsets.");
     auto const num_paths = path_offsets.size() - 1;
     std::vector<path_type> paths(num_paths);
 
