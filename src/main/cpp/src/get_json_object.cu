@@ -19,19 +19,15 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/copy.hpp>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/detail/utilities.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
-#include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
 
@@ -39,7 +35,6 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
-#include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/pair.h>
 #include <thrust/transform_reduce.h>
@@ -56,12 +51,12 @@ namespace detail {
 constexpr int max_path_depth = 16;
 
 /**
- * write JSON style
+ * @brief JSON style to write.
  */
 enum class write_style : int8_t { RAW, QUOTED, FLATTEN };
 
 /**
- * path instruction
+ * @brief Instruction along a JSON path.
  */
 struct path_instruction {
   __device__ inline path_instruction(path_instruction_type _type) : type(_type) {}
@@ -76,7 +71,8 @@ struct path_instruction {
 };
 
 /**
- * JSON generator is used to write out JSON content.
+ * @brief JSON generator used to write out JSON content.
+ *
  * Because of get_json_object only outputs JSON object as a whole item,
  * it's no need to store internal state for JSON object when outputing,
  * only need to store internal state for JSON array.
@@ -334,6 +330,9 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   }
 }
 
+/**
+ * @brief The cases that mirro Apache Spark case path in `jsonExpressions.scala#evaluatePath()`.
+ */
 enum class evaluation_case_path : int8_t {
   INVALID                                           = -1,
   START_ARRAY___EMPTY_PATH___FLATTEN_STYLE          = 2,
@@ -345,6 +344,9 @@ enum class evaluation_case_path : int8_t {
   START_ARRAY___MATCHED_INDEX                       = 9
 };
 
+/**
+ * @brief The struct to store states during processing JSON through different nested levels.
+ */
 struct context {
   // used to save current generator
   json_generator g;
@@ -400,8 +402,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     // no need to check stack is full
     // because Spark-Rapids already checked maximum length of `path_instruction`
     auto& ctx          = stack[stack_size++];
-    ctx.g              = _g;
-    ctx.path           = _path;
+    ctx.g              = std::move(_g);
+    ctx.path           = std::move(_path);
     ctx.dirty          = 0;
     ctx.case_path      = _case_path;
     ctx.token          = p.get_current_token();
@@ -776,7 +778,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
         default:;  // Never happens!
       }            // end switch (ctx.case_path)
-
     }              // ctx.task_is_done
   }                // while (stack_size > 0)
 
@@ -789,7 +790,54 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 }
 
 /**
- * @brief Kernel for running the JSONPath query.
+ * @brief Struct storing data such as path instructions, output buffer etc, corresponding to a
+ * single JSON path.
+ */
+struct json_path_processing_data {
+  cudf::device_span<path_instruction const> path_commands;
+  cudf::detail::input_offsetalator offsets;
+  thrust::pair<char const*, cudf::size_type>* out_stringviews;
+  char* out_buf;
+  int8_t* has_out_of_bound;
+};
+
+/**
+ * @brief Extract JSON object, from one input row, on one path.
+ *
+ * @param input The entire input strings column
+ * @param path_data Array containing all path data
+ * @param row_path_idx The index to identify row index and path index
+ */
+__device__ void process_row_path(cudf::column_device_view input,
+                                 cudf::device_span<json_path_processing_data> path_data,
+                                 int64_t row_path_idx)
+{
+  auto const row_idx  = row_path_idx / path_data.size();
+  auto const path_idx = row_path_idx % path_data.size();
+  auto const& path    = path_data[path_idx];
+
+  char* const dst          = path.out_buf + path.offsets[row_idx];
+  bool is_valid            = false;
+  cudf::size_type out_size = 0;
+
+  auto const str = input.element<cudf::string_view>(row_idx);
+  if (str.size_bytes() > 0) {
+    thrust::tie(is_valid, out_size) = evaluate_path(char_range{str}, path.path_commands, dst);
+
+    auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
+    if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
+  }
+
+  // Write out `nullptr` in the output string_view to indicate that the output is a null.
+  // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
+  // second time due to out-of-bound write in the first launch.
+  if (path.out_stringviews) {
+    path.out_stringviews[row_idx] = {is_valid ? dst : nullptr, out_size};
+  }
+}
+
+/**
+ * @brief Kernel for running the JSONPath query, using all threads for processing.
  *
  * This kernel writes out the output strings and their lengths at the same time. If any output
  * length exceed buffer size limit, a boolean flag will be turned on to inform to the caller.
@@ -797,199 +845,336 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
  * again. Otherwise, launching this kernel only once is sufficient to produce the desired output.
  *
  * @param input The input JSON strings stored in a strings column
- * @param offsets Offsets to the output locations in the output buffer
- * @param path_commands JSONPath command buffer
- * @param out_stringviews The output array to store pointers to the output strings and their sizes
- * @param out_buf Buffer used to store the strings resulted from the query
- * @param has_out_of_bound Flag to indicate if any output string has length exceeds its buffer size
+ * @param path_data Array containing all path data
  */
-template <int block_size>
-// We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
-// the kernel itself. By default NVCC uses a heuristic to find a balance between the
-// maximum number of registers used by a kernel and the parallelism of the kernel.
-// If lots of registers are used the parallelism may suffer. But in our case
-// NVCC gets this wrong and we want to avoid spilling all the time or else
-// the performance is really bad. This essentially tells NVCC to prefer using lots
-// of registers over spilling.
-__launch_bounds__(block_size, 1) CUDF_KERNEL
-  void get_json_object_kernel(cudf::column_device_view input,
-                              cudf::detail::input_offsetalator offsets,
-                              cudf::device_span<path_instruction const> path_commands,
-                              thrust::pair<char const*, cudf::size_type>* out_stringviews,
-                              char* out_buf,
-                              bool* has_out_of_bound)
+template <int block_size, int min_block_per_sm>
+__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
+  void get_json_object_kernel_thread_parallel(
+    cudf::column_device_view input, cudf::device_span<json_path_processing_data> path_data)
 {
-  auto const stride = cudf::detail::grid_1d::grid_stride();
-  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < input.size(); tid += stride) {
-    char* const dst          = out_buf + offsets[tid];
-    bool is_valid            = false;
-    cudf::size_type out_size = 0;
+  auto const max_tid = static_cast<int64_t>(input.size()) * path_data.size();
+  auto const stride  = cudf::detail::grid_1d::grid_stride();
 
-    auto const str = input.element<cudf::string_view>(tid);
-    if (str.size_bytes() > 0) {
-      thrust::tie(is_valid, out_size) = evaluate_path(char_range{str}, path_commands, dst);
-
-      auto const max_size = offsets[tid + 1] - offsets[tid];
-      if (out_size > max_size) { *has_out_of_bound = true; }
-    }
-
-    // Write out `nullptr` in the output string_view to indicate that the output is a null.
-    // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
-    // second time due to out-of-bound write in the first launch.
-    if (out_stringviews) { out_stringviews[tid] = {is_valid ? dst : nullptr, out_size}; }
+  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < max_tid; tid += stride) {
+    process_row_path(input, path_data, tid);
   }
 }
 
-std::pair<rmm::device_uvector<path_instruction>, std::unique_ptr<std::vector<path_instruction>>>
+/**
+ * @brief Kernel for running the JSONPath query, using one warp to process a row.
+ *
+ * The behavior of this kernel should be identical to that of the version using all threads for
+ * processing.
+ *
+ * @param input The input JSON strings stored in a strings column
+ * @param path_data Array containing all path data
+ */
+template <int block_size, int min_block_per_sm>
+__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
+  void get_json_object_kernel_warp_parallel(cudf::column_device_view input,
+                                            cudf::device_span<json_path_processing_data> path_data)
+{
+  auto const max_tid =
+    static_cast<int64_t>(input.size()) * path_data.size() * cudf::detail::warp_size;
+  auto const stride  = cudf::detail::grid_1d::grid_stride();
+  auto const lane_id = threadIdx.x % cudf::detail::warp_size;
+
+  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < max_tid; tid += stride) {
+    if (lane_id == 0) {
+      auto const warp_idx = tid / cudf::detail::warp_size;
+      process_row_path(input, path_data, warp_idx);
+    }
+    __syncwarp();
+  }
+}
+
+/**
+ * @brief Launch the main kernel.
+ *
+ * Either a thread-parallel or warp-parallel kernel is launched, depending on the value of
+ * `exec_thread_parallel`.
+ */
+void launch_kernel(bool exec_thread_parallel,
+                   cudf::column_device_view const& input,
+                   cudf::device_span<json_path_processing_data> path_data,
+                   rmm::cuda_stream_view stream)
+{
+  // We explicitly set the minBlocksPerMultiprocessor parameter in the launch bounds to avoid
+  // spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
+  // the maximum number of registers used by a kernel and the parallelism of the kernel.
+  // If lots of registers are used the parallelism may suffer. But in our case
+  // NVCC gets this wrong and we want to avoid spilling all the time or else
+  // the performance is really bad. This essentially tells NVCC to prefer using lots
+  // of registers over spilling.
+  if (exec_thread_parallel) {
+    constexpr int block_size       = 256;
+    constexpr int min_block_per_sm = 1;
+    auto const num_blocks =
+      cudf::util::div_rounding_up_safe(static_cast<std::size_t>(input.size()) * path_data.size(),
+                                       static_cast<std::size_t>(block_size));
+
+    get_json_object_kernel_thread_parallel<block_size, min_block_per_sm>
+      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
+  } else {
+    // The optimal values for block_size and min_block_per_sm were found through testing,
+    // which are 128-8 or 256-4.
+    constexpr int block_size       = 128;
+    constexpr int min_block_per_sm = 8;
+    auto const num_blocks          = cudf::util::div_rounding_up_safe(
+      static_cast<std::size_t>(input.size()) * path_data.size() * cudf::detail::warp_size,
+      static_cast<std::size_t>(block_size));
+
+    get_json_object_kernel_warp_parallel<block_size, min_block_per_sm>
+      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
+  }
+}
+
+/**
+ * @brief Construct the device vector containing necessary data for the input JSON paths.
+ *
+ * All JSON paths are processed at once, without stream synchronization, to minimize overhead.
+ *
+ * A tuple of values are returned, however, only the first element is needed for further kernel
+ * launch. The remaining are unused but need to be kept alive as they contains data for later
+ * asynchronous host-device memcpy.
+ */
+std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
+           std::unique_ptr<std::vector<std::vector<path_instruction>>>,
+           cudf::string_scalar,
+           std::string>
 construct_path_commands(
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  cudf::string_scalar const& all_names_scalar,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
   rmm::cuda_stream_view stream)
 {
-  std::size_t name_pos{0};
-  auto h_path_commands = std::make_unique<std::vector<path_instruction>>();
-  h_path_commands->reserve(instructions.size());
-  for (auto const& [type, name, index] : instructions) {
-    h_path_commands->emplace_back(path_instruction{type});
-
-    if (type == path_instruction_type::INDEX) {
-      h_path_commands->back().index = index;
-    } else if (type == path_instruction_type::NAMED) {
-      h_path_commands->back().name =
-        cudf::string_view(all_names_scalar.data() + name_pos, name.size());
-      name_pos += name.size();
-    } else if (type != path_instruction_type::WILDCARD) {
-      CUDF_FAIL("Invalid path instruction type");
-    }
-  }
-
-  // h_path_commands needs to be kept alive outside of this function due to async copy.
-  return {cudf::detail::make_device_uvector_async(
-            *h_path_commands, stream, rmm::mr::get_current_device_resource()),
-          std::move(h_path_commands)};
-}
-
-std::unique_ptr<cudf::column> get_json_object(
-  cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
-  if (input.is_empty()) { return cudf::make_empty_column(cudf::type_id::STRING); }
-
-  auto const all_names = [&] {
+  // Concatenate all names from path instructions.
+  auto h_inst_names = [&] {
     std::size_t length{0};
-    for (auto const& inst : instructions) {
-      length += (std::get<1>(inst)).length();
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { length += name.length(); }
+      }
     }
-
     std::string all_names;
     all_names.reserve(length);
-    for (auto const& inst : instructions) {
-      all_names += std::get<1>(inst);
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { all_names += name; }
+      }
     }
     return all_names;
   }();
+  auto d_inst_names = cudf::string_scalar(h_inst_names, true, stream);
 
-  auto const all_names_scalar = cudf::string_scalar(all_names, true, stream);
-  auto const [d_path_commands, h_path_commands] =
-    construct_path_commands(instructions, all_names_scalar, stream);
+  std::size_t name_pos{0};
+  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
+  h_path_commands->reserve(json_paths.size());
+
+  for (auto const& instructions : json_paths) {
+    h_path_commands->emplace_back();
+    auto& path_commands = h_path_commands->back();
+    path_commands.reserve(instructions.size());
+
+    for (auto const& [type, name, index] : instructions) {
+      path_commands.emplace_back(path_instruction{type});
+
+      if (type == path_instruction_type::INDEX) {
+        path_commands.back().index = index;
+      } else if (type == path_instruction_type::NAMED) {
+        path_commands.back().name = cudf::string_view(d_inst_names.data() + name_pos, name.size());
+        name_pos += name.size();
+      } else if (type != path_instruction_type::WILDCARD) {
+        CUDF_FAIL("Invalid path instruction type");
+      }
+    }
+  }
+
+  auto d_path_commands = std::vector<rmm::device_uvector<path_instruction>>{};
+  d_path_commands.reserve(h_path_commands->size());
+  for (auto const& path_commands : *h_path_commands) {
+    d_path_commands.emplace_back(cudf::detail::make_device_uvector_async(
+      path_commands, stream, rmm::mr::get_current_device_resource()));
+  }
+
+  return {std::move(d_path_commands),
+          std::move(h_path_commands),
+          std::move(d_inst_names),
+          std::move(h_inst_names)};
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_outputs = json_paths.size();
+  std::vector<std::unique_ptr<cudf::column>> output;
+
+  // Input is empty or all nulls - just return all null columns.
+  if (input.is_empty() || input.size() == input.null_count()) {
+    for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+      output.emplace_back(std::make_unique<cudf::column>(input.parent(), stream, mr));
+    }
+    return output;
+  }
+
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
-  auto const in_offsets  = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
+  auto const in_offsets =
+    cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
+  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
+    construct_path_commands(json_paths, stream);
 
-  // A buffer to store the output strings without knowing their sizes.
+  auto const [max_row_size, sum_row_size] =
+    thrust::transform_reduce(rmm::exec_policy(stream),
+                             thrust::make_counting_iterator(0),
+                             thrust::make_counting_iterator(input.size()),
+                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
+                               [in_offsets] __device__(auto const idx) {
+                                 auto const size = in_offsets[idx + 1] - in_offsets[idx];
+                                 return thrust::pair<int64_t, int64_t>{size, size};
+                               }),
+                             thrust::pair<int64_t, int64_t>{0, 0},
+                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
+                               [] __device__(auto const& lhs, auto const& rhs) {
+                                 return thrust::pair<int64_t, int64_t>{
+                                   std::max(lhs.first, rhs.first), lhs.second + rhs.second};
+                               }));
+
+  // We will use scratch buffers to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
   // size so that we will not write output strings into an out-of-bound position.
   // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
   // data corruption.
-  auto const scratch_size = [&] {
-    auto const max_row_size = thrust::transform_reduce(
-      rmm::exec_policy(stream),
-      thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(input.size()),
-      cuda::proclaim_return_type<int64_t>(
-        [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
-      int64_t{0},
-      thrust::maximum{});
-
+  auto const scratch_size = [&, max_row_size = max_row_size] {
     // Pad the scratch buffer by an additional size that is a multiple of max row size.
     auto constexpr padding_rows = 10;
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
-  auto output_scratch  = rmm::device_uvector<char>(scratch_size, stream);
-  auto out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
-    static_cast<std::size_t>(input.size()), stream};
-  auto has_out_of_bound = rmm::device_scalar<bool>{false, stream};
 
-  constexpr int blocks_per_SM = 1;
-  constexpr int block_size    = 256;
-  auto const num_blocks       = [&] {
-    int device_id{};
-    cudaDeviceProp props{};
-    CUDF_CUDA_TRY(cudaGetDevice(&device_id));
-    CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
-    return props.multiProcessorCount * blocks_per_SM;
-  }();
+  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
+  std::vector<rmm::device_uvector<char>> scratch_buffers;
+  std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
+  std::vector<json_path_processing_data> h_path_data;
+  scratch_buffers.reserve(json_paths.size());
+  out_stringviews.reserve(json_paths.size());
+  h_path_data.reserve(json_paths.size());
 
-  get_json_object_kernel<block_size>
-    <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
-                                                    in_offsets,
-                                                    d_path_commands,
-                                                    out_stringviews.data(),
-                                                    output_scratch.data(),
-                                                    has_out_of_bound.data());
+  for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+    auto const& instructions = json_paths[idx];
+    if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+
+    scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
+    out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
+      static_cast<std::size_t>(input.size()), stream});
+
+    h_path_data.emplace_back(json_path_processing_data{d_json_paths[idx],
+                                                       in_offsets,
+                                                       out_stringviews.back().data(),
+                                                       scratch_buffers.back().data(),
+                                                       d_has_out_of_bound.data() + idx});
+  }
+  auto d_path_data = cudf::detail::make_device_uvector_async(
+    h_path_data, stream, rmm::mr::get_current_device_resource());
+  thrust::uninitialized_fill(
+    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
+
+  // Threshold to decide on using thread parallel or warp parallel algorithms.
+  constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 256;
+  auto const exec_thread_parallel =
+    (sum_row_size / (input.size() - input.null_count())) < AVG_CHAR_BYTES_THRESHOLD;
+  launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
+
+  // Do not use parallel check since we do not have many elements.
+  auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
+  auto has_no_oob         = std::none_of(
+    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
-  if (!has_out_of_bound.value(stream)) {
-    return cudf::make_strings_column(out_stringviews, stream, mr);
+  if (has_no_oob) {
+    for (auto const& out_sview : out_stringviews) {
+      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+    }
+    return output;
   }
   // From here, we had out-of-bound write. Although this is very rare, it may still happen.
 
-  // This scratch buffer is no longer needed.
-  output_scratch = rmm::device_uvector<char>{0, stream};
+  std::vector<std::pair<rmm::device_buffer, cudf::size_type>> out_null_masks_and_null_counts;
+  std::vector<std::pair<std::unique_ptr<cudf::column>, int64_t>> out_offsets_and_sizes;
+  std::vector<rmm::device_uvector<char>> out_char_buffers;
+  std::vector<std::size_t> oob_indices;
 
-  // The string sizes computed in the previous kernel call will be used to allocate a new char
-  // buffer to store the output.
-  auto const size_it = cudf::detail::make_counting_transform_iterator(
-    0,
-    cuda::proclaim_return_type<cudf::size_type>(
-      [string_pairs = out_stringviews.data()] __device__(auto const idx) {
-        return string_pairs[idx].second;
-      }));
-  auto [offsets, output_size] =
-    cudf::strings::detail::make_offsets_child_column(size_it, size_it + input.size(), stream, mr);
-
-  // Also compute the null mask using the stored char pointers.
+  // Check validity from the stored char pointers.
   auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
     return item.first != nullptr;
   };
-  auto [null_mask, null_count] =
-    cudf::detail::valid_if(out_stringviews.begin(), out_stringviews.end(), validator, stream, mr);
 
-  // No longer need it from here. Free up memory for now.
-  out_stringviews = rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{0, stream};
+  // Rebuild the data only for paths that had out of bound write.
+  h_path_data.clear();
+  for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+    auto const& out_sview = out_stringviews[idx];
 
-  auto chars             = rmm::device_uvector<char>(output_size, stream, mr);
-  auto const out_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
+    if (h_has_out_of_bound[idx]) {
+      oob_indices.emplace_back(idx);
+      output.emplace_back(nullptr);  // just placeholder.
 
-  has_out_of_bound.set_value_to_zero_async(stream);
-  get_json_object_kernel<block_size>
-    <<<num_blocks, block_size, 0, stream.value()>>>(*d_input_ptr,
-                                                    out_offsets,
-                                                    d_path_commands,
-                                                    nullptr /*out_stringviews*/,
-                                                    chars.data(),
-                                                    has_out_of_bound.data());
+      out_null_masks_and_null_counts.emplace_back(
+        cudf::detail::valid_if(out_sview.begin(), out_sview.end(), validator, stream, mr));
 
-  // This kernel call should not see out-of-bound write. If it is still detected, there must be
-  // something wrong happened.
-  CUDF_EXPECTS(!has_out_of_bound.value(stream),
-               "Unexpected out-of-bound write in get_json_object kernel.");
+      // The string sizes computed in the previous kernel call will be used to allocate a new char
+      // buffer to store the output.
+      auto const size_it = cudf::detail::make_counting_transform_iterator(
+        0,
+        cuda::proclaim_return_type<cudf::size_type>(
+          [string_pairs = out_sview.data()] __device__(auto const idx) {
+            return string_pairs[idx].second;
+          }));
+      out_offsets_and_sizes.emplace_back(cudf::strings::detail::make_offsets_child_column(
+        size_it, size_it + input.size(), stream, mr));
+      out_char_buffers.emplace_back(
+        rmm::device_uvector<char>(out_offsets_and_sizes.back().second, stream, mr));
 
-  return cudf::make_strings_column(
-    input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
+      h_path_data.emplace_back(
+        json_path_processing_data{d_json_paths[idx],
+                                  cudf::detail::offsetalator_factory::make_input_iterator(
+                                    out_offsets_and_sizes.back().first->view()),
+                                  nullptr /*out_stringviews*/,
+                                  out_char_buffers.back().data(),
+                                  d_has_out_of_bound.data() + idx});
+    } else {
+      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+    }
+  }
+  // These buffers are no longer needed.
+  scratch_buffers.clear();
+  out_stringviews.clear();
+
+  // Push data to the GPU and launch the kernel again.
+  d_path_data = cudf::detail::make_device_uvector_async(
+    h_path_data, stream, rmm::mr::get_current_device_resource());
+  thrust::uninitialized_fill(
+    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
+  launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
+
+  // Check out of bound again to make sure everything looks right.
+  h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
+  has_no_oob         = std::none_of(
+    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+
+  // The last kernel call should not encounter any out-of-bound write.
+  // If OOB is still detected, there must be something wrong happened.
+  CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
+
+  for (auto const idx : oob_indices) {
+    output[idx] = cudf::make_strings_column(input.size(),
+                                            std::move(out_offsets_and_sizes[idx].first),
+                                            out_char_buffers[idx].release(),
+                                            out_null_masks_and_null_counts[idx].second,
+                                            std::move(out_null_masks_and_null_counts[idx].first));
+  }
+  return output;
 }
 
 }  // namespace detail
@@ -1000,7 +1185,17 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return detail::get_json_object(input, instructions, stream, mr);
+  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  return detail::get_json_object(input, json_paths, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
