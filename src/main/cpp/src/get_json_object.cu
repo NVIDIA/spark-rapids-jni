@@ -910,9 +910,9 @@ void launch_kernel(bool exec_thread_parallel,
   if (exec_thread_parallel) {
     constexpr int block_size       = 256;
     constexpr int min_block_per_sm = 1;
-    auto const num_blocks          = cudf::util::div_rounding_up_safe(
-      static_cast<std::size_t>(input.size()) * path_data.size() * cudf::detail::warp_size,
-      static_cast<std::size_t>(block_size));
+    auto const num_blocks =
+      cudf::util::div_rounding_up_safe(static_cast<std::size_t>(input.size()) * path_data.size(),
+                                       static_cast<std::size_t>(block_size));
 
     get_json_object_kernel_thread_parallel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
