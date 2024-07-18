@@ -900,14 +900,6 @@ void launch_kernel(bool exec_thread_parallel,
                    cudf::device_span<json_path_processing_data> path_data,
                    rmm::cuda_stream_view stream)
 {
-  auto const get_SM_count = []() {
-    int device_id{};
-    cudaDeviceProp props{};
-    CUDF_CUDA_TRY(cudaGetDevice(&device_id));
-    CUDF_CUDA_TRY(cudaGetDeviceProperties(&props, device_id));
-    return props.multiProcessorCount;
-  };
-
   // We explicitly set the minBlocksPerMultiprocessor parameter in the launch bounds to avoid
   // spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
   // the maximum number of registers used by a kernel and the parallelism of the kernel.
@@ -916,18 +908,22 @@ void launch_kernel(bool exec_thread_parallel,
   // the performance is really bad. This essentially tells NVCC to prefer using lots
   // of registers over spilling.
   if (exec_thread_parallel) {
-    constexpr int block_size             = 256;
-    constexpr int min_block_per_sm       = 1;
-    constexpr int block_count_multiplier = 1;
-    static auto const num_blocks         = get_SM_count() * block_count_multiplier;
+    constexpr int block_size       = 256;
+    constexpr int min_block_per_sm = 1;
+    auto const num_blocks          = cudf::util::div_rounding_up_safe(
+      static_cast<std::size_t>(input.size()) * path_data.size() * cudf::detail::warp_size,
+      static_cast<std::size_t>(block_size));
 
     get_json_object_kernel_thread_parallel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
   } else {
-    constexpr int block_size             = 512;
-    constexpr int min_block_per_sm       = 2;
-    constexpr int block_count_multiplier = 8;
-    static auto const num_blocks         = get_SM_count() * block_count_multiplier;
+    // The optimal values for block_size and min_block_per_sm were found through testing,
+    // which are 128-8 or 256-4.
+    constexpr int block_size       = 128;
+    constexpr int min_block_per_sm = 8;
+    auto const num_blocks          = cudf::util::div_rounding_up_safe(
+      static_cast<std::size_t>(input.size()) * path_data.size() * cudf::detail::warp_size,
+      static_cast<std::size_t>(block_size));
 
     get_json_object_kernel_warp_parallel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
