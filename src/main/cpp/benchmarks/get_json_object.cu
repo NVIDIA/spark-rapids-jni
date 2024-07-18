@@ -87,22 +87,32 @@ std::vector<std::string> to_host_strings(CV const& c)
 }  // namespace
 #endif  // #ifdef DEBUG_PRINT
 
-constexpr auto list_depth = 2;
+// Do not change: we need one depth for lists for more accurate input size estimate.
+constexpr auto list_depth = 1;
 
-auto generate_long_row_table(std::size_t size_bytes, cudf::size_type max_depth)
+auto generate_table(std::size_t size_bytes, int max_depth, int max_row_size)
 {
-  constexpr auto min_list_width   = 1;
-  constexpr auto max_list_width   = 20;
-  constexpr auto min_string_width = 1;
-  constexpr auto max_string_width = 20;
-  constexpr auto num_cols         = 30;
+  constexpr auto list_width   = 5;
+  constexpr auto string_width = 15;
+
+  int sizes[3] = {10 /*max digits of int32*/, string_width * 2, list_width * string_width * 2};
+  int num_cols{0};
+  int row_size{0};
+  while (true) {
+    auto const id = num_cols % 3;
+    // We use max_row_size / 2 because the generated strings contains 2-bytes UTF8 which
+    // cause the output string size to be approximately doubled.
+    if (row_size + sizes[id] > max_row_size) { break; }
+    row_size += sizes[id];
+    num_cols++;
+  }
+  CUDF_EXPECTS(num_cols > 0, "No column generated");
 
   data_profile const table_profile =
     data_profile_builder()
       .no_validity()
-      .distribution(
-        cudf::type_id::STRING, distribution_id::NORMAL, min_string_width, max_string_width)
-      .distribution(cudf::type_id::LIST, distribution_id::NORMAL, min_list_width, max_list_width)
+      .distribution(cudf::type_id::STRING, distribution_id::NORMAL, string_width, string_width)
+      .distribution(cudf::type_id::LIST, distribution_id::NORMAL, list_width, list_width)
       .list_depth(list_depth)
       .list_type(cudf::type_id::STRING)
       .struct_depth(max_depth > list_depth ? max_depth - list_depth : 1)
@@ -116,37 +126,9 @@ auto generate_long_row_table(std::size_t size_bytes, cudf::size_type max_depth)
                              table_profile);
 }
 
-auto generate_short_row_table(std::size_t size_bytes, cudf::size_type max_depth)
+auto generate_input(std::size_t size_bytes, int max_depth, int max_row_size)
 {
-  constexpr auto min_list_width   = 1;
-  constexpr auto max_list_width   = 5;
-  constexpr auto min_string_width = 1;
-  constexpr auto max_string_width = 15;
-  constexpr auto num_cols         = 3;
-
-  data_profile const table_profile =
-    data_profile_builder()
-      .no_validity()
-      .distribution(
-        cudf::type_id::STRING, distribution_id::NORMAL, min_string_width, max_string_width)
-      .distribution(cudf::type_id::LIST, distribution_id::NORMAL, min_list_width, max_list_width)
-      .list_depth(list_depth)
-      .list_type(cudf::type_id::STRING)
-      .struct_depth(max_depth > list_depth ? max_depth - list_depth : 1)
-      .struct_types(std::vector<cudf::type_id>{cudf::type_id::LIST});
-
-  return create_random_table(cycle_dtypes(std::vector<cudf::type_id>{cudf::type_id::INT32,
-                                                                     cudf::type_id::STRING,
-                                                                     cudf::type_id::STRUCT},
-                                          num_cols),
-                             table_size_bytes{size_bytes},
-                             table_profile);
-}
-
-auto generate_input(bool has_long_row, std::size_t size_bytes, cudf::size_type max_depth)
-{
-  auto const input_table = has_long_row ? generate_long_row_table(size_bytes, max_depth)
-                                        : generate_short_row_table(size_bytes, max_depth);
+  auto const input_table = generate_table(size_bytes, max_depth, max_row_size);
   std::vector<char> buffer;
   cudf::io::sink_info sink(&buffer);
   cudf::io::table_metadata mt;
@@ -193,11 +175,11 @@ auto generate_json_path(int num_cols, int max_depth)
 
 void BM_get_json_object(nvbench::state& state)
 {
-  auto const size_bytes   = static_cast<cudf::size_type>(state.get_int64("size_bytes"));
-  auto const max_depth    = static_cast<cudf::size_type>(state.get_int64("max_depth"));
-  auto const has_long_row = static_cast<bool>(state.get_int64("long_row"));
+  auto const size_bytes   = static_cast<int>(state.get_int64("size_bytes"));
+  auto const max_depth    = static_cast<int>(state.get_int64("max_depth"));
+  auto const max_row_size = static_cast<int>(state.get_int64("max_row_size"));
 
-  auto const [json_strings, num_cols] = generate_input(has_long_row, size_bytes, max_depth);
+  auto const [json_strings, num_cols] = generate_input(size_bytes, max_depth, max_row_size);
   srand(0);  // for generating JSON paths.
 
   state.set_cuda_stream(nvbench::make_cuda_stream_view(cudf::get_default_stream().value()));
@@ -223,15 +205,16 @@ void BM_get_json_object(nvbench::state& state)
 
 void BM_get_json_object_multi_paths(nvbench::state& state)
 {
-  auto const size_bytes   = static_cast<cudf::size_type>(state.get_int64("size_bytes"));
-  auto const max_depth    = static_cast<cudf::size_type>(state.get_int64("max_depth"));
-  auto const has_long_row = static_cast<bool>(state.get_int64("long_row"));
+  auto const size_bytes = static_cast<int>(state.get_int64("size_bytes"));
+  auto const max_depth  = static_cast<int>(state.get_int64("max_depth"));
 
-  auto const [json_strings, num_cols] = generate_input(has_long_row, size_bytes, max_depth);
-  using path_instruction_type         = spark_rapids_jni::path_instruction_type;
+  auto const [json_strings, num_cols] =
+    generate_input(size_bytes, max_depth, 10000 /*max_row_size*/);
+  using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
   srand(0);  // for generating JSON paths.
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> paths;
+  paths.reserve(num_cols);
   for (int i = 0; i < num_cols; ++i) {
     paths.emplace_back(generate_json_path(num_cols, max_depth));
   }
@@ -252,12 +235,11 @@ void BM_get_json_object_multi_paths(nvbench::state& state)
 
 NVBENCH_BENCH(BM_get_json_object)
   .set_name("get_json_object")
-  .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 500'000'000})
-  .add_int64_axis("max_depth", {2, 4, 8})
-  .add_int64_axis("long_row", {0, 1});
+  .add_int64_axis("size_bytes", {10'000'000, 100'000'000, 500'000'000})
+  .add_int64_axis("max_depth", {2})
+  .add_int64_axis("max_row_size", {128, 512, 1024, 2048, 4096, 8192});
 
 NVBENCH_BENCH(BM_get_json_object_multi_paths)
   .set_name("get_json_object_multi_paths")
   .add_int64_axis("size_bytes", {1'000'000, 10'000'000, 100'000'000, 500'000'000})
-  .add_int64_axis("max_depth", {2, 4, 8})
-  .add_int64_axis("long_row", {0, 1});
+  .add_int64_axis("max_depth", {2, 4, 8});
