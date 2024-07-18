@@ -77,3 +77,7 @@ ConfigureTest(UTILITIES
 
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
+
+ConfigureTest(SUBSTRING_INDEX
+    substring_index.cpp)
+
