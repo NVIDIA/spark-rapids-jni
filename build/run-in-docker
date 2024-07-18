@@ -20,8 +20,6 @@
 
 set -e
 
-# Base paths relative to this script's location
-SCRIPTDIR=$(cd $(dirname $0); pwd)
 REPODIR=$(git rev-parse --path-format=absolute --show-toplevel)
 GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
 WORKDIR=${WORKDIR:-$REPODIR}
