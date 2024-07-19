@@ -188,27 +188,36 @@ public class DecimalUtils {
     return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
   }
 
-  public static class CastedResult {
-    public final ColumnVector column;
-    public final boolean hasInvalid;
+  /**
+   * A class to store the result of a cast operation from floating point values to decimals.
+   * <p>
+   * Since the result column may or may not be used regardless of the value of hasFailure, we
+   * need to kept it and let the caller to decide.
+   */
+  public static class CastFloatToDecimalResult {
+    public final ColumnVector result; // the cast result
+    public final boolean hasFailure; // whether the cast operation has failed for any input rows
 
-    public CastedResult(ColumnVector column, boolean hasInvalid) {
-      this.column = column;
-      this.hasInvalid = hasInvalid;
+    public CastFloatToDecimalResult(ColumnVector result, boolean hasFailure) {
+      this.result = result;
+      this.hasFailure = hasFailure;
     }
   }
 
   /**
-   * @param input
-   * @param outputType
-   * @return
+   * Cast floating point values to decimals, matching the behavior of Spark.
+   *
+   * @param input      The input column, which is either FLOAT32 or FLOAT64
+   * @param outputType The output decimal type
+   * @return The decimal column resulting from the cast operation and a boolean column indicating
+   * whether the cast operation has failed for any input rows
    */
-  public static CastedResult floatingPointToDecimal(ColumnView input, DType outputType,
-                                                    int precision) {
+  public static CastFloatToDecimalResult floatingPointToDecimal(ColumnView input, DType outputType,
+                                                                int precision) {
     long[] result = floatingPointToDecimal(
         input.getNativeView(), outputType.getTypeId().getNativeId(), precision,
         outputType.getScale());
-    return new CastedResult(new ColumnVector(result[0]), result[1] != 0);
+    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1] != 0);
   }
 
   private static native long[] multiply128(long viewA, long viewB, int productScale,
