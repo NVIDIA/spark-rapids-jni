@@ -9,6 +9,14 @@
       "git_url" : "https://github.com/apache/arrow.git",
       "version" : "16.1.0"
     },
+    "BS_thread_pool" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "097aa718f25d44315cadb80b407144ad455ee4f9",
+      "git_url" : "https://github.com/bshoshany/thread-pool.git",
+      "version" : "4.1.0"
+    },
     "CCCL" : 
     {
       "always_download" : true,
@@ -47,7 +55,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ab3778c0462c2f713125a4e458f46bcd654b9d54",
+      "git_tag" : "e7bc8b2b64f8cf9dba602bea4aa81caa047c2322",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.08"
     },
@@ -55,7 +63,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e7b5a389b823bebe465cefe63ad7b0e95f7fb450",
+      "git_tag" : "ee5c10456c7ad584c254152411ba3dc114537a6f",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -132,7 +140,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "65deae534c56890b159b56be31889f4eb9403406",
+      "git_tag" : "33598c7e6b97dce2264f632e28a8f216998cfe4a",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.08"
     },
