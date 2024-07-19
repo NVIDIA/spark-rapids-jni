@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,19 +64,21 @@ std::unique_ptr<cudf::table> sub_decimal128(
   rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 /**
- * @brief Convert a column of floating point values to decimal type.
+ * @brief Cast floating point values to decimals, matching the behavior of Spark.
  *
- * TODO
- *
- * @param input
- * @param output_type
- * @param stream
- * @return
+ * @param input The input column, which is either FLOAT32 or FLOAT64
+ * @param output_type The output decimal type
+ * @param precision The maximum number of digits that will be preserved in the output
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ * @return A cudf column containing the cast result and a boolean indicating whether the cast
+           operation has failed for any input rows null.
  */
 std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
   int32_t precision,
-  rmm::cuda_stream_view stream = cudf::get_default_stream());
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace cudf::jni
