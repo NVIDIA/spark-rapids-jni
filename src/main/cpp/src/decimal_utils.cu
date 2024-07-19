@@ -1272,7 +1272,7 @@ struct floating_point_to_decimal_dispatcher {
 
     auto const d_input_ptr     = cudf::column_device_view::create(input, stream);
     auto const scale_factor    = std::pow(10.0, static_cast<double>(decimal_places));
-    auto const exclusive_bound = std::pow(10.0, static_cast<double>(precision));  // exclusive bound
+    auto const exclusive_bound = std::pow(10.0, static_cast<double>(precision));
 
     thrust::tabulate(
       rmm::exec_policy_nosync(stream),
