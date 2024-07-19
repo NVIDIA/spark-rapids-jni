@@ -28,6 +28,9 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <thrust/functional.h>
+#include <thrust/tabulate.h>
+
 #include <cmath>
 #include <cstddef>
 
@@ -1180,100 +1183,103 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
 
 namespace {
 
-template <typename FloatingType>
-bool __device__ does_conversion_truncate(FloatingType floating, int const exp10)
+template <typename FloatType>
+bool __device__ need_truncation(FloatType input, int decimal_places)
 {
-  int const exp2 = std::ilogb(floating) - (std::numeric_limits<FloatingType>::digits - 1);
-  int const corresponding_exp2 = -299 * exp10 / 90;
-  // std::cout << "Exps: " << exp2 << ", " << corresponding_exp2  << ", " << exp10 << "\n";
+  int const exp2               = std::ilogb(input) - (std::numeric_limits<FloatType>::digits - 1);
+  int const corresponding_exp2 = -299 * decimal_places / 90;
   return (exp2 < corresponding_exp2) || ((exp2 == corresponding_exp2) && (exp2 < 0));
 }
 
-template <typename FloatingType>
-FloatingType __device__ fix_before_round(FloatingType floating, int const exp10)
+template <typename FloatType>
+__device__ FloatType fix_before_round(FloatType input, int decimal_places)
 {
-  if (!does_conversion_truncate(floating, exp10)) {
-    // std::cout << "no truncates\n";
-    return floating;
+  if (!need_truncation(input, decimal_places)) { return input; }
+  auto const direction =
+    input < 0 ? std::numeric_limits<FloatType>::lowest() : std::numeric_limits<FloatType>::max();
+  return std::nextafter(input, direction);
+}
+
+template <typename FloatType>
+__device__ FloatType scaled_round(FloatType input, double scale_factor, int decimal_places)
+{
+  return std::round(scale_factor * fix_before_round(input, decimal_places));
+}
+
+template <typename FloatType, typename DecimalRepType>
+struct floating_point_to_decimal_fn {
+  cudf::column_device_view input;
+  int8_t* validity;
+  bool* has_invalid;
+  int32_t decimal_places;
+  double scale_factor;
+  double exclusive_bound;
+
+  __device__ DecimalRepType operator()(cudf::size_type idx) const
+  {
+    auto const x = input.element<FloatType>(idx);
+
+    if (input.is_null(idx) || !std::isfinite(x)) {
+      if (!std::isfinite(x)) { *has_invalid = true; }
+      validity[idx] = false;
+      return DecimalRepType{0};
+    }
+
+    auto const scaled_rounded =
+      scaled_round<double>(static_cast<double>(x), scale_factor, decimal_places);
+
+    auto const is_out_of_bound =
+      (-exclusive_bound >= scaled_rounded) || (scaled_rounded >= exclusive_bound);
+    if (is_out_of_bound) { *has_invalid = true; }
+    validity[idx] = !is_out_of_bound;
+
+    return is_out_of_bound ? DecimalRepType{0} : static_cast<DecimalRepType>(scaled_rounded);
   }
-  // std::cout << "truncates\n";
-  auto const direction = floating < 0 ? std::numeric_limits<FloatingType>::lowest()
-                                      : std::numeric_limits<FloatingType>::max();
-  return std::nextafter(floating, direction);
-}
+};
 
-template <typename FloatingType>
-FloatingType __device__ scaled_round(FloatingType floating, int const exp10)
-{
-  auto const scale_factor = std::pow(10, exp10);
-  return std::round(scale_factor * fix_before_round(floating, exp10));
-}
-
-struct float_to_decimal_fn {
+struct floating_point_to_decimal_dispatcher {
   template <typename FloatType, typename DecimalType>
+  static constexpr bool supported_types()
+  {
+    return (std::is_same_v<FloatType, float> ||   //
+            std::is_same_v<FloatType, double>)&&  //
+      (std::is_same_v<DecimalType, numeric::decimal32> ||
+       std::is_same_v<DecimalType, numeric::decimal64> ||
+       std::is_same_v<DecimalType, numeric::decimal128>);
+  }
+
+  template <typename FloatType,
+            typename DecimalType,
+            typename... Args,
+            CUDF_ENABLE_IF(not supported_types<FloatType, DecimalType>())>
+  void operator()(Args...) const
+  {
+    CUDF_FAIL("Unsupported types for floating_point_to_decimal_fn", cudf::data_type_error);
+  }
+
+  template <typename FloatType,
+            typename DecimalType,
+            CUDF_ENABLE_IF(supported_types<FloatType, DecimalType>())>
   void operator()(cudf::column_view const& input,
                   cudf::mutable_column_view const& output,
-                  int8_t* validity_begin,
+                  int8_t* validity,
                   bool* has_invalid,
                   int32_t decimal_places,
                   int32_t precision,
                   rmm::cuda_stream_view stream) const
   {
-    if constexpr ((std::is_same_v<FloatType, float> || std::is_same_v<FloatType, double>)&&(
-                    std::is_same_v<DecimalType, numeric::decimal32> ||
-                    std::is_same_v<DecimalType, numeric::decimal64> ||
-                    std::is_same_v<DecimalType, numeric::decimal128>)) {
-      using DecimalRepType = cudf::device_storage_type_t<DecimalType>;
+    using DecimalRepType = cudf::device_storage_type_t<DecimalType>;
 
-      // Exclusive bound
-      auto const bound       = std::pow(10, precision);
-      auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+    auto const d_input_ptr     = cudf::column_device_view::create(input, stream);
+    auto const scale_factor    = std::pow(10.0, static_cast<double>(decimal_places));
+    auto const exclusive_bound = std::pow(10.0, static_cast<double>(precision));  // exclusive bound
 
-      thrust::transform(
-        rmm::exec_policy(stream),
-        thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(input.size()),
-        output.begin<DecimalRepType>(),
-        [has_invalid,
-         decimal_places,
-         input        = *d_input_ptr,
-         min_ex_bound = -bound,
-         max_ex_bound = bound,
-         validity     = validity_begin] __device__(auto const idx) {
-          auto const x = input.element<FloatType>(idx);
-
-          // printf("x: %20.18f\n", x);
-
-          if (input.is_null(idx) || std::isnan(x) || std::isinf(x)) {
-            // printf("nan/inf/null for x: %20.18f\n", x);
-            validity[idx] = false;
-            return DecimalRepType{0};
-          }
-
-#if 0
-                          auto const direction = x < 0 ? std::numeric_limits<double>::lowest()
-                                                       : std::numeric_limits<double>::max();
-                          // TODO: handle overflow due to scaling
-                          auto const scaled_rounded =
-                            std::round(scale * std::nextafter(static_cast<double>(x), direction));
-
-                          // printf("scaled rounded: %20.18f | %20.18f\n",
-                          //        scaled_rounded,
-                          //        scale * std::nextafter(static_cast<double>(x), direction));
-#endif
-          auto const scaled_rounded = scaled_round<double>(static_cast<double>(x), decimal_places);
-
-          auto const is_out_of_bound =
-            (min_ex_bound >= scaled_rounded) || (scaled_rounded >= max_ex_bound);
-          if (is_out_of_bound) {
-            *has_invalid = true;
-            // printf("out of bound, x = %20.18f\n", x);
-          }
-
-          validity[idx] = !is_out_of_bound;
-          return is_out_of_bound ? DecimalRepType{0} : static_cast<DecimalRepType>(scaled_rounded);
-        });
-    }
+    thrust::tabulate(
+      rmm::exec_policy_nosync(stream),
+      output.begin<DecimalRepType>(),
+      output.end<DecimalRepType>(),
+      floating_point_to_decimal_fn<FloatType, DecimalRepType>{
+        *d_input_ptr, validity, has_invalid, decimal_places, scale_factor, exclusive_bound});
   }
 };
 
@@ -1283,24 +1289,21 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
   int32_t precision,
-  rmm::cuda_stream_view stream)
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   auto output = cudf::make_fixed_point_column(
-    output_type,
-    input.size(),
-    cudf::detail::copy_bitmask(input, stream, rmm::mr::get_current_device_resource()),
-    input.null_count(),
-    stream);
+    output_type, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
 
   auto const decimal_places = -output_type.scale();
+  auto const default_mr     = rmm::mr::get_current_device_resource();
 
-  rmm::device_uvector<int8_t> validity(
-    input.size(), stream, rmm::mr::get_current_device_resource());
-  rmm::device_scalar<bool> has_invalid(false, stream, rmm::mr::get_current_device_resource());
+  rmm::device_uvector<int8_t> validity(input.size(), stream, default_mr);
+  rmm::device_scalar<bool> has_invalid(false, stream, default_mr);
 
   cudf::double_type_dispatcher(input.type(),
                                output_type,
-                               float_to_decimal_fn{},
+                               floating_point_to_decimal_dispatcher{},
                                input,
                                output->mutable_view(),
                                validity.begin(),
@@ -1309,12 +1312,8 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
                                precision,
                                stream);
 
-  auto [null_mask, null_count] = cudf::detail::valid_if(validity.begin(),
-                                                        validity.end(),
-                                                        thrust::identity{},
-                                                        stream,
-                                                        rmm::mr::get_current_device_resource());
-
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
   if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
   return {std::move(output), has_invalid.value(stream)};
