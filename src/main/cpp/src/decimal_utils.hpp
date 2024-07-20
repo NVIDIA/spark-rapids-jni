@@ -66,13 +66,13 @@ std::unique_ptr<cudf::table> sub_decimal128(
 /**
  * @brief Cast floating point values to decimals, matching the behavior of Spark.
  *
- * @param input The input column, which is either FLOAT32 or FLOAT64
+ * @param input The input column, which is either FLOAT32 or FLOAT64 type
  * @param output_type The output decimal type
  * @param precision The maximum number of digits that will be preserved in the output
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate the returned column's device memory
- * @return A cudf column containing the cast result and a boolean indicating whether the cast
-           operation has failed for any input rows null.
+ * @return A cudf column containing the cast result and a boolean value indicating whether the cast
+           operation has failed for any input rows
  */
 std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
   cudf::column_view const& input,
