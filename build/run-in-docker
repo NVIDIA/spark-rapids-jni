@@ -20,8 +20,10 @@
 
 set -e
 
-REPODIR=$(git rev-parse --path-format=absolute --show-toplevel)
-GIT_COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+REPODIR_REL=$(git rev-parse --show-toplevel)
+REPODIR=$(readlink -e "$REPODIR_REL")
+GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
+GIT_COMMON_DIR=$(readlink -e "$GIT_COMMON_DIR_REL")
 WORKDIR=${WORKDIR:-$REPODIR}
 
 CUDA_VERSION=${CUDA_VERSION:-11.8.0}
