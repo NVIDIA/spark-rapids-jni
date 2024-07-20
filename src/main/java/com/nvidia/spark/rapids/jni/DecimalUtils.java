@@ -201,7 +201,7 @@ public class DecimalUtils {
    *
    * @param input The input column, which is either FLOAT32 or FLOAT64
    * @param outputType The output decimal type
-   * @return The decimal column resulting from the cast operation and a boolean column indicating
+   * @return The decimal column resulting from the cast operation and a boolean value indicating
    * whether the cast operation has failed for any input rows
    */
   public static CastFloatToDecimalResult floatingPointToDecimal(ColumnView input, DType outputType,
