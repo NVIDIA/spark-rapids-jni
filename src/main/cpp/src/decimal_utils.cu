@@ -1184,7 +1184,7 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
 namespace {
 
 template <typename FloatType>
-bool __device__ need_truncation(FloatType input, int decimal_places)
+__device__ bool need_truncation(FloatType input, int decimal_places)
 {
   int const exp2               = std::ilogb(input) - (std::numeric_limits<FloatType>::digits - 1);
   int const corresponding_exp2 = -299 * decimal_places / 90;
