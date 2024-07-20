@@ -113,7 +113,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtr
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_floatingPointToDecimal(
   JNIEnv* env, jclass, jlong j_input, jint output_type_id, jint precision, jint decimal_scale)
 {
-  JNI_NULL_CHECK(env, j_input, "input_handle is null", 0);
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(j_input);
