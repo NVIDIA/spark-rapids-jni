@@ -222,7 +222,5 @@ public class DecimalUtils {
 
   private static native long[] subtract128(long viewA, long viewB, int targetScale);
 
-  private static native long[] floatingPointToDecimal(long inputHandle, int outputTypeId,
-                                                      int precision,
-                                                      int scale);
+  private static native long[] floatingPointToDecimal(long inputHandle, int outputTypeId, int precision, int scale);
 }
