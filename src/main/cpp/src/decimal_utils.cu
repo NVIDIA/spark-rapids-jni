@@ -1190,24 +1190,24 @@ using namespace numeric::detail;
 /**
  * @brief Perform floating-point to integer decimal conversion, matching Spark behavior.
  *
- * The desired decimal value is computed as (returned_value * 10^scale).
+ * The desired decimal value is computed as (returned_value * 10^{-pow10}).
+ *
+ * The rounding and precision decisions made here are chosen to match Apache Spark.
+ * Spark wants to perform the conversion as double to have the most precision.
+ * However, the behavior is still slightly different if the original type was float.
  *
  * @tparam FloatType The type of floating-point value we are converting from
  * @tparam IntType The type of integer we are converting to, to store the decimal value
  *
  * @param input The floating point value to convert
- * @param scale_factor The desired base-10 scale factor, i.e. 10^scale
+ * @param pow10 The power of 10 to scale the floating-point value by
  * @return Integer representation of the floating-point value, rounding after scaled
  */
 template <typename FloatType,
           typename IntType,
           CUDF_ENABLE_IF(cuda::std::is_floating_point_v<FloatType>)>
-__device__ inline IntType scaled_round(FloatType input, scale_type scale, double scale_factor)
+__device__ inline IntType scaled_round(FloatType input, int32_t pow10)
 {
-  // The rounding and precision decisions made here are chosen to match Apache Spark.
-  // Spark wants to perform the conversion as double to have the most precision.
-  // However, the behavior is still slightly different if the original type was float.
-
   // Extract components of the (double-ized) floating point number
   using converter        = floating_converter<double>;
   auto const integer_rep = converter::bit_cast_to_integer(static_cast<double>(input));
@@ -1217,32 +1217,28 @@ __device__ inline IntType scaled_round(FloatType input, scale_type scale, double
   auto const is_negative                  = converter::get_is_negative(integer_rep);
   auto const [significand, floating_pow2] = converter::get_significand_and_pow2(integer_rep);
 
-  auto const pow10             = static_cast<int>(scale);
-  auto const unsigned_floating = (input < 0) ? -input : input;
-  auto rounding_wont_overflow  = [&]() {
-    return 10 * double(unsigned_floating) * scale_factor <
-           cuda::std::numeric_limits<IntType>::max();
-  };
+  auto const unsigned_floating      = (input < 0) ? -input : input;
+  auto const rounding_wont_overflow = [&] {
+    auto const scale_factor = static_cast<double>(
+      multiply_power10<IntType>(cuda::std::make_unsigned_t<IntType>{1}, -pow10));
+    return 10.0 * static_cast<double>(unsigned_floating) * scale_factor <
+           static_cast<double>(cuda::std::numeric_limits<IntType>::max());
+  }();
 
   // Spark often wants to round the last decimal place, so we'll perform the conversion
   // with one lower power of 10 so that we can (optionally) round at the end.
   // Note that we can't round this way if we've requested the minimum power.
-  bool can_round;
-  if constexpr (!cuda::std::is_same_v<IntType, __int128_t>) {
-    can_round = true;
-  } else {
-    can_round = rounding_wont_overflow();
-  }
+  bool const can_round = cuda::std::is_same_v<IntType, __int128_t> ? rounding_wont_overflow : true;
   auto const shifting_pow10 = can_round ? pow10 - 1 : pow10;
 
-  // Sometimes add half a bit to correct for compiler rounding text to nearest floating-point value.
+  // Sometimes add half a bit to correct for compiler rounding to nearest floating-point value.
   // See comments in add_half_if_truncates(), with differences detailed below.
   // Even if we don't add the bit, shift bits to line up with what the shifting algorithm is
   // expecting.
-  bool const is_whole_number     = (cuda::std::floor(input) == input);
+  bool const is_whole_number     = cuda::std::floor(input) == input;
   auto const [base2_value, pow2] = [is_whole_number](auto significand, auto floating_pow2) {
     if constexpr (cuda::std::is_same_v<FloatType, double>) {
-      // Add the 1/2 bit regardless of truncation, but still not for whole numbers
+      // Add the 1/2 bit regardless of truncation, but still not for whole numbers.
       auto const base2_value =
         (significand << 1) + static_cast<decltype(significand)>(!is_whole_number);
       return cuda::std::make_pair(base2_value, floating_pow2 - 1);
@@ -1254,23 +1250,22 @@ __device__ inline IntType scaled_round(FloatType input, scale_type scale, double
     }
   }(significand, floating_pow2);
 
-  // Main algorithm: Apply the powers of 2 and 10 (except for the last power-of-10)
-  // Use larger type for conversion to avoid overflow for last power-of-10
-  using convert_type =
+  // Main algorithm: Apply the powers of 2 and 10 (except for the last power-of-10).
+  // Use larger intermediate type for conversion to avoid overflow for last power-of-10.
+  using intermediate_type =
     cuda::std::conditional_t<cuda::std::is_same_v<IntType, std::int32_t>, std::int64_t, __int128_t>;
-  cuda::std::make_unsigned_t<convert_type> magnitude;
-  if constexpr (cuda::std::is_same_v<IntType, std::int32_t>) {
-    if (rounding_wont_overflow()) {
-      magnitude =
-        convert_floating_to_integral_shifting<IntType, double>(base2_value, shifting_pow10, pow2);
-    } else {
-      magnitude = convert_floating_to_integral_shifting<std::int64_t, double>(
-        base2_value, shifting_pow10, pow2);
-    }
-  } else {
-    magnitude =
-      convert_floating_to_integral_shifting<__int128_t, double>(base2_value, shifting_pow10, pow2);
-  }
+  cuda::std::make_unsigned_t<intermediate_type> magnitude =
+    [&, base2_value = base2_value, pow2 = pow2] {
+      if constexpr (cuda::std::is_same_v<IntType, std::int32_t>) {
+        return rounding_wont_overflow ? convert_floating_to_integral_shifting<IntType, double>(
+                                          base2_value, shifting_pow10, pow2)
+                                      : convert_floating_to_integral_shifting<std::int64_t, double>(
+                                          base2_value, shifting_pow10, pow2);
+      } else {
+        return convert_floating_to_integral_shifting<__int128_t, double>(
+          base2_value, shifting_pow10, pow2);
+      }
+    }();
 
   // Spark wants to floor the last digits of the output, clearing data that was beyond the
   // precision that was available in double.
@@ -1279,13 +1274,13 @@ __device__ inline IntType scaled_round(FloatType input, scale_type scale, double
   // From the decimal digit corresponding to pow2 (just past double precision) to the end (pow10).
   int const floor_pow10 = [&](int pow2_bit) {
     // The conversion from pow2 to pow10 is log10(2), which is ~ 90/299 (close enough for ints)
-    // But Spark chooses the rougher 3/10 ratio instead of 90/299
+    // But Spark chooses the rougher 3/10 ratio instead of 90/299.
     if constexpr (cuda::std::is_same_v<FloatType, float>) {
       return (3 * pow2_bit - 10 * pow10) / 10;
     } else {
       // Spark rounds up the power-of-10 to floor for DOUBLES >= 2^63 (and yes, this is the exact
-      // cutoff)
-      bool const round_up = (unsigned_floating > std::numeric_limits<std::int64_t>::max());
+      // cutoff).
+      bool const round_up = unsigned_floating > std::numeric_limits<std::int64_t>::max();
       return (3 * pow2_bit - 10 * pow10 + 9 * round_up) / 10;
     }
   }(pow2);
@@ -1294,15 +1289,15 @@ __device__ inline IntType scaled_round(FloatType input, scale_type scale, double
   if (can_round) {
     if (floor_pow10 < 0) {
       // Truncated: The scale factor cut off the extra, imprecise bits.
-      // To round to the final decimal place, add 5 to one past the last decimal place
+      // To round to the final decimal place, add 5 to one past the last decimal place.
       magnitude += 5U;
       magnitude /= 10U;  // Apply the last power of 10
     } else {
-      // We are keeping decimal digits with data beyond the precision of double
-      // We want to truncate these digits, but sometimes we want to round first
-      // We will round if and only if we didn't already add a half-bit earlier
+      // We are keeping decimal digits with data beyond the precision of double.
+      // We want to truncate these digits, but sometimes we want to round first.
+      // We will round if and only if we didn't already add a half-bit earlier.
       if constexpr (cuda::std::is_same_v<FloatType, double>) {
-        // For doubles, only round the extra digits of whole numbers
+        // For doubles, only round the extra digits of whole numbers.
         // If it was not a whole number, we already added 1/2 a bit at higher precision than this
         // earlier.
         if (is_whole_number) {
@@ -1323,7 +1318,7 @@ __device__ inline IntType scaled_round(FloatType input, scale_type scale, double
     magnitude            = multiply_power10<IntType>(truncated, floor_pow10);
   }
 
-  // Reapply the sign and return
+  // Reapply the sign and return.
   // NOTE: Cast can overflow!
   auto const signed_magnitude = static_cast<IntType>(magnitude);
   return is_negative ? -signed_magnitude : signed_magnitude;
@@ -1335,8 +1330,7 @@ struct floating_point_to_decimal_fn {
   int8_t* validity;
   bool* has_failure;
   int32_t decimal_places;
-  double scale_factor;
-  double exclusive_bound;
+  DecimalRepType exclusive_bound;
 
   __device__ DecimalRepType operator()(cudf::size_type idx) const
   {
@@ -1348,11 +1342,9 @@ struct floating_point_to_decimal_fn {
       return DecimalRepType{0};
     }
 
-    auto const scaled_rounded = scaled_round<FloatType, DecimalRepType>(
-      x, numeric::scale_type{-decimal_places}, scale_factor);
-
-    auto const is_out_of_bound = (-exclusive_bound >= static_cast<double>(scaled_rounded)) ||
-                                 (static_cast<double>(scaled_rounded) >= exclusive_bound);
+    auto const scaled_rounded = scaled_round<FloatType, DecimalRepType>(x, -decimal_places);
+    auto const is_out_of_bound =
+      -exclusive_bound >= scaled_rounded || scaled_rounded >= exclusive_bound;
     if (is_out_of_bound) { *has_failure = true; }
     validity[idx] = !is_out_of_bound;
 
@@ -1393,19 +1385,15 @@ struct floating_point_to_decimal_dispatcher {
   {
     using DecimalRepType = cudf::device_storage_type_t<DecimalType>;
 
-    auto const d_input_ptr  = cudf::column_device_view::create(input, stream);
-    auto const scale_factor = static_cast<double>(numeric::detail::multiply_power10<DecimalRepType>(
-      cuda::std::make_unsigned_t<DecimalRepType>{1}, decimal_places));
-    auto const exclusive_bound =
-      static_cast<double>(numeric::detail::multiply_power10<DecimalRepType>(
-        cuda::std::make_unsigned_t<DecimalRepType>{1}, precision));
+    auto const d_input_ptr     = cudf::column_device_view::create(input, stream);
+    auto const exclusive_bound = static_cast<DecimalRepType>(
+      multiply_power10<DecimalRepType>(cuda::std::make_unsigned_t<DecimalRepType>{1}, precision));
 
-    thrust::tabulate(
-      rmm::exec_policy_nosync(stream),
-      output.begin<DecimalRepType>(),
-      output.end<DecimalRepType>(),
-      floating_point_to_decimal_fn<FloatType, DecimalRepType>{
-        *d_input_ptr, validity, has_failure, decimal_places, scale_factor, exclusive_bound});
+    thrust::tabulate(rmm::exec_policy_nosync(stream),
+                     output.begin<DecimalRepType>(),
+                     output.end<DecimalRepType>(),
+                     floating_point_to_decimal_fn<FloatType, DecimalRepType>{
+                       *d_input_ptr, validity, has_failure, decimal_places, exclusive_bound});
   }
 };
 
