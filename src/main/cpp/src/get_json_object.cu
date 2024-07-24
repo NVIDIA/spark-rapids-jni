@@ -908,8 +908,8 @@ void launch_kernel(bool exec_thread_parallel,
   // the performance is really bad. This essentially tells NVCC to prefer using lots
   // of registers over spilling.
   if (exec_thread_parallel) {
-    constexpr int block_size       = 256;
-    constexpr int min_block_per_sm = 1;
+    constexpr int block_size       = 128;
+    constexpr int min_block_per_sm = 8;
     auto const num_blocks =
       cudf::util::div_rounding_up_safe(static_cast<std::size_t>(input.size()) * path_data.size(),
                                        static_cast<std::size_t>(block_size));
@@ -1027,21 +1027,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
     construct_path_commands(json_paths, stream);
 
-  auto const [max_row_size, sum_row_size] =
-    thrust::transform_reduce(rmm::exec_policy(stream),
-                             thrust::make_counting_iterator(0),
-                             thrust::make_counting_iterator(input.size()),
-                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
-                               [in_offsets] __device__(auto const idx) {
-                                 auto const size = in_offsets[idx + 1] - in_offsets[idx];
-                                 return thrust::pair<int64_t, int64_t>{size, size};
-                               }),
-                             thrust::pair<int64_t, int64_t>{0, 0},
-                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
-                               [] __device__(auto const& lhs, auto const& rhs) {
-                                 return thrust::pair<int64_t, int64_t>{
-                                   std::max(lhs.first, rhs.first), lhs.second + rhs.second};
-                               }));
+  auto const max_row_size = thrust::transform_reduce(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(input.size()),
+    cuda::proclaim_return_type<int64_t>(
+      [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
+    int64_t{0},
+    thrust::maximum{});
 
   // We will use scratch buffers to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
@@ -1082,9 +1075,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
   // Threshold to decide on using thread parallel or warp parallel algorithms.
-  constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 256;
-  auto const exec_thread_parallel =
-    (sum_row_size / (input.size() - input.null_count())) < AVG_CHAR_BYTES_THRESHOLD;
+  constexpr int64_t PATH_SIZE_THRESHOLD = 2;
+  auto const exec_thread_parallel       = json_paths.size() > PATH_SIZE_THRESHOLD;
   launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
 
   // Do not use parallel check since we do not have many elements.
