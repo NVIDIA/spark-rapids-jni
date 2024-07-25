@@ -810,6 +810,7 @@ struct json_path_processing_data {
  *
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
+ * @param num_threads_per_row Number of threads processing each input row
  */
 template <int block_size, int min_block_per_sm>
 __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
