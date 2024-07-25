@@ -803,20 +803,26 @@ struct json_path_processing_data {
 };
 
 /**
- * @brief Extract JSON object, from one input row, on one path.
+ * @brief Kernel for running the JSONPath query, in which one input row is processed by entire
+ * warp (or multiple warps) of threads.
  *
- * @param input The entire input strings column
+ * The number of warps processing each row is computed as `ceil(num_paths / warp_size)`.
+ *
+ * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
- * @param row_path_idx The index to identify row index and path index
  */
-__device__ void process_row_path(cudf::column_device_view input,
-                                 cudf::device_span<json_path_processing_data> path_data,
-                                 int64_t row_path_idx)
+template <int block_size, int min_block_per_sm>
+__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
+  void get_json_object_kernel(cudf::column_device_view input,
+                              cudf::device_span<json_path_processing_data> path_data,
+                              std::size_t num_threads_per_row)
 {
-  auto const row_idx  = row_path_idx / path_data.size();
-  auto const path_idx = row_path_idx % path_data.size();
-  auto const& path    = path_data[path_idx];
+  auto const tidx     = cudf::detail::grid_1d::global_thread_id();
+  auto const row_idx  = tidx / num_threads_per_row;
+  auto const path_idx = tidx % num_threads_per_row;
+  if (path_idx >= path_data.size()) { return; }
 
+  auto const& path         = path_data[path_idx];
   char* const dst          = path.out_buf + path.offsets[row_idx];
   bool is_valid            = false;
   cudf::size_type out_size = 0;
@@ -838,65 +844,9 @@ __device__ void process_row_path(cudf::column_device_view input,
 }
 
 /**
- * @brief Kernel for running the JSONPath query, using all threads for processing.
- *
- * This kernel writes out the output strings and their lengths at the same time. If any output
- * length exceed buffer size limit, a boolean flag will be turned on to inform to the caller.
- * In such situation, another (larger) output buffer will be generated and the kernel is launched
- * again. Otherwise, launching this kernel only once is sufficient to produce the desired output.
- *
- * @param input The input JSON strings stored in a strings column
- * @param path_data Array containing all path data
- */
-template <int block_size, int min_block_per_sm>
-__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
-  void get_json_object_kernel_thread_parallel(
-    cudf::column_device_view input, cudf::device_span<json_path_processing_data> path_data)
-{
-  auto const max_tid = static_cast<int64_t>(input.size()) * path_data.size();
-  auto const stride  = cudf::detail::grid_1d::grid_stride();
-
-  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < max_tid; tid += stride) {
-    process_row_path(input, path_data, tid);
-  }
-}
-
-/**
- * @brief Kernel for running the JSONPath query, using one warp to process a row.
- *
- * The behavior of this kernel should be identical to that of the version using all threads for
- * processing.
- *
- * @param input The input JSON strings stored in a strings column
- * @param path_data Array containing all path data
- */
-template <int block_size, int min_block_per_sm>
-__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
-  void get_json_object_kernel_warp_parallel(cudf::column_device_view input,
-                                            cudf::device_span<json_path_processing_data> path_data)
-{
-  auto const max_tid =
-    static_cast<int64_t>(input.size()) * path_data.size() * cudf::detail::warp_size;
-  auto const stride  = cudf::detail::grid_1d::grid_stride();
-  auto const lane_id = threadIdx.x % cudf::detail::warp_size;
-
-  for (auto tid = cudf::detail::grid_1d::global_thread_id(); tid < max_tid; tid += stride) {
-    if (lane_id == 0) {
-      auto const warp_idx = tid / cudf::detail::warp_size;
-      process_row_path(input, path_data, warp_idx);
-    }
-    __syncwarp();
-  }
-}
-
-/**
  * @brief Launch the main kernel.
- *
- * Either a thread-parallel or warp-parallel kernel is launched, depending on the value of
- * `exec_thread_parallel`.
  */
-void launch_kernel(bool exec_thread_parallel,
-                   cudf::column_device_view const& input,
+void launch_kernel(cudf::column_device_view const& input,
                    cudf::device_span<json_path_processing_data> path_data,
                    rmm::cuda_stream_view stream)
 {
@@ -907,27 +857,18 @@ void launch_kernel(bool exec_thread_parallel,
   // NVCC gets this wrong and we want to avoid spilling all the time or else
   // the performance is really bad. This essentially tells NVCC to prefer using lots
   // of registers over spilling.
-  if (exec_thread_parallel) {
-    constexpr int block_size       = 256;
-    constexpr int min_block_per_sm = 1;
-    auto const num_blocks =
-      cudf::util::div_rounding_up_safe(static_cast<std::size_t>(input.size()) * path_data.size(),
-                                       static_cast<std::size_t>(block_size));
-
-    get_json_object_kernel_thread_parallel<block_size, min_block_per_sm>
-      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
-  } else {
-    // The optimal values for block_size and min_block_per_sm were found through testing,
-    // which are 128-8 or 256-4.
-    constexpr int block_size       = 128;
-    constexpr int min_block_per_sm = 8;
-    auto const num_blocks          = cudf::util::div_rounding_up_safe(
-      static_cast<std::size_t>(input.size()) * path_data.size() * cudf::detail::warp_size,
-      static_cast<std::size_t>(block_size));
-
-    get_json_object_kernel_warp_parallel<block_size, min_block_per_sm>
-      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data);
-  }
+  //
+  // The optimal values for block_size and min_block_per_sm were found through testing,
+  // which are 128-8 or 256-4.
+  constexpr int block_size       = 128;
+  constexpr int min_block_per_sm = 8;
+  auto const num_warps_per_row   = cudf::util::div_rounding_up_safe(
+    path_data.size(), static_cast<std::size_t>(cudf::detail::warp_size));
+  auto const num_threads_per_row = num_warps_per_row * cudf::detail::warp_size;
+  auto const num_blocks = cudf::util::div_rounding_up_safe(num_threads_per_row * input.size(),
+                                                           static_cast<std::size_t>(block_size));
+  get_json_object_kernel<block_size, min_block_per_sm>
+    <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data, num_threads_per_row);
 }
 
 /**
@@ -1027,21 +968,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
     construct_path_commands(json_paths, stream);
 
-  auto const [max_row_size, sum_row_size] =
-    thrust::transform_reduce(rmm::exec_policy(stream),
-                             thrust::make_counting_iterator(0),
-                             thrust::make_counting_iterator(input.size()),
-                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
-                               [in_offsets] __device__(auto const idx) {
-                                 auto const size = in_offsets[idx + 1] - in_offsets[idx];
-                                 return thrust::pair<int64_t, int64_t>{size, size};
-                               }),
-                             thrust::pair<int64_t, int64_t>{0, 0},
-                             cuda::proclaim_return_type<thrust::pair<int64_t, int64_t>>(
-                               [] __device__(auto const& lhs, auto const& rhs) {
-                                 return thrust::pair<int64_t, int64_t>{
-                                   std::max(lhs.first, rhs.first), lhs.second + rhs.second};
-                               }));
+  auto const max_row_size = thrust::transform_reduce(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(input.size()),
+    cuda::proclaim_return_type<int64_t>(
+      [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
+    int64_t{0},
+    thrust::maximum{});
 
   // We will use scratch buffers to store the output strings without knowing their sizes.
   // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
@@ -1080,12 +1014,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-
-  // Threshold to decide on using thread parallel or warp parallel algorithms.
-  constexpr int64_t AVG_CHAR_BYTES_THRESHOLD = 256;
-  auto const exec_thread_parallel =
-    (sum_row_size / (input.size() - input.null_count())) < AVG_CHAR_BYTES_THRESHOLD;
-  launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
+  launch_kernel(*d_input_ptr, d_path_data, stream);
 
   // Do not use parallel check since we do not have many elements.
   auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
@@ -1157,7 +1086,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-  launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
+  launch_kernel(*d_input_ptr, d_path_data, stream);
 
   // Check out of bound again to make sure everything looks right.
   h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
