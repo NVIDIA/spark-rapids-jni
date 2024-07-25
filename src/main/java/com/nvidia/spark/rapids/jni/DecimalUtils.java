@@ -184,7 +184,7 @@ public class DecimalUtils {
    * A class to store the result of a cast operation from floating point values to decimals.
    * <p>
    * Since the result column may or may not be used regardless of the value of hasFailure, we
-   * need to kept it and let the caller to decide.
+   * need to keep it and let the caller to decide.
    */
   public static class CastFloatToDecimalResult {
     public final ColumnVector result; // the cast result
