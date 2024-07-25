@@ -817,8 +817,10 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
                               cudf::device_span<json_path_processing_data> path_data,
                               std::size_t num_threads_per_row)
 {
-  auto const tidx     = cudf::detail::grid_1d::global_thread_id();
-  auto const row_idx  = tidx / num_threads_per_row;
+  auto const tidx    = cudf::detail::grid_1d::global_thread_id();
+  auto const row_idx = tidx / num_threads_per_row;
+  if (row_idx >= input.size()) { return; }
+
   auto const path_idx = tidx % num_threads_per_row;
   if (path_idx >= path_data.size()) { return; }
 
