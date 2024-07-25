@@ -1075,8 +1075,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
   // Threshold to decide on using thread parallel or warp parallel algorithms.
-  constexpr int64_t PATH_SIZE_THRESHOLD = 8;
-  auto const exec_thread_parallel       = json_paths.size() >= PATH_SIZE_THRESHOLD;
+  constexpr std::size_t PATH_SIZE_THRESHOLD = 8;
+  auto const exec_thread_parallel           = json_paths.size() >= PATH_SIZE_THRESHOLD;
   launch_kernel(exec_thread_parallel, *d_input_ptr, d_path_data, stream);
 
   // Do not use parallel check since we do not have many elements.
