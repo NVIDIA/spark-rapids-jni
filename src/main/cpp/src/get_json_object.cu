@@ -45,12 +45,6 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
-// path max depth limitation
-// There is a same constant in JSONUtil.java, keep them consistent when changing
-// Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
-// or GPU reports cudaErrorIllegalAddress
-constexpr int max_path_depth = 16;
-
 /**
  * @brief JSON style to write.
  */
@@ -392,7 +386,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
   // define stack; plus 1 indicates root context task needs an extra memory
-  context stack[max_path_depth + 1];
+  context stack[MAX_JSON_PATH_DEPTH + 1];
   int stack_size = 0;
 
   // push context function
@@ -1022,7 +1016,9 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& instructions = json_paths[idx];
-    if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+    if (instructions.size() > MAX_JSON_PATH_DEPTH) {
+      CUDF_FAIL("JSONPath query exceeds maximum depth");
+    }
 
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
