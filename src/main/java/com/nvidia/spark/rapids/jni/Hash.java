@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,7 +85,26 @@ public class Hash {
     return xxhash64(DEFAULT_XXHASH64_SEED, columns);
   }
 
+  public static ColumnVector hiveHash(ColumnView columns[]) {
+    if (columns.length < 1) {
+      throw new IllegalArgumentException("Hive hashing requires at least 1 column of input");
+    }
+    long[] columnViews = new long[columns.length];
+    long size = columns[0].getRowCount();
+
+    for(int i = 0; i < columns.length; i++) {
+      assert columns[i] != null : "Column vectors passed may not be null";
+      assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
+      assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
+      assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
+      columnViews[i] = columns[i].getNativeView();
+    }
+    return new ColumnVector(hiveHash(columnViews));
+  }
+
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
   
   private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
+
+  private static native long hiveHash(long[] viewHandles) throws CudfException;
 }

@@ -19,6 +19,9 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class GetJsonObjectTest {
@@ -31,9 +34,9 @@ public class GetJsonObjectTest {
         namedPath("k") };
     try (ColumnVector jsonCv = ColumnVector.fromStrings(
         "{\"k\": \"v\"}");
-        ColumnVector expected = ColumnVector.fromStrings(
-            "v");
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+         ColumnVector expected = ColumnVector.fromStrings(
+             "v");
+         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -169,7 +172,7 @@ public class GetJsonObjectTest {
     String JSON4 = "['a','b','\"C\"']";
     // \\u4e2d\\u56FD is 中国
     String JSON5 = "'\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b'";
-    String JSON6 = "['\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b']"; 
+    String JSON6 = "['\\u4e2d\\u56FD\\\"\\'\\\\\\/\\b\\f\\n\\r\\t\\b']";
 
     String expectedStr1 = "{\"a\":\"A\"}";
     String expectedStr2 = "{\"a\":\"A\\\"\"}";
@@ -442,13 +445,14 @@ public class GetJsonObjectTest {
     };
 
     String JSON1 = "[ {'k': [0, 1, 2]}, {'k': [10, 11, 12]}, {'k': [20, 21, 22]}  ]";
+    String JSON2 = "[ {'k': [0, 1, 2]}, {'k': {'a': 'b'}}, {'k': [10, 11, 12]}, {'k': 'abc'}  ]";
     String expectedStr1 = "[[0,1,2],[10,11,12],[20,21,22]]";
+    String expectedStr2 = "[[0,1,2],[10,11,12]]";
 
     try (
-        ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
-        ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
+        ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
+        ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
-
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -600,6 +604,43 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * This test is when the JNI kernel is called twice. It happens when the output JSON strings
+   * have lengths that are larger than their corresponding input.
+   */
+  @Test
+  void getJsonObjectTest_JNIKernelCalledTwice() {
+    // This is equivalent to the path '$'.
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {};
+    try (
+        ColumnVector input = ColumnVector.fromStrings("['\n']", "['\n\n\n\n\n\n\n\n\n\n']",
+            "", "", "", "", "", "", "", "");
+        ColumnVector expected = ColumnVector.fromStrings("[\"\\n\"]",
+            "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]", null, null, null, null, null, null, null, null);
+        ColumnVector actual = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void getJsonObjectMultiplePathsTest() {
+    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
+    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
+         ColumnVector expected0 = ColumnVector.fromStrings("v0");
+         ColumnVector expected1 = ColumnVector.fromStrings("v1")) {
+      ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths);
+      try {
+        assertColumnsAreEqual(expected0, output[0]);
+        assertColumnsAreEqual(expected1, output[1]);
+      } finally {
+        for (ColumnVector cv : output) {
+          cv.close();
+        }
+      }
+    }
+  }
 
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);

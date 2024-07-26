@@ -136,12 +136,12 @@ CUptiResult cuptiInitialize(void)
   return status;
 }
 
-__global__ void faultInjectorKernelAssert(void)
+__global__ static void faultInjectorKernelAssert(void)
 {
   assert(0 && "faultInjectorKernelAssert triggered");
 }
 
-__global__ void faultInjectorKernelTrap(void) { asm("trap;"); }
+__global__ static void faultInjectorKernelTrap(void) { asm("trap;"); }
 
 boost::optional<boost::property_tree::ptree&> lookupConfig(
   boost::optional<boost::property_tree::ptree&> domainConfigs,

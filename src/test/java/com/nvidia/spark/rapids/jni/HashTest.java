@@ -16,18 +16,14 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import com.nvidia.spark.rapids.jni.Hash;
-
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector.*;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 
 import static ai.rapids.cudf.AssertUtils.*;
 
@@ -385,6 +381,132 @@ public class HashTest {
          ColumnVector bools = ColumnVector.fromBoxedBooleans(true, false, null, false, true, null);
          ColumnVector result = Hash.xxhash64(new ColumnVector[]{strings, integers, doubles, floats, bools});
          ColumnVector expected = ColumnVector.fromBoxedLongs(7451748878409563026L, 6024043102550151964L, 3380664624738534402L, 8444697026100086329L, -5888679192448042852L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashBools() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedBooleans(true, false, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromInts(1, 0, 0)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashInts() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedInts(
+          Integer.MIN_VALUE, Integer.MAX_VALUE, -1, 1, -10, 10, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromInts(
+          Integer.MIN_VALUE, Integer.MAX_VALUE, -1, 1, -10, 10, 0)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashBytes() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedBytes(
+         Byte.MIN_VALUE, Byte.MAX_VALUE, (byte)-1, (byte)1, (byte)-10, (byte)10, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromInts(
+          Byte.MIN_VALUE, Byte.MAX_VALUE, -1, 1, -10, 10, 0)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashLongs() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedLongs(
+          Long.MIN_VALUE, Long.MAX_VALUE, -1L, 1L, -10L, 10L, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromInts(
+          Integer.MIN_VALUE, Integer.MIN_VALUE, 0, 1, 9, 10, 0)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashStrings() {
+    try (ColumnVector v0 = ColumnVector.fromStrings(
+          "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721", null,
+          "This is a long string (greater than 128 bytes/char string) case to test this " +
+          "hash function. Just want an abnormal case here to see if any error may happen when" +
+          "doing the hive hashing");
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
+         ColumnVector expected = ColumnVector.fromInts(97, 2056, 745239896, 0, 2112075710)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashFloats() {
+    try (ColumnVector v = ColumnVector.fromBoxedFloats(0f, 100f, -100f, Float.MIN_NORMAL,
+          Float.MAX_VALUE, null, Float.MIN_VALUE,
+          POSITIVE_FLOAT_NAN_LOWER_RANGE, POSITIVE_FLOAT_NAN_UPPER_RANGE,
+          NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE,
+          Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromInts(0, 1120403456, -1027080192, 8388608,
+          2139095039, 0, 1, 2143289344, 2143289344, 2143289344, 2143289344, 2139095040, -8388608)){
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashDoubles() {
+    try (ColumnVector v = ColumnVector.fromBoxedDoubles(0.0, 100.0, -100.0,
+          POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromInts(0, 1079574528, -1067909120,
+          2146959360, 2146959360, 0)){
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashDates() {
+    try (ColumnVector v = ColumnVector.timestampDaysFromBoxedInts(
+          0, null, 100, -100, 0x12345678, null, -0x12345678);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromInts(
+          0, 0, 100, -100, 0x12345678, 0, -0x12345678)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashTimestamps() {
+    try (ColumnVector v = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+        0L, null, 100L, -100L, 0x123456789abcdefL, null, -0x123456789abcdefL);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{v});
+         ColumnVector expected = ColumnVector.fromInts(
+          0, 0, 100000, 99999, -660040456, 0, 486894999)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashMixed() {
+    try (ColumnVector strings = ColumnVector.fromStrings(
+          "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721",
+          "This is a long string (greater than 128 bytes/char string) case to test this " +
+          "hash function. Just want an abnormal case here to see if any error may happen when" +
+          "doing the hive hashing",
+          null, null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(
+          0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(0.0, 100.0, -100.0,
+          POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(0f, 100f, -100f,
+          NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(
+          true, false, null, false, true, null);
+         ColumnVector result = Hash.hiveHash(new ColumnVector[]{
+          strings, integers, doubles, floats, bools});
+         ColumnVector expected = ColumnVector.fromInts(89581538, 363542820, 413439036,
+          1272817854, 1513589666, 0)) {
       assertColumnsAreEqual(expected, result);
     }
   }

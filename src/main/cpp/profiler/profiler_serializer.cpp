@@ -197,11 +197,13 @@ ShmemLimitConfig to_shmem_limit_config(CUpti_FuncShmemLimitConfig c)
 
 }  // anonymous namespace
 
-profiler_serializer::profiler_serializer(JNIEnv* env,
-                                         jobject writer,
-                                         size_t buffer_size,
-                                         size_t flush_threshold)
-  : env_(env), j_writer_(writer), flush_threshold_(flush_threshold), fbb_(buffer_size)
+profiler_serializer::profiler_serializer(
+  JNIEnv* env, jobject writer, size_t buffer_size, size_t flush_threshold, bool capture_allocs)
+  : env_(env),
+    j_writer_(writer),
+    flush_threshold_(flush_threshold),
+    fbb_(buffer_size),
+    capture_allocs_(capture_allocs)
 {
   auto writer_class = env->GetObjectClass(writer);
   if (!writer_class) { throw std::runtime_error("Failed to locate class of data writer"); }
@@ -322,6 +324,10 @@ void profiler_serializer::flush()
 
 void profiler_serializer::process_api_activity(CUpti_ActivityAPI const* r)
 {
+  if (r->start == 0 || r->end == 0) {
+    // Ignore records with bad timestamps
+    return;
+  }
   auto api_kind = ApiKind_Runtime;
   if (r->kind == CUPTI_ACTIVITY_KIND_DRIVER) {
     api_kind = ApiKind_Driver;
@@ -332,6 +338,14 @@ void profiler_serializer::process_api_activity(CUpti_ActivityAPI const* r)
       case CUPTI_RUNTIME_TRACE_CBID_cudaGetLastError_v3020:
       case CUPTI_RUNTIME_TRACE_CBID_cudaPeekAtLastError_v3020:
       case CUPTI_RUNTIME_TRACE_CBID_cudaDeviceGetAttribute_v5000: return;
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020:
+      case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020:
+        if (capture_allocs_) { break; }
+        return;
       default: break;
     }
   } else {
@@ -393,6 +407,10 @@ void profiler_serializer::process_dropped_records(size_t num_dropped)
 
 void profiler_serializer::process_kernel(CUpti_ActivityKernel8 const* r)
 {
+  if (r->start == 0 || r->end == 0) {
+    // Ignore records with invalid timestamps
+    return;
+  }
   auto name = fbb_.CreateSharedString(r->name);
   KernelActivityBuilder kab(fbb_);
   kab.add_requested(r->cacheConfig.config.requested);
@@ -443,6 +461,10 @@ void profiler_serializer::process_kernel(CUpti_ActivityKernel8 const* r)
 
 void profiler_serializer::process_marker_activity(CUpti_ActivityMarker2 const* r)
 {
+  if (r->timestamp == 0) {
+    // Ignore records with invalid timestamps
+    return;
+  }
   auto object_id  = add_object_id(fbb_, r->objectKind, r->objectId);
   auto has_name   = r->name != nullptr;
   auto has_domain = r->name != nullptr;
@@ -462,6 +484,10 @@ void profiler_serializer::process_marker_activity(CUpti_ActivityMarker2 const* r
 
 void profiler_serializer::process_marker_data(CUpti_ActivityMarkerData const* r)
 {
+  if (r->flags == 0 && r->color == 0 && r->category == 0) {
+    // Ignore uninteresting marker data records
+    return;
+  }
   MarkerDataBuilder mdb(fbb_);
   mdb.add_flags(marker_flags_to_fb(r->flags));
   mdb.add_id(r->id);
@@ -472,6 +498,10 @@ void profiler_serializer::process_marker_data(CUpti_ActivityMarkerData const* r)
 
 void profiler_serializer::process_memcpy(CUpti_ActivityMemcpy5 const* r)
 {
+  if (r->start == 0 || r->end == 0) {
+    // Ignore records with invalid timestamps
+    return;
+  }
   MemcpyActivityBuilder mab(fbb_);
   mab.add_copy_kind(to_memcpy_kind(r->copyKind));
   mab.add_src_kind(to_memory_kind(r->srcKind));
@@ -494,6 +524,10 @@ void profiler_serializer::process_memcpy(CUpti_ActivityMemcpy5 const* r)
 
 void profiler_serializer::process_memset(CUpti_ActivityMemset4 const* r)
 {
+  if (r->start == 0 || r->end == 0) {
+    // Ignore records with invalid timestamps
+    return;
+  }
   MemsetActivityBuilder mab(fbb_);
   mab.add_value(r->value);
   mab.add_bytes(r->bytes);
@@ -514,6 +548,10 @@ void profiler_serializer::process_memset(CUpti_ActivityMemset4 const* r)
 
 void profiler_serializer::process_overhead(CUpti_ActivityOverhead const* r)
 {
+  if (r->start == 0 || r->end == 0) {
+    // Ignore records with invalid timestamps
+    return;
+  }
   auto object_id = add_object_id(fbb_, r->objectKind, r->objectId);
   OverheadActivityBuilder oab(fbb_);
   oab.add_overhead_kind(to_overhead_kind(r->overheadKind));

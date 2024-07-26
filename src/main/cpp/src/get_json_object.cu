@@ -19,25 +19,26 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/copy.hpp>
-#include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/detail/utilities.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
-#include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
 
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/functional>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/pair.h>
+#include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
 
 namespace spark_rapids_jni {
@@ -51,57 +52,52 @@ namespace detail {
 constexpr int max_path_depth = 16;
 
 /**
- * write JSON style
+ * @brief JSON style to write.
  */
-enum class write_style { RAW, QUOTED, FLATTEN };
+enum class write_style : int8_t { RAW, QUOTED, FLATTEN };
 
 /**
- * path instruction
+ * @brief Instruction along a JSON path.
  */
 struct path_instruction {
   __device__ inline path_instruction(path_instruction_type _type) : type(_type) {}
-
-  path_instruction_type type;
 
   // used when type is named type
   cudf::string_view name;
 
   // used when type is index
   int index{-1};
+
+  path_instruction_type type;
 };
 
 /**
- * JSON generator is used to write out JSON content.
+ * @brief JSON generator used to write out JSON content.
+ *
  * Because of get_json_object only outputs JSON object as a whole item,
  * it's no need to store internal state for JSON object when outputing,
  * only need to store internal state for JSON array.
  */
 class json_generator {
  public:
-  __device__ json_generator(char* _output) : output(_output), output_len(0) {}
-  __device__ json_generator() : output(nullptr), output_len(0) {}
+  __device__ json_generator(int _offset = 0) : offset(_offset), output_len(0) {}
 
   // create a nested child generator based on this parent generator,
   // child generator is a view, parent and child share the same byte array
-  __device__ json_generator new_child_generator()
+  __device__ json_generator new_child_generator() const
   {
-    if (nullptr == output) {
-      return json_generator();
-    } else {
-      return json_generator(output + output_len);
-    }
+    return json_generator(offset + output_len);
   }
 
   // write [
   // add an extra comma if needed,
   // e.g.: when JSON content is: [[1,2,3]
   // writing a new [ should result: [[1,2,3],[
-  __device__ void write_start_array()
+  __device__ void write_start_array(char* out_begin)
   {
-    try_write_comma();
+    try_write_comma(out_begin);
 
-    if (output) { *(output + output_len) = '['; }
-
+    out_begin[offset + output_len] = '[';
     output_len++;
     array_depth++;
     // new array is empty
@@ -109,14 +105,12 @@ class json_generator {
   }
 
   // write ]
-  __device__ void write_end_array()
+  __device__ void write_end_array(char* out_begin)
   {
-    if (output) { *(output + output_len) = ']'; }
+    out_begin[offset + output_len] = ']';
     output_len++;
-
     // point to parent array
     array_depth--;
-
     // set parent array as non-empty because already had a closed child item.
     is_curr_array_empty = false;
   }
@@ -132,16 +126,16 @@ class json_generator {
   }
 
   // return true if it's in a array context and it's not writing the first item.
-  __device__ inline bool need_comma() { return (array_depth > 0 && !is_curr_array_empty); }
+  __device__ inline bool need_comma() const { return (array_depth > 0 && !is_curr_array_empty); }
 
   /**
    * write comma accroding to current generator state
    */
-  __device__ void try_write_comma()
+  __device__ void try_write_comma(char* out_begin)
   {
     if (need_comma()) {
       // in array context and writes first item
-      if (output) { *(output + output_len) = ','; }
+      out_begin[offset + output_len] = ',';
       output_len++;
     }
   }
@@ -151,24 +145,16 @@ class json_generator {
    * object/array, then copy to corresponding matched end object/array. return
    * false if JSON format is invalid return true if JSON format is valid
    */
-  __device__ bool copy_current_structure(json_parser& parser)
+  __device__ bool copy_current_structure(json_parser& parser, char* out_begin)
   {
     // first try add comma
-    try_write_comma();
+    try_write_comma(out_begin);
 
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      auto copy_to       = output + output_len;
-      auto [b, copy_len] = parser.copy_current_structure(copy_to);
-      output_len += copy_len;
-      return b;
-    } else {
-      char* copy_to      = nullptr;
-      auto [b, copy_len] = parser.copy_current_structure(copy_to);
-      output_len += copy_len;
-      return b;
-    }
+    auto [b, copy_len] = parser.copy_current_structure(out_begin + offset + output_len);
+    output_len += copy_len;
+    return b;
   }
 
   /**
@@ -178,17 +164,12 @@ class json_generator {
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
    */
-  __device__ void write_raw(json_parser& parser)
+  __device__ void write_raw(json_parser& parser, char* out_begin)
   {
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      auto copied = parser.write_unescaped_text(output + output_len);
-      output_len += copied;
-    } else {
-      auto len = parser.compute_unescaped_len();
-      output_len += len;
-    }
+    auto copied = parser.write_unescaped_text(out_begin + offset + output_len);
+    output_len += copied;
   }
 
   /**
@@ -222,34 +203,32 @@ class json_generator {
    * block
    */
   __device__ void write_child_raw_value(char* child_block_begin,
-                                        size_t child_block_len,
+                                        int child_block_len,
                                         bool write_outer_array_tokens)
   {
     bool insert_comma = need_comma();
 
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    if (nullptr != output) {
-      if (write_outer_array_tokens) {
-        if (insert_comma) {
-          *(child_block_begin + child_block_len + 2) = ']';
-          move_forward(child_block_begin, child_block_len, 2);
-          *(child_block_begin + 1) = '[';
-          *(child_block_begin)     = ',';
-        } else {
-          *(child_block_begin + child_block_len + 1) = ']';
-          move_forward(child_block_begin, child_block_len, 1);
-          *(child_block_begin) = '[';
-        }
+    if (write_outer_array_tokens) {
+      if (insert_comma) {
+        *(child_block_begin + child_block_len + 2) = ']';
+        move_forward(child_block_begin, child_block_len, 2);
+        *(child_block_begin + 1) = '[';
+        *(child_block_begin)     = ',';
       } else {
-        if (insert_comma) {
-          move_forward(child_block_begin, child_block_len, 1);
-          *(child_block_begin) = ',';
-        } else {
-          // do not need comma && do not need write outer array tokens
-          // do nothing, because child generator buff is directly after the
-          // parent generator
-        }
+        *(child_block_begin + child_block_len + 1) = ']';
+        move_forward(child_block_begin, child_block_len, 1);
+        *(child_block_begin) = '[';
+      }
+    } else {
+      if (insert_comma) {
+        move_forward(child_block_begin, child_block_len, 1);
+        *(child_block_begin) = ',';
+      } else {
+        // do not need comma && do not need write outer array tokens
+        // do nothing, because child generator buff is directly after the
+        // parent generator
       }
     }
 
@@ -265,7 +244,7 @@ class json_generator {
   // e.g.:  memory is: 1 2 0 0, begin is 1, len is 1, after moving,
   // memory is: 1 1 2 0.
   // Note: should move from end to begin to avoid overwrite buffer
-  __device__ void move_forward(char* begin, size_t len, int forward)
+  static __device__ void move_forward(char* begin, size_t len, int forward)
   {
     // TODO copy by 8 bytes
     char* pos = begin + len + forward - 1;
@@ -276,9 +255,8 @@ class json_generator {
     }
   }
 
-  __device__ inline size_t get_output_len() const { return output_len; }
-  __device__ inline char* get_output_start_position() const { return output; }
-  __device__ inline char* get_current_output_position() const { return output + output_len; }
+  __device__ inline int get_offset() const { return offset; }
+  __device__ inline int get_output_len() const { return output_len; }
 
   /**
    * generator may contain trash output, e.g.: generator writes some output,
@@ -289,13 +267,14 @@ class json_generator {
   __device__ inline void set_output_len(size_t len) { output_len = len; }
 
  private:
-  char* output;
-  size_t output_len;
+  int offset;  // offset from the global output buffer
+  int output_len;
+
+  int array_depth = 0;
 
   // whether already worte a item in current array
   // used to decide whether add a comma before writing out a new item.
   bool is_curr_array_empty;
-  int array_depth = 0;
 };
 
 /**
@@ -353,83 +332,100 @@ __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
 }
 
 /**
- *
- * This function is rewritten from above commented recursive function.
- * this function is equivalent to the above commented recursive function.
+ * @brief The cases that mirro Apache Spark case path in `jsonExpressions.scala#evaluatePath()`.
  */
-__device__ bool evaluate_path(json_parser& p,
-                              json_generator& root_g,
-                              write_style root_style,
-                              cudf::device_span<path_instruction const> root_path)
+enum class evaluation_case_path : int8_t {
+  INVALID                                           = -1,
+  START_ARRAY___EMPTY_PATH___FLATTEN_STYLE          = 2,
+  START_OBJECT___MATCHED_NAME_PATH                  = 4,
+  START_ARRAY___MATCHED_DOUBLE_WILDCARD             = 5,
+  START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED = 6,
+  START_ARRAY___MATCHED_WILDCARD                    = 7,
+  START_ARRAY___MATCHED_INDEX_AND_WILDCARD          = 8,
+  START_ARRAY___MATCHED_INDEX                       = 9
+};
+
+/**
+ * @brief The struct to store states during processing JSON through different nested levels.
+ */
+struct context {
+  // used to save current generator
+  json_generator g;
+
+  // used to save child JSON generator for case path 6
+  json_generator child_g;
+
+  cudf::device_span<path_instruction const> path;
+
+  // whether written output
+  // if dirty > 0, indicates success
+  int dirty;
+
+  // which case path that this task is from
+  evaluation_case_path case_path;
+
+  // current token
+  json_token token;
+
+  write_style style;
+
+  // for some case paths
+  bool is_first_enter;
+
+  // is this context task is done
+  bool task_is_done;
+};
+
+/**
+ * @brief Parse a single json string using the provided command buffer.
+ *
+ * @param input The incoming json string
+ * @param path_commands The command buffer to be applied to the string
+ * @param out_buf Buffer user to store the string resulted from the query
+ * @return A pair containing the result code and the output size
+ */
+__device__ thrust::pair<bool, cudf::size_type> evaluate_path(
+  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
 {
-  // manually maintained context stack in lieu of calling evaluate_path recursively.
-  struct context {
-    // current token
-    json_token token;
-
-    // which case path that this task is from
-    int case_path;
-
-    // used to save current generator
-    json_generator g;
-
-    write_style style;
-
-    cudf::device_span<path_instruction const> path;
-    // is this context task is done
-    bool task_is_done;
-
-    // whether written output
-    // if dirty > 0, indicates success
-    int dirty;
-
-    // for some case paths
-    bool is_first_enter;
-
-    // used to save child JSON generator for case path 8
-    json_generator child_g;
-  };
+  json_parser p{input};
+  p.next_token();
+  if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
   // define stack; plus 1 indicates root context task needs an extra memory
   context stack[max_path_depth + 1];
-  int stack_pos = 0;
+  int stack_size = 0;
 
   // push context function
-  auto push_context = [&stack, &stack_pos](json_token _token,
-                                           int _case_path,
-                                           json_generator _g,
-                                           write_style _style,
-                                           cudf::device_span<path_instruction const> _path) {
+  auto push_context = [&p, &stack, &stack_size](evaluation_case_path _case_path,
+                                                json_generator _g,
+                                                write_style _style,
+                                                cudf::device_span<path_instruction const> _path) {
     // no need to check stack is full
     // because Spark-Rapids already checked maximum length of `path_instruction`
-    auto& ctx          = stack[stack_pos];
-    ctx.token          = _token;
-    ctx.case_path      = _case_path;
-    ctx.g              = _g;
-    ctx.style          = _style;
-    ctx.path           = _path;
-    ctx.task_is_done   = false;
+    auto& ctx          = stack[stack_size++];
+    ctx.g              = std::move(_g);
+    ctx.path           = std::move(_path);
     ctx.dirty          = 0;
+    ctx.case_path      = _case_path;
+    ctx.token          = p.get_current_token();
+    ctx.style          = _style;
     ctx.is_first_enter = true;
-
-    stack_pos++;
+    ctx.task_is_done   = false;
   };
 
   // put the first context task
-  push_context(p.get_current_token(), -1, root_g, root_style, root_path);
+  push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
 
-  while (stack_pos > 0) {
-    auto& ctx = stack[stack_pos - 1];
+  while (stack_size > 0) {
+    auto& ctx = stack[stack_size - 1];
     if (!ctx.task_is_done) {
-      // task is not done.
-
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size()) &&
           ctx.style == write_style::RAW) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
-        ctx.g.write_raw(p);
+        ctx.g.write_raw(p, out_buf);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
       }
@@ -440,10 +436,13 @@ __device__ bool evaluate_path(json_parser& p,
         // flatten this array into the parent
         if (json_token::END_ARRAY != p.next_token()) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // push back task
           // add child task
-          push_context(p.get_current_token(), 2, ctx.g, ctx.style, {nullptr, 0});
+          push_context(evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE,
+                       ctx.g,
+                       ctx.style,
+                       {nullptr, 0});
         } else {
           // END_ARRAY
           ctx.task_is_done = true;
@@ -453,9 +452,9 @@ __device__ bool evaluate_path(json_parser& p,
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
         // general case: just copy the child tree verbatim
-        if (!(ctx.g.copy_current_structure(p))) {
+        if (!(ctx.g.copy_current_structure(p, out_buf))) {
           // JSON validation check
-          return false;
+          return {false, 0};
         }
         ctx.dirty        = 1;
         ctx.task_is_done = true;
@@ -470,23 +469,22 @@ __device__ bool evaluate_path(json_parser& p,
           if (ctx.dirty > 0) {
             while (json_token::END_OBJECT != p.next_token()) {
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // skip value of FIELD_NAME
               if (!p.try_skip_children()) {
                 // JSON validation check
-                return false;
+                return {false, 0};
               }
             }
-            ctx.task_is_done = true;
-          } else {
-            return false;
           }
+          // Mark task is done regardless whether the expected child was found.
+          ctx.task_is_done = true;
         } else {
           // below is 1st enter
           ctx.is_first_enter = false;
@@ -494,7 +492,7 @@ __device__ bool evaluate_path(json_parser& p,
           bool found_expected_child = false;
           while (json_token::END_OBJECT != p.next_token()) {
             // JSON validation check
-            if (json_token::ERROR == p.get_current_token()) { return false; }
+            if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
             // need to try more children
             auto match_named = path_match_named(ctx.path);
@@ -504,13 +502,12 @@ __device__ bool evaluate_path(json_parser& p,
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // meets null token, it's not expected, return false
-              if (json_token::VALUE_NULL == p.get_current_token()) { return false; }
+              if (json_token::VALUE_NULL == p.get_current_token()) { return {false, 0}; }
               // push sub task; sub task will update the result of path 4
-              push_context(p.get_current_token(),
-                           4,
+              push_context(evaluation_case_path::START_OBJECT___MATCHED_NAME_PATH,
                            ctx.g,
                            ctx.style,
                            {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -520,12 +517,12 @@ __device__ bool evaluate_path(json_parser& p,
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
-              if (json_token::ERROR == p.get_current_token()) { return false; }
+              if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
               // current child is not expected, skip current child
               if (!p.try_skip_children()) {
                 // JSON validation check
-                return false;
+                return {false, 0};
               }
             }
           }
@@ -545,19 +542,18 @@ __device__ bool evaluate_path(json_parser& p,
         // behavior in Hive
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array();
+          ctx.g.write_start_array(out_buf);
         }
 
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
-          push_context(p.get_current_token(),
-                       5,
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_DOUBLE_WILDCARD,
                        ctx.g,
                        write_style::FLATTEN,
                        {ctx.path.data() + 2, ctx.path.size() - 2});
         } else {
-          ctx.g.write_end_array();
+          ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
       }
@@ -590,28 +586,28 @@ __device__ bool evaluate_path(json_parser& p,
 
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
           // track the number of array elements and only emit an outer array if
           // we've written more than one element, this matches Hive's behavior
-          push_context(p.get_current_token(),
-                       6,
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED,
                        child_g,
                        next_style,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          char* child_g_start = child_g.get_output_start_position();
-          size_t child_g_len  = child_g.get_output_len();
+          char* child_g_start = out_buf + child_g.get_offset();
+          int child_g_len     = child_g.get_output_len();
           if (ctx.dirty > 1) {
             // add outer array tokens
             ctx.g.write_child_raw_value(
               child_g_start, child_g_len, /* write_outer_array_tokens */ true);
-            ctx.task_is_done = true;
           } else if (ctx.dirty == 1) {
             // remove outer array tokens
             ctx.g.write_child_raw_value(
               child_g_start, child_g_len, /* write_outer_array_tokens */ false);
-            ctx.task_is_done = true;
           }  // else do not write anything
+
+          // Done anyway, since we already reached the end array.
+          ctx.task_is_done = true;
         }
       }
       // case (START_ARRAY, Wildcard :: xs)
@@ -620,21 +616,20 @@ __device__ bool evaluate_path(json_parser& p,
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array();
+          ctx.g.write_start_array(out_buf);
         }
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           // wildcards can have multiple matches, continually update the dirty
           // count
-          push_context(p.get_current_token(),
-                       7,
+          push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD,
                        ctx.g,
                        write_style::QUOTED,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          ctx.g.write_end_array();
+          ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
       }
@@ -646,28 +641,27 @@ __device__ bool evaluate_path(json_parser& p,
 
         p.next_token();
         // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return false; }
+        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
         ctx.is_first_enter = false;
 
         int i = idx;
         while (i > 0) {
           if (p.get_current_token() == json_token::END_ARRAY) {
             // terminate, nothing has been written
-            return false;
+            return {false, 0};
           }
 
-          if (!p.try_skip_children()) { return false; }
+          if (!p.try_skip_children()) { return {false, 0}; }
 
           p.next_token();
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           --i;
         }
 
         // i == 0
-        push_context(p.get_current_token(),
-                     8,
+        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX_AND_WILDCARD,
                      ctx.g,
                      write_style::QUOTED,
                      {ctx.path.data() + 1, ctx.path.size() - 1});
@@ -679,338 +673,464 @@ __device__ bool evaluate_path(json_parser& p,
 
         p.next_token();
         // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return false; }
+        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
         int i = idx;
         while (i > 0) {
           if (p.get_current_token() == json_token::END_ARRAY) {
             // terminate, nothing has been written
-            return false;
+            return {false, 0};
           }
 
-          if (!p.try_skip_children()) { return false; }
+          if (!p.try_skip_children()) { return {false, 0}; }
 
           p.next_token();
           // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return false; }
+          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
           --i;
         }
 
         // i == 0
-        push_context(
-          p.get_current_token(), 9, ctx.g, ctx.style, {ctx.path.data() + 1, ctx.path.size() - 1});
+        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX,
+                     ctx.g,
+                     ctx.style,
+                     {ctx.path.data() + 1, ctx.path.size() - 1});
       }
       // case _ =>
       // case path 12
       else {
-        if (!p.try_skip_children()) { return false; }
+        if (!p.try_skip_children()) { return {false, 0}; }
         // default case path, return false for this task
         ctx.dirty        = 0;
         ctx.task_is_done = true;
       }
-    } else {
-      // current context is done.
-
+    }       // if (!ctx.task_is_done)
+    else {  // current context is done.
       // pop current top context
-      stack_pos--;
+      stack_size--;
 
-      // pop parent task
+      // has no parent task, stack is empty, will exit
+      if (stack_size == 0) { break; }
+
+      // peek parent context task
       // update parent task info according to current task result
-      if (stack_pos > 0) {
-        // peek parent context task
-        auto& p_ctx = stack[stack_pos - 1];
+      auto& p_ctx = stack[stack_size - 1];
 
-        // case (VALUE_STRING, Nil) if style == RawStyle
-        // case path 1
-        if (1 == ctx.case_path) {
-          // never happen
-        }
-        // path 2: case (START_ARRAY, Nil) if style == FlattenStyle
-        // path 5: case (START_ARRAY, Wildcard :: Wildcard :: xs)
-        // path 7: case (START_ARRAY, Wildcard :: xs)
-        else if (2 == ctx.case_path || 5 == ctx.case_path || 7 == ctx.case_path) {
+      switch (ctx.case_path) {
+          // path 2: case (START_ARRAY, Nil) if style == FlattenStyle
+          // path 5: case (START_ARRAY, Wildcard :: Wildcard :: xs)
+          // path 7: case (START_ARRAY, Wildcard :: xs)
+        case evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE:
+        case evaluation_case_path::START_ARRAY___MATCHED_DOUBLE_WILDCARD:
+        case evaluation_case_path::START_ARRAY___MATCHED_WILDCARD: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
+
+          break;
         }
-        // case (START_OBJECT, Named :: xs)
-        // case path 4
-        else if (4 == ctx.case_path) {
+
+          // case (START_OBJECT, Named :: xs)
+          // case path 4
+        case evaluation_case_path::START_OBJECT___MATCHED_NAME_PATH: {
           p_ctx.dirty = ctx.dirty;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
+
+          break;
         }
-        // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
-        // case path 6
-        else if (6 == ctx.case_path) {
+
+          // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
+          // case path 6
+        case evaluation_case_path::START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
           // update child generator for parent task
           p_ctx.child_g = ctx.g;
+
+          break;
         }
-        /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
-        // case path 8
-        // case (START_ARRAY, Index(idx) :: xs)
-        // case path 9
-        else if (8 == ctx.case_path || 9 == ctx.case_path) {
+
+          /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
+          // case path 8
+          // case (START_ARRAY, Index(idx) :: xs)
+          // case path 9
+        case evaluation_case_path::START_ARRAY___MATCHED_INDEX_AND_WILDCARD:
+        case evaluation_case_path::START_ARRAY___MATCHED_INDEX: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
 
           // post logic:
           while (p.next_token() != json_token::END_ARRAY) {
             // JSON validation check
-            if (json_token::ERROR == p.get_current_token()) { return false; }
+            if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
             // advance the token stream to the end of the array
-            if (!p.try_skip_children()) { return false; }
+            if (!p.try_skip_children()) { return {false, 0}; }
           }
           // task is done
           p_ctx.task_is_done = true;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
-        }
-        // case path 3: case (_, Nil)
-        // case path 12: case _ =>
-        // others
-        else {
-          // never happen
-        }
-      } else {
-        // has no parent task, stack is empty, will exit
-      }
-    }
-  }
 
-  // copy output len
-  root_g.set_output_len(stack[0].g.get_output_len());
-  return stack[0].dirty > 0;
+          break;
+        }
+
+        default:;  // Never happens!
+      }            // end switch (ctx.case_path)
+    }              // ctx.task_is_done
+  }                // while (stack_size > 0)
+
+  auto const success = stack[0].dirty > 0;
+
+  // generator may contain trash output, e.g.: generator writes some output,
+  // then JSON format is invalid, the previous output becomes trash.
+  // We need to return output size as zero.
+  return {success, success ? stack[0].g.get_output_len() : 0};
 }
 
-rmm::device_uvector<path_instruction> construct_path_commands(
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
-  cudf::string_scalar const& all_names_scalar,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  int name_pos = 0;
+/**
+ * @brief Struct storing data such as path instructions, output buffer etc, corresponding to a
+ * single JSON path.
+ */
+struct json_path_processing_data {
+  cudf::device_span<path_instruction const> path_commands;
+  cudf::detail::input_offsetalator offsets;
+  thrust::pair<char const*, cudf::size_type>* out_stringviews;
+  char* out_buf;
+  int8_t* has_out_of_bound;
+};
 
-  // construct the path commands
-  std::vector<path_instruction> path_commands;
-  for (auto const& inst : instructions) {
-    auto const& [type, name, index] = inst;
-    switch (type) {
-      case path_instruction_type::WILDCARD:
-        path_commands.emplace_back(path_instruction{path_instruction_type::WILDCARD});
-        break;
-      case path_instruction_type::INDEX:
-        path_commands.emplace_back(path_instruction{path_instruction_type::INDEX});
+/**
+ * @brief Kernel for running the JSONPath query, in which one input row is processed by entire
+ * warp (or multiple warps) of threads.
+ *
+ * The number of warps processing each row is computed as `ceil(num_paths / warp_size)`.
+ *
+ * @param input The input JSON strings stored in a strings column
+ * @param path_data Array containing all path data
+ * @param num_threads_per_row Number of threads processing each input row
+ */
+template <int block_size, int min_block_per_sm>
+__launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
+  void get_json_object_kernel(cudf::column_device_view input,
+                              cudf::device_span<json_path_processing_data> path_data,
+                              std::size_t num_threads_per_row)
+{
+  auto const tidx    = cudf::detail::grid_1d::global_thread_id();
+  auto const row_idx = tidx / num_threads_per_row;
+  if (row_idx >= input.size()) { return; }
+
+  auto const path_idx = tidx % num_threads_per_row;
+  if (path_idx >= path_data.size()) { return; }
+
+  auto const& path         = path_data[path_idx];
+  char* const dst          = path.out_buf + path.offsets[row_idx];
+  bool is_valid            = false;
+  cudf::size_type out_size = 0;
+
+  auto const str = input.element<cudf::string_view>(row_idx);
+  if (str.size_bytes() > 0) {
+    thrust::tie(is_valid, out_size) = evaluate_path(char_range{str}, path.path_commands, dst);
+
+    auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
+    if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
+  }
+
+  // Write out `nullptr` in the output string_view to indicate that the output is a null.
+  // The situation `out_stringviews == nullptr` should only happen if the kernel is launched a
+  // second time due to out-of-bound write in the first launch.
+  if (path.out_stringviews) {
+    path.out_stringviews[row_idx] = {is_valid ? dst : nullptr, out_size};
+  }
+}
+
+/**
+ * @brief A utility class to launch the main kernel.
+ *
+ * It caches the kernel launch parameters to reuse multiple times.
+ */
+class kernel_launcher {
+ public:
+  explicit kernel_launcher(cudf::size_type _input_size, std::size_t _path_size)
+    : input_size{_input_size},
+      path_size{_path_size},
+      num_threads_per_row{cudf::util::div_rounding_up_safe(
+                            path_size, static_cast<std::size_t>(cudf::detail::warp_size)) *
+                          cudf::detail::warp_size},
+      num_blocks{cudf::util::div_rounding_up_safe(num_threads_per_row * input_size,
+                                                  static_cast<std::size_t>(block_size))}
+  {
+  }
+
+  void exec(cudf::column_device_view const& input,
+            cudf::device_span<json_path_processing_data> path_data,
+            rmm::cuda_stream_view stream) const
+  {
+    CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
+                 "Unexpected data sizes upon launching kernel.");
+    get_json_object_kernel<block_size, min_block_per_sm>
+      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data, num_threads_per_row);
+  }
+
+ private:
+  // We explicitly set the minBlocksPerMultiprocessor parameter in the launch bounds to avoid
+  // spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
+  // the maximum number of registers used by a kernel and the parallelism of the kernel.
+  // If lots of registers are used the parallelism may suffer. But in our case
+  // NVCC gets this wrong and we want to avoid spilling all the time or else
+  // the performance is really bad. This essentially tells NVCC to prefer using lots
+  // of registers over spilling.
+  //
+  // The optimal values for block_size and min_block_per_sm were found through testing,
+  // which are 128-8 or 256-4.
+  static constexpr int block_size       = 128;
+  static constexpr int min_block_per_sm = 8;
+
+  cudf::size_type const input_size;
+  std::size_t const path_size;
+
+  std::size_t const num_threads_per_row;
+  std::size_t const num_blocks;
+};
+
+/**
+ * @brief Construct the device vector containing necessary data for the input JSON paths.
+ *
+ * All JSON paths are processed at once, without stream synchronization, to minimize overhead.
+ *
+ * A tuple of values are returned, however, only the first element is needed for further kernel
+ * launch. The remaining are unused but need to be kept alive as they contains data for later
+ * asynchronous host-device memcpy.
+ */
+std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
+           std::unique_ptr<std::vector<std::vector<path_instruction>>>,
+           cudf::string_scalar,
+           std::string>
+construct_path_commands(
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream)
+{
+  // Concatenate all names from path instructions.
+  auto h_inst_names = [&] {
+    std::size_t length{0};
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { length += name.length(); }
+      }
+    }
+    std::string all_names;
+    all_names.reserve(length);
+    for (auto const& instructions : json_paths) {
+      for (auto const& [type, name, index] : instructions) {
+        if (type == path_instruction_type::NAMED) { all_names += name; }
+      }
+    }
+    return all_names;
+  }();
+  auto d_inst_names = cudf::string_scalar(h_inst_names, true, stream);
+
+  std::size_t name_pos{0};
+  auto h_path_commands = std::make_unique<std::vector<std::vector<path_instruction>>>();
+  h_path_commands->reserve(json_paths.size());
+
+  for (auto const& instructions : json_paths) {
+    h_path_commands->emplace_back();
+    auto& path_commands = h_path_commands->back();
+    path_commands.reserve(instructions.size());
+
+    for (auto const& [type, name, index] : instructions) {
+      path_commands.emplace_back(path_instruction{type});
+
+      if (type == path_instruction_type::INDEX) {
         path_commands.back().index = index;
-        break;
-      case path_instruction_type::NAMED:
-        path_commands.emplace_back(path_instruction{path_instruction_type::NAMED});
-        path_commands.back().name =
-          cudf::string_view(all_names_scalar.data() + name_pos, name.size());
+      } else if (type == path_instruction_type::NAMED) {
+        path_commands.back().name = cudf::string_view(d_inst_names.data() + name_pos, name.size());
         name_pos += name.size();
-        break;
-      default: CUDF_FAIL("Invalid path instruction type");
-    }
-  }
-  // convert to uvector
-  return cudf::detail::make_device_uvector_sync(path_commands, stream, mr);
-}
-
-/**
- * @brief Parse a single json string using the provided command buffer
- *
- *
- * @param input The incoming json string
- * @param input_len Size of the incoming json string
- * @param path_commands_ptr The command buffer to be applied to the string.
- * @param path_commands_size The command buffer size.
- * @param out_buf Buffer user to store the results of the query
- *                (nullptr in the size computation step)
- * @param out_buf_size Size of the output buffer
- * @returns A pair containing the result code and the output buffer.
- */
-__device__ thrust::pair<bool, size_t> get_json_object_single(
-  char_range input,
-  cudf::device_span<path_instruction const> path_commands,
-  char* out_buf,
-  size_t out_buf_size)
-{
-  json_parser j_parser(input);
-  j_parser.next_token();
-  // JSON validation check
-  if (json_token::ERROR == j_parser.get_current_token()) { return {false, 0}; }
-
-  // First pass: preprocess sizes.
-  // Second pass: writes output.
-  // The generator automatically determines which pass based on `out_buf`.
-  // If `out_buf_size` is zero, pass in `nullptr` to avoid generator writing trash output.
-  json_generator generator((out_buf_size == 0) ? nullptr : out_buf);
-
-  bool const success = evaluate_path(
-    j_parser, generator, write_style::RAW, {path_commands.data(), path_commands.size()});
-
-  if (!success) {
-    // generator may contain trash output, e.g.: generator writes some output,
-    // then JSON format is invalid, the previous output becomes trash.
-    // set output as zero to tell second step
-    generator.set_output_len_zero();
-  }
-
-  return {success, generator.get_output_len()};
-}
-
-/**
- * @brief Kernel for running the JSONPath query.
- *
- * This kernel operates in a 2-pass way. On the first pass it computes the
- * output sizes. On the second pass, it fills in the provided output buffers
- * (chars and validity).
- *
- * @param col Device view of the incoming string
- * @param path_commands JSONPath command buffer
- * @param d_sizes a buffer used to write the output sizes in the first pass,
- *        and is read back in on the second pass to compute offsets.
- * @param output_offsets Buffer used to store the string offsets for the results
- *        of the query
- * @param out_buf Buffer used to store the results of the query
- * @param out_validity Output validity buffer
- * @param out_valid_count Output count of # of valid bits
- */
-template <int block_size>
-// We have 1 for the minBlocksPerMultiprocessor in the launch bounds to avoid spilling from
-// the kernel itself. By default NVCC uses a heuristic to find a balance between the
-// maximum number of registers used by a kernel and the parallelism of the kernel.
-// If lots of registers are used the parallelism may suffer. But in our case
-// NVCC gets this wrong and we want to avoid spilling all the time or else
-// the performance is really bad. This essentially tells NVCC to prefer using lots
-// of registers over spilling.
-__launch_bounds__(block_size, 1) CUDF_KERNEL
-  void get_json_object_kernel(cudf::column_device_view col,
-                              cudf::device_span<path_instruction const> path_commands,
-                              cudf::size_type* d_sizes,
-                              cudf::detail::input_offsetalator output_offsets,
-                              char* out_buf,
-                              cudf::bitmask_type* out_validity,
-                              cudf::size_type* out_valid_count)
-{
-  auto tid          = cudf::detail::grid_1d::global_thread_id();
-  auto const stride = cudf::detail::grid_1d::grid_stride();
-
-  cudf::size_type warp_valid_count{0};
-
-  auto active_threads = __ballot_sync(0xffff'ffffu, tid < col.size());
-  while (tid < col.size()) {
-    bool is_valid               = false;
-    cudf::string_view const str = col.element<cudf::string_view>(tid);
-    if (str.size_bytes() > 0) {
-      char* dst = out_buf != nullptr ? out_buf + output_offsets[tid] : nullptr;
-      size_t const dst_size =
-        out_buf != nullptr ? output_offsets[tid + 1] - output_offsets[tid] : 0;
-
-      // process one single row
-      auto [result, output_size] =
-        get_json_object_single(str, {path_commands.data(), path_commands.size()}, dst, dst_size);
-      if (result) { is_valid = true; }
-
-      // filled in only during the precompute step. during the compute step, the
-      // offsets are fed back in so we do -not- want to write them out
-      if (out_buf == nullptr) { d_sizes[tid] = static_cast<cudf::size_type>(output_size); }
-    } else {
-      // valid JSON length is always greater than 0
-      // if `str` size len is zero, output len is 0 and `is_valid` is false
-      if (out_buf == nullptr) { d_sizes[tid] = 0; }
-    }
-
-    // validity filled in only during the output step
-    if (out_validity != nullptr) {
-      uint32_t mask = __ballot_sync(active_threads, is_valid);
-      // 0th lane of the warp writes the validity
-      if (!(tid % cudf::detail::warp_size)) {
-        out_validity[cudf::word_index(tid)] = mask;
-        warp_valid_count += __popc(mask);
+      } else if (type != path_instruction_type::WILDCARD) {
+        CUDF_FAIL("Invalid path instruction type");
       }
     }
-
-    tid += stride;
-    active_threads = __ballot_sync(active_threads, tid < col.size());
   }
 
-  // sum the valid counts across the whole block
-  if (out_valid_count != nullptr) {
-    cudf::size_type block_valid_count =
-      cudf::detail::single_lane_block_sum_reduce<block_size, 0>(warp_valid_count);
-    if (threadIdx.x == 0) { atomicAdd(out_valid_count, block_valid_count); }
+  auto d_path_commands = std::vector<rmm::device_uvector<path_instruction>>{};
+  d_path_commands.reserve(h_path_commands->size());
+  for (auto const& path_commands : *h_path_commands) {
+    d_path_commands.emplace_back(cudf::detail::make_device_uvector_async(
+      path_commands, stream, rmm::mr::get_current_device_resource()));
   }
+
+  return {std::move(d_path_commands),
+          std::move(h_path_commands),
+          std::move(d_inst_names),
+          std::move(h_inst_names)};
 }
 
-std::unique_ptr<cudf::column> get_json_object(
+std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  if (input.is_empty()) return cudf::make_empty_column(cudf::type_id::STRING);
+  auto const num_outputs = json_paths.size();
+  std::vector<std::unique_ptr<cudf::column>> output;
 
-  if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
-
-  // get a string buffer to store all the names and convert to device
-  std::string all_names;
-  for (auto const& inst : instructions) {
-    all_names += std::get<1>(inst);
+  // Input is empty or all nulls - just return all null columns.
+  if (input.is_empty() || input.size() == input.null_count()) {
+    for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+      output.emplace_back(std::make_unique<cudf::column>(input.parent(), stream, mr));
+    }
+    return output;
   }
-  cudf::string_scalar all_names_scalar(all_names, true, stream);
-  // parse the json_path into a command buffer
-  auto path_commands = construct_path_commands(
-    instructions, all_names_scalar, stream, rmm::mr::get_current_device_resource());
 
-  // compute output sizes
-  auto sizes = rmm::device_uvector<cudf::size_type>(
-    input.size(), stream, rmm::mr::get_current_device_resource());
-  auto d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
+  auto const in_offsets =
+    cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
+  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
+    construct_path_commands(json_paths, stream);
 
-  constexpr int block_size = 512;
-  cudf::detail::grid_1d const grid{input.size(), block_size};
-  auto d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
-  // preprocess sizes (returned in the offsets buffer)
-  get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr, path_commands, sizes.data(), d_offsets, nullptr, nullptr, nullptr);
+  auto const max_row_size = thrust::transform_reduce(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(input.size()),
+    cuda::proclaim_return_type<int64_t>(
+      [in_offsets] __device__(auto const idx) { return in_offsets[idx + 1] - in_offsets[idx]; }),
+    int64_t{0},
+    thrust::maximum{});
 
-  // convert sizes to offsets
-  auto [offsets, output_size] =
-    cudf::strings::detail::make_offsets_child_column(sizes.begin(), sizes.end(), stream, mr);
-  d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets->view());
+  // We will use scratch buffers to store the output strings without knowing their sizes.
+  // Since we do not know their sizes, we need to allocate the buffer a bit larger than the input
+  // size so that we will not write output strings into an out-of-bound position.
+  // Checking out-of-bound needs to be performed in the main kernel to make sure we will not have
+  // data corruption.
+  auto const scratch_size = [&, max_row_size = max_row_size] {
+    // Pad the scratch buffer by an additional size that is a multiple of max row size.
+    auto constexpr padding_rows = 10;
+    return input.chars_size(stream) + max_row_size * padding_rows;
+  }();
 
-  // allocate output string column
-  rmm::device_uvector<char> chars(output_size, stream, mr);
+  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
+  std::vector<rmm::device_uvector<char>> scratch_buffers;
+  std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
+  std::vector<json_path_processing_data> h_path_data;
+  scratch_buffers.reserve(json_paths.size());
+  out_stringviews.reserve(json_paths.size());
+  h_path_data.reserve(json_paths.size());
 
-  // potential optimization : if we know that all outputs are valid, we could
-  // skip creating the validity mask altogether
-  rmm::device_buffer validity =
-    cudf::detail::create_null_mask(input.size(), cudf::mask_state::UNINITIALIZED, stream, mr);
+  for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+    auto const& instructions = json_paths[idx];
+    if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
 
-  // compute results
-  rmm::device_scalar<cudf::size_type> d_valid_count{0, stream};
+    scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
+    out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
+      static_cast<std::size_t>(input.size()), stream});
 
-  get_json_object_kernel<block_size>
-    <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-      *d_input_ptr,
-      path_commands,
-      sizes.data(),
-      d_offsets,
-      chars.data(),
-      static_cast<cudf::bitmask_type*>(validity.data()),
-      d_valid_count.data());
+    h_path_data.emplace_back(json_path_processing_data{d_json_paths[idx],
+                                                       in_offsets,
+                                                       out_stringviews.back().data(),
+                                                       scratch_buffers.back().data(),
+                                                       d_has_out_of_bound.data() + idx});
+  }
+  auto d_path_data = cudf::detail::make_device_uvector_async(
+    h_path_data, stream, rmm::mr::get_current_device_resource());
+  thrust::uninitialized_fill(
+    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
-  return make_strings_column(input.size(),
-                             std::move(offsets),
-                             chars.release(),
-                             input.size() - d_valid_count.value(stream),
-                             std::move(validity));
+  auto const kernel = kernel_launcher{input.size(), json_paths.size()};
+  kernel.exec(*d_input_ptr, d_path_data, stream);
+
+  // Do not use parallel check since we do not have many elements.
+  auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
+  auto has_no_oob         = std::none_of(
+    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+
+  // If we didn't see any out-of-bound write, everything is good so far.
+  // Just gather the output strings and return.
+  if (has_no_oob) {
+    for (auto const& out_sview : out_stringviews) {
+      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+    }
+    return output;
+  }
+  // From here, we had out-of-bound write. Although this is very rare, it may still happen.
+
+  std::vector<std::pair<rmm::device_buffer, cudf::size_type>> out_null_masks_and_null_counts;
+  std::vector<std::pair<std::unique_ptr<cudf::column>, int64_t>> out_offsets_and_sizes;
+  std::vector<rmm::device_uvector<char>> out_char_buffers;
+  std::vector<std::size_t> oob_indices;
+
+  // Check validity from the stored char pointers.
+  auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
+    return item.first != nullptr;
+  };
+
+  // Rebuild the data only for paths that had out of bound write.
+  h_path_data.clear();
+  for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+    auto const& out_sview = out_stringviews[idx];
+
+    if (h_has_out_of_bound[idx]) {
+      oob_indices.emplace_back(idx);
+      output.emplace_back(nullptr);  // just placeholder.
+
+      out_null_masks_and_null_counts.emplace_back(
+        cudf::detail::valid_if(out_sview.begin(), out_sview.end(), validator, stream, mr));
+
+      // The string sizes computed in the previous kernel call will be used to allocate a new char
+      // buffer to store the output.
+      auto const size_it = cudf::detail::make_counting_transform_iterator(
+        0,
+        cuda::proclaim_return_type<cudf::size_type>(
+          [string_pairs = out_sview.data()] __device__(auto const idx) {
+            return string_pairs[idx].second;
+          }));
+      out_offsets_and_sizes.emplace_back(cudf::strings::detail::make_offsets_child_column(
+        size_it, size_it + input.size(), stream, mr));
+      out_char_buffers.emplace_back(
+        rmm::device_uvector<char>(out_offsets_and_sizes.back().second, stream, mr));
+
+      h_path_data.emplace_back(
+        json_path_processing_data{d_json_paths[idx],
+                                  cudf::detail::offsetalator_factory::make_input_iterator(
+                                    out_offsets_and_sizes.back().first->view()),
+                                  nullptr /*out_stringviews*/,
+                                  out_char_buffers.back().data(),
+                                  d_has_out_of_bound.data() + idx});
+    } else {
+      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+    }
+  }
+  // These buffers are no longer needed.
+  scratch_buffers.clear();
+  out_stringviews.clear();
+
+  // Push data to the GPU and launch the kernel again.
+  d_path_data = cudf::detail::make_device_uvector_async(
+    h_path_data, stream, rmm::mr::get_current_device_resource());
+  thrust::uninitialized_fill(
+    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
+  kernel.exec(*d_input_ptr, d_path_data, stream);
+
+  // Check out of bound again to make sure everything looks right.
+  h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
+  has_no_oob         = std::none_of(
+    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+
+  // The last kernel call should not encounter any out-of-bound write.
+  // If OOB is still detected, there must be something wrong happened.
+  CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
+
+  for (auto const idx : oob_indices) {
+    output[idx] = cudf::make_strings_column(input.size(),
+                                            std::move(out_offsets_and_sizes[idx].first),
+                                            out_char_buffers[idx].release(),
+                                            out_null_masks_and_null_counts[idx].second,
+                                            std::move(out_null_masks_and_null_counts[idx].first));
+  }
+  return output;
 }
 
 }  // namespace detail
@@ -1021,7 +1141,19 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return detail::get_json_object(input, instructions, stream, mr);
+  CUDF_FUNC_RANGE();
+  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+    json_paths,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::get_json_object(input, json_paths, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
