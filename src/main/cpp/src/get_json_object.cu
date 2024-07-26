@@ -379,23 +379,29 @@ struct context {
  * @return A pair containing the result code and the output size
  */
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
-  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
+  char_range input,
+  cudf::device_span<path_instruction const> path_commands,
+  char* out_buf,
+  bool* path_depth_exceeded)
 {
   json_parser p{input};
   p.next_token();
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
-  // define stack; plus 1 indicates root context task needs an extra memory
+  // Define stack; plus 1 indicates root context task needs an extra memory.
   context stack[MAX_JSON_PATH_DEPTH + 1];
   int stack_size = 0;
 
-  // push context function
-  auto push_context = [&p, &stack, &stack_size](evaluation_case_path _case_path,
-                                                json_generator _g,
-                                                write_style _style,
-                                                cudf::device_span<path_instruction const> _path) {
-    // no need to check stack is full
-    // because Spark-Rapids already checked maximum length of `path_instruction`
+  auto const push_context = [&](evaluation_case_path _case_path,
+                                json_generator _g,
+                                write_style _style,
+                                cudf::device_span<path_instruction const> _path) {
+    if (stack_size > MAX_JSON_PATH_DEPTH) {
+      *path_depth_exceeded = true;
+      // Because no more context is pushed, the evaluation output should be wrong.
+      // But that is not important, since we will throw exception after the kernel finishes.
+      return;
+    }
     auto& ctx          = stack[stack_size++];
     ctx.g              = std::move(_g);
     ctx.path           = std::move(_path);
@@ -407,7 +413,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     ctx.task_is_done   = false;
   };
 
-  // put the first context task
   push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
 
   while (stack_size > 0) {
@@ -810,7 +815,8 @@ template <int block_size, int min_block_per_sm>
 __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
-                              std::size_t num_threads_per_row)
+                              std::size_t num_threads_per_row,
+                              bool* path_depth_exceeded)
 {
   auto const tidx    = cudf::detail::grid_1d::global_thread_id();
   auto const row_idx = tidx / num_threads_per_row;
@@ -826,7 +832,8 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 
   auto const str = input.element<cudf::string_view>(row_idx);
   if (str.size_bytes() > 0) {
-    thrust::tie(is_valid, out_size) = evaluate_path(char_range{str}, path.path_commands, dst);
+    thrust::tie(is_valid, out_size) =
+      evaluate_path(char_range{str}, path.path_commands, dst, path_depth_exceeded);
 
     auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
     if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
@@ -864,8 +871,13 @@ class kernel_launcher {
   {
     CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
                  "Unexpected data sizes upon launching kernel.");
+
+    rmm::device_scalar<bool> path_depth_exceeded(false, stream);
     get_json_object_kernel<block_size, min_block_per_sm>
-      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data, num_threads_per_row);
+      <<<num_blocks, block_size, 0, stream.value()>>>(
+        input, path_data, num_threads_per_row, path_depth_exceeded.data());
+    CUDF_EXPECTS(!path_depth_exceeded.value(stream),
+                 "The processed input has depth exceed depth limit.");
   }
 
  private:
