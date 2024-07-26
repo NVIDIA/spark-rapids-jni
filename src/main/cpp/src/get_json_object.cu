@@ -1035,9 +1035,9 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   h_path_data.reserve(json_paths.size());
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-    auto const& instructions = json_paths[idx];
-    if (instructions.size() > MAX_JSON_PATH_DEPTH) {
-      CUDF_FAIL("JSONPath query exceeds maximum depth");
+    auto const& path = json_paths[idx];
+    if (path.size() > MAX_JSON_PATH_DEPTH) {
+      CUDF_FAIL("JSON Path has depth exceeds the maximum allowed value.");
     }
 
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
