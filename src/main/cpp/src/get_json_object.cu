@@ -382,7 +382,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   char_range input,
   cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
-  bool* path_depth_exceeded)
+  bool* max_path_depth_exceeded)
 {
   json_parser p{input};
   p.next_token();
@@ -397,7 +397,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                                 write_style _style,
                                 cudf::device_span<path_instruction const> _path) {
     if (stack_size > MAX_JSON_PATH_DEPTH) {
-      *path_depth_exceeded = true;
+      *max_path_depth_exceeded = true;
       // Because no more context is pushed, the evaluation output should be wrong.
       // But that is not important, since we will throw exception after the kernel finishes.
       return;
@@ -781,6 +781,14 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     }              // ctx.task_is_done
   }                // while (stack_size > 0)
 
+  // We did not terminate the function early to reduce complexity of the code.
+  // Instead, if max depth was encountered, we've just continued the evaluation until here
+  // then discard the output.
+  if (p.max_nesting_depth_exceeded()) {
+    *max_path_depth_exceeded = true;
+    return {false, 0};
+  }
+
   auto const success = stack[0].dirty > 0;
 
   // generator may contain trash output, e.g.: generator writes some output,
@@ -816,7 +824,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
                               std::size_t num_threads_per_row,
-                              bool* path_depth_exceeded)
+                              bool* max_path_depth_exceeded)
 {
   auto const tidx    = cudf::detail::grid_1d::global_thread_id();
   auto const row_idx = tidx / num_threads_per_row;
@@ -833,7 +841,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   auto const str = input.element<cudf::string_view>(row_idx);
   if (str.size_bytes() > 0) {
     thrust::tie(is_valid, out_size) =
-      evaluate_path(char_range{str}, path.path_commands, dst, path_depth_exceeded);
+      evaluate_path(char_range{str}, path.path_commands, dst, max_path_depth_exceeded);
 
     auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
     if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
@@ -872,11 +880,11 @@ class kernel_launcher {
     CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
                  "Unexpected data sizes upon launching kernel.");
 
-    rmm::device_scalar<bool> path_depth_exceeded(false, stream);
+    rmm::device_scalar<bool> max_path_depth_exceeded(false, stream);
     get_json_object_kernel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(
-        input, path_data, num_threads_per_row, path_depth_exceeded.data());
-    CUDF_EXPECTS(!path_depth_exceeded.value(stream),
+        input, path_data, num_threads_per_row, max_path_depth_exceeded.data());
+    CUDF_EXPECTS(!max_path_depth_exceeded.value(stream),
                  "The processed input has depth exceed depth limit.");
   }
 
