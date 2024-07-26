@@ -21,6 +21,16 @@ using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 extern "C" {
 
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getMaxJSONPathDepth(JNIEnv* env,
+                                                                                      jclass)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    return spark_rapids_jni::MAX_JSON_PATH_DEPTH;
+  }
+  CATCH_STD(env, 0);
+}
+
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_generateDeviceJSONPaths(
   JNIEnv* env, jclass, jobjectArray j_paths, jintArray j_dpath_offsets)
 {

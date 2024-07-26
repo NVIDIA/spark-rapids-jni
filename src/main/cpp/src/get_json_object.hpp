@@ -27,6 +27,11 @@
 namespace spark_rapids_jni {
 
 /**
+ * @brief The maximum supported depth that a JSON path can reach.
+ */
+constexpr int MAX_JSON_PATH_DEPTH = 16;
+
+/**
  * @brief Type of instruction in a JSON path.
  */
 enum class path_instruction_type : int8_t { WILDCARD, INDEX, NAMED };
