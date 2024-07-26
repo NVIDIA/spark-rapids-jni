@@ -885,7 +885,7 @@ class kernel_launcher {
       <<<num_blocks, block_size, 0, stream.value()>>>(
         input, path_data, num_threads_per_row, max_path_depth_exceeded.data());
     CUDF_EXPECTS(!max_path_depth_exceeded.value(stream),
-                 "The processed input has depth exceed depth limit.");
+                 "The processed input has nesting depth exceeds depth limit.");
   }
 
  private:
