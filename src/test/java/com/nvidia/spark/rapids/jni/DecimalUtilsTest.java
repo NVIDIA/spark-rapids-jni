@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import ai.rapids.cudf.Table;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 
 import static ai.rapids.cudf.AssertUtils.*;
 
@@ -643,6 +644,49 @@ public class DecimalUtilsTest {
         Table result = DecimalUtils.subtract128(lhs, rhs, -9)) {
       assertColumnsAreEqual(expectedValid, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
+    }
+  }
+
+  @Test
+  void floatingPointToDecimalTest() {
+    try (
+        ColumnVector input1 = ColumnVector.fromDoubles(3527.61953125);
+        ColumnVector input2 = ColumnVector.fromDoubles(9.95);
+        ColumnVector input3 = ColumnVector.fromDoubles(10.3);
+        ColumnVector input4 = ColumnVector.fromDoubles(-10000000.0, -100000.0, 1.0, 100.0, 1000.0);
+        ColumnVector input5 = ColumnVector.fromDoubles(-10000000.0, 1.0, Double.NaN, -2.0, Double.NEGATIVE_INFINITY);
+
+        ColumnVector expected1 = ColumnVector.decimalFromLongs(-7, 35276195313L);
+        ColumnVector expected2 = ColumnVector.decimalFromInts(-1, 100);
+        ColumnVector expected3 = ColumnVector.decimalFromBigInt(-1, new BigInteger("103"));
+        ColumnVector expected4 = ColumnVector.decimalFromBoxedInts(-1, null, null, 10, 1000, null);
+        ColumnVector expected5 = ColumnVector.decimalFromBoxedLongs(-1, null, 10L, null, -20L, null)
+    ) {
+      DecimalUtils.CastFloatToDecimalResult output1 = DecimalUtils.floatingPointToDecimal(input1, DType.create(DType.DTypeEnum.DECIMAL64, -7), 12);
+      DecimalUtils.CastFloatToDecimalResult output2 = DecimalUtils.floatingPointToDecimal(input2, DType.create(DType.DTypeEnum.DECIMAL32, -1), 3);
+      DecimalUtils.CastFloatToDecimalResult output3 = DecimalUtils.floatingPointToDecimal(input3, DType.create(DType.DTypeEnum.DECIMAL128, -1), 18);
+      DecimalUtils.CastFloatToDecimalResult output4 = DecimalUtils.floatingPointToDecimal(input4, DType.create(DType.DTypeEnum.DECIMAL32, -1), 4);
+      DecimalUtils.CastFloatToDecimalResult output5 = DecimalUtils.floatingPointToDecimal(input5, DType.create(DType.DTypeEnum.DECIMAL64, -1), 4);
+
+      try {
+        assert (!output1.hasFailure);
+        assert (!output2.hasFailure);
+        assert (!output3.hasFailure);
+        assert (output4.hasFailure);
+        assert (output5.hasFailure);
+
+        assertColumnsAreEqual(expected1, output1.result);
+        assertColumnsAreEqual(expected2, output2.result);
+        assertColumnsAreEqual(expected3, output3.result);
+        assertColumnsAreEqual(expected4, output4.result);
+        assertColumnsAreEqual(expected5, output5.result);
+      } finally {
+        output1.result.close();
+        output2.result.close();
+        output3.result.close();
+        output4.result.close();
+        output5.result.close();
+      }
     }
   }
 }
