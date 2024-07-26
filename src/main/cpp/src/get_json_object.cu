@@ -59,7 +59,7 @@ std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_path
   h_paths.reserve(json_paths.size());
 
   for (auto const& path : json_paths) {
-    if (path.size() > MAX_JSON_PATH_DEPTH) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+    if (path.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
 
     // Concatenate all names from path instructions for each path.
     auto h_names = [&] {
@@ -101,6 +101,12 @@ std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_path
   stream.synchronize();  // need to synchronize as h_paths and h_path_names will be destroyed
   return output;
 }
+
+// path max depth limitation
+// There is a same constant in JSONUtil.java, keep them consistent when changing
+// Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
+// or GPU reports cudaErrorIllegalAddress
+constexpr int max_path_depth = 16;
 
 /**
  * @brief JSON style to write.
@@ -429,7 +435,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
   // define stack; plus 1 indicates root context task needs an extra memory
-  context stack[MAX_JSON_PATH_DEPTH + 1];
+  context stack[max_path_depth + 1];
   int stack_size = 0;
 
   // push context function
