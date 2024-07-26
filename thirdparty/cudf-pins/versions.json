@@ -9,14 +9,6 @@
       "git_url" : "https://github.com/apache/arrow.git",
       "version" : "16.1.0"
     },
-    "BS_thread_pool" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "097aa718f25d44315cadb80b407144ad455ee4f9",
-      "git_url" : "https://github.com/bshoshany/thread-pool.git",
-      "version" : "4.1.0"
-    },
     "CCCL" : 
     {
       "always_download" : true,
@@ -25,6 +17,11 @@
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
+        {
+          "file" : "${current_json_dir}/cccl_symbol_visibility.diff",
+          "fixed_in" : "2.6",
+          "issue" : "Correct symbol visibility issues in libcudacxx [https://github.com/NVIDIA/cccl/pull/1832/]"
+        },
         {
           "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
@@ -55,9 +52,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e7bc8b2b64f8cf9dba602bea4aa81caa047c2322",
+      "git_tag" : "d0f34061dc80d3c600feede2390eca48bb340fb1",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.08"
+    },
+    "bs_thread_pool" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "097aa718f25d44315cadb80b407144ad455ee4f9",
+      "git_url" : "https://github.com/bshoshany/thread-pool.git",
+      "version" : "4.1.0"
     },
     "cuco" : 
     {
@@ -111,9 +116,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "11e73a8c85b45e3d49c8c541b4e1497a649fe03c",
+      "git_tag" : "1e2664a70ec14907409cadcceb14d79b9670bcdb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
-      "version" : "0.5.0"
+      "version" : "0.6.0.dev"
     },
     "nvcomp" : 
     {
@@ -123,8 +128,13 @@
       "git_url" : "https://github.com/NVIDIA/nvcomp.git",
       "proprietary_binary" : 
       {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-major}.x.tgz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-major}.x.tgz"
+        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-mapping}.tgz",
+        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-mapping}.tgz"
+      },
+      "proprietary_binary_cuda_version_mapping" : 
+      {
+        "11" : "11.x",
+        "12" : "12.x"
       },
       "version" : "3.0.6"
     },
@@ -140,7 +150,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5f786ba3de2652432fab8fa03ade4d9922471262",
+      "git_tag" : "67a78d6370ed34a0ffcb3aa9c77299e2a7ea1ee5",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.08"
     },
