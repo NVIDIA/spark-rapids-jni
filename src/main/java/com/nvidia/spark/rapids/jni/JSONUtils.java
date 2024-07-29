@@ -35,21 +35,41 @@ public class JSONUtils {
   }
 
   public static class PathInstructionJni {
-    // type: Int, name: String, index: Long
-    private final int type;
+    // type: byte, name: String, index: int
+    private final byte type;
     private final String name;
-    private final long index;
+    private final int index;
 
     public PathInstructionJni(PathInstructionType type, String name, long index) {
-      this.type = type.ordinal();
+      this.type = (byte)type.ordinal();
+      this.name = name;
+      if (index > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException("index is too large " + index);
+      }
+      this.index = (int)index;
+    }
+
+    public PathInstructionJni(PathInstructionType type, String name, int index) {
+      this.type = (byte)type.ordinal();
       this.name = name;
       this.index = index;
     }
   }
 
-  public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] path_instructions) {
+  public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] pathInstructions) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions));
+    int numTotalInstructions = pathInstructions.length;
+    byte[] typeNums = new byte[numTotalInstructions];
+    String[] names = new String[numTotalInstructions];
+    int[] indexes = new int[numTotalInstructions];
+
+    for (int i = 0; i < pathInstructions.length; i++) {
+      PathInstructionJni current = pathInstructions[i];
+      typeNums[i] = current.type;
+      names[i] = current.name;
+      indexes[i] = current.index;
+    }
+    return new ColumnVector(getJsonObject(input.getNativeView(), typeNums, names, indexes));
   }
 
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
@@ -62,15 +82,21 @@ public class JSONUtils {
       offset += paths.get(i).size();
     }
     pathOffsets[paths.size()] = offset;
+    int numTotalInstructions = offset;
+    byte[] typeNums = new byte[numTotalInstructions];
+    String[] names = new String[numTotalInstructions];
+    int[] indexes = new int[numTotalInstructions];
 
-    int numTotalInstructions = pathOffsets[paths.size()];
-    PathInstructionJni[] pathsArray = new PathInstructionJni[numTotalInstructions];
     for (int i = 0; i < paths.size(); i++) {
       for (int j = 0; j < paths.get(i).size(); j++) {
-        pathsArray[pathOffsets[i] + j] = paths.get(i).get(j);
+        PathInstructionJni current = paths.get(i).get(j);
+        typeNums[pathOffsets[i] + j] = current.type;
+        names[pathOffsets[i] + j] = current.name;
+        indexes[pathOffsets[i] + j] = current.index;
       }
     }
-    long[] ptrs = getJsonObjectMultiplePaths(input.getNativeView(), pathsArray, pathOffsets);
+    long[] ptrs = getJsonObjectMultiplePaths(input.getNativeView(), typeNums,
+        names, indexes, pathOffsets);
     ColumnVector[] ret = new ColumnVector[ptrs.length];
     for (int i = 0; i < ptrs.length; i++) {
       ret[i] = new ColumnVector(ptrs[i]);
@@ -78,8 +104,14 @@ public class JSONUtils {
     return ret;
   }
 
-  private static native long getJsonObject(long input, PathInstructionJni[] path_instructions);
+  private static native long getJsonObject(long input,
+                                           byte[] typeNums,
+                                           String[] names,
+                                           int[] indexes);
 
-  private static native long[] getJsonObjectMultiplePaths(long input, PathInstructionJni[] paths,
+  private static native long[] getJsonObjectMultiplePaths(long input,
+                                                          byte[] typeNums,
+                                                          String[] names,
+                                                          int[] indexes,
                                                           int[] pathOffsets);
 }
