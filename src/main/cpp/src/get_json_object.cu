@@ -373,18 +373,19 @@ struct context {
 /**
  * @brief Parse a single json string using the provided command buffer.
  *
- * @param input The incoming json string
+ * @param p The JSON parser for input string
  * @param path_commands The command buffer to be applied to the string
  * @param out_buf Buffer user to store the string resulted from the query
+ * @param max_path_depth_exceeded A marker to record if the maximum path depth has been reached
+ *        during parsing the input string
  * @return A pair containing the result code and the output size
  */
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
-  char_range input,
+  json_parser& p,
   cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
   bool* max_path_depth_exceeded)
 {
-  json_parser p{input};
   p.next_token();
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
@@ -781,14 +782,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     }              // ctx.task_is_done
   }                // while (stack_size > 0)
 
-  // We did not terminate the function early to reduce complexity of the code.
-  // Instead, if max depth was encountered, we've just continued the evaluation until here
-  // then discard the output.
-  if (p.max_nesting_depth_exceeded()) {
-    *max_path_depth_exceeded = true;
-    return {false, 0};
-  }
-
   auto const success = stack[0].dirty > 0;
 
   // generator may contain trash output, e.g.: generator writes some output,
@@ -818,6 +811,8 @@ struct json_path_processing_data {
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
  * @param num_threads_per_row Number of threads processing each input row
+ * @param max_path_depth_exceeded A marker to record if the maximum path depth has been reached
+ *        during parsing the input string
  */
 template <int block_size, int min_block_per_sm>
 __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
@@ -840,8 +835,17 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 
   auto const str = input.element<cudf::string_view>(row_idx);
   if (str.size_bytes() > 0) {
+    json_parser p{char_range{str}};
     thrust::tie(is_valid, out_size) =
-      evaluate_path(char_range{str}, path.path_commands, dst, max_path_depth_exceeded);
+      evaluate_path(p, path.path_commands, dst, max_path_depth_exceeded);
+
+    // We did not terminate the `evaluate_path` function early to reduce complexity of the code.
+    // Instead, if max depth was encountered, we've just continued the evaluation until here
+    // then discard the output entirely.
+    if (p.max_nesting_depth_exceeded()) {
+      *max_path_depth_exceeded = true;
+      return;
+    }
 
     auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
     if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
