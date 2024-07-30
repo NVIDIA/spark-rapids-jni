@@ -38,7 +38,7 @@ public class GetJsonObjectTest {
         "{\"k\": \"v\"}");
          ColumnVector expected = ColumnVector.fromStrings(
              "v");
-         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+         ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -63,7 +63,7 @@ public class GetJsonObjectTest {
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -83,7 +83,7 @@ public class GetJsonObjectTest {
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -111,7 +111,7 @@ public class GetJsonObjectTest {
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -132,7 +132,7 @@ public class GetJsonObjectTest {
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -152,7 +152,7 @@ public class GetJsonObjectTest {
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
             null, null, null, null, null, null, null);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -188,7 +188,7 @@ public class GetJsonObjectTest {
             JSON1, JSON2, JSON3, JSON4, JSON5);
         ColumnVector expected = ColumnVector.fromStrings(
             expectedStr1, expectedStr2, expectedStr3, expectedStr4, expectedStr5);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -232,7 +232,7 @@ public class GetJsonObjectTest {
             "0.003",
             "3.0E-4",
             "3.0E-5");
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -247,7 +247,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings("00", "01", "02", "000", "-01", "-00", "-02");
         ColumnVector expected = ColumnVector.fromStrings(null, null, null, null, null, null, null);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -267,7 +267,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -287,7 +287,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -306,7 +306,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -331,7 +331,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -350,7 +350,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -371,7 +371,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -396,7 +396,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -420,7 +420,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -454,7 +454,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -475,7 +475,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -496,7 +496,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -518,7 +518,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -543,7 +543,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(null, null);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -563,7 +563,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -583,7 +583,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings(expectedStr1, expectedStr2);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -601,7 +601,7 @@ public class GetJsonObjectTest {
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
         ColumnVector expected = ColumnVector.fromStrings("v1", null);
-        ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
+        ColumnVector actual = getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -619,7 +619,7 @@ public class GetJsonObjectTest {
             "", "", "", "", "", "", "", "");
         ColumnVector expected = ColumnVector.fromStrings("[\"\\n\"]",
             "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]", null, null, null, null, null, null, null, null);
-        ColumnVector actual = JSONUtils.getJsonObject(input, query)) {
+        ColumnVector actual = getJsonObject(input, query)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -632,7 +632,7 @@ public class GetJsonObjectTest {
     try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
          ColumnVector expected0 = ColumnVector.fromStrings("v0");
          ColumnVector expected1 = ColumnVector.fromStrings("v1")) {
-      ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths);
+      ColumnVector[] output = getJsonObjectMultiplePaths(jsonCv, paths);
       try {
         assertColumnsAreEqual(expected0, output[0]);
         assertColumnsAreEqual(expected1, output[1]);
@@ -655,7 +655,7 @@ public class GetJsonObjectTest {
       query[i] = namedPath("k");
     }
     try (ColumnVector input = ColumnVector.fromStrings("")) {
-      assertThrows(CudfException.class, () -> JSONUtils.getJsonObject(input, query));
+      assertThrows(CudfException.class, () -> getJsonObject(input, query));
     }
   }
 
@@ -680,9 +680,9 @@ public class GetJsonObjectTest {
     try (ColumnVector validInput = ColumnVector.fromStrings(jsonStr);
          ColumnVector invalidInput = ColumnVector.fromStrings(jsonStrTooDeep);
          ColumnVector expected = ColumnVector.fromStrings("[\"v\"]");
-         ColumnVector output = JSONUtils.getJsonObject(validInput, query)) {
+         ColumnVector output = getJsonObject(validInput, query)) {
       assertColumnsAreEqual(expected, output);
-      assertThrows(CudfException.class, () -> JSONUtils.getJsonObject(invalidInput, query));
+      assertThrows(CudfException.class, () -> getJsonObject(invalidInput, query));
     }
   }
 
@@ -707,12 +707,23 @@ public class GetJsonObjectTest {
     String jsonStrTooDeep = String.format("{\"k%d\":%s}", MAX_PARSER_DEPTH, jsonStr);
     try (ColumnVector validInput = ColumnVector.fromStrings(jsonStr);
          ColumnVector invalidInput = ColumnVector.fromStrings(jsonStrTooDeep);
-         ColumnVector output = JSONUtils.getJsonObject(validInput, query)) {
+         ColumnVector output = getJsonObject(validInput, query)) {
       assertColumnsAreEqual(validInput, output);
-      assertThrows(CudfException.class, () -> JSONUtils.getJsonObject(invalidInput, query));
+      assertThrows(CudfException.class, () -> getJsonObject(invalidInput, query));
     }
   }
 
+  private ColumnVector getJsonObject(ColumnVector jsonCv, JSONUtils.PathInstructionJni[] path) {
+    List<List<JSONUtils.PathInstructionJni>> pathsAsList = Arrays.asList(Arrays.asList(path));
+    JSONUtils.GpuJSONPath[] gpuPaths = JSONUtils.createGpuJSONPaths(pathsAsList);
+    return JSONUtils.getJsonObject(jsonCv, gpuPaths[0]);
+  }
+
+  private ColumnVector[] getJsonObjectMultiplePaths(ColumnVector jsonCv,
+                                                    List<List<JSONUtils.PathInstructionJni>> paths) {
+    JSONUtils.GpuJSONPath[] gpuPaths = JSONUtils.createGpuJSONPaths(paths);
+    return JSONUtils.getJsonObjectMultiplePaths(jsonCv, gpuPaths);
+  }
 
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);
