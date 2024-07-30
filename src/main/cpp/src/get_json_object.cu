@@ -927,7 +927,7 @@ std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
            cudf::string_scalar,
            std::string>
 construct_path_commands(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream)
 {
@@ -988,7 +988,7 @@ construct_path_commands(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1157,7 +1157,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1167,7 +1167,7 @@ std::unique_ptr<cudf::column> get_json_object(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
