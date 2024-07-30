@@ -57,13 +57,13 @@ struct path_instruction {
  * @brief The class to store data of a JSON path on the GPU.
  */
 class json_path_device_storage {
+ public:
   json_path_device_storage(rmm::device_uvector<path_instruction>&& _instructions,
                            cudf::string_scalar&& _instruction_names)
     : instructions{std::move(_instructions)}, instruction_names{std::move(_instruction_names)}
   {
   }
 
- public:
   rmm::device_uvector<path_instruction> const instructions;
 
  private:
