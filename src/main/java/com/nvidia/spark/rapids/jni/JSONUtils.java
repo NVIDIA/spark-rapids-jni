@@ -46,14 +46,24 @@ public class JSONUtils {
     }
   }
 
-  public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] path_instructions) {
-    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions));
+  public static class GpuJSONPath implements AutoCloseable {
+    private final long nativeHandle;
+
+    public GpuJSONPath(long nativeHandle) {
+      this.nativeHandle = nativeHandle;
+    }
+
+    public long getNativeHandle() {
+      return nativeHandle;
+    }
+
+    @Override
+    public void close() {
+      closeGpuJSONPath(nativeHandle);
+    }
   }
 
-  public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
-                                                          List<List<PathInstructionJni>> paths) {
-    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+  public static GpuJSONPath[] createGpuJSONPaths(List<List<PathInstructionJni>> paths) {
     int[] pathOffsets = new int[paths.size() + 1];
     int offset = 0;
     for (int i = 0; i < paths.size(); i++) {
@@ -69,18 +79,40 @@ public class JSONUtils {
         pathsArray[pathOffsets[i] + j] = paths.get(i).get(j);
       }
     }
-    long[] ptrs = getJsonObjectMultiplePaths(input.getNativeView(), pathsArray, pathOffsets);
-    ColumnVector[] ret = new ColumnVector[ptrs.length];
+    long[] ptrs = createGpuJSONPaths(pathsArray, pathOffsets);
+    GpuJSONPath[] ret = new GpuJSONPath[ptrs.length];
     for (int i = 0; i < ptrs.length; i++) {
-      ret[i] = new ColumnVector(ptrs[i]);
+      ret[i] = new GpuJSONPath(ptrs[i]);
+    }
+    return ret;
+  }
+
+  public static ColumnVector getJsonObject(ColumnVector input, GpuJSONPath path) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(getJsonObject(input.getNativeView(), path.getNativeHandle()));
+  }
+
+  public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input, GpuJSONPath[] paths) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    long[] pathNativeHandles = new long[paths.length];
+    for (int i = 0; i < paths.length; i++) {
+      pathNativeHandles[i] = paths[i].getNativeHandle();
+    }
+    long[] outputHandles = getJsonObjectMultiplePaths(input.getNativeView(), pathNativeHandles);
+    ColumnVector[] ret = new ColumnVector[outputHandles.length];
+    for (int i = 0; i < outputHandles.length; i++) {
+      ret[i] = new ColumnVector(outputHandles[i]);
     }
     return ret;
   }
 
   private static native int getMaxJSONPathDepth();
 
-  private static native long getJsonObject(long input, PathInstructionJni[] path_instructions);
+  private static native long[] createGpuJSONPaths(PathInstructionJni[] paths, int[] pathOffsets);
 
-  private static native long[] getJsonObjectMultiplePaths(long input, PathInstructionJni[] paths,
-                                                          int[] pathOffsets);
+  private static native void closeGpuJSONPath(long nativeHandle);
+
+  private static native long getJsonObject(long input, long pathNativeHandle);
+
+  private static native long[] getJsonObjectMultiplePaths(long input, long[] pathNativeHandles);
 }
