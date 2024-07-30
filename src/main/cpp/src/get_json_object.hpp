@@ -77,7 +77,7 @@ class json_path_device_storage {
  *
  * All JSON paths are processed at once, to minimize overhead.
  */
-std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
+std::vector<std::unique_ptr<json_path_device_storage>> create_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

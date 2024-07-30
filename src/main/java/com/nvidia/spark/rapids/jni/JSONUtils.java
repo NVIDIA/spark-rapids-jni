@@ -47,9 +47,12 @@ public class JSONUtils {
   }
 
   public static class GpuJSONPath implements AutoCloseable {
-    private final long nativeHandle;
+    private long nativeHandle;
 
     public GpuJSONPath(long nativeHandle) {
+      if (nativeHandle == 0) {
+        throw new IllegalStateException("Cannot create native GpuJSONPath object.");
+      }
       this.nativeHandle = nativeHandle;
     }
 
@@ -59,7 +62,10 @@ public class JSONUtils {
 
     @Override
     public void close() {
-      closeGpuJSONPath(nativeHandle);
+      if (nativeHandle != 0) {
+        closeGpuJSONPath(nativeHandle);
+        nativeHandle = 0;
+      }
     }
   }
 

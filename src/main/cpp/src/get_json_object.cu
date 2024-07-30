@@ -45,7 +45,7 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
-std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
+std::vector<std::unique_ptr<json_path_device_storage>> create_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
@@ -1118,14 +1118,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 }  // namespace detail
 
-std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_paths(
+std::vector<std::unique_ptr<json_path_device_storage>> create_device_json_paths(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::generate_device_json_paths(json_paths, stream, mr);
+  return detail::create_device_json_paths(json_paths, stream, mr);
 }
 
 std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& input,

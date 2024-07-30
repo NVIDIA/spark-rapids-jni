@@ -921,7 +921,7 @@ void test(rmm::cuda_stream_view stream, int method, bool warm_up = false)
   std::vector<std::vector<std::unique_ptr<spark_rapids_jni::json_path_device_storage>>> d_paths;
   std::vector<std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>>> input_paths;
   for (int i = 0; i < 5; ++i) {
-    auto d_group_paths = spark_rapids_jni::generate_device_json_paths(paths[i]);
+    auto d_group_paths = spark_rapids_jni::create_device_json_paths(paths[i]);
     std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>> input_group_paths;
     for (auto const& ptr : d_group_paths) {
       input_group_paths.emplace_back(ptr->instructions);
