@@ -146,12 +146,13 @@ void BM_get_json_object(nvbench::state& state)
   for (int i = 0; i < max_depth - list_depth; ++i) {
     instructions.emplace_back(path_instruction_type::NAMED, "0", -1);
   }
+  auto const d_path = std::move(spark_rapids_jni::create_device_json_paths({instructions}).front());
 
   state.set_cuda_stream(nvbench::make_cuda_stream_view(cudf::get_default_stream().value()));
   state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
     // Can also verify at https://jsonpath.com/.
     [[maybe_unused]] auto const output = spark_rapids_jni::get_json_object(
-      cudf::strings_column_view{json_strings->view()}, instructions);
+      cudf::strings_column_view{json_strings->view()}, d_path->instructions);
 
 #ifdef DEBUG_PRINT
     {
