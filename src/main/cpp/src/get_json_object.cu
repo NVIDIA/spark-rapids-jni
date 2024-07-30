@@ -59,7 +59,8 @@ std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_path
   h_paths.reserve(json_paths.size());
 
   for (auto const& path : json_paths) {
-    if (path.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+    CUDF_EXPECTS(path.size() <= MAX_JSON_PATH_DEPTH,
+                 "JSON path has depth exceeds the maximum allowed value.");
 
     // Concatenate all names from path instructions for each path.
     auto h_names = [&] {
@@ -75,6 +76,7 @@ std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_path
       return all_names;
     }();
     h_path_names.emplace_back(std::move(h_names));
+    auto d_names = cudf::string_scalar(h_path_names.back(), true, stream, mr);
 
     auto h_path = std::vector<path_instruction>{};
     h_path.reserve(path.size());
@@ -94,8 +96,7 @@ std::vector<std::unique_ptr<json_path_device_storage>> generate_device_json_path
     h_paths.emplace_back(std::move(h_path));
 
     output.emplace_back(std::make_unique<json_path_device_storage>(
-      cudf::detail::make_device_uvector_async(h_paths.back(), stream, mr),
-      cudf::string_scalar(h_path_names.back(), true, stream, mr)));
+      cudf::detail::make_device_uvector_async(h_paths.back(), stream, mr), std::move(d_names)));
   }
 
   stream.synchronize();  // need to synchronize as h_paths and h_path_names will be destroyed
@@ -958,7 +959,7 @@ class kernel_launcher {
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<rmm::device_uvector<path_instruction>> const& d_json_paths,
+  std::vector<cudf::device_span<path_instruction const>> const& d_json_paths,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1006,10 +1007,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   h_path_data.reserve(d_json_paths.size());
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-    auto const& path = json_paths[idx];
-    CUDF_EXPECTS(path.size() <= MAX_JSON_PATH_DEPTH,
-                 "JSON Path has depth exceeds the maximum allowed value.");
-
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
@@ -1025,7 +1022,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
-  auto const kernel = kernel_launcher{input.size(), json_paths.size()};
+  auto const kernel = kernel_launcher{input.size(), d_json_paths.size()};
   kernel.exec(*d_input_ptr, d_path_data, stream);
 
   // Do not use parallel check since we do not have many elements.

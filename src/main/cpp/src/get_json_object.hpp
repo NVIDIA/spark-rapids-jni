@@ -19,6 +19,7 @@
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/resource_ref.hpp>
 

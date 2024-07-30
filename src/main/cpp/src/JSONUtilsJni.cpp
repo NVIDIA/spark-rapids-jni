@@ -122,7 +122,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonO
     std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>> paths;
     paths.reserve(path_ptrs.size());
     for (auto ptr : path_ptrs) {
-      paths.emplace_back({ptr->instructions.data(), ptr->instructions.size()});
+      paths.emplace_back(ptr->instructions.data(), ptr->instructions.size());
     }
     auto output = spark_rapids_jni::get_json_object_multiple_paths(
       cudf::strings_column_view{*input_ptr}, paths);
