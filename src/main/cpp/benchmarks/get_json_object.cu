@@ -918,12 +918,16 @@ void test(rmm::cuda_stream_view stream, int method, bool warm_up = false)
   paths[4] = generate_paths4();
 #endif
 
-  std::vector<
-    std::pair<std::unique_ptr<std::vector<rmm::device_uvector<spark_rapids_jni::path_instruction>>>,
-              std::unique_ptr<cudf::string_scalar>>>
-    d_paths(5);
+  std::vector<std::vector<std::unique_ptr<spark_rapids_jni::json_path_device_storage>>> d_paths;
+  std::vector<std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>>> input_paths;
   for (int i = 0; i < 5; ++i) {
-    d_paths[i] = spark_rapids_jni::generate_device_json_paths(paths[i]);
+    auto d_group_paths = spark_rapids_jni::generate_device_json_paths(paths[i]);
+    std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>> input_group_paths;
+    for (auto const& ptr : d_group_paths) {
+      input_group_paths.emplace_back(ptr->instructions);
+    }
+    input_paths.emplace_back(std::move(input_group_paths));
+    d_paths.emplace_back(std::move(d_group_paths));
   }
 
   printf("Method: %d\n", method);
@@ -998,7 +1002,7 @@ void test(rmm::cuda_stream_view stream, int method, bool warm_up = false)
       for (int i = 0; i < 5; ++i) {
         if (paths[i].size() > 0) {
           [[maybe_unused]] auto const output = spark_rapids_jni::get_json_object_multiple_paths(
-            cudf::strings_column_view{chunk.tbl->get_column(i).view()}, *(d_paths[i].first));
+            cudf::strings_column_view{chunk.tbl->get_column(i).view()}, input_paths[i]);
         }
       }
     }
