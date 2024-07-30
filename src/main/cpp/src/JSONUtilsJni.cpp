@@ -31,21 +31,38 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getMaxJSONPath
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_createGpuJSONPaths(
-  JNIEnv* env, jclass, jobjectArray j_paths, jintArray j_dpath_offsets)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_createGpuJSONPaths(JNIEnv* env,
+                                                              jclass,
+                                                              jbyteArray j_type_nums,
+                                                              jobjectArray j_names,
+                                                              jintArray j_indexes,
+                                                              jintArray j_path_offsets)
 {
-  JNI_NULL_CHECK(env, j_paths, "j_dpaths is null", 0);
-  JNI_NULL_CHECK(env, j_dpath_offsets, "j_dpath_offsets is null", 0);
+  JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
+  JNI_NULL_CHECK(env, j_names, "j_names is null", 0);
+  JNI_NULL_CHECK(env, j_indexes, "j_indexes is null", 0);
+  JNI_NULL_CHECK(env, j_path_offsets, "j_path_offsets is null", 0);
 
-  using path_type = std::vector<std::tuple<path_instruction_type, std::string, int64_t>>;
+  using path_type = std::vector<std::tuple<path_instruction_type, std::string, int32_t>>;
 
   try {
     cudf::jni::auto_set_device(env);
 
-    auto const path_offsets = cudf::jni::native_jintArray(env, j_dpath_offsets).to_vector();
+    auto const path_offsets = cudf::jni::native_jintArray(env, j_path_offsets).to_vector();
     CUDF_EXPECTS(path_offsets.size() > 1, "Invalid path offsets.");
+    auto const type_nums = cudf::jni::native_jbyteArray(env, j_type_nums).to_vector();
+    auto const names     = cudf::jni::native_jstringArray(env, j_names);
+    auto const indexes   = cudf::jni::native_jintArray(env, j_indexes).to_vector();
     auto const num_paths = path_offsets.size() - 1;
     std::vector<path_type> paths(num_paths);
+    auto const num_entries = path_offsets[num_paths];
+
+    if (num_entries < 0 || names.size() != num_entries ||
+        indexes.size() != static_cast<std::size_t>(num_entries) ||
+        type_nums.size() != static_cast<std::size_t>(num_entries)) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
+    }
 
     for (std::size_t i = 0; i < num_paths; ++i) {
       auto const path_size = path_offsets[i + 1] - path_offsets[i];
@@ -53,28 +70,10 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_createGp
       path.reserve(path_size);
 
       for (int j = path_offsets[i]; j < path_offsets[i + 1]; ++j) {
-        jobject instruction = env->GetObjectArrayElement(j_paths, j);
-        JNI_NULL_CHECK(env, instruction, "path_instruction is null", 0);
-        jclass instruction_class = env->GetObjectClass(instruction);
-        JNI_NULL_CHECK(env, instruction_class, "instruction_class is null", 0);
-
-        jfieldID field_id = env->GetFieldID(instruction_class, "type", "I");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jint type                              = env->GetIntField(instruction, field_id);
-        path_instruction_type instruction_type = static_cast<path_instruction_type>(type);
-
-        field_id = env->GetFieldID(instruction_class, "name", "Ljava/lang/String;");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jstring name = (jstring)env->GetObjectField(instruction, field_id);
-        JNI_NULL_CHECK(env, name, "name is null", 0);
-        const char* name_str = env->GetStringUTFChars(name, JNI_FALSE);
-
-        field_id = env->GetFieldID(instruction_class, "index", "J");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jlong index = env->GetLongField(instruction, field_id);
-
+        path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[j]);
+        const char* name_str                   = names[j].get();
+        auto const index                       = indexes[j];
         path.emplace_back(instruction_type, name_str, index);
-        env->ReleaseStringUTFChars(name, name_str);
       }
     }
 

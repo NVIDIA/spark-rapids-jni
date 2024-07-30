@@ -34,13 +34,22 @@ public class JSONUtils {
   }
 
   public static class PathInstructionJni {
-    // type: Int, name: String, index: Long
-    private final int type;
+    // type: byte, name: String, index: int
+    private final byte type;
     private final String name;
-    private final long index;
+    private final int index;
 
     public PathInstructionJni(PathInstructionType type, String name, long index) {
-      this.type = type.ordinal();
+      this.type = (byte) type.ordinal();
+      this.name = name;
+      if (index > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException(String.format("index %d is too large.", index));
+      }
+      this.index = (int) index;
+    }
+
+    public PathInstructionJni(PathInstructionType type, String name, int index) {
+      this.type = (byte) type.ordinal();
       this.name = name;
       this.index = index;
     }
@@ -77,15 +86,21 @@ public class JSONUtils {
       offset += paths.get(i).size();
     }
     pathOffsets[paths.size()] = offset;
+    int numTotalInstructions = offset;
 
-    int numTotalInstructions = pathOffsets[paths.size()];
-    PathInstructionJni[] pathsArray = new PathInstructionJni[numTotalInstructions];
+    byte[] typeNums = new byte[numTotalInstructions];
+    String[] names = new String[numTotalInstructions];
+    int[] indexes = new int[numTotalInstructions];
+
     for (int i = 0; i < paths.size(); i++) {
       for (int j = 0; j < paths.get(i).size(); j++) {
-        pathsArray[pathOffsets[i] + j] = paths.get(i).get(j);
+        PathInstructionJni current = paths.get(i).get(j);
+        typeNums[pathOffsets[i] + j] = current.type;
+        names[pathOffsets[i] + j] = current.name;
+        indexes[pathOffsets[i] + j] = current.index;
       }
     }
-    long[] ptrs = createGpuJSONPaths(pathsArray, pathOffsets);
+    long[] ptrs = createGpuJSONPaths(typeNums, names, indexes, pathOffsets);
     GpuJSONPath[] ret = new GpuJSONPath[ptrs.length];
     for (int i = 0; i < ptrs.length; i++) {
       ret[i] = new GpuJSONPath(ptrs[i]);
@@ -114,7 +129,8 @@ public class JSONUtils {
 
   private static native int getMaxJSONPathDepth();
 
-  private static native long[] createGpuJSONPaths(PathInstructionJni[] paths, int[] pathOffsets);
+  private static native long[] createGpuJSONPaths(byte[] typeNums, String[] names, int[] indexes,
+                                                  int[] pathOffsets);
 
   private static native void closeGpuJSONPath(long nativeHandle);
 
