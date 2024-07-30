@@ -70,9 +70,9 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_createGpuJSONPaths(JNIEnv* env,
       path.reserve(path_size);
 
       for (int j = path_offsets[i]; j < path_offsets[i + 1]; ++j) {
-        path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[j]);
-        const char* name_str                   = names[j].get();
-        auto const index                       = indexes[j];
+        auto const instruction_type = static_cast<path_instruction_type>(type_nums[j]);
+        auto const name_str         = names[j].get();
+        auto const index            = indexes[j];
         path.emplace_back(instruction_type, name_str, index);
       }
     }
@@ -102,16 +102,16 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_closeGpuJSONPa
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
                                                                                  jclass,
                                                                                  jlong j_input,
-                                                                                 jlong j_dpath)
+                                                                                 jlong j_path)
 {
   JNI_NULL_CHECK(env, j_input, "input column is null", 0);
-  JNI_NULL_CHECK(env, j_dpath, "j_dpath is null", 0);
+  JNI_NULL_CHECK(env, j_path, "j_path is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input_ptr = reinterpret_cast<cudf::column_view const*>(j_input);
     auto const d_path_ptr =
-      reinterpret_cast<spark_rapids_jni::json_path_device_storage const*>(j_dpath);
+      reinterpret_cast<spark_rapids_jni::json_path_device_storage const*>(j_path);
     return cudf::jni::release_as_jlong(spark_rapids_jni::get_json_object(
       cudf::strings_column_view{*input_ptr}, d_path_ptr->instructions));
   }
@@ -119,16 +119,16 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(
-  JNIEnv* env, jclass, jlong j_input, jlongArray j_dpaths)
+  JNIEnv* env, jclass, jlong j_input, jlongArray j_paths)
 {
   JNI_NULL_CHECK(env, j_input, "j_input column is null", 0);
-  JNI_NULL_CHECK(env, j_dpaths, "j_dpaths is null", 0);
+  JNI_NULL_CHECK(env, j_paths, "j_paths is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input_ptr = reinterpret_cast<cudf::column_view const*>(j_input);
     auto const path_ptrs =
-      cudf::jni::native_jpointerArray<spark_rapids_jni::json_path_device_storage>{env, j_dpaths};
+      cudf::jni::native_jpointerArray<spark_rapids_jni::json_path_device_storage>{env, j_paths};
     std::vector<cudf::device_span<spark_rapids_jni::path_instruction const>> paths;
     paths.reserve(path_ptrs.size());
     for (auto ptr : path_ptrs) {
