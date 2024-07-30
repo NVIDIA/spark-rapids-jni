@@ -25,9 +25,13 @@ using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(
-  JNIEnv* env, jclass, jlong input_column, jbyteArray j_type_nums, jobjectArray j_names, 
-  jintArray j_indexes)
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
+                                                         jclass,
+                                                         jlong input_column,
+                                                         jbyteArray j_type_nums,
+                                                         jobjectArray j_names,
+                                                         jintArray j_indexes)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
@@ -41,19 +45,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
     std::vector<std::tuple<path_instruction_type, std::string, int32_t>> instructions;
 
     auto const type_nums = cudf::jni::native_jbyteArray(env, j_type_nums).to_vector();
-    auto const names = cudf::jni::native_jstringArray(env, j_names);
-    auto const indexes = cudf::jni::native_jintArray(env, j_indexes).to_vector();
-    int size = type_nums.size();
-    if (names.size() != size ||
-        indexes.size() != static_cast<uint64_t>(size) ||
+    auto const names     = cudf::jni::native_jstringArray(env, j_names);
+    auto const indexes   = cudf::jni::native_jintArray(env, j_indexes).to_vector();
+    int size             = type_nums.size();
+    if (names.size() != size || indexes.size() != static_cast<uint64_t>(size) ||
         type_nums.size() != static_cast<uint64_t>(size)) {
       JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
     }
 
     for (int i = 0; i < size; i++) {
       path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[i]);
-      const char* name_str = names[i].get();
-      jlong index = indexes[i];
+      const char* name_str                   = names[i].get();
+      jlong index                            = indexes[i];
       instructions.emplace_back(instruction_type, name_str, index);
     }
 
@@ -63,9 +66,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(
-  JNIEnv* env, jclass, jlong j_input, jbyteArray j_type_nums, jobjectArray j_names, 
-  jintArray j_indexes, jintArray j_path_offsets)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* env,
+                                                                      jclass,
+                                                                      jlong j_input,
+                                                                      jbyteArray j_type_nums,
+                                                                      jobjectArray j_names,
+                                                                      jintArray j_indexes,
+                                                                      jintArray j_path_offsets)
 {
   JNI_NULL_CHECK(env, j_input, "j_input column is null", 0);
   JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
@@ -81,14 +89,13 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonO
     auto const path_offsets = cudf::jni::native_jintArray(env, j_path_offsets).to_vector();
     CUDF_EXPECTS(path_offsets.size() > 1, "Invalid path offsets.");
     auto const type_nums = cudf::jni::native_jbyteArray(env, j_type_nums).to_vector();
-    auto const names = cudf::jni::native_jstringArray(env, j_names);
-    auto const indexes = cudf::jni::native_jintArray(env, j_indexes).to_vector();
+    auto const names     = cudf::jni::native_jstringArray(env, j_names);
+    auto const indexes   = cudf::jni::native_jintArray(env, j_indexes).to_vector();
     auto const num_paths = path_offsets.size() - 1;
     std::vector<path_type> paths(num_paths);
     auto const num_entries = path_offsets[num_paths];
 
-    if (num_entries < 0 ||
-        names.size() != num_entries ||
+    if (num_entries < 0 || names.size() != num_entries ||
         indexes.size() != static_cast<uint64_t>(num_entries) ||
         type_nums.size() != static_cast<uint64_t>(num_entries)) {
       JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
@@ -100,8 +107,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonO
       path.reserve(path_size);
       for (int j = path_offsets[i]; j < path_offsets[i + 1]; ++j) {
         path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[j]);
-        const char* name_str = names[j].get();
-        jlong index = indexes[j];
+        const char* name_str                   = names[j].get();
+        jlong index                            = indexes[j];
         path.emplace_back(instruction_type, name_str, index);
       }
 
