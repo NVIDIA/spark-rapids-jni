@@ -25,8 +25,7 @@ public class JSONUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  // Keep the same with `max_path_depth` in `get_json_object.cu'
-  public static final int MAX_PATH_DEPTH = 16;
+  public static final int MAX_PATH_DEPTH = getMaxJSONPathDepth();
 
   public enum PathInstructionType {
     WILDCARD,
@@ -103,6 +102,8 @@ public class JSONUtils {
     }
     return ret;
   }
+
+  private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
                                            byte[] typeNums,
