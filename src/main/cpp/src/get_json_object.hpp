@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -34,7 +35,7 @@ constexpr int MAX_JSON_PATH_DEPTH = 16;
 /**
  * @brief Type of instruction in a JSON path.
  */
-enum class path_instruction_type : int8_t { WILDCARD, INDEX, NAMED };
+enum class path_instruction_type : int8_t { WILDCARD = 0, INDEX = 1, NAMED = 2 };
 
 /**
  * @brief Instruction along a JSON path.
