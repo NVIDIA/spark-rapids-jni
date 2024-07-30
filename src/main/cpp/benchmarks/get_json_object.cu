@@ -225,7 +225,7 @@ void BM_get_json_object_multiple(nvbench::state& state)
   auto const json_strings = generate_input(size_bytes, 2 /*max_depth*/);
 
   using path_instruction_type = spark_rapids_jni::path_instruction_type;
-  using instruction_array = std::vector<std::tuple<path_instruction_type, std::string, int64_t>>;
+  using instruction_array = std::vector<std::tuple<path_instruction_type, std::string, int32_t>>;
   std::vector<instruction_array> instructions_arrays;
 
   instructions_arrays.emplace_back();
@@ -274,19 +274,19 @@ void BM_get_json_object_multiple(nvbench::state& state)
 
 #if 1
 using spark_rapids_jni::path_instruction_type;
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> generate_paths0()
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> generate_paths0()
 {
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "EIFGPHGLOPELFBN", -1}}
     //
   };
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> generate_paths1()
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> generate_paths1()
 {
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GHPKNICLNDAGCNDBMFGEK", -1},
       {static_cast<path_instruction_type>(1), "", 0},
@@ -297,410 +297,410 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
   };
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> generate_paths2()
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> generate_paths2()
 {
-  auto tmp = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto tmp = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "JEBEDJPKEFHPHGLLGPM", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "FLMEPG", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "JACICCCIMMHJHKPDED", -1},
       {static_cast<path_instruction_type>(2), "ACHCPIHLFCPHMBPNKJNOLNO", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "JACICCCIMMHJHKPDED", -1},
       {static_cast<path_instruction_type>(2), "OGGC", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "MDGA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AGHF", -1},
       {static_cast<path_instruction_type>(2), "DPKEAPDACLPHGPEMH", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AGHF", -1},
       {static_cast<path_instruction_type>(2), "ONNILHPABGIKKFJOEK", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AGHF", -1},
       {static_cast<path_instruction_type>(2), "FFFPOENCNBBNOOMOJGDBNIPD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "POFNDBFHDEJ", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PIGOFCPIPPBNNB", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "CCBJKBHGPBJCKFPCBHGLOAFE", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LMPCGHBIJGCIPDPNELPBCOP", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PKBGI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "ILPIJKBLDB", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "GHBBEOAC", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EKGPKGCJPMI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "BDEGLFGMCPKOCNDGJMFPANNBPK", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LILJMMPPO", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "BNLFCI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "GPIHMJ", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GJFKCFJELPJEDBAD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "DLJPDEPFEKDCKBI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PMJPCGCHAALKBPKHDM", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "OCFGAF", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "GMJICFMBNPLBEOLMGDN", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "CBMI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "NPAGLLFCHAI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LFKAJEPMJPLGLICEEMAHFEJGPLGIAKPIOPPP", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "HGNHKIOEGKIJJJPEC", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "JAGGKPKOICKOBABAJPNHF", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PLEJAKDBBGLCDLGDIBHPPBHB", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "MMNHNPKGLLBJMAOGOCBEOIOKIM", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "JLKDBLFFFPPCNANBKMELJKFOPKPNC", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "OCJGMOAJJKBKNCHOJKBJG", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PMOAGIJAFOGGLINIOEBFGHBN", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "JPDILOFKPCNBKDB", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "CPBFNDGC", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "KPOPPCFLFCNAPIJEDJDGGFBOPLDCMLLGOMO", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LBDGCNJNOGMJPNHMLLBMA", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EIHBDLNJDOAHPMCNGGLLEF", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "GIPPDMMAFOBAALMHMGJBM", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "FKBODHACMMGHL", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "KMEJHDA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "FKBODHACMMGHL", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "CJKIKCGA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "HFFDKEDMFBAKEHHM", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "KGJLLAPHJNKCEOIAMCAABCJP", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 1},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "KLJNBPLECGCA", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "NBJNFKKKCHEGCABDGKG", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "BNLFCI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "NBJNFKKKCHEGCABDGKG", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "GPIHMJ", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "NBJNFKKKCHEGCABDGKG", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GJFKCFJELPJEDBAD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "NBJNFKKKCHEGCABDGKG", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "AOHKGCPAOGANLKEJDLMIGDD", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "BNLFCI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "AOHKGCPAOGANLKEJDLMIGDD", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "GPIHMJ", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "AOHKGCPAOGANLKEJDLMIGDD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "IKHLECMHMONKLKIBD", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "PNJPGEHPDLMPBDMFPLKABFFGG", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "IGAJPHHGOENI", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LDPMFNAGLJGDMFOLAKH", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "KMEJHDA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "LDPMFNAGLJGDMFOLAKH", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "CJKIKCGA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "BFAJJIOLJBEOMFKLE", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "DOONHL", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GMFDD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "OCIKAF", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "IBMBCGNOCGCPCEN", -1},
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "GLNLBEA", -1}}
@@ -709,41 +709,41 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
 
   // tmp.resize(std::min(8UL, tmp.size()));
   return tmp;
-  // return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>(
+  // return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>(
   //   tmp.begin() + 7, tmp.end());
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> generate_paths3()
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> generate_paths3()
 {
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "KPIGLEDEOCFELKLJLAFE", -1}}
     //
   };
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> generate_paths4()
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> generate_paths4()
 {
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GPGACKDIBMPAKJMDMJ", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "NOIIFOJOPJP", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "CEJOOHNF", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
@@ -751,7 +751,7 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "HHKEKMIIGI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
@@ -759,26 +759,26 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "ILEADAN", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "OKPLFLHHEBDJELFA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "CHNFGBB", -1},
       {static_cast<path_instruction_type>(2), "KIKNFPPAPGDO", -1},
       {static_cast<path_instruction_type>(2), "KLFALIBALPPK", -1},
       {static_cast<path_instruction_type>(2), "HGABIFNPHAHHGP", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "IHIIKIHHMPFL", -1},
       {static_cast<path_instruction_type>(2), "KCCCHAM", -1},
       {static_cast<path_instruction_type>(2), "KCCCHAM", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "KFPJHMGFEELFG", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "AFHKGOFNFID", -1},
@@ -787,7 +787,7 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "CEJOOHNF", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "KFPJHMGFEELFG", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "AFHKGOFNFID", -1},
@@ -798,7 +798,7 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "HHKEKMIIGI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "KFPJHMGFEELFG", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "AFHKGOFNFID", -1},
@@ -807,19 +807,19 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "OKPLFLHHEBDJELFA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "JJKPNPFMNICGLC", -1},
       {static_cast<path_instruction_type>(2), "GGLF", -1},
       {static_cast<path_instruction_type>(2), "JKKJDAKAB", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "KPIGLEDEOCFELKLJLAFE", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "PACKGGMDGCLEHD", -1},
       {static_cast<path_instruction_type>(2), "IAFMNJMMNJPDAAHND", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "PACKGGMDGCLEHD", -1},
       {static_cast<path_instruction_type>(2), "MNIMBEMMOJFHILDMDBML", -1}}
 
@@ -831,7 +831,7 @@ std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>
 
 #if 1
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>
 generate_paths_test_1()
 {
   /*
@@ -839,22 +839,22 @@ generate_paths_test_1()
    * '$.NHKDIEPJNND.CHNFGBB.KIKNFPPAPGDO.KLFALIBALPPK.HGABIFNPHAHHGP'
    * '$.NHKDIEPJNND.IHIIKIHHMPFL.KCCCHAM.KCCCHAM'
    */
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "DPBFKLKAKDHLMDLIONCCLJ", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "OKPLFLHHEBDJELFA", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "CHNFGBB", -1},
       {static_cast<path_instruction_type>(2), "KIKNFPPAPGDO", -1},
       {static_cast<path_instruction_type>(2), "KLFALIBALPPK", -1},
       {static_cast<path_instruction_type>(2), "HGABIFNPHAHHGP", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "NHKDIEPJNND", -1},
       {static_cast<path_instruction_type>(2), "IHIIKIHHMPFL", -1},
       {static_cast<path_instruction_type>(2), "KCCCHAM", -1},
@@ -863,7 +863,7 @@ generate_paths_test_1()
   };
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>
 generate_paths_test_2()
 {
   /*
@@ -872,28 +872,28 @@ generate_paths_test_2()
    * '$.AENBHHGIABBBDDGOEI.EAGCHCMLMOLGJK.CGEGPD[0].GJFKCFJELPJEDBAD'
    * '$.AENBHHGIABBBDDGOEI.EAGCHCMLMOLGJK.CGEGPD[0].GMFDD'
    */
-  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
+  return std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "BNLFCI", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "BEACAHEBBO", -1},
       {static_cast<path_instruction_type>(2), "GPIHMJ", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
       {static_cast<path_instruction_type>(1), "", 0},
       {static_cast<path_instruction_type>(2), "GJFKCFJELPJEDBAD", -1}},
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "AENBHHGIABBBDDGOEI", -1},
       {static_cast<path_instruction_type>(2), "EAGCHCMLMOLGJK", -1},
       {static_cast<path_instruction_type>(2), "CGEGPD", -1},
@@ -908,7 +908,7 @@ generate_paths_test_2()
 
 void test(rmm::cuda_stream_view stream, int method, bool warm_up = false)
 {
-  std::vector<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>>
+  std::vector<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>>
     paths(5);
 #if 1
   paths[0] = generate_paths0();
@@ -1039,15 +1039,15 @@ auto debug_data1()
 {
   auto input = cudf::test::strings_column_wrapper{"{'a':1, 'b':2, 'c':[1, 2, 3]}"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "a", -1}},
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "b", -1}},
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "c", -1},
       {static_cast<path_instruction_type>(0), "", -1}},
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "c", -1},
       {static_cast<path_instruction_type>(1), "", 1}}
     //
@@ -1060,8 +1060,8 @@ auto debug_data2()
 {
   auto input = cudf::test::strings_column_wrapper{"{\"k1\":{\"k2\":\"v2\"}}"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "k1", -1},
       {static_cast<path_instruction_type>(2), "k2", -1}}
     //
@@ -1075,8 +1075,8 @@ auto debug_data3()
   auto input = cudf::test::strings_column_wrapper{
     "{\"k1\":{\"k2\":{\"k3\":{\"k4\":{\"k5\":{\"k6\":{\"k7\":{\"k8\":\"v8\"}}}}}}}}"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "k1", -1},
       {static_cast<path_instruction_type>(2), "k2", -1},
       {static_cast<path_instruction_type>(2), "k3", -1},
@@ -1107,8 +1107,8 @@ auto debug_data4()
     "-6971178959s-664926866s-6096674871.zTG\",\"URdeosurl\":\"http:\\/\\/nadURdeo2.baRdu.cox\\/"
     "5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3\",\"URdeoRd\":821284086}"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "URdeosurl", -1},
     }
     //
@@ -1122,8 +1122,8 @@ auto debug_data5()
   auto input = cudf::test::strings_column_wrapper{
     "[  [[[ {'k': 'v1'} ], {'k': 'v2'}]], [[{'k': 'v3'}], {'k': 'v4'}], {'k': 'v5'}  ]"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "k", -1}}
@@ -1137,8 +1137,8 @@ auto debug_data6()
 {
   auto input = cudf::test::strings_column_wrapper{"[     {'k': 'v1'}, {'k': 'v2'}     ]"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "k", -1}}
     //
@@ -1151,8 +1151,8 @@ auto debug_data7()
 {
   auto input = cudf::test::strings_column_wrapper{"[1, [21, 22], 3]"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(0), "", -1},
     }
     //
@@ -1166,11 +1166,11 @@ auto debug_data8()
   auto input = cudf::test::strings_column_wrapper{
     "[ {'k': [0, 1]}, {'k': {'a': 'b'}}, {'k': [10, 11, 12]}  ]"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "k", -1}},
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(0), "", -1},
       {static_cast<path_instruction_type>(2), "k", -1},
       {static_cast<path_instruction_type>(0), "", -1},
@@ -1186,8 +1186,8 @@ auto debug_data9()
   auto input = cudf::test::strings_column_wrapper{
     R"({"KAEMAPGKBFGNHPJ":"G2s!8-b@n2p","GKOGAKJDMEMFLJJD":[{"FMCMNJH":"FsZ!","OOPCOILM":".LX4HI1#6ZXQu"},{"FMCMNJH":"p,mt","OOPCOILM":"6zfMl<n9hKIEW3"},{"FMCMNJH":"FsZ!/","OOPCOILM":"QZHXy6.5`be'$"},{"FMCMNJH":"h1uU","OOPCOILM":"OR]NXQpvtZ2vm*"}],"NOJIEMJO":1,"KGDODIHGGE":5209092417461,"GJCPJNIGDPKPJD":{"MCBMBNGIBDINA":1,"NKGNHHBKCEKNHAALLIFPDOGBIAHPJJ":[{"DNPHCNFBGHGIG":{"PNILIIFFCJOIP":"7c","KPKJJBNBPANGGKLA":7.39},"DHOPCAGIDIOKE":1}],"IKPGINCMOA":true,"OENPHGKDIHJAI":true,"GNPDPLJBCIPKEI":true},"GLGFEFOCIPJJNANH":{"LP":{"KAEMAPGKBFGNHPJ":"(AK)R~N`Ph","IMGLDEPKNNLCDFMGEFMNEJEHCLPN":7023013792466,"DHLLEABGIMMFBILMCJI":{},"DBDJLNOLJMDCKJLGMBFBMK":6622780579313,"HMLBEEHBBJBIOJDABJ":"p,mtx?CXMdbHM","GKDACMEJIFMIEKMANHNNCPFGDCDGGGCG":{},"APEOMEHEIENM":"7c5vDh-|yd7","OJKCBLGL":"Fs","HGEFKFCGJJNBBJIGKOO":true}},"DGFNAGIDCKFP":"FsZ!/*!){O","OIJBCHJKPPOMGLOGKLLO":{"DOEBEBNFOJPMN":"Az[M`Q.'mn`","LFCPNEFNBJDO":true},"OJAGBGMLHPFENNPAN":"p<$[aE9FEzd","PENEBIND":"f40'f<`-+-^: =C>is\"/pH,n-:v\\.;N[","MLDKOIIPGBFAKKLJC":[],"DHLLEABGIMMFBILMCJI":{},"IIEEGFP":9133996313993,"EIFGPHGLOPELFBN":[{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"\"/eP4`=WHg~kUOm2AJoXHk"}},"BJHMGKLP":"h1uU#","ONLPCJKJDIAKK":false,"GACCEMNH":"d+Z%N\\jZ9']wGOl%V9gj@"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":5,"GAHIANAFHIBONL":"rvtH}C0uFmK\\#A*D)x}I7c@5M'Z_fm6>PviE=(J]T+KlsNuO-\"lxD~.N/9EQ<^l%Qb-eFRBv","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"kH#D'(VRt)*kH<{ITQ^|By~:6o2<N1yUXVHHmn$@^g@Z5Nd!!dg#K"}},"ONBMEJGFIFMPO":"Az[M`Q"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"(&9pN@K'vFf4ozyK:B'"}},"BJHMGKLP":"7c5vDh-|","ONLPCJKJDIAKK":true,"GACCEMNH":"'IGzim0]@s0*I~"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":3,"GAHIANAFHIBONL":"Cb[p7$3NQM}\"@YcrIwzt0\"CtK W&(@VBx4CcX.HHrW{IHAjlv_FlAfI0F7CjklK'U3>","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":""}},"ONBMEJGFIFMPO":"h1uU#"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"s[2nryS^V|=D]h5JgNHE+h"}},"BJHMGKLP":"Az[M`Q","ONLPCJKJDIAKK":true,"GACCEMNH":"`GkuDVB)},b<G"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":5,"GAHIANAFHIBONL":"fmVdmXrLq)~NTzM<Ox/C:zRYX<wMEsC?3w!'PFj|AuuJ!WwiPm<xdb<>9kD+(MUEJU5eSw5f","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"!mJue a[n}#S:Hn"}},"ONBMEJGFIFMPO":"h1uU#"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":":e:)wr^Mp;hk7YiPb"}},"BJHMGKLP":"Az[M`","ONLPCJKJDIAKK":true,"GACCEMNH":"|<*(OwRo([egvXq"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":"ire`w7YQ=+6v<>ML\\o%0O@12jW1qQzy?5E`ye{!TVMl`$i=cR)k0TT_KK(bf3wGEHn&K]3g3IhZO7\\tQ2a","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"yv7*i\"b>gLJ;l3l?CmCUS@i]ce:65U2o;buv%zo<a^>_/Ox>!t)+;kjVj56g'84"}},"ONBMEJGFIFMPO":"h1uU#C"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[]},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"tU'S+mwf}H,Hp)VmgTXV['"}},"BJHMGKLP":"p,mtx?CX","ONLPCJKJDIAKK":false,"GACCEMNH":"}+H1}a1o!H1ji&%9ZC+"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":"}\"UN}:D{?7}%{kXHzGI$x\\e|,D0kvN","HGFOBILDJONCIHF":"h1uU#C[.Qc","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"iu,Eu%,vEPu)Joovs4SDwP"}},"ONBMEJGFIFMPO":"Az[M"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":">bE[dUO=4eXQk 6vL,rMlN"}},"BJHMGKLP":"Az[M`Q","ONLPCJKJDIAKK":true,"GACCEMNH":"Iw92[v,?T`o2G"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":"EmJ@.R?h","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":""}},"ONBMEJGFIFMPO":"7c5vD"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"%,b~~]9sV1v#89H;-EU'JY{g"}},"BJHMGKLP":"FsZ!/*!","ONLPCJKJDIAKK":false,"GACCEMNH":"Z4N/&MHYFJIR/1rqLn"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":8,"GAHIANAFHIBONL":"v]W\\\\$JTlKpij#:v+ta`1zUJJMf","HGFOBILDJONCIHF":" aMZ({x5#1N=9(yM\"C","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"/Vo46pg='[eV+"}},"ONBMEJGFIFMPO":"Az[M`Q"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"$&ys4cUgN*OwnXH\\u"}},"BJHMGKLP":"FsZ","ONLPCJKJDIAKK":true,"GACCEMNH":"sp.R`h{>oKPb@H:HvtN&"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":3,"GAHIANAFHIBONL":"rs}8P(6 Co>|5h\"CI)u!\"wuhxfR/Q_\\rVr+v$5nibOOecKZ`INV0kqc&f%9(msUq%+g","HGFOBILDJONCIHF":"7c5vDh-|yd","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"H)Lm%i=LYm}l@g2]g$5v<8')(7o"}},"ONBMEJGFIFMPO":"h1uU#"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"uq=kN4JVxf)kOnw'{3"}},"BJHMGKLP":"FsZ!/*!","ONLPCJKJDIAKK":true,"GACCEMNH":"[X>{IRK/)Se49+QS"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":5,"GAHIANAFHIBONL":"","PPMNGNHGGONNLFAJKK":{},"ONBMEJGFIFMPO":"p,mtx?CX"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}}],"LDIHMDHNPANNGNMAI":{"CMBLBPGBPBLFOD":"Az[","LJCMAKCMDLOBC":"aK"},"KDOJAIFEFELP":{},"LHPGDLOGEGNGKCJMHEDKFJCBMH":[{"GEJGHKEHLAPFJ":"Az[M`","MHBGOLHCHBBIOM":{"CLELPFHJMKGHFNGKMBHAHAH":"B<m/V$0L","DJJOPKMGBIAKJJELPKLBA":"): u&\"cT^"},"ELAIPNGCDHPCIF":"FsZ!/*!"}],"DBDJLNOLJMDCKJLGMBFBMK":8761195769789,"HMMAJIPEEC":"FsZ!/*!){O5>Mq%ea #9u+F.AO%","KCCCHAM":"{&]1J_iH^}Eq>oE,#@R;T\"N1uwgXdH;M","AOICHPCGCHAMC":"*^r:\">l1+7XRSYU&g\"AU","PEJGENFFO":5074070918344,"CPFLBGNLMPLDFEGDHHG":[],"EIPCCEBCIMIFAEDOL":6202435079206,"AOHEGDPMAEPEAL":["b\\B53^![]\\A:n!","ji?Y()=t_+w-7R"],"KPLEHGGBK":"Az[M`Q.'mn`","AFDJNAEOHKK":8213889546936,"HMLBEEHBBJBIOJDABJ":"FsZ!/*!){O5","GKDACMEJIFMIEKMANHNNCPFGDCDGGGCG":{},"CIECJLNPP":"\\`Tx+HeoX`OU","FJPIMCHIJACHJE":[],"KHBKEAFCB":"7c5vDh-|","HABNLKACAJHCIOPFOPBBK":true,"IOJLOKAIK":1,"JIPBOH":"F","EGNIJOJDDCPKK":"x!ajLb(","GNBDNIMEEFCGKADKOAIE":"p,mtx?CX","HGEFKFCGJJNBBJIGKOO":false,"LGMLEEGAPIKBLFBL":[{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"y&\"MvM*"}},"BJHMGKLP":"h1uU#","ONLPCJKJDIAKK":true,"GACCEMNH":"&4k6jDc<a7{F~4"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":"J;N2$BP?_K`e?KqJQ\".87;p%Uc~}WM\\XW@*)]","HGFOBILDJONCIHF":">{%nzw`HO*\"&K_{8q","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"$]AP*.>#{S`c#VcSy"}},"ONBMEJGFIFMPO":"p,mtx?C"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"5<K4Q%"}},"BJHMGKLP":"FsZ!/*","ONLPCJKJDIAKK":true,"GACCEMNH":"cY$Jmk*<<v"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":"& wC8>y:o<DbE;2,/bhzM\\JM\"}hT}~EK6W_]M","HGFOBILDJONCIHF":"FsZ!/*!){O5>Mq%ea #9u+F.A","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"x\"7:h+D7K</.N6U=-'LrgPAbAF%x%M_GVxLjf"}},"ONBMEJGFIFMPO":"FsZ!/*!"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}},{"OAJHOPFELNNIJPFBNBG":{"KJKGAGFJNGBIGBM":{"ECHAGOLMEHCN":{"LJNHE":"EX9ojr=L1d!W"}},"BJHMGKLP":"7c5vDh","ONLPCJKJDIAKK":true,"GACCEMNH":"6Y~(ucM"},"DIMPFKELHHIEHNM":[{"JBMLPPOFI":1,"GAHIANAFHIBONL":";UCt|\\a:F\"&_1ZlnhF(x!b=.+y? ~\\V>{TC9`","HGFOBILDJONCIHF":"/#_v9kRtI'L_\\dtQl","PPMNGNHGGONNLFAJKK":{"ECHAGOLMEHCN":{"LJNHE":"mZH3+r@7uv07uY<,4S9{z`cyzYj8zfv5{XW~(%*f@\\r?Fug"}},"ONBMEJGFIFMPO":"Az[M`Q"}],"HDDDGJFELLA":true,"KEEBNLDHJAPJNIGHHLPPCCEDJ":[],"BHCNDBIIICDJDB":{"MGAGILEALPHFOPBO":{}}}],"OGFDLCDDIPBFH":["TlBC40,WgNae"],"KOOJKBKFOKBH":[]})"};
 
-  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>{
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>>{
+  auto paths = std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>{
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>>{
       {static_cast<path_instruction_type>(2), "EIFGPHGLOPELFBN", -1}}
     //
   };
@@ -1198,7 +1198,7 @@ auto debug_data9()
 void BM_unit_tests(nvbench::state& state)
 { /*
    std::vector<cudf::test::strings_column_wrapper> input;
-   std::vector<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>>>
+   std::vector<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>>
      paths;
 
    //////////////////////////////////////////////////////////////////////////////////////////
