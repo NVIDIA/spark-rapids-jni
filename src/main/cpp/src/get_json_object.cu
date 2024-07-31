@@ -808,6 +808,13 @@ struct json_path_processing_data {
  *
  * The number of warps processing each row is computed as `ceil(num_paths / warp_size)`.
  *
+ * We explicitly set a value for `min_block_per_sm` parameter in the launch bounds to avoid
+ * spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
+ * the maximum number of registers used by a kernel and the parallelism of the kernel.
+ * If lots of registers are used the parallelism may suffer. But in our case NVCC gets this wrong
+ * and we want to avoid spilling all the time or else the performance is really bad. This
+ * essentially tells NVCC to prefer using lots of registers over spilling.
+ *
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
  * @param num_threads_per_row Number of threads processing each input row
@@ -854,19 +861,12 @@ struct kernel_launcher {
                    cudf::device_span<json_path_processing_data> path_data,
                    rmm::cuda_stream_view stream)
   {
-    // We explicitly set the minBlocksPerMultiprocessor parameter in the launch bounds to avoid
-    // spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
-    // the maximum number of registers used by a kernel and the parallelism of the kernel.
-    // If lots of registers are used the parallelism may suffer. But in our case
-    // NVCC gets this wrong and we want to avoid spilling all the time or else
-    // the performance is really bad. This essentially tells NVCC to prefer using lots
-    // of registers over spilling.
-    //
     // The optimal values for block_size and min_block_per_sm were found through testing,
-    // which are 128-8 or 256-4.
+    // which are either 128-8 or 256-4. The pair 128-8 seems a bit better.
     static constexpr int block_size       = 128;
     static constexpr int min_block_per_sm = 8;
 
+    // The number of threads for processing one input row is at least one warp.
     auto const num_threads_per_row =
       cudf::util::div_rounding_up_safe(path_data.size(),
                                        static_cast<std::size_t>(cudf::detail::warp_size)) *
