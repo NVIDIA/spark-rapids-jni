@@ -1104,12 +1104,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   // If OOB is still detected, there must be something wrong happened.
   CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
 
-  for (auto const idx : oob_indices) {
-    output[idx] = cudf::make_strings_column(input.size(),
-                                            std::move(out_offsets_and_sizes[idx].first),
-                                            out_char_buffers[idx].release(),
-                                            out_null_masks_and_null_counts[idx].second,
-                                            std::move(out_null_masks_and_null_counts[idx].first));
+  for (std::size_t idx = 0; idx < oob_indices.size(); ++idx) {
+    auto const out_idx = oob_indices[idx];
+    output[out_idx] =
+      cudf::make_strings_column(input.size(),
+                                std::move(out_offsets_and_sizes[idx].first),
+                                out_char_buffers[idx].release(),
+                                out_null_masks_and_null_counts[idx].second,
+                                std::move(out_null_masks_and_null_counts[idx].first));
   }
   return output;
 }
