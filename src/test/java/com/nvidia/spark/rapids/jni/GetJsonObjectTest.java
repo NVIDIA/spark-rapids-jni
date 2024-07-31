@@ -642,6 +642,29 @@ public class GetJsonObjectTest {
     }
   }
 
+  @Test
+  void getJsonObjectMultiplePathsTest_JNIKernelCalledTwice() {
+    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<JSONUtils.PathInstructionJni> path2 = Arrays.asList();
+    List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
+    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}", "['\n\n\n\n\n\n\n\n\n\n']");
+         ColumnVector expected0 = ColumnVector.fromStrings("v0", null);
+         ColumnVector expected1 = ColumnVector.fromStrings("v1", null);
+         ColumnVector expected2 = ColumnVector.fromStrings(null, "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]")) {
+      ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths);
+      try {
+        assertColumnsAreEqual(expected0, output[0]);
+        assertColumnsAreEqual(expected1, output[1]);
+        assertColumnsAreEqual(expected1, output[2]);
+      } finally {
+        for (ColumnVector cv : output) {
+          cv.close();
+        }
+      }
+    }
+  }
+
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);
   }
