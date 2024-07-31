@@ -43,7 +43,7 @@ enum class escape_style {
  * JSON with a greater depth is invalid
  * If set this to be a greater value, should update `context_stack`
  */
-constexpr int MAX_JSON_NESTING_DEPTH = 64;
+constexpr int max_json_nesting_depth = 64;
 
 //
 /**
@@ -220,7 +220,7 @@ class char_range_reader {
 class json_parser {
  public:
   __device__ inline explicit json_parser(char_range _chars)
-    : chars(_chars), curr_pos(0), current_token(json_token::INIT), max_depth_exceeded(false)
+    : chars(_chars), curr_pos(0), current_token(json_token::INIT)
   {
   }
 
@@ -320,7 +320,7 @@ class json_parser {
    */
   __device__ inline bool try_push_context(json_token token)
   {
-    if (stack_size < MAX_JSON_NESTING_DEPTH) {
+    if (stack_size < max_json_nesting_depth) {
       push_context(token);
       return true;
     } else {
@@ -348,8 +348,14 @@ class json_parser {
     return get_bit_value(context_stack, stack_size - 1);
   }
 
+  /**
+   * pop top context from stack
+   */
   __device__ inline void pop_curr_context() { stack_size--; }
 
+  /**
+   * is context stack is empty
+   */
   __device__ inline bool is_context_stack_empty() const { return stack_size == 0; }
 
   __device__ inline void set_current_error() { current_token = json_token::ERROR; }
@@ -370,7 +376,6 @@ class json_parser {
     switch (c) {
       case '{':
         if (!try_push_context(json_token::START_OBJECT)) {
-          max_depth_exceeded = true;
           set_current_error();
         } else {
           curr_pos++;
@@ -379,7 +384,6 @@ class json_parser {
         break;
       case '[':
         if (!try_push_context(json_token::START_ARRAY)) {
-          max_depth_exceeded = true;
           set_current_error();
         } else {
           curr_pos++;
@@ -1684,8 +1688,6 @@ class json_parser {
     return thrust::make_pair(false, 0);
   }
 
-  __device__ inline bool max_nesting_depth_exceeded() const { return max_depth_exceeded; }
-
  private:
   char_range const chars;
   cudf::size_type curr_pos;
@@ -1705,9 +1707,6 @@ class json_parser {
   cudf::size_type number_token_len;
 
   json_token current_token;
-
-  // Error check if the maximum nesting depth has been reached.
-  bool max_depth_exceeded;
 };
 
 }  // namespace spark_rapids_jni

@@ -25,7 +25,8 @@ public class JSONUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static final int MAX_PATH_DEPTH = getMaxJSONPathDepth();
+  // Keep the same with `max_path_depth` in `get_json_object.cu'
+  public static final int MAX_PATH_DEPTH = 16;
 
   public enum PathInstructionType {
     WILDCARD,
@@ -40,16 +41,16 @@ public class JSONUtils {
     private final int index;
 
     public PathInstructionJni(PathInstructionType type, String name, long index) {
-      this.type = (byte)type.ordinal();
+      this.type = (byte) type.ordinal();
       this.name = name;
       if (index > Integer.MAX_VALUE) {
         throw new IllegalArgumentException("index is too large " + index);
       }
-      this.index = (int)index;
+      this.index = (int) index;
     }
 
     public PathInstructionJni(PathInstructionType type, String name, int index) {
-      this.type = (byte)type.ordinal();
+      this.type = (byte) type.ordinal();
       this.name = name;
       this.index = index;
     }
@@ -103,7 +104,6 @@ public class JSONUtils {
     return ret;
   }
 
-  private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
                                            byte[] typeNums,
