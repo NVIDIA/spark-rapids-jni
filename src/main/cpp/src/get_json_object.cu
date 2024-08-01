@@ -1053,6 +1053,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   // The error check array contains markers denoting if there is any out-of-bound write occurs
   // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
   rmm::device_uvector<int8_t> d_error_check(num_outputs + 1, stream);
+  auto const d_max_path_depth_exceeded = d_error_check.data() + num_outputs;
 
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
@@ -1083,7 +1084,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
   auto const kernel = kernel_launcher{input.size(), json_paths.size()};
-  kernel.exec(*d_input_ptr, d_path_data, d_error_check.data() + num_outputs, stream);
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
@@ -1152,7 +1153,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
-  kernel.exec(*d_input_ptr, d_path_data, d_error_check.data() + num_outputs, stream);
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
