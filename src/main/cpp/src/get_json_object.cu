@@ -384,7 +384,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   json_parser& p,
   cudf::device_span<path_instruction const> path_commands,
   char* out_buf,
-  bool* max_path_depth_exceeded)
+  int8_t* max_path_depth_exceeded)
 {
   p.next_token();
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
@@ -398,7 +398,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                                 write_style _style,
                                 cudf::device_span<path_instruction const> _path) {
     if (stack_size > MAX_JSON_PATH_DEPTH) {
-      *max_path_depth_exceeded = true;
+      *max_path_depth_exceeded = 1;
       // Because no more context is pushed, the evaluation output should be wrong.
       // But that is not important, since we will throw exception after the kernel finishes.
       return;
@@ -819,7 +819,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
                               std::size_t num_threads_per_row,
-                              bool* max_path_depth_exceeded)
+                              int8_t* max_path_depth_exceeded)
 {
   auto const tidx    = cudf::detail::grid_1d::global_thread_id();
   auto const row_idx = tidx / num_threads_per_row;
@@ -843,7 +843,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
     // Instead, if max depth was encountered, we've just continued the evaluation until here
     // then discard the output entirely.
     if (p.max_nesting_depth_exceeded()) {
-      *max_path_depth_exceeded = true;
+      *max_path_depth_exceeded = 1;
       return;
     }
 
@@ -879,17 +879,15 @@ class kernel_launcher {
 
   void exec(cudf::column_device_view const& input,
             cudf::device_span<json_path_processing_data> path_data,
+            int8_t* max_path_depth_exceeded,
             rmm::cuda_stream_view stream) const
   {
     CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
                  "Unexpected data sizes upon launching kernel.");
 
-    rmm::device_scalar<bool> max_path_depth_exceeded(false, stream);
     get_json_object_kernel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(
-        input, path_data, num_threads_per_row, max_path_depth_exceeded.data());
-    CUDF_EXPECTS(!max_path_depth_exceeded.value(stream),
-                 "The processed input has nesting depth exceeds depth limit.");
+        input, path_data, num_threads_per_row, max_path_depth_exceeded);
   }
 
  private:
@@ -986,6 +984,28 @@ construct_path_commands(
           std::move(h_inst_names)};
 }
 
+/**
+ * @brief Error handling using error markers gathered after kernel launch.
+ *
+ * If the input JSON has nesting depth exceeds the maximum allowed value, an exception will be
+ * thrown as it is unacceptable. Otherwise, out of bound write is checked and returned.
+ *
+ * @param error_check The array of markers to check for error
+ * @return A boolean value indicating if there is any out of bound write
+ */
+bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
+{
+  // The last value is to mark if nesting depth has exceeded.
+  CUDF_EXPECTS(error_check.back() == 0,
+               "The processed input has nesting depth exceeds depth limit.");
+
+  // Do not use parallel check since we do not have many elements.
+  // The last element is not related, but its value is already `0` thus just check until
+  // the end of the array for simplicity.
+  return std::none_of(
+    error_check.cbegin(), error_check.cend(), [](auto const val) { return val != 0; });
+}
+
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
@@ -1030,7 +1050,11 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
 
-  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
+  // The error check array contains markers denoting if there is any out-of-bound write occurs
+  // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
+  rmm::device_uvector<int8_t> d_error_check(num_outputs + 1, stream);
+  auto const d_max_path_depth_exceeded = d_error_check.data() + num_outputs;
+
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
   std::vector<json_path_processing_data> h_path_data;
@@ -1052,20 +1076,17 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                                        in_offsets,
                                                        out_stringviews.back().data(),
                                                        scratch_buffers.back().data(),
-                                                       d_has_out_of_bound.data() + idx});
+                                                       d_error_check.data() + idx});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
+    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
   auto const kernel = kernel_launcher{input.size(), json_paths.size()};
-  kernel.exec(*d_input_ptr, d_path_data, stream);
-
-  // Do not use parallel check since we do not have many elements.
-  auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  auto has_no_oob         = std::none_of(
-    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  auto has_no_oob    = check_error(h_error_check);
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
@@ -1092,7 +1113,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& out_sview = out_stringviews[idx];
 
-    if (h_has_out_of_bound[idx]) {
+    if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
       output.emplace_back(nullptr);  // just placeholder.
 
@@ -1118,7 +1139,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                     out_offsets_and_sizes.back().first->view()),
                                   nullptr /*out_stringviews*/,
                                   out_char_buffers.back().data(),
-                                  d_has_out_of_bound.data() + idx});
+                                  d_error_check.data() + idx});
     } else {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
@@ -1131,13 +1152,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-  kernel.exec(*d_input_ptr, d_path_data, stream);
-
-  // Check out of bound again to make sure everything looks right.
-  h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  has_no_oob         = std::none_of(
-    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  has_no_oob    = check_error(h_error_check);
 
   // The last kernel call should not encounter any out-of-bound write.
   // If OOB is still detected, there must be something wrong happened.
