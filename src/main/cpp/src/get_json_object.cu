@@ -808,6 +808,13 @@ struct json_path_processing_data {
  *
  * The number of warps processing each row is computed as `ceil(num_paths / warp_size)`.
  *
+ * We explicitly set a value for `min_block_per_sm` parameter in the launch bounds to avoid
+ * spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
+ * the maximum number of registers used by a kernel and the parallelism of the kernel.
+ * If lots of registers are used the parallelism may suffer. But in our case NVCC gets this wrong
+ * and we want to avoid spilling all the time or else the performance is really bad. This
+ * essentially tells NVCC to prefer using lots of registers over spilling.
+ *
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
  * @param num_threads_per_row Number of threads processing each input row
@@ -861,54 +868,29 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 
 /**
  * @brief A utility class to launch the main kernel.
- *
- * It caches the kernel launch parameters to reuse multiple times.
  */
-class kernel_launcher {
- public:
-  explicit kernel_launcher(cudf::size_type _input_size, std::size_t _path_size)
-    : input_size{_input_size},
-      path_size{_path_size},
-      num_threads_per_row{cudf::util::div_rounding_up_safe(
-                            path_size, static_cast<std::size_t>(cudf::detail::warp_size)) *
-                          cudf::detail::warp_size},
-      num_blocks{cudf::util::div_rounding_up_safe(num_threads_per_row * input_size,
-                                                  static_cast<std::size_t>(block_size))}
+struct kernel_launcher {
+  static void exec(cudf::column_device_view const& input,
+                   cudf::device_span<json_path_processing_data> path_data,
+                   int8_t* max_path_depth_exceeded,
+                   rmm::cuda_stream_view stream)
   {
-  }
+    // The optimal values for block_size and min_block_per_sm were found through testing,
+    // which are either 128-8 or 256-4. The pair 128-8 seems a bit better.
+    static constexpr int block_size       = 128;
+    static constexpr int min_block_per_sm = 8;
 
-  void exec(cudf::column_device_view const& input,
-            cudf::device_span<json_path_processing_data> path_data,
-            int8_t* max_path_depth_exceeded,
-            rmm::cuda_stream_view stream) const
-  {
-    CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
-                 "Unexpected data sizes upon launching kernel.");
-
+    // The number of threads for processing one input row is at least one warp.
+    auto const num_threads_per_row =
+      cudf::util::div_rounding_up_safe(path_data.size(),
+                                       static_cast<std::size_t>(cudf::detail::warp_size)) *
+      cudf::detail::warp_size;
+    auto const num_blocks = cudf::util::div_rounding_up_safe(num_threads_per_row * input.size(),
+                                                             static_cast<std::size_t>(block_size));
     get_json_object_kernel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(
         input, path_data, num_threads_per_row, max_path_depth_exceeded);
   }
-
- private:
-  // We explicitly set the minBlocksPerMultiprocessor parameter in the launch bounds to avoid
-  // spilling from the kernel itself. By default NVCC uses a heuristic to find a balance between
-  // the maximum number of registers used by a kernel and the parallelism of the kernel.
-  // If lots of registers are used the parallelism may suffer. But in our case
-  // NVCC gets this wrong and we want to avoid spilling all the time or else
-  // the performance is really bad. This essentially tells NVCC to prefer using lots
-  // of registers over spilling.
-  //
-  // The optimal values for block_size and min_block_per_sm were found through testing,
-  // which are 128-8 or 256-4.
-  static constexpr int block_size       = 128;
-  static constexpr int min_block_per_sm = 8;
-
-  cudf::size_type const input_size;
-  std::size_t const path_size;
-
-  std::size_t const num_threads_per_row;
-  std::size_t const num_blocks;
 };
 
 /**
@@ -1083,8 +1065,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
-  auto const kernel = kernel_launcher{input.size(), json_paths.size()};
-  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
@@ -1153,7 +1134,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
-  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
@@ -1161,12 +1142,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   // If OOB is still detected, there must be something wrong happened.
   CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
 
-  for (auto const idx : oob_indices) {
-    output[idx] = cudf::make_strings_column(input.size(),
-                                            std::move(out_offsets_and_sizes[idx].first),
-                                            out_char_buffers[idx].release(),
-                                            out_null_masks_and_null_counts[idx].second,
-                                            std::move(out_null_masks_and_null_counts[idx].first));
+  for (std::size_t idx = 0; idx < oob_indices.size(); ++idx) {
+    auto const out_idx = oob_indices[idx];
+    output[out_idx] =
+      cudf::make_strings_column(input.size(),
+                                std::move(out_offsets_and_sizes[idx].first),
+                                out_char_buffers[idx].release(),
+                                out_null_masks_and_null_counts[idx].second,
+                                std::move(out_null_masks_and_null_counts[idx].first));
   }
   return output;
 }
