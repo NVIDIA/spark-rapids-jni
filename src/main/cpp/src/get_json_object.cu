@@ -984,6 +984,28 @@ construct_path_commands(
           std::move(h_inst_names)};
 }
 
+/**
+ * @brief Error handling using error markers gathered after kernel launch.
+ *
+ * If the input JSON has nesting depth exceeds the maximum allowed value, an exception will be
+ * thrown as it is unacceptable. Otherwise, out of bound write is checked and returned.
+ *
+ * @param error_check The array of markers to check for error
+ * @return A boolean value indicating if there is any out of bound write
+ */
+bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
+{
+  // The last value is to mark if nesting depth has exceeded.
+  CUDF_EXPECTS(error_check.back() == 0,
+               "The processed input has nesting depth exceeds depth limit.");
+
+  // Do not use parallel check since we do not have many elements.
+  // The last element is not related, but its value is already `0` thus just check until
+  // the end of the array for simplicity.
+  return std::none_of(
+    error_check.cbegin(), error_check.cend(), [](auto const val) { return val != 0; });
+}
+
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
@@ -1063,14 +1085,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const kernel = kernel_launcher{input.size(), json_paths.size()};
   kernel.exec(*d_input_ptr, d_path_data, d_error_check.data() + num_outputs, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
-
-  // The last value is to check if nesting depth has exceeded.
-  CUDF_EXPECTS(!h_error_check.back(), "The processed input has nesting depth exceeds depth limit.");
-
-  // Do not use parallel check since we do not have many elements.
-  auto has_no_oob = std::none_of(h_error_check.begin(),
-                                 h_error_check.begin() + num_outputs,
-                                 [](auto const val) { return val != 0; });
+  auto has_no_oob    = check_error(h_error_check);
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
@@ -1139,15 +1154,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
   kernel.exec(*d_input_ptr, d_path_data, d_error_check.data() + num_outputs, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
-
-  // The last value is to check if nesting depth has exceeded.
-  CUDF_EXPECTS(!h_error_check.back(), "The processed input has nesting depth exceeds depth limit.");
+  has_no_oob    = check_error(h_error_check);
 
   // The last kernel call should not encounter any out-of-bound write.
   // If OOB is still detected, there must be something wrong happened.
-  has_no_oob = std::none_of(h_error_check.begin(),
-                            h_error_check.begin() + num_outputs,
-                            [](auto const val) { return val != 0; });
   CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
 
   for (auto const idx : oob_indices) {
