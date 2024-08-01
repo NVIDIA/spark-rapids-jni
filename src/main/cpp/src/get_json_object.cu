@@ -879,17 +879,15 @@ class kernel_launcher {
 
   void exec(cudf::column_device_view const& input,
             cudf::device_span<json_path_processing_data> path_data,
+            bool* max_path_depth_exceeded,
             rmm::cuda_stream_view stream) const
   {
     CUDF_EXPECTS(input.size() == input_size && path_data.size() == path_size,
                  "Unexpected data sizes upon launching kernel.");
 
-    rmm::device_scalar<bool> max_path_depth_exceeded(false, stream);
     get_json_object_kernel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(
-        input, path_data, num_threads_per_row, max_path_depth_exceeded.data());
-    CUDF_EXPECTS(!max_path_depth_exceeded.value(stream),
-                 "The processed input has nesting depth exceeds depth limit.");
+        input, path_data, num_threads_per_row, max_path_depth_exceeded);
   }
 
  private:
@@ -1030,6 +1028,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
 
+  rmm::device_scalar<bool> d_max_path_depth_exceeded(false, stream);
   rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
@@ -1060,11 +1059,24 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
 
   auto const kernel = kernel_launcher{input.size(), json_paths.size()};
-  kernel.exec(*d_input_ptr, d_path_data, stream);
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded.data(), stream);
+
+  bool h_max_path_depth_exceeded;
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&h_max_path_depth_exceeded,
+                                d_max_path_depth_exceeded.data(),
+                                sizeof(bool),
+                                cudaMemcpyDeviceToHost,
+                                stream.value()));
 
   // Do not use parallel check since we do not have many elements.
-  auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  auto has_no_oob         = std::none_of(
+  auto h_has_out_of_bound = cudf::detail::make_host_vector_async(d_has_out_of_bound, stream);
+  stream.synchronize();
+
+  // Value of `h_max_path_depth_exceeded` is ready from stream sync above.
+  CUDF_EXPECTS(!h_max_path_depth_exceeded,
+               "The processed input has nesting depth exceeds depth limit.");
+
+  auto has_no_oob = std::none_of(
     h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
 
   // If we didn't see any out-of-bound write, everything is good so far.
@@ -1132,15 +1144,26 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-  kernel.exec(*d_input_ptr, d_path_data, stream);
+  kernel.exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded.data(), stream);
+
+  CUDF_CUDA_TRY(cudaMemcpyAsync(&h_max_path_depth_exceeded,
+                                d_max_path_depth_exceeded.data(),
+                                sizeof(bool),
+                                cudaMemcpyDeviceToHost,
+                                stream.value()));
 
   // Check out of bound again to make sure everything looks right.
-  h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  has_no_oob         = std::none_of(
-    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+  h_has_out_of_bound = cudf::detail::make_host_vector_async(d_has_out_of_bound, stream);
+  stream.synchronize();
+
+  // Value of `h_max_path_depth_exceeded` is ready from stream sync above.
+  CUDF_EXPECTS(!h_max_path_depth_exceeded,
+               "The processed input has nesting depth exceeds depth limit.");
 
   // The last kernel call should not encounter any out-of-bound write.
   // If OOB is still detected, there must be something wrong happened.
+  has_no_oob = std::none_of(
+    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
   CUDF_EXPECTS(has_no_oob, "Unexpected out-of-bound write in get_json_object kernel.");
 
   for (auto const idx : oob_indices) {
