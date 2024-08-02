@@ -667,6 +667,46 @@ public class GetJsonObjectTest {
     }
   }
 
+  @Test
+  void getJsonObjectMultiplePathsTestCrazyLowMemoryBudget() {
+    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
+    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
+         ColumnVector expected0 = ColumnVector.fromStrings("v0");
+         ColumnVector expected1 = ColumnVector.fromStrings("v1")) {
+      ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths, 1L, 0);
+      try {
+        assertColumnsAreEqual(expected0, output[0]);
+        assertColumnsAreEqual(expected1, output[1]);
+      } finally {
+        for (ColumnVector cv : output) {
+          cv.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void getJsonObjectMultiplePathsTestMemoryBudget() {
+    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
+    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
+         ColumnVector expected0 = ColumnVector.fromStrings("v0");
+         ColumnVector expected1 = ColumnVector.fromStrings("v1")) {
+      ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths, 1024L, 0);
+      try {
+        assertColumnsAreEqual(expected0, output[0]);
+        assertColumnsAreEqual(expected1, output[1]);
+      } finally {
+        for (ColumnVector cv : output) {
+          cv.close();
+        }
+      }
+    }
+  }
+
   /**
    * This test is when an exception is thrown due to the input JSON path being too long.
    */
