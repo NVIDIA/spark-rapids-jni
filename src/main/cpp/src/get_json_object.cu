@@ -966,12 +966,11 @@ construct_path_commands(
           std::move(h_inst_names)};
 }
 
-int64_t calc_scratch_size(
-  cudf::strings_column_view const& input,
-  cudf::detail::input_offsetalator const& in_offsets,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr) {
-
+int64_t calc_scratch_size(cudf::strings_column_view const& input,
+                          cudf::detail::input_offsetalator const& in_offsets,
+                          rmm::cuda_stream_view stream,
+                          rmm::device_async_resource_ref mr)
+{
   auto const max_row_size = thrust::transform_reduce(
     rmm::exec_policy(stream),
     thrust::make_counting_iterator(0),
@@ -1153,7 +1152,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                 std::move(out_null_masks_and_null_counts[idx].first));
   }
   return output;
-
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
@@ -1176,8 +1174,9 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return output;
   }
 
-  std::vector<std::tuple<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>, std::size_t>>
-      sorted_paths;
+  std::vector<
+    std::tuple<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>, std::size_t>>
+    sorted_paths;
   for (std::size_t i = 0; i < json_paths.size(); i++) {
     sorted_paths.emplace_back(json_paths[i], i);
   }
@@ -1215,7 +1214,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     auto tmp = get_json_object_batch(input, in_offsets, batch, scratch_size, stream, mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
       std::size_t out_i = output_ids[i];
-      output[out_i] = std::move(tmp[i]);
+      output[out_i]     = std::move(tmp[i]);
     }
     starting_path = at;
   }
@@ -1244,7 +1243,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::get_json_object(input, json_paths, memory_budget_bytes, parallel_override, stream, mr);
+  return detail::get_json_object(
+    input, json_paths, memory_budget_bytes, parallel_override, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

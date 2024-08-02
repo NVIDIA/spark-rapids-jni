@@ -128,9 +128,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
     }
 
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
-    auto output =
-      spark_rapids_jni::get_json_object_multiple_paths(cudf::strings_column_view{*input_cv}, paths,
-          memory_budget_bytes, parallel_override);
+    auto output         = spark_rapids_jni::get_json_object_multiple_paths(
+      cudf::strings_column_view{*input_cv}, paths, memory_budget_bytes, parallel_override);
 
     auto out_handles = cudf::jni::native_jlongArray(env, output.size());
     std::transform(output.begin(), output.end(), out_handles.begin(), [](auto& col) {
