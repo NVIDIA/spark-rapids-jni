@@ -81,7 +81,7 @@ public class JSONUtils {
    * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
    * @param input the string column containing JSON
-   * @param paths the instructions for multiple paths.
+   * @param paths the instructions for multiple paths
    * @return the result of processing each path in the order that they were passed in
    */
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,

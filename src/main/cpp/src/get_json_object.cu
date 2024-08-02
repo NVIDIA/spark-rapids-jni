@@ -1019,7 +1019,8 @@ bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
 std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::strings_column_view const& input,
   cudf::detail::input_offsetalator const& in_offsets,
-  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const& json_paths,
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
+    json_paths,
   int64_t scratch_size,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1156,7 +1157,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+    json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,
@@ -1240,7 +1242,8 @@ std::unique_ptr<cudf::column> get_json_object(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+    json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,
