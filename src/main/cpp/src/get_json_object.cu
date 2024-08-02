@@ -17,6 +17,8 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
+#include <numeric>
+
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
@@ -907,7 +909,7 @@ std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
            cudf::string_scalar,
            std::string>
 construct_path_commands(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
   rmm::cuda_stream_view stream)
 {
@@ -968,8 +970,7 @@ construct_path_commands(
 
 int64_t calc_scratch_size(cudf::strings_column_view const& input,
                           cudf::detail::input_offsetalator const& in_offsets,
-                          rmm::cuda_stream_view stream,
-                          rmm::device_async_resource_ref mr)
+                          rmm::cuda_stream_view stream)
 {
   auto const max_row_size = thrust::transform_reduce(
     rmm::exec_policy(stream),
@@ -1018,7 +1019,7 @@ bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
 std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::strings_column_view const& input,
   cudf::detail::input_offsetalator const& in_offsets,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>>&
     json_paths,
   int64_t scratch_size,
   rmm::cuda_stream_view stream,
@@ -1156,7 +1157,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> &
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
@@ -1174,39 +1175,45 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     return output;
   }
 
-  std::vector<
-    std::tuple<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>, std::size_t>>
-    sorted_paths;
-  for (std::size_t i = 0; i < json_paths.size(); i++) {
-    sorted_paths.emplace_back(json_paths[i], i);
-  }
-  std::sort(sorted_paths.begin(), sorted_paths.end());
+  std::vector<std::size_t> sorted_indices(json_paths.size());
+  std::iota(sorted_indices.begin(), sorted_indices.end(), 0); // Fill with 0, 1, 2, ...
+
+  // Sort indices based on the corresponding paths.
+  std::sort(sorted_indices.begin(), sorted_indices.end(), [&json_paths](size_t i, size_t j) {
+    return json_paths[i] < json_paths[j];
+  });
 
   auto const in_offsets =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
-  auto const scratch_size = calc_scratch_size(input, in_offsets, stream, mr);
+  auto const scratch_size = calc_scratch_size(input, in_offsets, stream);
   if (memory_budget_bytes <= 0 && parallel_override <= 0) {
-    parallel_override = static_cast<int>(sorted_paths.size());
+    parallel_override = static_cast<int>(sorted_indices.size());
   }
   std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
+
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>> batch;
+  std::vector<std::size_t> output_ids;
+
   std::size_t starting_path = 0;
   while (starting_path < num_outputs) {
     std::size_t at = starting_path;
-    std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> batch;
-    std::vector<std::size_t> output_ids;
+    batch.resize(0);
+    output_ids.resize(0);
     if (parallel_override > 0) {
       int count = 0;
       while (at < num_outputs && count < parallel_override) {
-        batch.push_back(std::get<0>(sorted_paths[at]));
-        output_ids.push_back(std::get<1>(sorted_paths[at]));
+        auto output_location = sorted_indices[at];
+        batch.emplace_back(json_paths[output_location]);
+        output_ids.push_back(output_location);
         at++;
         count++;
       }
     } else {
       long budget = 0;
       while (at < num_outputs && budget < memory_budget_bytes) {
-        batch.push_back(std::get<0>(sorted_paths[at]));
-        output_ids.push_back(std::get<1>(sorted_paths[at]));
+        auto output_location = sorted_indices[at];
+        batch.emplace_back(json_paths[output_location]);
+        output_ids.push_back(output_location);
         at++;
         budget += scratch_size;
       }
@@ -1225,17 +1232,18 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& instructions,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return std::move(detail::get_json_object(input, {instructions}, -1, -1, stream, mr).front());
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> inst{instructions};
+  return std::move(detail::get_json_object(input, inst, -1, -1, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>&
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,

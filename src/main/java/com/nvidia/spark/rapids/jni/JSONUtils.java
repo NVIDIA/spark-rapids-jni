@@ -59,7 +59,7 @@ public class JSONUtils {
    * Extract a JSON path from a JSON column. The path is processed in a Spark compatible way.
    * @param input the string column containing JSON
    * @param pathInstructions the instructions for the path processing
-   * @return the result of processing the path.
+   * @return the result of processing the path
    */
   public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] pathInstructions) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
@@ -78,11 +78,11 @@ public class JSONUtils {
   }
 
   /**
-   * Extract multiple JSON paths from a JSON column. The paths are processed n a Spark
+   * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
    * @param input the string column containing JSON
    * @param paths the instructions for multiple paths.
-   * @return the result of processing each path in the order that they were passed in.
+   * @return the result of processing each path in the order that they were passed in
    */
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
                                                           List<List<PathInstructionJni>> paths) {
@@ -90,7 +90,7 @@ public class JSONUtils {
   }
 
   /**
-   * Extract multiple JSON paths from a JSON column. The paths are processed n a Spark
+   * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
    * @param input the string column containing JSON
    * @param paths the instructions for multiple paths.
@@ -101,7 +101,7 @@ public class JSONUtils {
    *                         budget can limit how many paths can be processed in parallel. This overrides
    *                         that automatically calculated value with a set value for benchmarking purposes.
    *                         A value <= 0 disables this.
-   * @return the result of processing each path in the order that they were passed in.
+   * @return the result of processing each path in the order that they were passed in
    */
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
                                                           List<List<PathInstructionJni>> paths,

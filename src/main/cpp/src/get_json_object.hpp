@@ -43,7 +43,7 @@ enum class path_instruction_type : int8_t { WILDCARD, INDEX, NAMED };
  */
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& instructions,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -56,12 +56,13 @@ std::unique_ptr<cudf::column> get_json_object(
  * @param input the input string column to parse JSON from
  * @param json_paths the path operations to read extract
  * @param memory_budget_bytes a memory budget for temporary memory usage if > 0
- * @param parallel_override if > 0 then teh number of paths to process in parallel
- *  this will cause the memory_budget_bytes to be ignored.
+ * @param parallel_override if this value is greater than 0 then it specifies the
+ *        number of paths to process in parallel (this will cause the 
+ *        `memory_budget_bytes` paramemter to be ignored)
  */
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>&
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
