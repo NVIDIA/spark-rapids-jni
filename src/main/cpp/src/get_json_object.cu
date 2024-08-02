@@ -1017,7 +1017,7 @@ bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
-  cudf::strings_column_view const& input,
+  cudf::column_device_view const& input,
   cudf::detail::input_offsetalator const& in_offsets,
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
@@ -1030,8 +1030,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
   auto const num_outputs = json_paths.size();
   std::vector<std::unique_ptr<cudf::column>> output;
-
-  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
 
   // The error check array contains markers denoting if there is any out-of-bound write occurs
   // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
@@ -1066,7 +1064,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
-  kernel_launcher::exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
@@ -1135,7 +1133,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
-  kernel_launcher::exec(*d_input_ptr, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
@@ -1189,6 +1187,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   if (memory_budget_bytes <= 0 && parallel_override <= 0) {
     parallel_override = static_cast<int>(sorted_indices.size());
   }
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
 
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> batch;
@@ -1218,7 +1217,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
         budget += scratch_size;
       }
     }
-    auto tmp = get_json_object_batch(input, in_offsets, batch, scratch_size, stream, mr);
+    auto tmp = get_json_object_batch(*d_input_ptr, in_offsets, batch, scratch_size, stream, mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
       std::size_t out_i = output_ids[i];
       output[out_i]     = std::move(tmp[i]);
