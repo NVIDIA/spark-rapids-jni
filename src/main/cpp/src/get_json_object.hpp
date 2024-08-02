@@ -57,13 +57,12 @@ std::unique_ptr<cudf::column> get_json_object(
  * @param json_paths the path operations to read extract
  * @param memory_budget_bytes a memory budget for temporary memory usage if > 0
  * @param parallel_override if this value is greater than 0 then it specifies the
- *        number of paths to process in parallel (this will cause the 
+ *        number of paths to process in parallel (this will cause the
  *        `memory_budget_bytes` paramemter to be ignored)
  */
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>&
-    json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

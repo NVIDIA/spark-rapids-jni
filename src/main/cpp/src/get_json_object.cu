@@ -17,8 +17,6 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
-#include <numeric>
-
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
@@ -42,6 +40,8 @@
 #include <thrust/pair.h>
 #include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
+
+#include <numeric>
 
 namespace spark_rapids_jni {
 
@@ -1019,8 +1019,7 @@ bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
 std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::strings_column_view const& input,
   cudf::detail::input_offsetalator const& in_offsets,
-  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>>&
-    json_paths,
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
   int64_t scratch_size,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1157,8 +1156,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> &
-    json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,
@@ -1176,7 +1174,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   }
 
   std::vector<std::size_t> sorted_indices(json_paths.size());
-  std::iota(sorted_indices.begin(), sorted_indices.end(), 0); // Fill with 0, 1, 2, ...
+  std::iota(sorted_indices.begin(), sorted_indices.end(), 0);  // Fill with 0, 1, 2, ...
 
   // Sort indices based on the corresponding paths.
   std::sort(sorted_indices.begin(), sorted_indices.end(), [&json_paths](size_t i, size_t j) {
@@ -1237,14 +1235,14 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> inst{instructions};
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> inst{
+    instructions};
   return std::move(detail::get_json_object(input, inst, -1, -1, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>&
-    json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,
