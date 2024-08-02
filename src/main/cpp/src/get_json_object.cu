@@ -909,7 +909,7 @@ std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
            cudf::string_scalar,
            std::string>
 construct_path_commands(
-  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
   rmm::cuda_stream_view stream)
 {
@@ -1019,7 +1019,7 @@ bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
 std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::strings_column_view const& input,
   cudf::detail::input_offsetalator const& in_offsets,
-  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const& json_paths,
   int64_t scratch_size,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1156,7 +1156,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,
@@ -1189,7 +1189,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   }
   std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
 
-  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t>>> batch;
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> batch;
   std::vector<std::size_t> output_ids;
 
   std::size_t starting_path = 0;
@@ -1230,19 +1230,17 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> inst{
-    instructions};
-  return std::move(detail::get_json_object(input, inst, -1, -1, stream, mr).front());
+  return std::move(detail::get_json_object(input, {instructions}, -1, -1, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& json_paths,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   rmm::cuda_stream_view stream,

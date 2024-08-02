@@ -93,7 +93,7 @@ public class JSONUtils {
    * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
    * @param input the string column containing JSON
-   * @param paths the instructions for multiple paths.
+   * @param paths the instructions for multiple paths
    * @param memoryBudgetBytes a budget that is used to limit the amount of memory
    *                          that is used when processing the paths. This is a soft limit.
    *                          A value <= 0 disables this and all paths will be processed in parallel.
