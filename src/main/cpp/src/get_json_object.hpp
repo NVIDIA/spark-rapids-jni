@@ -53,11 +53,19 @@ std::unique_ptr<cudf::column> get_json_object(
  * This function processes all the JSON paths in parallel, which may be faster than calling
  * to `get_json_object` on the individual JSON paths. However, it may consume much more GPU
  * memory, proportional to the number of JSON paths.
+ * @param input the input string column to parse JSON from
+ * @param json_paths the path operations to read extract
+ * @param memory_budget_bytes a memory budget for temporary memory usage if > 0
+ * @param parallel_override if this value is greater than 0 then it specifies the
+ *        number of paths to process in parallel (this will cause the
+ *        `memory_budget_bytes` paramemter to be ignored)
  */
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
+  int64_t memory_budget_bytes,
+  int32_t parallel_override,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

@@ -55,6 +55,12 @@ public class JSONUtils {
     }
   }
 
+  /**
+   * Extract a JSON path from a JSON column. The path is processed in a Spark compatible way.
+   * @param input the string column containing JSON
+   * @param pathInstructions the instructions for the path processing
+   * @return the result of processing the path
+   */
   public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] pathInstructions) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     int numTotalInstructions = pathInstructions.length;
@@ -71,8 +77,36 @@ public class JSONUtils {
     return new ColumnVector(getJsonObject(input.getNativeView(), typeNums, names, indexes));
   }
 
+  /**
+   * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
+   * compatible way.
+   * @param input the string column containing JSON
+   * @param paths the instructions for multiple paths
+   * @return the result of processing each path in the order that they were passed in
+   */
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
                                                           List<List<PathInstructionJni>> paths) {
+    return getJsonObjectMultiplePaths(input, paths, -1, -1);
+  }
+
+  /**
+   * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
+   * compatible way.
+   * @param input the string column containing JSON
+   * @param paths the instructions for multiple paths
+   * @param memoryBudgetBytes a budget that is used to limit the amount of memory
+   *                          that is used when processing the paths. This is a soft limit.
+   *                          A value <= 0 disables this and all paths will be processed in parallel.
+   * @param parallelOverride Set a maximum number of paths to be processed in parallel. The memory
+   *                         budget can limit how many paths can be processed in parallel. This overrides
+   *                         that automatically calculated value with a set value for benchmarking purposes.
+   *                         A value <= 0 disables this.
+   * @return the result of processing each path in the order that they were passed in
+   */
+  public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
+                                                          List<List<PathInstructionJni>> paths,
+                                                          long memoryBudgetBytes,
+                                                          int parallelOverride) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     int[] pathOffsets = new int[paths.size() + 1];
     int offset = 0;
@@ -95,7 +129,7 @@ public class JSONUtils {
       }
     }
     long[] ptrs = getJsonObjectMultiplePaths(input.getNativeView(), typeNums,
-        names, indexes, pathOffsets);
+        names, indexes, pathOffsets, memoryBudgetBytes, parallelOverride);
     ColumnVector[] ret = new ColumnVector[ptrs.length];
     for (int i = 0; i < ptrs.length; i++) {
       ret[i] = new ColumnVector(ptrs[i]);
@@ -114,5 +148,7 @@ public class JSONUtils {
                                                           byte[] typeNums,
                                                           String[] names,
                                                           int[] indexes,
-                                                          int[] pathOffsets);
+                                                          int[] pathOffsets,
+                                                          long memoryBudgetBytes,
+                                                          int parallelOverride);
 }
