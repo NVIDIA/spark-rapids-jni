@@ -102,7 +102,7 @@ class string_to_float {
     int sign = check_for_sign();
 
     // check for leading nan
-    if (check_for_nan()) {
+    if (check_for_nan(sign)) {
       _out[_row] = NAN;
       compute_validity(_valid, _except);
       return;
@@ -112,7 +112,7 @@ class string_to_float {
     if (check_for_inf()) {
       if (_warp_lane == 0) {
         _out[_row] =
-          sign > 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
+          sign >= 0 ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
       }
       compute_validity(_valid, _except);
       return;
@@ -140,7 +140,9 @@ class string_to_float {
         _except = true;
       }
 
-      if (_warp_lane == 0) { _out[_row] = sign * static_cast<double>(0); }
+      if (_warp_lane == 0) {
+        _out[_row] = sign >= 0 ? static_cast<double>(0) : -static_cast<double>(0);
+      }
       compute_validity(_valid, _except);
       return;
     }
@@ -154,15 +156,15 @@ class string_to_float {
     // construct the final float value
     if (_warp_lane == 0) {
       // base value
-      double digitsf = sign * static_cast<double>(digits);
+      double digitsf = sign >= 0 ? static_cast<double>(digits) : -static_cast<double>(digits);
 
       // exponent
       int exp_ten = exp_base + manual_exp;
 
       // final value
       if (exp_ten > std::numeric_limits<double>::max_exponent10) {
-        _out[_row] = sign > 0 ? std::numeric_limits<double>::infinity()
-                              : -std::numeric_limits<double>::infinity();
+        _out[_row] = sign >= 0 ? std::numeric_limits<double>::infinity()
+                               : -std::numeric_limits<double>::infinity();
       } else {
         // make sure we don't produce a subnormal number.
         // - a normal number is one where the leading digit of the floating point rep is not zero.
@@ -236,32 +238,45 @@ class string_to_float {
 
   // returns true if we encountered 'nan'
   // potentially changes:  valid/except
-  __device__ bool check_for_nan()
+  __device__ bool check_for_nan(int const& sign)
   {
     auto const nan_mask = __ballot_sync(0xffffffff,
                                         (_warp_lane == 0 && (_c == 'N' || _c == 'n')) ||
                                           (_warp_lane == 1 && (_c == 'A' || _c == 'a')) ||
                                           (_warp_lane == 2 && (_c == 'N' || _c == 'n')));
     if (nan_mask == 0x7) {
-      // if we start with 'nan', then even if we have other garbage character, this is a null row.
-      //
-      // if we're in ansi mode and this is not -precisely- nan, report that so that we can throw
-      // an exception later.
-      if (_len != 3) {
-        _valid  = false;
-        _except = _len != 3;
-      }
-      return true;
+      // if we start with 'nan', then even if we have other garbage character(excluding
+      // whitespaces), this is a null row. but for e.g. : "nan   " cases. spark will treat the as
+      // "nan", when the trailing characters are whitespaces, it is still a valid string. if we're
+      // in ansi mode and this is not -precisely- nan, report that so that we can throw an exception
+      // later.
+
+      // move forward the current position by 3
+      _bpos += 3;
+      _c = __shfl_down_sync(0xffffffff, _c, 3);
+
+      // remove the trailing whitespaces, if there exits
+      remove_leading_whitespace();
+
+      // if we're at the end and there is no sign, because Spark treats '-nan' and '+nan' as null.
+      if (_bpos == _len && sign == 0) { return true; }
+      // if we reach out here, it means that we have other garbage character.
+      _valid  = false;
+      _except = true;
     }
     return false;
   }
 
-  // returns 1 or -1 to indicate sign
+  // The `sign` variables is initialized to 0, indicating no sign.
+  // If a sign is detected, it sets `sign` to 1, indicating `+` sign.
+  // If `-` is then detected, it sets `sign` to -1.
+  // returns 1, 0, -1 to indicate signs.
   __device__ int check_for_sign()
   {
     auto const sign_mask = __ballot_sync(0xffffffff, _warp_lane == 0 && (_c == '+' || _c == '-'));
-    int sign             = 1;
+    int sign             = 0;
     if (sign_mask) {
+      sign = 1;
       // NOTE: warp lane 0 is the only thread that ever reads `sign`, so technically it would be
       // valid to just check if(c == '-'), but that would leave other threads with an incorrect
       // value. if this code ever changes, that could lead to hard-to-find bugs.
@@ -299,11 +314,19 @@ class string_to_float {
         _bpos += 5;
         // if we're at the end
         if (_bpos == _len) { return true; }
+        _c = __shfl_down_sync(0xffffffff, _c, 5);
       }
+
+      // remove the remaining whitespace if exists
+      remove_leading_whitespace();
+
+      // if we're at the end
+      if (_bpos == _len) { return true; }
 
       // if we reach here for any reason, it means we have "inf" or "infinity" at the start of the
       // string but also have additional characters, making this whole thing bogus/null
       _valid = false;
+
       return true;
     }
     return false;
@@ -595,14 +618,14 @@ class string_to_float {
 };
 
 template <typename T, size_type block_size>
-__global__ void string_to_float_kernel(T* out,
-                                       bitmask_type* validity,
-                                       int32_t* ansi_except,
-                                       size_type* valid_count,
-                                       const char* const chars,
-                                       size_type const* offsets,
-                                       bitmask_type const* incoming_null_mask,
-                                       size_type const num_rows)
+CUDF_KERNEL void string_to_float_kernel(T* out,
+                                        bitmask_type* validity,
+                                        int32_t* ansi_except,
+                                        size_type* valid_count,
+                                        const char* const chars,
+                                        size_type const* offsets,
+                                        bitmask_type const* incoming_null_mask,
+                                        size_type const num_rows)
 {
   size_type const tid = threadIdx.x + (blockDim.x * blockIdx.x);
   size_type const row = tid / 32;
