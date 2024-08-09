@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ USE_GDS=${USE_GDS:-ON}
 USE_SANITIZER=${USE_SANITIZER:-ON}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 ARM64=${ARM64:-false}
+artifact_suffix="${CUDA_VER}"
 
 profiles="source-javadoc"
 if [ "${ARM64}" == "true" ]; then
@@ -36,6 +37,7 @@ if [ "${ARM64}" == "true" ]; then
   USE_GDS="OFF"
   USE_SANITIZER="ON"
   BUILD_FAULTINJ="OFF"
+  artifact_suffix="${artifact_suffix}-arm64"
 fi
 
 ${MVN} clean package ${MVN_MIRROR}  \
@@ -43,5 +45,8 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
+  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
   -DUSE_SANITIZER=${USE_SANITIZER}
+
+build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
+. ci/check-cuda-dependencies.sh "target/${build_name}-${artifact_suffix}.jar"

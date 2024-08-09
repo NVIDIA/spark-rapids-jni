@@ -18,6 +18,8 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
+import java.util.List;
+
 public class JSONUtils {
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -46,9 +48,38 @@ public class JSONUtils {
   }
 
   public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] path_instructions) {
-    assert(input.getType().equals(DType.STRING)) : "column must be a String";
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(getJsonObject(input.getNativeView(), path_instructions));
   }
 
+  public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
+                                                          List<List<PathInstructionJni>> paths) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    int[] pathOffsets = new int[paths.size() + 1];
+    int offset = 0;
+    for (int i = 0; i < paths.size(); i++) {
+      pathOffsets[i] = offset;
+      offset += paths.get(i).size();
+    }
+    pathOffsets[paths.size()] = offset;
+
+    int numTotalInstructions = pathOffsets[paths.size()];
+    PathInstructionJni[] pathsArray = new PathInstructionJni[numTotalInstructions];
+    for (int i = 0; i < paths.size(); i++) {
+      for (int j = 0; j < paths.get(i).size(); j++) {
+        pathsArray[pathOffsets[i] + j] = paths.get(i).get(j);
+      }
+    }
+    long[] ptrs = getJsonObjectMultiplePaths(input.getNativeView(), pathsArray, pathOffsets);
+    ColumnVector[] ret = new ColumnVector[ptrs.length];
+    for (int i = 0; i < ptrs.length; i++) {
+      ret[i] = new ColumnVector(ptrs[i]);
+    }
+    return ret;
+  }
+
   private static native long getJsonObject(long input, PathInstructionJni[] path_instructions);
+
+  private static native long[] getJsonObjectMultiplePaths(long input, PathInstructionJni[] paths,
+                                                          int[] pathOffsets);
 }

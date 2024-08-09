@@ -29,7 +29,8 @@ namespace spark_rapids_jni::profiler {
 
 // Serializes profile data as flatbuffers
 struct profiler_serializer {
-  profiler_serializer(JNIEnv* env, jobject writer, size_t buffer_size, size_t flush_threshold);
+  profiler_serializer(
+    JNIEnv* env, jobject writer, size_t buffer_size, size_t flush_threshold, bool capture_allocs);
   void process_cupti_buffer(uint8_t* buffer, size_t valid_size);
   void flush();
 
@@ -51,6 +52,7 @@ struct profiler_serializer {
   jmethodID j_write_method_;
   jobject j_writer_;
   size_t flush_threshold_;
+  bool capture_allocs_;
   flatbuffers::FlatBufferBuilder fbb_;
   std::vector<flatbuffers::Offset<ApiActivity>> api_offsets_;
   std::vector<flatbuffers::Offset<DeviceActivity>> device_offsets_;
