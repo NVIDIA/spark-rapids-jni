@@ -151,13 +151,13 @@ public class JSONUtils {
    * The output of these situations should all be NULL or a value '1.0', respectively. However, this
    * function will just simply copy the input value strings to the output.
    *
-   * @param jsonColumn The input strings column in which each row specifies a json object.
+   * @param input The input strings column in which each row specifies a json object
    * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
-   * which the key-value pairs are extracted directly from the input json strings.
+   * which the key-value pairs are extracted directly from the input json strings
    */
-  public static ColumnVector extractRawMapFromJsonString(ColumnView jsonColumn) {
-    assert jsonColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(extractRawMapFromJsonString(jsonColumn.getNativeView()));
+  public static ColumnVector extractRawMapFromJsonString(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
 
@@ -177,5 +177,5 @@ public class JSONUtils {
                                                           int parallelOverride);
 
 
-  private static native long extractRawMapFromJsonString(long jsonColumnHandle);
+  private static native long extractRawMapFromJsonString(long input);
 }
