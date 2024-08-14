@@ -16,15 +16,31 @@
 name: signoff check
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  workflow_call:
+    inputs:
+      owner:
+        required: true
+        type: string
+      repo:
+        required: true
+        type: string
+      pull_number:
+        required: true
+        type: string
+    secrets:
+      token:
+        required: true
 
 jobs:
   signoff-check:
-    uses: spark-rapids-jni/.github/workflows/signoff-check-common.yml@test-workflow
-    with:
-      owner: pxLi
-      repo: spark-rapids-jni
-      pull_number: ${{ github.event.number }}
-    secrets:
-      token: ${{ secrets.GITHUB_TOKEN }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: signoff-check job
+        uses: ./.github/workflows/signoff-check
+        env:
+          OWNER: ${{ inputs.owner }}
+          REPO_NAME: ${{ inputs.repo }}
+          GITHUB_TOKEN: ${{ secrets.token }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
