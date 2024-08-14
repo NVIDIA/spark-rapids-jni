@@ -208,6 +208,7 @@ add_library(
   src/datetime_rebase.cu
   src/decimal_utils.cu
   src/from_json_to_raw_map.cu
+  #src/from_json_to_struct.cu
   src/get_json_object.cu
   src/histogram.cu
   src/murmur_hash.cu
