@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <cudf/column/column_view.hpp>
+#include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -27,7 +27,7 @@
 namespace spark_rapids_jni {
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(
-  cudf::column_view const& input,
+  cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

@@ -142,14 +142,15 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMapFromJsonString(
-  JNIEnv* env, jclass, jlong input_handle)
+  JNIEnv* env, jclass, jlong j_input)
 {
-  JNI_NULL_CHECK(env, input_handle, "json_column_handle is null", 0);
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const*>(input_handle);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::from_json_to_raw_map(*input).release());
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
   }
   CATCH_STD(env, 0);
 }
