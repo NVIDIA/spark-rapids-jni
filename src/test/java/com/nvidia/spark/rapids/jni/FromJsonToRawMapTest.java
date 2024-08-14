@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-public class MapUtilsTest {
+public class FromJsonToRawMapTest {
 
   @Test
   void testFromJsonSimpleInput() {
@@ -36,7 +36,7 @@ public class MapUtilsTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
              "State", "category", "index", "author", "title", "price");
@@ -65,7 +65,7 @@ public class MapUtilsTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = MapUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipc\u00f3de", "Z\u00edpCodeTyp" +
                  "\u00e9", "City", "St\u00e2te", "Zipc\u00f3de", "Z\u00edpCodeTyp\u00e9",

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "map_utils_debug.cuh"
+#include "from_json_to_raw_map_debug.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -71,7 +71,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
   auto const input_scv  = cudf::strings_column_view{input};
   auto const chars_size = input_scv.chars_size(stream);
   auto const output_size =
-    2l +                                            // two extra bracket characters '[' and ']'
+    2l +  // two extra bracket characters '[' and ']'
     static_cast<int64_t>(chars_size) +
     static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
     static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
@@ -641,9 +641,9 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 
 }  // namespace
 
-std::unique_ptr<cudf::column> from_json(cudf::column_view const& input,
-                                        rmm::cuda_stream_view stream,
-                                        rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::column_view const& input,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Invalid input format");
 
