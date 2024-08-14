@@ -21,7 +21,7 @@ on:
 
 jobs:
   signoff-check:
-    uses: spark-rapids-jni/.github/workflows/signoff-check-common.yml@test-workflow
+    uses: NVIDIA/spark-rapids-jni/.github/workflows/signoff-check-common.yml@test-workflow
     with:
       owner: pxLi
       repo: spark-rapids-jni
