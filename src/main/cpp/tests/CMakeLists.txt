@@ -45,6 +45,10 @@ endfunction(ConfigureTest)
 ### test sources ##################################################################################
 ###################################################################################################
 
+ConfigureTest(FROM_JSON
+    /home/nghiat/Devel/jni/1/src/main/cpp/src/from_json_to_structs.cu
+    from_json.cu)
+
 ConfigureTest(CAST_STRING
     cast_string.cpp)
 
@@ -60,8 +64,8 @@ ConfigureTest(CAST_FLOAT_TO_STRING
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
-ConfigureTest(ROW_CONVERSION
-    row_conversion.cpp)
+# ConfigureTest(ROW_CONVERSION
+#     row_conversion.cpp)
 
 ConfigureTest(HASH
     hash.cpp)

@@ -43,6 +43,7 @@
 
 #include <numeric>
 
+namespace test {
 namespace spark_rapids_jni {
 
 namespace detail {
@@ -303,9 +304,9 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   return output;
 }
 
-std::unique_ptr<cudf::column> from_json_to_struct(cudf::strings_column_view const& input,
-                                                  rmm::cuda_stream_view stream,
-                                                  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> from_json_to_struct_bk(cudf::strings_column_view const& input,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
 {
   auto const num_outputs = json_paths.size();
 
@@ -372,14 +373,22 @@ std::unique_ptr<cudf::column> from_json_to_struct(cudf::strings_column_view cons
   return output;
 }
 
+std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view const& input,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
+{
+  return nullptr;
+}
+
 }  // namespace detail
 
-std::unique_ptr<cudf::column> from_json_to_struct(cudf::strings_column_view const& input,
-                                                  rmm::cuda_stream_view stream,
-                                                  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view const& input,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::from_json_to_struct(input, stream, mr);
+  return detail::from_json_to_structs(input, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
+}  // namespace test
