@@ -21,10 +21,11 @@ on:
 
 jobs:
   signoff-check:
-    uses: NVIDIA/spark-rapids-jni/.github/workflows/signoff-check-common.yml@test-workflow
+    uses: NVIDIA/spark-rapids-common/.github/workflows/signoff.yml@main
     with:
-      owner: pxLi
+      owner: NVIDIA
       repo: spark-rapids-jni
       pull_number: ${{ github.event.number }}
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
+
