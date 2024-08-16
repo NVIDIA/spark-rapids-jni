@@ -160,6 +160,19 @@ public class JSONUtils {
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
+  /**
+   * Parse JSON strings column into a structs column.
+   * TODO
+   * @param input
+   * @param schema
+   * @return
+   */
+  public static Table fromJsonToStructs(ColumnView input, Schema schema) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new Table(fromJsonToStructs(input.getNativeView(),
+        schema.getFlattenedNumChildren(), schema.getFlattenedColumnNames(),
+        schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales()));
+  }
 
   private static native int getMaxJSONPathDepth();
 
@@ -178,4 +191,8 @@ public class JSONUtils {
 
 
   private static native long extractRawMapFromJsonString(long input);
+
+  private static native long[] fromJsonToStructs(long input,
+                                                 int[] numChildren, String[] columnNames,
+                                                 int[] dTypeIds, int[] dTypeScales);
 }

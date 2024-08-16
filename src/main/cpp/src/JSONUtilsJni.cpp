@@ -18,11 +18,21 @@
 #include "from_json.hpp"
 #include "get_json_object.hpp"
 
+#include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
+#include <map>
 #include <vector>
 
 using path_instruction_type = spark_rapids_jni::path_instruction_type;
+
+namespace cudf::jni {
+cudf::io::schema_element read_schema_element(int& index,
+                                             cudf::jni::native_jintArray const& children,
+                                             cudf::jni::native_jstringArray const& names,
+                                             cudf::jni::native_jintArray const& types,
+                                             cudf::jni::native_jintArray const& scales);
+}
 
 extern "C" {
 
@@ -151,6 +161,59 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
+                                                             jclass,
+                                                             jlong j_input,
+                                                             jintArray j_num_children,
+                                                             jobjectArray j_col_names,
+                                                             jintArray j_types,
+                                                             jintArray j_scales)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
+  JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
+  JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
+  JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::jni::native_jstringArray n_col_names(env, j_col_names);
+    cudf::jni::native_jintArray n_types(env, j_types);
+    cudf::jni::native_jintArray n_scales(env, j_scales);
+    cudf::jni::native_jintArray n_children(env, j_num_children);
+
+    if (n_types.size() != n_scales.size()) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and scales must match size", 0);
+    }
+    if (n_col_names.size() != n_types.size()) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and column names must match size", 0);
+    }
+    if (n_children.size() != n_types.size()) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and num children must match size", 0);
+    }
+
+    std::map<std::string, cudf::io::schema_element> schema;
+    int at = 0;
+    while (at < n_types.size()) {
+      schema.emplace(
+        n_col_names.get(at).get(),
+        cudf::jni::read_schema_element(at, n_children, n_col_names, n_types, n_scales));
+    }
+
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto output =
+      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv}, schema);
+
+    auto out_handles = cudf::jni::native_jlongArray(env, output.size());
+    std::transform(output.begin(), output.end(), out_handles.begin(), [](auto& col) {
+      return cudf::jni::release_as_jlong(col);
+    });
+    return out_handles.get_jArray();
   }
   CATCH_STD(env, 0);
 }
