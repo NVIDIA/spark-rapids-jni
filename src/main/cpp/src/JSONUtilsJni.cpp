@@ -31,8 +31,30 @@ cudf::io::schema_element read_schema_element(int& index,
                                              cudf::jni::native_jintArray const& children,
                                              cudf::jni::native_jstringArray const& names,
                                              cudf::jni::native_jintArray const& types,
-                                             cudf::jni::native_jintArray const& scales);
+                                             cudf::jni::native_jintArray const& scales)
+{
+  auto d_type = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
+  if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
+    std::map<std::string, cudf::io::schema_element> child_elems;
+    int num_children = children[index];
+    // go to the next entry, so recursion can parse it.
+    index++;
+    for (int i = 0; i < num_children; i++) {
+      child_elems.insert(
+        std::pair{names.get(index).get(),
+                  cudf::jni::read_schema_element(index, children, names, types, scales)});
+    }
+    return cudf::io::schema_element{d_type, std::move(child_elems)};
+  } else {
+    if (children[index] != 0) {
+      throw std::invalid_argument("found children for a type that should have none");
+    }
+    // go to the next entry before returning...
+    index++;
+    return cudf::io::schema_element{d_type, {}};
+  }
 }
+}  // namespace cudf::jni
 
 extern "C" {
 
@@ -165,6 +187,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
   CATCH_STD(env, 0);
 }
 
+#if 0
 JNIEXPORT jlongArray JNICALL
 Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
                                                              jclass,
@@ -217,4 +240,5 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
+#endif
 }

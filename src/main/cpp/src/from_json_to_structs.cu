@@ -24,6 +24,7 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/io/json.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/string_view.cuh>
@@ -43,10 +44,11 @@
 
 #include <numeric>
 
-namespace test {
 namespace spark_rapids_jni {
 
 namespace detail {
+#if 0
+namespace test {
 /**
  * @brief TODO
  */
@@ -373,13 +375,34 @@ std::unique_ptr<cudf::column> from_json_to_struct_bk(cudf::strings_column_view c
   return output;
 }
 
+}  // namespace test
+#endif
+
+std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>
+convert_schema_to_paths(std::map<std::string, cudf::io::schema_element> const& schema)
+{
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
+
+  return paths;
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+    json_paths,
+  int64_t memory_budget_bytes,
+  int32_t parallel_override,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
+
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::map<std::string, cudf::io::schema_element> const& schema,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  return {};
+  auto const json_paths = convert_schema_to_paths(schema);
+  return get_json_object(input, json_paths, -1L, -1, stream, mr);
 }
 
 }  // namespace detail
@@ -395,4 +418,3 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 }
 
 }  // namespace spark_rapids_jni
-}  // namespace test
