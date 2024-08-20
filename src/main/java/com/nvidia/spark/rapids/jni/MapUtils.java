@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,9 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.NativeDepsLoader;
 
+// TODO: Remove this class after the plugin picks up `JSONUtils#extractRawMapFromJsonString`.
 public class MapUtils {
-  static {
-    NativeDepsLoader.loadNativeDeps();
-  }
-
 
   /**
    * Extract key-value pairs for each output map from the given json strings. These key-value are
@@ -45,11 +40,7 @@ public class MapUtils {
    * which the key-value pairs are extracted directly from the input json strings.
    */
   public static ColumnVector extractRawMapFromJsonString(ColumnView jsonColumn) {
-    assert jsonColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(extractRawMapFromJsonString(jsonColumn.getNativeView()));
+    return JSONUtils.extractRawMapFromJsonString(jsonColumn);
   }
-
-
-  private static native long extractRawMapFromJsonString(long jsonColumnHandle);
 
 }

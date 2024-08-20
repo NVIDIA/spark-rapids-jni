@@ -191,7 +191,6 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/JSONUtilsJni.cpp
-  src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
@@ -208,9 +207,9 @@ add_library(
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/from_json_to_raw_map.cu
   src/get_json_object.cu
   src/histogram.cu
-  src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu

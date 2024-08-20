@@ -15,6 +15,7 @@
  */
 
 #include "cudf_jni_apis.hpp"
+#include "from_json.hpp"
 #include "get_json_object.hpp"
 
 #include <cudf/strings/strings_column_view.hpp>
@@ -136,6 +137,20 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
       return cudf::jni::release_as_jlong(col);
     });
     return out_handles.get_jArray();
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMapFromJsonString(
+  JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
   }
   CATCH_STD(env, 0);
 }
