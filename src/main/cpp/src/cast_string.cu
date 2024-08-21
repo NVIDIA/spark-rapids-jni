@@ -246,9 +246,8 @@ CUDF_KERNEL void string_to_integer_kernel(T* out,
 }
 
 template <typename T>
-__device__ cuda::std::optional<thrust::tuple<bool, int, int>> validate_and_exponent(const char* chars,
-                                                                                    const int len,
-                                                                                    bool strip)
+__device__ cuda::std::optional<thrust::tuple<bool, int, int>> validate_and_exponent(
+  const char* chars, const int len, bool strip)
 {
   T exponent_val         = 0;
   int i                  = 0;
