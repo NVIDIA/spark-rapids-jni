@@ -43,6 +43,7 @@
 #include <thrust/tuple.h>
 
 #include <numeric>
+#include <unordered_set>
 
 namespace spark_rapids_jni {
 
@@ -407,10 +408,12 @@ convert_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_elem
   return paths;
 }
 
+// Extern
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
+  std::unordered_set<std::size_t> const& keep_quotes,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
@@ -423,6 +426,8 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  std::unordered_set<std::size_t> keep_quotes;
+
   printf("line %d\n", __LINE__);
   fflush(stdout);
   auto const json_paths = convert_schema_to_paths(schema);
@@ -442,7 +447,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   fflush(stdout);
 #endif
 
-  auto tmp = get_json_object(input, json_paths, -1L, -1, true, stream, mr);
+  auto tmp = get_json_object(input, json_paths, keep_quotes, -1L, -1, true, stream, mr);
   printf("line %d\n", __LINE__);
   fflush(stdout);
 

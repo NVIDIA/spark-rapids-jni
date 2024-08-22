@@ -42,6 +42,7 @@
 #include <thrust/tuple.h>
 
 #include <numeric>
+#include <unordered_set>
 
 namespace spark_rapids_jni {
 
@@ -802,6 +803,7 @@ struct json_path_processing_data {
   thrust::pair<char const*, cudf::size_type>* out_stringviews;
   char* out_buf;
   int8_t* has_out_of_bound;
+  bool keep_quote;
 };
 
 /**
@@ -1024,6 +1026,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::detail::input_offsetalator const& in_offsets,
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
+  std::unordered_set<std::size_t> const& keep_quotes,
   int64_t scratch_size,
   bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
@@ -1061,7 +1064,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                                        in_offsets,
                                                        out_stringviews.back().data(),
                                                        scratch_buffers.back().data(),
-                                                       d_error_check.data() + idx});
+                                                       d_error_check.data() + idx,
+                                                       keep_quotes.find(idx) != keep_quotes.end()});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
@@ -1124,7 +1128,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                     out_offsets_and_sizes.back().first->view()),
                                   nullptr /*out_stringviews*/,
                                   out_char_buffers.back().data(),
-                                  d_error_check.data() + idx});
+                                  d_error_check.data() + idx,
+                                  keep_quotes.find(idx) != keep_quotes.end()});
     } else {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
@@ -1159,10 +1164,12 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   return output;
 }
 
+// TODO: update docs for keep_quotes
 std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
+  std::unordered_set<std::size_t> const& keep_quotes,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
@@ -1224,8 +1231,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
         budget += scratch_size;
       }
     }
-    auto tmp = get_json_object_batch(
-      *d_input_ptr, in_offsets, batch, scratch_size, allow_leading_zero_numbers, stream, mr);
+    auto tmp = get_json_object_batch(*d_input_ptr,
+                                     in_offsets,
+                                     batch,
+                                     keep_quotes,
+                                     scratch_size,
+                                     allow_leading_zero_numbers,
+                                     stream,
+                                     mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
       std::size_t out_i = output_ids[i];
       output[out_i]     = std::move(tmp[i]);
@@ -1245,9 +1258,9 @@ std::unique_ptr<cudf::column> get_json_object(
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return std::move(
-    detail::get_json_object(input, {instructions}, -1, -1, allow_leading_zero_numbers, stream, mr)
-      .front());
+  return std::move(detail::get_json_object(
+                     input, {instructions}, {}, -1, -1, allow_leading_zero_numbers, stream, mr)
+                     .front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
@@ -1263,6 +1276,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   CUDF_FUNC_RANGE();
   return detail::get_json_object(input,
                                  json_paths,
+                                 {},
                                  memory_budget_bytes,
                                  parallel_override,
                                  allow_leading_zero_numbers,
