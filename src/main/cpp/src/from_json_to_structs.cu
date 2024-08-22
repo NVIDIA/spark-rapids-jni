@@ -396,7 +396,7 @@ void travel_path(
 }
 
 std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>
-convert_schema_to_paths(std::map<std::string, cudf::io::schema_element> const& schema)
+convert_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> current_path;
@@ -413,24 +413,47 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr);
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::map<std::string, cudf::io::schema_element> const& schema,
+  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  printf("line %d\n", __LINE__);
+  fflush(stdout);
   auto const json_paths = convert_schema_to_paths(schema);
-  return get_json_object(input, json_paths, -1L, -1, stream, mr);
+
+  printf("line %d\n", __LINE__);
+  fflush(stdout);
+
+#if 1
+  for (auto const& path : json_paths) {
+    printf("\n\npath: \n");
+    for (auto node : path) {
+      printf(".%s", std::get<1>(node).c_str());
+    }
+    printf("\n");
+  }
+  printf("\n\n");
+  fflush(stdout);
+#endif
+
+  auto tmp = get_json_object(input, json_paths, -1L, -1, true, stream, mr);
+  printf("line %d\n", __LINE__);
+  fflush(stdout);
+
+  return tmp;
 }
 
 }  // namespace detail
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::map<std::string, cudf::io::schema_element> const& schema,
+  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {

@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class GetJsonObjectTest {
@@ -788,4 +789,22 @@ public class GetJsonObjectTest {
   private JSONUtils.PathInstructionJni indexPath(int index) {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.INDEX, "", index);
   }
+
+
+  /**
+   * This test is when an exception is thrown due to the input JSON path being too long.
+   */
+  @Test
+  void testFromJSON() {
+    ai.rapids.cudf.Schema schema = ai.rapids.cudf.Schema.builder()
+        .column(ai.rapids.cudf.DType.STRING, "a")
+        .build();
+    try (ColumnVector input = ColumnVector.fromStrings("{'a': '1', 'b': '2'}");
+         ai.rapids.cudf.Table expected =
+             new ai.rapids.cudf.Table.TestBuilder().column("1").build();
+         ai.rapids.cudf.Table actual = JSONUtils.fromJsonToStructs(input, schema)) {
+      assertTablesAreEqual(expected, actual);
+    }
+  }
+
 }

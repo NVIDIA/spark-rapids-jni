@@ -19,6 +19,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/debug_utilities.hpp>
 
 #include <rmm/exec_policy.hpp>
 
@@ -26,5 +27,21 @@ class FromJsonTest : public cudf::test::BaseFixture {};
 
 TEST_F(FromJsonTest, Initialization)
 {
-  //
+  // The last row is invalid (has an extra quote).
+  auto const json_string =
+    cudf::test::strings_column_wrapper{R"({'a': 4478, "b": 'HIMST', "c": 1276})"};
+
+  std::vector<std::pair<std::string, cudf::io::schema_element>> schema{
+    {"c", {cudf::data_type{cudf::type_id::INT32}}},
+    {"a", {cudf::data_type{cudf::type_id::STRING}}},
+  };
+
+  auto const output =
+    spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{json_string}, schema);
+
+  cudf::test::print(json_string);
+
+  for (auto const& col : output) {
+    cudf::test::print(col->view());
+  }
 }

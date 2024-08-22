@@ -204,6 +204,7 @@ class char_range_reader {
  *   1e-5, 1E+5, 1e0, 1E0, 1.3e5
  *   1e01 : allow leading zeor after 'e'
  *
+ * TODO: update this
  * Invalid number examples:
  *   00, -00   Leading zeroes not allowed
  *   infinity, +infinity, -infinity
@@ -220,7 +221,11 @@ class char_range_reader {
 class json_parser {
  public:
   __device__ inline explicit json_parser(char_range _chars)
-    : chars(_chars), curr_pos(0), current_token(json_token::INIT), max_depth_exceeded(false)
+    : chars(_chars),
+      curr_pos(0),
+      current_token(json_token::INIT),
+      max_depth_exceeded(false),
+      allow_leading_zero_numbers{false}
   {
   }
 
@@ -1071,9 +1076,14 @@ class json_parser {
         // check leading zeros
         if (!eof()) {
           char const next_char_after_zero = chars[curr_pos];
+          // TODO: check if the current char is `.` instead of non-numeric.
           if (next_char_after_zero >= '0' && next_char_after_zero <= '9') {
             // e.g.: 01 is invalid
-            return false;
+            if (!allow_leading_zero_numbers) {
+              return false;
+            } else {
+              number_digits_length += skip_zero_or_more_digits();
+            }
           }
         }
 
@@ -1415,6 +1425,7 @@ class json_parser {
         char_range_reader reader(current_range());
         return write_string(reader, destination, escape_style::UNESCAPED);
       }
+        // change here
       case json_token::VALUE_NUMBER_INT:
         if (number_token_len == 2 && chars[current_token_start_pos] == '-' &&
             chars[current_token_start_pos + 1] == '0') {
@@ -1686,6 +1697,11 @@ class json_parser {
 
   __device__ inline bool max_nesting_depth_exceeded() const { return max_depth_exceeded; }
 
+  __device__ inline void set_allow_leading_zero_numbers(bool state)
+  {
+    allow_leading_zero_numbers = state;
+  }
+
  private:
   char_range const chars;
   cudf::size_type curr_pos;
@@ -1708,6 +1724,9 @@ class json_parser {
 
   // Error check if the maximum nesting depth has been reached.
   bool max_depth_exceeded;
+
+  // Whether allow to have leading zero in numbers.
+  bool allow_leading_zero_numbers;
 };
 
 }  // namespace spark_rapids_jni

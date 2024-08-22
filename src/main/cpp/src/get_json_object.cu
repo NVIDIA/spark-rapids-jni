@@ -827,6 +827,7 @@ template <int block_size, int min_block_per_sm>
 __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
+                              bool allow_leading_zero_numbers,
                               std::size_t num_threads_per_row,
                               int8_t* max_path_depth_exceeded)
 {
@@ -845,6 +846,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   auto const str = input.element<cudf::string_view>(row_idx);
   if (str.size_bytes() > 0) {
     json_parser p{char_range{str}};
+    p.set_allow_leading_zero_numbers(allow_leading_zero_numbers);
     thrust::tie(is_valid, out_size) =
       evaluate_path(p, path.path_commands, dst, max_path_depth_exceeded);
 
@@ -874,6 +876,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 struct kernel_launcher {
   static void exec(cudf::column_device_view const& input,
                    cudf::device_span<json_path_processing_data> path_data,
+                   bool allow_leading_zero_numbers,
                    int8_t* max_path_depth_exceeded,
                    rmm::cuda_stream_view stream)
   {
@@ -891,7 +894,7 @@ struct kernel_launcher {
                                                              static_cast<std::size_t>(block_size));
     get_json_object_kernel<block_size, min_block_per_sm>
       <<<num_blocks, block_size, 0, stream.value()>>>(
-        input, path_data, num_threads_per_row, max_path_depth_exceeded);
+        input, path_data, allow_leading_zero_numbers, num_threads_per_row, max_path_depth_exceeded);
   }
 };
 
@@ -1022,6 +1025,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
   int64_t scratch_size,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1064,7 +1068,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
-  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(
+    input, d_path_data, allow_leading_zero_numbers, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
@@ -1133,7 +1138,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
-  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(
+    input, d_path_data, allow_leading_zero_numbers, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
@@ -1159,6 +1165,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1217,7 +1224,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
         budget += scratch_size;
       }
     }
-    auto tmp = get_json_object_batch(*d_input_ptr, in_offsets, batch, scratch_size, stream, mr);
+    auto tmp = get_json_object_batch(
+      *d_input_ptr, in_offsets, batch, scratch_size, allow_leading_zero_numbers, stream, mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
       std::size_t out_i = output_ids[i];
       output[out_i]     = std::move(tmp[i]);
@@ -1232,11 +1240,14 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return std::move(detail::get_json_object(input, {instructions}, -1, -1, stream, mr).front());
+  return std::move(
+    detail::get_json_object(input, {instructions}, -1, -1, allow_leading_zero_numbers, stream, mr)
+      .front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
@@ -1245,12 +1256,18 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
     json_paths,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::get_json_object(
-    input, json_paths, memory_budget_bytes, parallel_override, stream, mr);
+  return detail::get_json_object(input,
+                                 json_paths,
+                                 memory_budget_bytes,
+                                 parallel_override,
+                                 allow_leading_zero_numbers,
+                                 stream,
+                                 mr);
 }
 
 }  // namespace spark_rapids_jni

@@ -46,7 +46,7 @@ endfunction(ConfigureTest)
 ###################################################################################################
 
 ConfigureTest(FROM_JSON
-    /home/nghiat/Devel/jni/1/src/main/cpp/src/from_json_to_structs.cu
+#    /home/nghiat/Devel/jni/1/src/main/cpp/src/from_json_to_structs.cu
     from_json.cu)
 
 ConfigureTest(CAST_STRING

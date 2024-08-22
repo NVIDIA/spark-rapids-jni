@@ -28,29 +28,46 @@ using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 namespace cudf::jni {
 cudf::io::schema_element read_schema_element(int& index,
-                                             cudf::jni::native_jintArray const& children,
                                              cudf::jni::native_jstringArray const& names,
+                                             cudf::jni::native_jintArray const& children,
                                              cudf::jni::native_jintArray const& types,
                                              cudf::jni::native_jintArray const& scales)
 {
+  printf("JNI line %d\n", __LINE__);
+  fflush(stdout);
+
   auto d_type = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
   if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
+    printf("JNI line %d\n", __LINE__);
+    fflush(stdout);
+
     std::map<std::string, cudf::io::schema_element> child_elems;
     int num_children = children[index];
     // go to the next entry, so recursion can parse it.
     index++;
     for (int i = 0; i < num_children; i++) {
-      child_elems.insert(
-        std::pair{names.get(index).get(),
-                  cudf::jni::read_schema_element(index, children, names, types, scales)});
+      printf("JNI line %d\n", __LINE__);
+      fflush(stdout);
+
+      auto const name = std::string{names.get(index).get()};
+      child_elems.emplace(name,
+                          cudf::jni::read_schema_element(index, names, children, types, scales));
     }
     return cudf::io::schema_element{d_type, std::move(child_elems)};
   } else {
+    printf("JNI line %d\n", __LINE__);
+
+    printf("children size: %d, idx = %d\n", children.size(), index);
+
+    fflush(stdout);
+
     if (children[index] != 0) {
       throw std::invalid_argument("found children for a type that should have none");
     }
     // go to the next entry before returning...
     index++;
+    printf("JNI line %d\n", __LINE__);
+    fflush(stdout);
     return cudf::io::schema_element{d_type, {}};
   }
 }
@@ -187,19 +204,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
   CATCH_STD(env, 0);
 }
 
-#if 0
 JNIEXPORT jlongArray JNICALL
 Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
                                                              jclass,
                                                              jlong j_input,
-                                                             jintArray j_num_children,
                                                              jobjectArray j_col_names,
+                                                             jintArray j_num_children,
                                                              jintArray j_types,
                                                              jintArray j_scales)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
   JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
   JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
   JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
 
@@ -220,17 +236,37 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
       JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and num children must match size", 0);
     }
 
-    std::map<std::string, cudf::io::schema_element> schema;
-    int at = 0;
-    while (at < n_types.size()) {
-      schema.emplace(
-        n_col_names.get(at).get(),
-        cudf::jni::read_schema_element(at, n_children, n_col_names, n_types, n_scales));
+    printf("JNI line %d, size = %d\n", __LINE__, (int)n_types.size());
+    fflush(stdout);
+
+    std::vector<std::pair<std::string, cudf::io::schema_element>> schema;
+    int idx = 0;
+    while (idx < n_types.size()) {
+      printf("JNI line %d\n", __LINE__);
+      fflush(stdout);
+
+      auto const name = std::string{n_col_names.get(idx).get()};
+      schema.emplace_back(
+        name, cudf::jni::read_schema_element(idx, n_col_names, n_children, n_types, n_scales));
+
+      // auto const name = n_col_names.get(at).get();
+      printf("JNI line %d\n", __LINE__);
+      fflush(stdout);
+
+      // auto child = cudf::jni::read_schema_element(at, n_children, n_col_names, n_types,
+      // n_scales); printf("JNI line %d\n", __LINE__); fflush(stdout);
+
+      // schema.emplace(name, std::move(child));
     }
+    printf("JNI line %d\n", __LINE__);
+    fflush(stdout);
 
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     auto output =
       spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv}, schema);
+
+    printf("JNI line %d\n", __LINE__);
+    fflush(stdout);
 
     auto out_handles = cudf::jni::native_jlongArray(env, output.size());
     std::transform(output.begin(), output.end(), out_handles.begin(), [](auto& col) {
@@ -240,5 +276,4 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
-#endif
 }
