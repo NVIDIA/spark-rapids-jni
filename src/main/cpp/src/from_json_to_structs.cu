@@ -382,30 +382,39 @@ std::unique_ptr<cudf::column> from_json_to_struct_bk(cudf::strings_column_view c
 void travel_path(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& paths,
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& current_path,
+  std::unordered_set<std::size_t>& keep_quotes,
   std::string const& name,
   cudf::io::schema_element const& column_schema)
 {
   current_path.emplace_back(path_instruction_type::NAMED, name, -1);
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
-    paths.push_back(current_path);              // this will copy
+    if (column_schema.type.id() == cudf::type_id::DECIMAL32 ||
+        column_schema.type.id() == cudf::type_id::DECIMAL64 ||
+        column_schema.type.id() == cudf::type_id::DECIMAL128) {
+      keep_quotes.insert(paths.size());
+    }
+    paths.push_back(current_path);  // this will copy
   } else {
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      travel_path(paths, current_path, child_name, child_schema);
+      travel_path(paths, current_path, keep_quotes, child_name, child_schema);
     }
   }
   current_path.pop_back();
 }
 
-std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>
+std::pair<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
+          std::unordered_set<std::size_t>>
 convert_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
+  std::unordered_set<std::size_t> keep_quotes;
+
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> current_path;
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    travel_path(paths, current_path, kv.first, kv.second);
+    travel_path(paths, current_path, keep_quotes, kv.first, kv.second);
   });
 
-  return paths;
+  return {std::move(paths), std::move(keep_quotes)};
 }
 
 // Extern
@@ -426,11 +435,9 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  std::unordered_set<std::size_t> keep_quotes;
-
   printf("line %d\n", __LINE__);
   fflush(stdout);
-  auto const json_paths = convert_schema_to_paths(schema);
+  auto const [json_paths, keep_quotes] = convert_schema_to_paths(schema);
 
   printf("line %d\n", __LINE__);
   fflush(stdout);
@@ -443,7 +450,12 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
     }
     printf("\n");
   }
-  printf("\n\n");
+
+  printf("keep quotes: \n");
+  for (auto const i : keep_quotes) {
+    printf("%d, ", (int)i);
+  }
+  printf("\n\n\n");
   fflush(stdout);
 #endif
 

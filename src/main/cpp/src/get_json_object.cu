@@ -803,7 +803,7 @@ struct json_path_processing_data {
   thrust::pair<char const*, cudf::size_type>* out_stringviews;
   char* out_buf;
   int8_t* has_out_of_bound;
-  bool keep_quote;
+  bool keep_quotes;
 };
 
 /**
