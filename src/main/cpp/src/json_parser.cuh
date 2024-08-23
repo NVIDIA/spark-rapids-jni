@@ -95,6 +95,9 @@ enum class json_token : int8_t {
   // e.g.: 1.25 in {"key1" : 1.25}
   VALUE_NUMBER_FLOAT,
 
+  // One from case sensitive of {"NaN", "+INF", "-INF", "+Infinity", "Infinity", "-Infinity"}
+  VALUE_NON_NUMERIC_FLOAT,
+
   // e.g.: true in {"key1" : true}
   VALUE_TRUE,
 
@@ -1018,7 +1021,43 @@ class json_parser {
    */
   __device__ inline void parse_number_and_set_current()
   {
-    // parse sign
+    if (allow_non_numeric_numbers && (curr_pos + 2) < chars.size()) {
+      // Check for NaN only, no any `+` or `-` sign.
+      if (chars[curr_pos] == 'N' && chars[curr_pos + 1] == 'a' && chars[curr_pos + 2] == 'N') {
+        current_token = json_token::VALUE_NON_NUMERIC_FLOAT;
+        curr_pos += 3;
+        number_token_len = curr_pos - current_token_start_pos;
+        // printf("parser line %d\n", __LINE__);
+        return;
+      }
+
+      auto const matched_sign = chars[curr_pos] == '-' || chars[curr_pos] == '+';
+      if (matched_sign) { ++curr_pos; }
+
+      if ((curr_pos + 2) < chars.size() && chars[curr_pos] == 'I' && chars[curr_pos + 1] == 'N' &&
+          chars[curr_pos + 2] == 'F') {
+        current_token = json_token::VALUE_NON_NUMERIC_FLOAT;
+        curr_pos += 3;
+        number_token_len = curr_pos - current_token_start_pos;
+        // printf("parser line %d\n", __LINE__);
+
+        return;
+      }
+      if ((curr_pos + 7) < chars.size() && chars[curr_pos] == 'I' && chars[curr_pos + 1] == 'n' &&
+          chars[curr_pos + 2] == 'f' && chars[curr_pos + 3] == 'i' && chars[curr_pos + 4] == 'n' &&
+          chars[curr_pos + 5] == 'i' && chars[curr_pos + 6] == 't' && chars[curr_pos + 7] == 'y') {
+        current_token = json_token::VALUE_NON_NUMERIC_FLOAT;
+        curr_pos += 8;
+        number_token_len = curr_pos - current_token_start_pos;
+
+        // printf("parser line %d\n", __LINE__);
+        return;
+      }
+
+      // Restore to the original position to parse again as a regular number.
+      if (matched_sign) { --curr_pos; }
+    }
+
     try_skip(curr_pos, '-');
 
     // parse unsigned number
@@ -1448,6 +1487,14 @@ class json_parser {
           cudf::strings::detail::stod(chars.slice_sv(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
       }
+      case json_token::VALUE_NON_NUMERIC_FLOAT: {
+        if (nullptr != destination) {
+          for (cudf::size_type i = 0; i < number_token_len; ++i) {
+            *destination++ = chars[current_token_start_pos + i];
+          }
+        }
+        return number_token_len;
+      }
       case json_token::VALUE_TRUE:
         if (nullptr != destination) {
           *destination++ = 't';
@@ -1509,6 +1556,8 @@ class json_parser {
    */
   __device__ cudf::size_type write_escaped_text(char* destination) const
   {
+    // printf("parser line %d\n", __LINE__);
+
     switch (current_token) {
       case json_token::VALUE_STRING: {
         // can not copy from JSON directly due to escaped chars
@@ -1533,6 +1582,17 @@ class json_parser {
         double d_value =
           cudf::strings::detail::stod(chars.slice_sv(current_token_start_pos, number_token_len));
         return spark_rapids_jni::ftos_converter::double_normalization(d_value, destination);
+      }
+      case json_token::VALUE_NON_NUMERIC_FLOAT: {
+        if (nullptr != destination) {
+          // printf("parser line %d\n", __LINE__);
+
+          for (cudf::size_type i = 0; i < number_token_len; ++i) {
+            *destination++ = chars[current_token_start_pos + i];
+          }
+        }
+        // printf("parser line %d\n", __LINE__);
+        return number_token_len;
       }
       case json_token::VALUE_TRUE:
         if (nullptr != destination) {
@@ -1617,6 +1677,8 @@ class json_parser {
    */
   __device__ thrust::pair<bool, size_t> copy_current_structure(char* copy_to)
   {
+    // printf("parser line %d\n", __LINE__);
+
     switch (current_token) {
       case json_token::INIT:
       case json_token::ERROR:
@@ -1626,12 +1688,15 @@ class json_parser {
       case json_token::END_OBJECT: return thrust::make_pair(false, 0);
       case json_token::VALUE_NUMBER_INT:
       case json_token::VALUE_NUMBER_FLOAT:
+      case json_token::VALUE_NON_NUMERIC_FLOAT:
       case json_token::VALUE_STRING:
       case json_token::VALUE_TRUE:
       case json_token::VALUE_FALSE:
       case json_token::VALUE_NULL:
         // copy terminal token
         if (nullptr != copy_to) {
+          // printf("parser line %d\n", __LINE__);
+
           size_t copy_len = write_escaped_text(copy_to);
           return thrust::make_pair(true, copy_len);
         } else {
@@ -1702,6 +1767,11 @@ class json_parser {
     allow_leading_zero_numbers = state;
   }
 
+  __device__ inline void set_allow_non_numeric_numbers(bool state)
+  {
+    allow_non_numeric_numbers = state;
+  }
+
  private:
   char_range const chars;
   cudf::size_type curr_pos;
@@ -1727,6 +1797,9 @@ class json_parser {
 
   // Whether allow to have leading zero in numbers.
   bool allow_leading_zero_numbers;
+
+  // TODO
+  bool allow_non_numeric_numbers;
 };
 
 }  // namespace spark_rapids_jni

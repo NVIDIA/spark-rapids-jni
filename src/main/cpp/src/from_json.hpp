@@ -38,6 +38,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
   bool allow_leading_zero_numbers,
+  bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

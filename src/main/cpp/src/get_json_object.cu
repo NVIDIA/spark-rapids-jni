@@ -149,6 +149,8 @@ class json_generator {
 
     if (array_depth > 0) { is_curr_array_empty = false; }
 
+    // printf("parser line %d\n", __LINE__);
+
     auto [b, copy_len] = parser.copy_current_structure(out_begin + offset + output_len);
     output_len += copy_len;
     return b;
@@ -464,6 +466,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
+        // printf("get obj line %d\n", __LINE__);
+
         // general case: just copy the child tree verbatim
         if (!(ctx.g.copy_current_structure(p, out_buf))) {
           // JSON validation check
@@ -713,6 +717,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case _ =>
       // case path 12
       else {
+        // printf("get obj line %d\n", __LINE__);
+
         if (!p.try_skip_children()) { return {false, 0}; }
         // default case path, return false for this task
         ctx.dirty        = 0;
@@ -829,6 +835,7 @@ struct json_path_processing_data {
  * and we want to avoid spilling all the time or else the performance is really bad. This
  * essentially tells NVCC to prefer using lots of registers over spilling.
  *
+ * TODO update
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
  * @param num_threads_per_row Number of threads processing each input row
@@ -840,6 +847,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
                               bool allow_leading_zero_numbers,
+                              bool allow_non_numeric_numbers,
                               std::size_t num_threads_per_row,
                               int8_t* max_path_depth_exceeded)
 {
@@ -859,6 +867,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   if (str.size_bytes() > 0) {
     json_parser p{char_range{str}};
     p.set_allow_leading_zero_numbers(allow_leading_zero_numbers);
+    p.set_allow_non_numeric_numbers(allow_non_numeric_numbers);
     thrust::tie(is_valid, out_size) =
       evaluate_path(p, path.path_commands, path.keep_quotes, dst, max_path_depth_exceeded);
 
@@ -889,6 +898,7 @@ struct kernel_launcher {
   static void exec(cudf::column_device_view const& input,
                    cudf::device_span<json_path_processing_data> path_data,
                    bool allow_leading_zero_numbers,
+                   bool allow_non_numeric_numbers,
                    int8_t* max_path_depth_exceeded,
                    rmm::cuda_stream_view stream)
   {
@@ -905,8 +915,12 @@ struct kernel_launcher {
     auto const num_blocks = cudf::util::div_rounding_up_safe(num_threads_per_row * input.size(),
                                                              static_cast<std::size_t>(block_size));
     get_json_object_kernel<block_size, min_block_per_sm>
-      <<<num_blocks, block_size, 0, stream.value()>>>(
-        input, path_data, allow_leading_zero_numbers, num_threads_per_row, max_path_depth_exceeded);
+      <<<num_blocks, block_size, 0, stream.value()>>>(input,
+                                                      path_data,
+                                                      allow_leading_zero_numbers,
+                                                      allow_non_numeric_numbers,
+                                                      num_threads_per_row,
+                                                      max_path_depth_exceeded);
   }
 };
 
@@ -1040,6 +1054,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::unordered_set<std::size_t> const& keep_quotes,
   int64_t scratch_size,
   bool allow_leading_zero_numbers,
+  bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1089,8 +1104,12 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
-  kernel_launcher::exec(
-    input, d_path_data, allow_leading_zero_numbers, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(input,
+                        d_path_data,
+                        allow_leading_zero_numbers,
+                        allow_non_numeric_numbers,
+                        d_max_path_depth_exceeded,
+                        stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
@@ -1160,8 +1179,12 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
-  kernel_launcher::exec(
-    input, d_path_data, allow_leading_zero_numbers, d_max_path_depth_exceeded, stream);
+  kernel_launcher::exec(input,
+                        d_path_data,
+                        allow_leading_zero_numbers,
+                        allow_non_numeric_numbers,
+                        d_max_path_depth_exceeded,
+                        stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
@@ -1190,6 +1213,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
+  bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1255,6 +1279,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                      keep_quotes,
                                      scratch_size,
                                      allow_leading_zero_numbers,
+                                     allow_non_numeric_numbers,
                                      stream,
                                      mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
@@ -1272,12 +1297,20 @@ std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
   bool allow_leading_zero_numbers,
+  bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return std::move(detail::get_json_object(
-                     input, {instructions}, {}, -1, -1, allow_leading_zero_numbers, stream, mr)
+  return std::move(detail::get_json_object(input,
+                                           {instructions},
+                                           {},
+                                           -1,
+                                           -1,
+                                           allow_leading_zero_numbers,
+                                           allow_non_numeric_numbers,
+                                           stream,
+                                           mr)
                      .front());
 }
 
@@ -1288,6 +1321,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
+  bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1298,6 +1332,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
                                  memory_budget_bytes,
                                  parallel_override,
                                  allow_leading_zero_numbers,
+                                 allow_non_numeric_numbers,
                                  stream,
                                  mr);
 }
