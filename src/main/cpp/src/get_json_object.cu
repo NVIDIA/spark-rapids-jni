@@ -1036,6 +1036,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::detail::input_offsetalator const& in_offsets,
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
+  std::vector<std::size_t> const& output_ids,
   std::unordered_set<std::size_t> const& keep_quotes,
   int64_t scratch_size,
   bool allow_leading_zero_numbers,
@@ -1070,12 +1071,18 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
 
-    h_path_data.emplace_back(json_path_processing_data{d_json_paths[idx],
-                                                       in_offsets,
-                                                       out_stringviews.back().data(),
-                                                       scratch_buffers.back().data(),
-                                                       d_error_check.data() + idx,
-                                                       keep_quotes.find(idx) != keep_quotes.end()});
+    printf("idx: %d, output_ids[idx]: %d\n", (int)idx, (int)output_ids[idx]);
+    printf("keep_quotes.find(output_ids[idx]) != keep_quotes.end(): %d\n",
+           (int)(keep_quotes.find(output_ids[idx]) != keep_quotes.end()));
+    fflush(stdout);
+
+    h_path_data.emplace_back(
+      json_path_processing_data{d_json_paths[idx],
+                                in_offsets,
+                                out_stringviews.back().data(),
+                                scratch_buffers.back().data(),
+                                d_error_check.data() + idx,
+                                keep_quotes.find(output_ids[idx]) != keep_quotes.end()});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
@@ -1139,7 +1146,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                   nullptr /*out_stringviews*/,
                                   out_char_buffers.back().data(),
                                   d_error_check.data() + idx,
-                                  keep_quotes.find(idx) != keep_quotes.end()});
+                                  keep_quotes.find(output_ids[idx]) != keep_quotes.end()});
     } else {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
@@ -1244,6 +1251,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     auto tmp = get_json_object_batch(*d_input_ptr,
                                      in_offsets,
                                      batch,
+                                     output_ids,
                                      keep_quotes,
                                      scratch_size,
                                      allow_leading_zero_numbers,
