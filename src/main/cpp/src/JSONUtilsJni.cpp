@@ -211,7 +211,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
                                                              jobjectArray j_col_names,
                                                              jintArray j_num_children,
                                                              jintArray j_types,
-                                                             jintArray j_scales)
+                                                             jintArray j_scales,
+                                                             jboolean allow_leading_zero_numbers)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
   JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
@@ -262,8 +263,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
     fflush(stdout);
 
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
-    auto output =
-      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv}, schema);
+    auto output         = spark_rapids_jni::from_json_to_structs(
+      cudf::strings_column_view{*input_cv}, schema, allow_leading_zero_numbers);
 
     printf("JNI line %d\n", __LINE__);
     fflush(stdout);

@@ -37,7 +37,7 @@ TEST_F(FromJsonTest, Initialization)
   };
 
   auto const output =
-    spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{json_string}, schema);
+    spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{json_string}, schema, false);
 
   cudf::test::print(json_string);
 

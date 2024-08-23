@@ -167,11 +167,13 @@ public class JSONUtils {
    * @param schema
    * @return
    */
-  public static Table fromJsonToStructs(ColumnView input, Schema schema) {
+  public static Table fromJsonToStructs(ColumnView input, Schema schema,
+                                        boolean allowNumericLeadingZeros) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new Table(fromJsonToStructs(input.getNativeView(),
         schema.getFlattenedColumnNames(), schema.getFlattenedNumChildren(),
-        schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales()));
+        schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales(),
+        allowNumericLeadingZeros));
   }
 
   private static native int getMaxJSONPathDepth();
@@ -193,5 +195,8 @@ public class JSONUtils {
   private static native long extractRawMapFromJsonString(long input);
 
   private static native long[] fromJsonToStructs(long input, String[] columnNames,
-                                                 int[] numChildren, int[] dTypeIds, int[] dTypeScales);
+                                                 int[] numChildren,
+                                                 int[] dTypeIds,
+                                                 int[] dTypeScales,
+                                                 boolean allowNumericLeadingZeros);
 }

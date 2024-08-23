@@ -802,7 +802,7 @@ public class GetJsonObjectTest {
     try (ColumnVector input = ColumnVector.fromStrings("{'a': '1', 'b': '2'}");
          ai.rapids.cudf.Table expected =
              new ai.rapids.cudf.Table.TestBuilder().column("1").build();
-         ai.rapids.cudf.Table actual = JSONUtils.fromJsonToStructs(input, schema)) {
+         ai.rapids.cudf.Table actual = JSONUtils.fromJsonToStructs(input, schema, false)) {
       assertTablesAreEqual(expected, actual);
     }
   }

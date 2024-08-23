@@ -154,6 +154,13 @@ class json_generator {
     return b;
   }
 
+  static __device__ cudf::size_type write_quote(char* out, bool keep_quotes)
+  {
+    if (!keep_quotes) { return 0; }
+    *out = '"';
+    return 1;
+  }
+
   /**
    * Get current text from JSON parser and then write the text
    * Note: Because JSON strings contains '\' to do escape,
@@ -161,12 +168,13 @@ class json_generator {
    * then can not return a pointer and length pair (char *, len),
    * For number token, JSON parser can return a pair (char *, len)
    */
-  __device__ void write_raw(json_parser& parser, char* out_begin)
+  __device__ void write_raw(json_parser& parser, char* out_begin, bool keep_quotes)
   {
     if (array_depth > 0) { is_curr_array_empty = false; }
 
-    auto copied = parser.write_unescaped_text(out_begin + offset + output_len);
-    output_len += copied;
+    output_len += write_quote(out_begin + offset + output_len, keep_quotes);
+    output_len += parser.write_unescaped_text(out_begin + offset + output_len);
+    output_len += write_quote(out_begin + offset + output_len, keep_quotes);
   }
 
   /**
@@ -378,6 +386,7 @@ struct context {
  *
  * @param p The JSON parser for input string
  * @param path_commands The command buffer to be applied to the string
+ * TODO: update
  * @param out_buf Buffer user to store the string resulted from the query
  * @param max_path_depth_exceeded A marker to record if the maximum path depth has been reached
  *        during parsing the input string
@@ -386,6 +395,7 @@ struct context {
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   json_parser& p,
   cudf::device_span<path_instruction const> path_commands,
+  bool keep_quotes,
   char* out_buf,
   int8_t* max_path_depth_exceeded)
 {
@@ -428,7 +438,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.style == write_style::RAW) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
-        ctx.g.write_raw(p, out_buf);
+        ctx.g.write_raw(p, out_buf, keep_quotes);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
       }
@@ -850,7 +860,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
     json_parser p{char_range{str}};
     p.set_allow_leading_zero_numbers(allow_leading_zero_numbers);
     thrust::tie(is_valid, out_size) =
-      evaluate_path(p, path.path_commands, dst, max_path_depth_exceeded);
+      evaluate_path(p, path.path_commands, path.keep_quotes, dst, max_path_depth_exceeded);
 
     // We did not terminate the `evaluate_path` function early to reduce complexity of the code.
     // Instead, if max depth was encountered, we've just continued the evaluation until here

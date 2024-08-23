@@ -391,8 +391,10 @@ void travel_path(
     if (column_schema.type.id() == cudf::type_id::DECIMAL32 ||
         column_schema.type.id() == cudf::type_id::DECIMAL64 ||
         column_schema.type.id() == cudf::type_id::DECIMAL128) {
+      // TODO: comment
       keep_quotes.insert(paths.size());
     }
+    printf("column_schema type: %d\n", static_cast<int>(column_schema.type.id()));
     paths.push_back(current_path);  // this will copy
   } else {
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
@@ -432,6 +434,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -459,7 +462,8 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   fflush(stdout);
 #endif
 
-  auto tmp = get_json_object(input, json_paths, keep_quotes, -1L, -1, true, stream, mr);
+  auto tmp = get_json_object(
+    input, json_paths, keep_quotes, -1L, -1, allow_leading_zero_numbers, stream, mr);
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
@@ -471,11 +475,12 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  bool allow_leading_zero_numbers,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::from_json_to_structs(input, schema, stream, mr);
+  return detail::from_json_to_structs(input, schema, allow_leading_zero_numbers, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
