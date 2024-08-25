@@ -32,6 +32,7 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/utilities/traits.hpp>
 
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
@@ -388,9 +389,7 @@ void travel_path(
 {
   current_path.emplace_back(path_instruction_type::NAMED, name, -1);
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
-    if (column_schema.type.id() == cudf::type_id::DECIMAL32 ||
-        column_schema.type.id() == cudf::type_id::DECIMAL64 ||
-        column_schema.type.id() == cudf::type_id::DECIMAL128) {
+    if (cudf::is_fixed_width(column_schema.type)) {
       // TODO: comment
       keep_quotes.insert(paths.size());
     }
@@ -401,12 +400,13 @@ void travel_path(
       travel_path(paths, current_path, keep_quotes, child_name, child_schema);
     }
   }
+  travel_path(paths, current_path, keep_quotes, kv.first, kv.second);
   current_path.pop_back();
 }
 
 std::pair<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
           std::unordered_set<std::size_t>>
-convert_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
+flatten_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
   std::unordered_set<std::size_t> keep_quotes;
@@ -417,6 +417,58 @@ convert_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_elem
   });
 
   return {std::move(paths), std::move(keep_quotes)};
+}
+
+void travel_path(std::vector<std::unique_ptr<cudf::column>>& output,
+                 std::vector<std::unique_ptr<cudf::column>> const& read_columns,
+                 cudf::io::schema_element const& column_schema)
+{
+  if (column_schema.child_types.size() == 0) {  // leaf of the schema
+    paths.push_back(current_path);              // this will copy
+  } else {
+    for (auto const& [child_name, child_schema] : column_schema.child_types) {
+      travel_path(paths, current_path, keep_quotes, child_name, child_schema);
+    }
+  }
+}
+
+std::vector<std::unique_ptr<cudf::column>> assemble_output(
+  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& paths,
+  std::vector<std::unique_ptr<cudf::column>>& read_columns)
+{
+  // Build a map from column name to column.
+  std::unordered_map<std::string, std::unique_ptr<cudf::column>> map_read_columns;
+  for (std::size_t idx = 0; idx < paths.size(); ++idx) {
+    map_read_columns.emplace(schema[idx].first, std::move(read_columns[idx]));
+  }
+
+  std::vector<std::unique_ptr<cudf::column>> output;
+  output.reserve(schema.size());
+  std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
+    auto const& name          = kv.first;
+    auto const& column_schema = kv.second;
+    if (column_schema.child_types.size() == 0) {
+      auto const it = map_read_columns.find(name);
+      CUDF_EXPECTS(it != map_read_columns.end() && it->second != nullptr, "TODO");
+      output.push_back(std::move(it->second));
+    } else if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      auto children       = assemble_output();
+      auto const num_rows = children.front()->size();
+      // TODO: generate null mask from input.
+      output.emplace_back(std::make_unique<column>(cudf::data_type{type_id::STRUCT},
+                                                   num_rows,
+                                                   rmm::device_buffer{},
+                                                   {},
+                                                   0,
+                                                   std::move(children)));
+    } else {
+      CUDF_FAIL("Unsupported schema type");
+      // TODO: support list
+    }
+  });
+
+  return output;
 }
 
 // Extern
@@ -442,7 +494,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 {
   printf("line %d\n", __LINE__);
   fflush(stdout);
-  auto const [json_paths, keep_quotes] = convert_schema_to_paths(schema);
+  auto const [json_paths, keep_quotes] = flatten_schema_to_paths(schema);
 
   printf("line %d\n", __LINE__);
   fflush(stdout);
