@@ -153,6 +153,11 @@ find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${CUDFJNI_BUILD_DIR}"
 )
 
+# arrow
+find_library(ARROW_LIB "libarrow.a" REQUIRED NO_DEFAULT_PATH
+  HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
+)
+
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
@@ -269,6 +274,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
 )
