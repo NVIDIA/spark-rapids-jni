@@ -52,7 +52,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8a1a1cd2f960330af54b2c27e8f0fe83e3ef3d31",
+      "git_tag" : "0b8525aca63de64ac877ed16e0f8e5582077271f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.10"
     },
@@ -68,7 +68,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "abc5095b011feccd7d3ecb36b369741b96ae6f0e",
+      "git_tag" : "d3477661d771e0d6fd22259bf6dd6f8c64a7401c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
