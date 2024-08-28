@@ -1,14 +1,6 @@
 {
   "packages" : 
   {
-    "Arrow" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "7dd1d34074af176d9e861a360e135ae57b21cf96",
-      "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "16.1.0"
-    },
     "CCCL" : 
     {
       "always_download" : true,
@@ -150,7 +142,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ebc0d2f737a2b03cf52b6aa68616f8cd77ce33e7",
+      "git_tag" : "a42d36ddd740a6d17372ef00c59de17c7ed28977",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.10"
     },
