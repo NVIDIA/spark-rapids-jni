@@ -153,28 +153,32 @@ find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${CUDFJNI_BUILD_DIR}"
 )
 
+# arrow
+find_library(ARROW_LIB "libarrow.a" REQUIRED NO_DEFAULT_PATH
+  HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
+)
+
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${CUDF_INSTALL_DIR}/lib64"
-  HINTS "${CUDF_INSTALL_DIR}/lib"
+  HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
 )
 
 # Internal parquet headers
 set (GENERATED_PARQUET_INCLUDE
-    "${CUDF_CPP_BUILD_DIR}/_deps/arrow-src/cpp/src/"
+    "${CUDFJNI_BUILD_DIR}/_deps/arrow-src/cpp/src/"
     CACHE STRING "generated parquet thrift headers"
 )
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
 )
 
 # ##################################################################################################
@@ -270,6 +274,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
 )
