@@ -24,6 +24,7 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <map>
@@ -203,6 +204,8 @@ struct task_metrics {
   // The amount of time that this thread has lost due to retries (not including blocked time)
   long time_lost_nanos = 0;
 
+  long max_memory_allocated = 0;
+
   void take_from(task_metrics& other)
   {
     add(other);
@@ -215,6 +218,7 @@ struct task_metrics {
     this->num_times_split_retry_throw += other.num_times_split_retry_throw;
     this->time_blocked_nanos += other.time_blocked_nanos;
     this->time_lost_nanos += other.time_lost_nanos;
+    this->max_memory_allocated = std::max(this->max_memory_allocated, other.max_memory_allocated);
   }
 
   void clear()
@@ -295,6 +299,8 @@ class full_thread_state {
   // time)
   long time_retry_running_nanos = 0;
   std::chrono::time_point<std::chrono::steady_clock> block_start;
+  long memory_allocated_bytes = 0;
+
   // metrics for the current thread
   task_metrics metrics;
 
@@ -799,6 +805,10 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return get_and_reset_metric(task_id, &task_metrics::time_lost_nanos);
   }
 
+  long get_and_reset_max_memory_allocated(long const task_id) {
+    return get_and_reset_metric(task_id, &task_metrics::max_memory_allocated);
+  }
+
   void check_and_break_deadlocks()
   {
     std::unique_lock<std::mutex> lock(state_mutex);
@@ -823,7 +833,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // blocking is not used yet. It could be used for some debugging so we are keeping it.
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const thread_id = static_cast<long>(pthread_self());
-    post_alloc_success_core(thread_id, true, was_recursive, lock);
+    post_alloc_success_core(thread_id, true, was_recursive, amount, lock);
   }
 
   bool cpu_postalloc_failed(bool const was_oom, bool const blocking, bool const was_recursive)
@@ -838,7 +848,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // addr is not used yet, but is here in case we want it in the future.
     // amount is not used yet, but is here in case we want it for debugging/metrics.
     std::unique_lock<std::mutex> lock(state_mutex);
-    dealloc_core(true, lock);
+    dealloc_core(true, lock, amount);
   }
 
   /**
@@ -1333,18 +1343,20 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * `likely_spill` if this allocation should be treated differently, because
    * we detected recursion while handling a prior allocation in this thread.
    */
-  void post_alloc_success(long const thread_id, bool const likely_spill)
+  void post_alloc_success(long const thread_id, bool const likely_spill, std::size_t const num_bytes)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
-    post_alloc_success_core(thread_id, false, likely_spill, lock);
+    post_alloc_success_core(thread_id, false, likely_spill, num_bytes, lock);
   }
 
   void post_alloc_success_core(long const thread_id,
                                bool const is_for_cpu,
                                bool const was_recursive,
+                               std::size_t const num_bytes,
                                std::unique_lock<std::mutex>& lock)
   {
     // pre allocate checks
+    std::cerr << "post_alloc_success_core" << std::endl;
     auto const thread = threads.find(thread_id);
     if (!was_recursive && thread != threads.end()) {
       switch (thread->second.state) {
@@ -1359,7 +1371,13 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             throw std::invalid_argument(ss.str());
           }
           transition(thread->second, thread_state::THREAD_RUNNING);
+          // TODO why do we not set this to is_for_cpu
           thread->second.is_cpu_alloc = false;
+          thread->second.memory_allocated_bytes += num_bytes;
+          thread->second.metrics.max_memory_allocated = std::max(
+            thread->second.metrics.max_memory_allocated,
+            thread->second.memory_allocated_bytes
+          );
           break;
         default: break;
       }
@@ -1735,7 +1753,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       bool const likely_spill = pre_alloc(tid);
       try {
         void* ret = resource->allocate(num_bytes, stream);
-        post_alloc_success(tid, likely_spill);
+        post_alloc_success(tid, likely_spill, num_bytes);
         return ret;
       } catch (rmm::out_of_memory const& e) {
         // rmm::out_of_memory is what is thrown when an allocation failed
@@ -1751,7 +1769,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     throw rmm::bad_alloc("Internal Error");
   }
 
-  void dealloc_core(bool const is_for_cpu, std::unique_lock<std::mutex>& lock)
+  void dealloc_core(bool const is_for_cpu, std::unique_lock<std::mutex>& lock, std::size_t const num_bytes)
   {
     auto const tid    = static_cast<long>(pthread_self());
     auto const thread = threads.find(tid);
@@ -1779,6 +1797,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (is_for_cpu == t_state.is_cpu_alloc) {
               transition(t_state, thread_state::THREAD_ALLOC_FREE);
             }
+            t_state.memory_allocated_bytes -= num_bytes;
             break;
           default: break;
         }
@@ -1793,7 +1812,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // deallocate success
     if (size > 0) {
       std::unique_lock<std::mutex> lock(state_mutex);
-      dealloc_core(false, lock);
+      dealloc_core(false, lock, size);
     }
   }
 };
@@ -2075,6 +2094,19 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetComputeTimeLost
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
     return mr->get_and_reset_lost_time(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetMaxMemoryAllocated(
+  JNIEnv* env, jclass, jlong ptr, jlong task_id)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    return mr->get_and_reset_max_memory_allocated(task_id);
   }
   CATCH_STD(env, 0)
 }

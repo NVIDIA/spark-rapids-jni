@@ -589,6 +589,18 @@ public class RmmSpark {
     }
   }
 
+  // TODO add
+  public static long getAndResetMaxMemoryAllocated(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetMaxMemoryAllocated(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
   /**
    * Called before doing an allocation on the CPU. This could throw an injected exception to help
    * with testing.
