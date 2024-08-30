@@ -299,7 +299,7 @@ then run `cuda-gdb`. You do not necessarily need to run `cuda-gdb` in Docker):
 
 ```bash
 ./build/run-in-docker
-bash-4.2$ cuda-gdb target/cmake-build/gtests/ROW_CONVERSION
+bash-4.2$ cuda-gdb target/jni/cmake-build/gtests/ROW_CONVERSION
 ```
 
 You can also use the [NVIDIA Nsight VSCode Code Integration](https://docs.nvidia.com/nsight-visual-studio-code-edition/cuda-debugger/index.html)
