@@ -35,6 +35,7 @@
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
+#include <thrust/fill.h>
 #include <thrust/find.h>
 #include <thrust/for_each.h>
 #include <thrust/functional.h>
@@ -48,6 +49,7 @@
 #include <thrust/transform_reduce.h>
 
 #include <limits>
+#include <stdexcept>
 
 namespace spark_rapids_jni {
 
@@ -718,6 +720,59 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
                                  cudf::detail::copy_bitmask(input.parent(), stream, mr),
                                  stream,
                                  mr);
+}
+
+std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
+                                                rmm::cuda_stream_view stream,
+                                                rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  auto const input_scv = cudf::strings_column_view{input};
+
+  auto constexpr num_levels = 256;
+  rmm::device_uvector<uint32_t> d_histogram(num_levels, stream);
+  thrust::fill(rmm::exec_policy(stream), d_histogram.begin(), d_histogram.end(), 0);
+  auto lower_level = std::numeric_limits<char>::min();
+  auto upper_level = std::numeric_limits<char>::max();
+
+  size_t temp_storage_bytes = 0;
+  cub::DeviceHistogram::HistogramEven(nullptr,
+                                      temp_storage_bytes,
+                                      input_scv.chars_begin(stream),
+                                      d_histogram.begin(),
+                                      num_levels,
+                                      lower_level,
+                                      upper_level,
+                                      input_scv.chars_size(stream),
+                                      stream.value());
+  rmm::device_buffer d_temp(temp_storage_bytes, stream);
+  cub::DeviceHistogram::HistogramEven(d_temp.data(),
+                                      temp_storage_bytes,
+                                      input_scv.chars_begin(stream),
+                                      d_histogram.begin(),
+                                      num_levels,
+                                      lower_level,
+                                      upper_level,
+                                      input_scv.chars_size(stream),
+                                      stream.value());
+  auto zero_level = d_histogram.begin() - lower_level;
+  auto first_non_zero_pos =
+    thrust::find(rmm::exec_policy(stream), zero_level + '\n', d_histogram.end(), 0);
+  if (first_non_zero_pos == d_histogram.end()) {
+    throw std::logic_error(
+      "can't find a character suitable as delimiter for combining json strings to json lines with "
+      "custom delimiter");
+  }
+  auto first_non_existing_char = first_non_zero_pos - zero_level;
+  auto first_char              = *thrust::device_pointer_cast(input_scv.chars_begin(stream));
+  auto all_done                = cudf::strings::detail::join_strings(
+    input_scv,
+    cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, mr),
+    cudf::string_scalar(first_char == '[' ? "[]" : "{}", true, stream, mr),
+    stream,
+    mr);
+
+  return { *(all_done->release().data.release()), first_non_existing_char }
 }
 
 }  // namespace spark_rapids_jni
