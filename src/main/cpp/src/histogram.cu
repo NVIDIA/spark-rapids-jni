@@ -191,8 +191,8 @@ struct percentile_dispatcher {
     // We may always have nulls in the output due to either:
     // - Having nulls in the input, and/or,
     // - Having empty histograms.
-    auto out_validities =
-      rmm::device_uvector<int8_t>(num_histograms, stream, rmm::mr::get_current_device_resource_ref());
+    auto out_validities = rmm::device_uvector<int8_t>(
+      num_histograms, stream, rmm::mr::get_current_device_resource_ref());
 
     auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =

@@ -1540,11 +1540,11 @@ batch_data build_batches(size_type num_rows,
     last_row_end = row_end;
   }
 
-  return {
-    std::move(batch_row_offsets),
-    make_device_uvector_async(batch_row_boundaries, stream, rmm::mr::get_current_device_resource_ref()),
-    std::move(batch_row_boundaries),
-    std::move(row_batches)};
+  return {std::move(batch_row_offsets),
+          make_device_uvector_async(
+            batch_row_boundaries, stream, rmm::mr::get_current_device_resource_ref()),
+          std::move(batch_row_boundaries),
+          std::move(row_batches)};
 }
 
 /**
@@ -1867,8 +1867,8 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   auto validity_tile_infos = detail::build_validity_tile_infos(
     tbl.num_columns(), num_rows, shmem_limit_per_tile, batch_info.row_batches);
 
-  auto dev_validity_tile_infos =
-    make_device_uvector_async(validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
+  auto dev_validity_tile_infos = make_device_uvector_async(
+    validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
 
   auto const validity_offset = column_info.column_starts.back();
 
@@ -2237,8 +2237,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     }
   }
 
-  auto dev_string_row_offsets =
-    make_device_uvector_async(string_row_offsets, stream, rmm::mr::get_current_device_resource_ref());
+  auto dev_string_row_offsets = make_device_uvector_async(
+    string_row_offsets, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_string_lengths =
     make_device_uvector_async(string_lengths, stream, rmm::mr::get_current_device_resource_ref());
 
@@ -2303,8 +2303,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   auto validity_tile_infos =
     detail::build_validity_tile_infos(schema.size(), num_rows, shmem_limit_per_tile, row_batches);
 
-  auto dev_validity_tile_infos =
-    make_device_uvector_async(validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
+  auto dev_validity_tile_infos = make_device_uvector_async(
+    validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
 
   dim3 const validity_blocks(validity_tile_infos.size());
 
