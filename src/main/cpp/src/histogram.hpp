@@ -52,7 +52,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(
   cudf::column_view const& frequencies,
   bool output_as_lists,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Compute percentiles from the given histograms and percentage values.
@@ -72,6 +72,6 @@ std::unique_ptr<cudf::column> percentile_from_histogram(
   std::vector<double> const& percentage,
   bool output_as_lists,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
