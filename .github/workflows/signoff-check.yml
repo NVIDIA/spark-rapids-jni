@@ -28,4 +28,3 @@ jobs:
       pull_number: ${{ github.event.number }}
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
-
