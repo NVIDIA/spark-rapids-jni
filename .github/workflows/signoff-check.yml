@@ -21,7 +21,7 @@ on:
 
 jobs:
   signoff-check:
-    uses: NVIDIA/spark-rapids-common/.github/workflows/signoff-check@main
+    uses: NVIDIA/spark-rapids-common/.github/workflows/signoff-check.yml@main
     with:
       owner: NVIDIA
       repo: spark-rapids-jni
