@@ -722,21 +722,21 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
                                  mr);
 }
 
-std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
-                                                rmm::cuda_stream_view stream,
-                                                rmm::device_async_resource_ref mr)
+std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto constexpr num_levels  = 256;
   auto constexpr lower_level = std::numeric_limits<char>::min();
   auto constexpr upper_level = std::numeric_limits<char>::max();
-  auto const input_scv       = cudf::strings_column_view{input};
 
   char first_char;
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &first_char, input_scv.chars_begin(stream), sizeof(char), cudaMemcpyDefault, stream.value()));
-  auto const num_chars = input_scv.chars_size(stream);  // <= stream sync
+    &first_char, input.chars_begin(stream), sizeof(char), cudaMemcpyDefault, stream.value()));
+  auto const num_chars = input.chars_size(stream);  // <= stream sync
 
   rmm::device_uvector<uint32_t> d_histogram(num_levels, stream);
   thrust::fill(rmm::exec_policy(stream), d_histogram.begin(), d_histogram.end(), 0);
@@ -744,7 +744,7 @@ std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
   size_t temp_storage_bytes = 0;
   cub::DeviceHistogram::HistogramEven(nullptr,
                                       temp_storage_bytes,
-                                      input_scv.chars_begin(stream),
+                                      input.chars_begin(stream),
                                       d_histogram.begin(),
                                       num_levels,
                                       lower_level,
@@ -754,7 +754,7 @@ std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
   rmm::device_buffer d_temp(temp_storage_bytes, stream);
   cub::DeviceHistogram::HistogramEven(d_temp.data(),
                                       temp_storage_bytes,
-                                      input_scv.chars_begin(stream),
+                                      input.chars_begin(stream),
                                       d_histogram.begin(),
                                       num_levels,
                                       lower_level,
@@ -773,13 +773,13 @@ std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
 
   auto const first_non_existing_char = first_zero_count_pos - zero_level;
   auto all_done                      = cudf::strings::detail::join_strings(
-    input_scv,
+    input,
     cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, mr),
     cudf::string_scalar(first_char == '[' ? "[]" : "{}", true, stream, mr),
     stream,
     mr);
 
-  return {std::move(*(all_done->release().data.release())), first_non_existing_char};
+  return {std::move(all_done->release().data), first_non_existing_char};
 }
 
 }  // namespace spark_rapids_jni

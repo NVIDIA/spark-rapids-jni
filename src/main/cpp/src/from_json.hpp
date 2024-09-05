@@ -32,8 +32,8 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
-std::pair<rmm::device_buffer, char> concat_json(
-  cudf::column_view const& input,
+std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
+  cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
