@@ -26,7 +26,7 @@ jobs:
       - name: signoff
         uses: NVIDIA/spark-rapids-common/signoff-check@main
         with:
-          owner: NVIDIA
+          owner: ${{ github.repository_owner }}
           repo: spark-rapids-jni
           pull_number: ${{ github.event.number }}
           token: ${{ secrets.GITHUB_TOKEN }}
