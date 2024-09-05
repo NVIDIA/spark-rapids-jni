@@ -160,6 +160,23 @@ public class JSONUtils {
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
+  public static class ConcatenatedJson {
+    public final DeviceMemoryBuffer data;
+    public final char delimiter;
+
+    public ConcatenatedJson(DeviceMemoryBuffer data, char delimiter) {
+      this.data = data;
+      this.delimiter = delimiter;
+    }
+  }
+
+  public static ConcatenatedJson concatenateJsonStrings(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    long[] concatenated = concatenateJsonStrings(input.getNativeView());
+    return new ConcatenatedJson(
+        DeviceMemoryBuffer.fromRmm(concatenated[0], concatenated[1], concatenated[2]),
+        (char) concatenated[3]);
+  }
 
   private static native int getMaxJSONPathDepth();
 
@@ -178,4 +195,6 @@ public class JSONUtils {
 
 
   private static native long extractRawMapFromJsonString(long input);
+
+  private static native long[] concatenateJsonStrings(long input);
 }

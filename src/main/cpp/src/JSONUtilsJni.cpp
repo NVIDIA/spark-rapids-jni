@@ -154,4 +154,29 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concatenateJsonStrings(
+  JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto output         = spark_rapids_jni::concat_json(cudf::strings_column_view{*input_cv});
+
+    // The output array contains 4 elements:
+    // [0]: address of data buffer in device memory
+    // [1]: data length
+    // [2]: address of the rmm::device_buffer object in host memory
+    // [3]: delimiter char
+    auto out_handles = cudf::jni::native_jlongArray(env, 4);
+    out_handles[0]   = reinterpret_cast<jlong>(output.first->data());
+    out_handles[1]   = static_cast<jlong>(output.first->size());
+    out_handles[2]   = reinterpret_cast<jlong>(output.first.release());
+    out_handles[3]   = static_cast<jlong>(output.second);
+    return out_handles.get_jArray();
+  }
+  CATCH_STD(env, 0);
+}
 }
