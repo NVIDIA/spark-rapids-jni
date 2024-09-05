@@ -756,16 +756,17 @@ std::pair<rmm::device_buffer, char> concat_json(cudf::column_view const& input,
                                       input_scv.chars_size(stream),
                                       stream.value());
   auto zero_level = d_histogram.begin() - lower_level;
-  auto first_non_zero_pos =
+  auto first_zero_pos =
     thrust::find(rmm::exec_policy(stream), zero_level + '\n', d_histogram.end(), 0);
-  if (first_non_zero_pos == d_histogram.end()) {
+  if (first_zero_pos == d_histogram.end()) {
     throw std::logic_error(
       "can't find a character suitable as delimiter for combining json strings to json lines with "
       "custom delimiter");
   }
-  auto first_non_existing_char = first_non_zero_pos - zero_level;
-  auto first_char              = *thrust::device_pointer_cast(input_scv.chars_begin(stream));
-  auto all_done                = cudf::strings::detail::join_strings(
+  auto first_non_existing_char = first_zero_pos - zero_level;
+  auto first_char              = cudf::detail::make_host_vector_async(
+    device_span<char const>(input_scv.chars_begin(stream), 1), stream)[0];
+  auto all_done = cudf::strings::detail::join_strings(
     input_scv,
     cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, mr),
     cudf::string_scalar(first_char == '[' ? "[]" : "{}", true, stream, mr),
