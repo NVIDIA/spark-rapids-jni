@@ -44,7 +44,7 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   cudf::table_view const& transitions,
   cudf::size_type tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Convert input column timestamps in UTC to specified timezone
@@ -65,6 +65,6 @@ std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
   cudf::table_view const& transitions,
   cudf::size_type tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
