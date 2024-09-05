@@ -988,7 +988,7 @@ construct_path_commands(
   d_path_commands.reserve(h_path_commands->size());
   for (auto const& path_commands : *h_path_commands) {
     d_path_commands.emplace_back(cudf::detail::make_device_uvector_async(
-      path_commands, stream, rmm::mr::get_current_device_resource()));
+      path_commands, stream, rmm::mr::get_current_device_resource_ref()));
   }
 
   return {std::move(d_path_commands),
@@ -1100,7 +1100,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                 keep_quotes.find(output_ids[idx]) != keep_quotes.end()});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
-    h_path_data, stream, rmm::mr::get_current_device_resource());
+    h_path_data, stream, rmm::mr::get_current_device_resource_ref());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
@@ -1176,7 +1176,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
   // Push data to the GPU and launch the kernel again.
   d_path_data = cudf::detail::make_device_uvector_async(
-    h_path_data, stream, rmm::mr::get_current_device_resource());
+    h_path_data, stream, rmm::mr::get_current_device_resource_ref());
   thrust::uninitialized_fill(
     rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
   kernel_launcher::exec(input,

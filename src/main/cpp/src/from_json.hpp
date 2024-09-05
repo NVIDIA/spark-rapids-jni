@@ -32,7 +32,7 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
