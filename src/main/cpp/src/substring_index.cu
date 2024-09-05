@@ -124,11 +124,11 @@ std::unique_ptr<column> substring_index(strings_column_view const& strings,
   auto start_chars_pos_vec = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
                                                      strings_count,
                                                      stream,
-                                                     rmm::mr::get_current_device_resource_ref());
+                                                     rmm::mr::get_current_device_resource());
   auto stop_chars_pos_vec  = make_column_from_scalar(numeric_scalar<size_type>(0, true, stream),
                                                     strings_count,
                                                     stream,
-                                                    rmm::mr::get_current_device_resource_ref());
+                                                    rmm::mr::get_current_device_resource());
 
   auto start_char_pos = start_chars_pos_vec->mutable_view().data<size_type>();
   auto end_char_pos   = stop_chars_pos_vec->mutable_view().data<size_type>();

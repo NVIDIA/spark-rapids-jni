@@ -110,12 +110,8 @@ TEST_F(TimeZoneTest, ConvertToUTCSeconds)
                                     -28800L,
                                     1699537367L,
                                     568008000L};
-  auto const actual =
-    spark_rapids_jni::convert_timestamp_to_utc(ts_col,
-                                               *transitions,
-                                               1,
-                                               cudf::get_default_stream(),
-                                               rmm::mr::get_current_device_resource_ref());
+  auto const actual   = spark_rapids_jni::convert_timestamp_to_utc(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
@@ -143,12 +139,8 @@ TEST_F(TimeZoneTest, ConvertToUTCMilliseconds)
                                    -28800000L,
                                    1699542834312L,
                                    568008000000L};
-  auto const actual =
-    spark_rapids_jni::convert_timestamp_to_utc(ts_col,
-                                               *transitions,
-                                               1,
-                                               cudf::get_default_stream(),
-                                               rmm::mr::get_current_device_resource_ref());
+  auto const actual   = spark_rapids_jni::convert_timestamp_to_utc(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
@@ -176,12 +168,8 @@ TEST_F(TimeZoneTest, ConvertToUTCMicroseconds)
                                    -28800000000L,
                                    1699542834312000L,
                                    568008000000000L};
-  auto const actual =
-    spark_rapids_jni::convert_timestamp_to_utc(ts_col,
-                                               *transitions,
-                                               1,
-                                               cudf::get_default_stream(),
-                                               rmm::mr::get_current_device_resource_ref());
+  auto const actual   = spark_rapids_jni::convert_timestamp_to_utc(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
@@ -209,12 +197,8 @@ TEST_F(TimeZoneTest, ConvertFromUTCSeconds)
     1699566167L,
     568036800L,
   };
-  auto const actual =
-    spark_rapids_jni::convert_utc_timestamp_to_timezone(ts_col,
-                                                        *transitions,
-                                                        1,
-                                                        cudf::get_default_stream(),
-                                                        rmm::mr::get_current_device_resource_ref());
+  auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
@@ -242,12 +226,8 @@ TEST_F(TimeZoneTest, ConvertFromUTCMilliseconds)
     1699571634312L,
     568036800000L,
   };
-  auto const actual =
-    spark_rapids_jni::convert_utc_timestamp_to_timezone(ts_col,
-                                                        *transitions,
-                                                        1,
-                                                        cudf::get_default_stream(),
-                                                        rmm::mr::get_current_device_resource_ref());
+  auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
@@ -275,12 +255,8 @@ TEST_F(TimeZoneTest, ConvertFromUTCMicroseconds)
     1699571634312000L,
     568036800000000L,
   };
-  auto const actual =
-    spark_rapids_jni::convert_utc_timestamp_to_timezone(ts_col,
-                                                        *transitions,
-                                                        1,
-                                                        cudf::get_default_stream(),
-                                                        rmm::mr::get_current_device_resource_ref());
+  auto const actual = spark_rapids_jni::convert_utc_timestamp_to_timezone(
+    ts_col, *transitions, 1, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *actual);
 }
