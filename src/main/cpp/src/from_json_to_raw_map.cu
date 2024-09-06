@@ -18,13 +18,14 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/copying.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/tokenize_json.hpp>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -45,6 +46,7 @@
 #include <thrust/pair.h>
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
+#include <thrust/tabulate.h>
 #include <thrust/transform.h>
 #include <thrust/transform_reduce.h>
 
@@ -729,6 +731,22 @@ std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
 {
   CUDF_FUNC_RANGE();
 
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
+  rmm::device_uvector<int8_t> is_valid(input.size(), stream);  // not null, and has non space char
+  thrust::tabulate(rmm::exec_policy(stream),
+                   is_valid.begin(),
+                   is_valid.end(),
+                   [input = *d_input_ptr] __device__(cudf::size_type idx) -> int8_t {
+                     if (input.is_null(idx)) { return int8_t{0}; }
+                     auto const d_str = input.element<cudf::string_view>(idx);
+                     for (auto itr = d_str.begin(); itr < d_str.end(); ++itr) {
+                       if (*itr != ' ') { return int8_t{1}; }
+                     }
+                     return int8_t{0};
+                   });
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(is_valid.begin(), is_valid.end(), thrust::identity{}, stream, mr);
+
   auto constexpr num_levels  = 256;
   auto constexpr lower_level = std::numeric_limits<char>::min();
   auto constexpr upper_level = std::numeric_limits<char>::max();
@@ -771,14 +789,28 @@ std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
       "custom delimiter");
   }
 
+  auto const input_applied_null =
+    null_count == 0
+      ? nullptr
+      : cudf::purge_nonempty_nulls(
+          cudf::column_view{cudf::data_type{cudf::type_id::STRING},
+                            input.size(),
+                            input.chars_begin(stream),
+                            reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
+                            null_count,
+                            0,
+                            std::vector<cudf::column_view>{input.offsets()}},
+          stream);
+
   auto const first_non_existing_char = first_zero_count_pos - zero_level;
   auto all_done                      = cudf::strings::detail::join_strings(
-    input,
+    null_count == 0 ? input : cudf::strings_column_view{input_applied_null->view()},
     cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, mr),
     cudf::string_scalar(first_char == '[' ? "[]" : "{}", true, stream, mr),
     stream,
     mr);
 
+  // TODO: return the null mask to reuse in spark-rapids
   return {std::move(all_done->release().data), first_non_existing_char};
 }
 
