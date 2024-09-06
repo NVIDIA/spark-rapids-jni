@@ -605,8 +605,6 @@
                   <directory>${libcudfjni.build.path}</directory>
                   <includes>
                     <include>libnvcomp.so</include>
-                    <include>libnvcomp_gdeflate.so</include>
-                    <include>libnvcomp_bitcomp.so</include>
                   </includes>
                 </resource>
               </resources>
