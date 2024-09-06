@@ -20,9 +20,10 @@
 
 set -e
 
-# Base paths relative to this script's location
-SCRIPTDIR=$(cd $(dirname $0); pwd)
-REPODIR=$SCRIPTDIR/..
+REPODIR_REL=$(git rev-parse --show-toplevel)
+REPODIR=$(realpath "$REPODIR_REL")
+GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
+GIT_COMMON_DIR=$(realpath "$GIT_COMMON_DIR_REL")
 WORKDIR=${WORKDIR:-$REPODIR}
 
 CUDA_VERSION=${CUDA_VERSION:-11.8.0}
@@ -64,6 +65,7 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -v "/etc/passwd:/etc/passwd:ro" \
   -v "/etc/shadow:/etc/shadow:ro" \
   -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
+  -v "$GIT_COMMON_DIR:$GIT_COMMON_DIR:rw" \
   -v "$WORKDIR:$WORKDIR:rw" \
   -v "$LOCAL_CCACHE_DIR:$LOCAL_CCACHE_DIR:rw" \
   -v "$LOCAL_MAVEN_REPO:$LOCAL_MAVEN_REPO:rw" \

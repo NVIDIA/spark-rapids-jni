@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
 import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.Table;
 
@@ -113,7 +115,7 @@ public class DecimalUtils {
    * Divide two DECIMAL128 columns and produce a DECIMAL128 remainder with overflow detection.
    * Example:
    * 451635271134476686911387864.48 % -961.110 = 775.233
-   * 
+   *
    * Generally, this will never really overflow unless in the divide by zero case.
    * But it will detect an overflow in any case.
    *
@@ -122,7 +124,7 @@ public class DecimalUtils {
    * @param remainderScale scale to use for the remainder type
    * @return table containing a boolean column and a DECIMAL128 remainder column.
    *         The boolean value will be true if an overflow was detected for that row's
-   *         DECIMAL128 remainder value. A null input row will result in a corresponding null 
+   *         DECIMAL128 remainder value. A null input row will result in a corresponding null
    *         output row.
    */
   public static Table remainder128(ColumnView a, ColumnView b, int remainderScale) {
@@ -153,6 +155,7 @@ public class DecimalUtils {
     }
     return new Table(subtract128(a.getNativeView(), b.getNativeView(), targetScale));
   }
+
   /**
    * Add two DECIMAL128 columns and produce a DECIMAL128 result rounded to the specified
    * scale with overflow detection. This method considers a precision greater than 38 as overflow
@@ -177,6 +180,38 @@ public class DecimalUtils {
     return new Table(add128(a.getNativeView(), b.getNativeView(), targetScale));
   }
 
+  /**
+   * A class to store the result of a cast operation from floating point values to decimals.
+   * <p>
+   * Since the result column may or may not be used regardless of the value of hasFailure, we
+   * need to keep it and let the caller to decide.
+   */
+  public static class CastFloatToDecimalResult {
+    public final ColumnVector result; // the cast result
+    public final boolean hasFailure; // whether the cast operation has failed for any input rows
+
+    public CastFloatToDecimalResult(ColumnVector result, boolean hasFailure) {
+      this.result = result;
+      this.hasFailure = hasFailure;
+    }
+  }
+
+  /**
+   * Cast floating point values to decimals, matching the behavior of Spark.
+   *
+   * @param input The input column, which is either FLOAT32 or FLOAT64
+   * @param outputType The output decimal type
+   * @return The decimal column resulting from the cast operation and a boolean value indicating
+   *         whether the cast operation has failed for any input rows
+   */
+  public static CastFloatToDecimalResult floatingPointToDecimal(ColumnView input, DType outputType,
+                                                                int precision) {
+    long[] result = floatingPointToDecimal(
+        input.getNativeView(), outputType.getTypeId().getNativeId(), precision,
+        outputType.getScale());
+    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1] != 0);
+  }
+
   private static native long[] multiply128(long viewA, long viewB, int productScale, boolean interimCast);
 
   private static native long[] divide128(long viewA, long viewB, int quotientScale, boolean isIntegerDivide);
@@ -186,4 +221,6 @@ public class DecimalUtils {
   private static native long[] add128(long viewA, long viewB, int targetScale);
 
   private static native long[] subtract128(long viewA, long viewB, int targetScale);
+
+  private static native long[] floatingPointToDecimal(long inputHandle, int outputTypeId, int precision, int scale);
 }

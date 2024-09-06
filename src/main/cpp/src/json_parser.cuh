@@ -43,7 +43,7 @@ enum class escape_style {
  * JSON with a greater depth is invalid
  * If set this to be a greater value, should update `context_stack`
  */
-constexpr int max_json_nesting_depth = 64;
+constexpr int MAX_JSON_NESTING_DEPTH = 64;
 
 //
 /**
@@ -61,7 +61,7 @@ constexpr int max_num_len = 1000;
 /**
  * JSON token enum
  */
-enum class json_token {
+enum class json_token : int8_t {
   // start token
   INIT = 0,
 
@@ -220,7 +220,7 @@ class char_range_reader {
 class json_parser {
  public:
   __device__ inline explicit json_parser(char_range _chars)
-    : chars(_chars), curr_pos(0), current_token(json_token::INIT)
+    : chars(_chars), curr_pos(0), current_token(json_token::INIT), max_depth_exceeded(false)
   {
   }
 
@@ -228,7 +228,7 @@ class json_parser {
   /**
    * @brief get the bit value for specified bit from a int64 number
    */
-  __device__ inline bool get_bit_value(int64_t number, int bitIndex)
+  static __device__ inline bool get_bit_value(int64_t number, int bitIndex)
   {
     // Shift the number right by the bitIndex to bring the desired bit to the rightmost position
     long shifted = number >> bitIndex;
@@ -242,7 +242,7 @@ class json_parser {
   /**
    * @brief set the bit value for specified bit to a int64 number
    */
-  __device__ inline void set_bit_value(int64_t& number, int bit_index, bool bit_value)
+  static __device__ inline void set_bit_value(int64_t& number, int bit_index, bool bit_value)
   {
     // Create a mask with a 1 at the desired bit index
     long mask = 1L << bit_index;
@@ -265,7 +265,7 @@ class json_parser {
   /**
    * is hex digits: 0-9, A-F, a-f
    */
-  __device__ inline bool is_hex_digit(char c) const
+  static __device__ inline bool is_hex_digit(char c)
   {
     return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
   }
@@ -273,12 +273,12 @@ class json_parser {
   /**
    * is 0 to 9 digit
    */
-  __device__ inline bool is_digit(char c) const { return (c >= '0' && c <= '9'); }
+  static __device__ inline bool is_digit(char c) { return (c >= '0' && c <= '9'); }
 
   /**
    * is white spaces: ' ', '\t', '\n' '\r'
    */
-  __device__ inline bool is_whitespace(char c) const
+  static __device__ inline bool is_whitespace(char c)
   {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
   }
@@ -296,7 +296,7 @@ class json_parser {
   /**
    * check current char, if it's expected, then plus the position
    */
-  __device__ inline bool try_skip(char_range_reader& reader, char expected)
+  static __device__ inline bool try_skip(char_range_reader& reader, char expected)
   {
     if (!reader.eof() && reader.current_char() == expected) {
       reader.next();
@@ -305,7 +305,7 @@ class json_parser {
     return false;
   }
 
-  __device__ inline bool try_skip(cudf::size_type& pos, char expected)
+  __device__ inline bool try_skip(cudf::size_type& pos, char expected) const
   {
     if (!eof(pos) && chars[pos] == expected) {
       pos++;
@@ -320,7 +320,7 @@ class json_parser {
    */
   __device__ inline bool try_push_context(json_token token)
   {
-    if (stack_size < max_json_nesting_depth) {
+    if (stack_size < MAX_JSON_NESTING_DEPTH) {
       push_context(token);
       return true;
     } else {
@@ -343,20 +343,14 @@ class json_parser {
    * true is object, false is array
    * only has two contexts: object or array
    */
-  __device__ inline bool is_object_context()
+  __device__ inline bool is_object_context() const
   {
     return get_bit_value(context_stack, stack_size - 1);
   }
 
-  /**
-   * pop top context from stack
-   */
   __device__ inline void pop_curr_context() { stack_size--; }
 
-  /**
-   * is context stack is empty
-   */
-  __device__ inline bool is_context_stack_empty() { return stack_size == 0; }
+  __device__ inline bool is_context_stack_empty() const { return stack_size == 0; }
 
   __device__ inline void set_current_error() { current_token = json_token::ERROR; }
 
@@ -376,6 +370,7 @@ class json_parser {
     switch (c) {
       case '{':
         if (!try_push_context(json_token::START_OBJECT)) {
+          max_depth_exceeded = true;
           set_current_error();
         } else {
           curr_pos++;
@@ -384,6 +379,7 @@ class json_parser {
         break;
       case '[':
         if (!try_push_context(json_token::START_ARRAY)) {
+          max_depth_exceeded = true;
           set_current_error();
         } else {
           curr_pos++;
@@ -431,7 +427,7 @@ class json_parser {
   /**
    * transform int value from [0, 15] to hex char
    */
-  __device__ inline char to_hex_char(unsigned int v)
+  static __device__ inline char to_hex_char(unsigned int v)
   {
     if (v < 10)
       return '0' + v;
@@ -446,7 +442,7 @@ class json_parser {
    * @param char to be escaped, c should in range [0, 31)
    * @param[out] escape output
    */
-  __device__ inline int escape_char(unsigned char c, char* output)
+  static __device__ inline int escape_char(unsigned char c, char* output)
   {
     if (nullptr == output) {
       switch (c) {
@@ -499,9 +495,9 @@ class json_parser {
     }
   }
 
-  __device__ inline int write_string(char_range_reader& str,
-                                     char* copy_destination,
-                                     escape_style w_style)
+  static __device__ inline int write_string(char_range_reader& str,
+                                            char* copy_destination,
+                                            escape_style w_style)
   {
     if (str.eof()) { return 0; }
     char const quote_char = str.current_char();
@@ -619,7 +615,7 @@ class json_parser {
    * is valid and length is the number of bytes needed to encode the string
    * in the given style.
    */
-  __device__ inline std::pair<bool, cudf::size_type> try_parse_string(
+  static __device__ inline std::pair<bool, cudf::size_type> try_parse_string(
     char_range_reader& str,
     char_range_reader to_match = char_range_reader(char_range::null()),
     escape_style w_style       = escape_style::UNESCAPED)
@@ -689,7 +685,7 @@ class json_parser {
     return std::make_pair(false, 0);
   }
 
-  __device__ inline bool try_match_char(char_range_reader& reader, char c)
+  static __device__ inline bool try_match_char(char_range_reader& reader, char c)
   {
     if (!reader.is_null()) {
       if (!reader.eof() && reader.current_char() == c) {
@@ -708,11 +704,11 @@ class json_parser {
    * skip the HEX chars in \u HEX HEX HEX HEX.
    * @return positive escaped ASCII value if success, -1 otherwise
    */
-  __device__ inline bool try_skip_escape_part(char_range_reader& str,
-                                              char_range_reader& to_match,
-                                              char*& copy_dest,
-                                              escape_style w_style,
-                                              int& output_size_bytes)
+  static __device__ inline bool try_skip_escape_part(char_range_reader& str,
+                                                     char_range_reader& to_match,
+                                                     char*& copy_dest,
+                                                     escape_style w_style,
+                                                     int& output_size_bytes)
   {
     // already skipped the first '\'
     // try skip second part
@@ -853,7 +849,7 @@ class json_parser {
    *     : ~ ["\\\u0000-\u001F]
    *     ;
    */
-  __device__ inline bool try_skip_safe_code_point(char_range_reader& str, char c)
+  static __device__ inline bool try_skip_safe_code_point(char_range_reader& str, char c)
   {
     // 1 the char is not quoted(' or ") char, here satisfy, do not need to check
     // again
@@ -873,7 +869,7 @@ class json_parser {
   /**
    * convert chars 0-9, a-f, A-F to int value
    */
-  __device__ inline uint8_t hex_value(char c)
+  static __device__ inline uint8_t hex_value(char c)
   {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -887,7 +883,7 @@ class json_parser {
    * @param character Single character
    * @return Number of bytes
    */
-  __device__ cudf::size_type bytes_in_char_utf8(cudf::char_utf8 character)
+  static __device__ cudf::size_type bytes_in_char_utf8(cudf::char_utf8 character)
   {
     return 1 + static_cast<cudf::size_type>((character & 0x0000'FF00u) > 0) +
            static_cast<cudf::size_type>((character & 0x00FF'0000u) > 0) +
@@ -900,7 +896,7 @@ class json_parser {
    * @param unchr Character code-point to convert.
    * @return Single UTF-8 character.
    */
-  __device__ cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
+  static __device__ cudf::char_utf8 codepoint_to_utf8(uint32_t unchr)
   {
     cudf::char_utf8 utf8 = 0;
     if (unchr < 0x0000'0080) {
@@ -935,7 +931,7 @@ class json_parser {
    * @param[out] str Output array.
    * @return The number of bytes in the character
    */
-  __device__ cudf::size_type from_char_utf8(cudf::char_utf8 character, char* str)
+  static __device__ cudf::size_type from_char_utf8(cudf::char_utf8 character, char* str)
   {
     cudf::size_type const chr_width = bytes_in_char_utf8(character);
     for (cudf::size_type idx = 0; idx < chr_width; ++idx) {
@@ -949,10 +945,10 @@ class json_parser {
    * try skip 4 HEX chars
    * in pattern: '\\' 'u' HEX HEX HEX HEX, it's a code point of unicode
    */
-  __device__ bool try_skip_unicode(char_range_reader& str,
-                                   char_range_reader& to_match,
-                                   char*& copy_dest,
-                                   int& output_size_bytes)
+  static __device__ bool try_skip_unicode(char_range_reader& str,
+                                          char_range_reader& to_match,
+                                          char*& copy_dest,
+                                          int& output_size_bytes)
   {
     // already parsed \u
     // now we expect 4 hex chars.
@@ -1042,7 +1038,7 @@ class json_parser {
    * verify max number digits length if enabled
    * e.g.: +1.23e-45 length is 5
    */
-  __device__ inline bool check_max_num_len(int number_digits_length)
+  static __device__ inline bool check_max_num_len(int number_digits_length)
   {
     return
       // disabled num len check
@@ -1362,10 +1358,10 @@ class json_parser {
   /**
    * get current token
    */
-  __device__ json_token get_current_token() { return current_token; }
+  __device__ json_token get_current_token() const { return current_token; }
 
   // TODO make this go away!!!!
-  __device__ inline char_range current_range()
+  __device__ inline char_range current_range() const
   {
     return chars.slice(current_token_start_pos, curr_pos - current_token_start_pos);
   }
@@ -1386,9 +1382,10 @@ class json_parser {
       return true;
     }
 
+    json_token t;
     int open = 1;
-    while (true) {
-      json_token t = next_token();
+    do {
+      t = next_token();
       if (t == json_token::START_OBJECT || t == json_token::START_ARRAY) {
         ++open;
       } else if (t == json_token::END_OBJECT || t == json_token::END_ARRAY) {
@@ -1396,10 +1393,11 @@ class json_parser {
       } else if (t == json_token::ERROR) {
         return false;
       }
-    }
+    } while (t != json_token::SUCCESS);
+    return false;
   }
 
-  __device__ cudf::size_type compute_unescaped_len() { return write_unescaped_text(nullptr); }
+  __device__ cudf::size_type compute_unescaped_len() const { return write_unescaped_text(nullptr); }
 
   /**
    * unescape current token text, then write to destination
@@ -1408,7 +1406,7 @@ class json_parser {
    *   writes 6 utf8 bytes: -28  -72 -83 -27 -101 -67
    * For number, write verbatim without normalization
    */
-  __device__ cudf::size_type write_unescaped_text(char* destination)
+  __device__ cudf::size_type write_unescaped_text(char* destination) const
   {
     switch (current_token) {
       case json_token::VALUE_STRING: {
@@ -1490,7 +1488,7 @@ class json_parser {
     return 0;
   }
 
-  __device__ cudf::size_type compute_escaped_len() { return write_escaped_text(nullptr); }
+  __device__ cudf::size_type compute_escaped_len() const { return write_escaped_text(nullptr); }
   /**
    * escape current token text, then write to destination
    * e.g.: '"' is a string with 1 char '"', writes out 4 chars '"' '\' '\"' '"'
@@ -1498,7 +1496,7 @@ class json_parser {
    *   writes 8 utf8 bytes: '"' -28  -72 -83 -27 -101 -67 '"'
    * For number, write verbatim without normalization
    */
-  __device__ cudf::size_type write_escaped_text(char* destination)
+  __device__ cudf::size_type write_escaped_text(char* destination) const
   {
     switch (current_token) {
       case json_token::VALUE_STRING: {
@@ -1580,7 +1578,7 @@ class json_parser {
    * return true if current token is FIELD_NAME and match successfully.
    * return false otherwise,
    */
-  __device__ bool match_current_field_name(cudf::string_view name)
+  __device__ bool match_current_field_name(cudf::string_view name) const
   {
     return match_current_field_name(char_range(name));
   }
@@ -1588,7 +1586,7 @@ class json_parser {
   /**
    * match current field name
    */
-  __device__ bool match_current_field_name(char_range name)
+  __device__ bool match_current_field_name(char_range name) const
   {
     if (json_token::FIELD_NAME == current_token) {
       char_range_reader reader(current_range());
@@ -1686,10 +1684,11 @@ class json_parser {
     return thrust::make_pair(false, 0);
   }
 
+  __device__ inline bool max_nesting_depth_exceeded() const { return max_depth_exceeded; }
+
  private:
   char_range const chars;
   cudf::size_type curr_pos;
-  json_token current_token;
 
   // 64 bits long saves the nested object/array contexts
   // true(bit value 1) is JSON object context
@@ -1704,6 +1703,11 @@ class json_parser {
   // TODO remove if possible
   // used to store number token length
   cudf::size_type number_token_len;
+
+  json_token current_token;
+
+  // Error check if the maximum nesting depth has been reached.
+  bool max_depth_exceeded;
 };
 
 }  // namespace spark_rapids_jni

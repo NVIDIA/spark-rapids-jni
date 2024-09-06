@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.08.00
+  VERSION 24.10.00
   LANGUAGES C CXX CUDA
 )
 
@@ -153,28 +153,32 @@ find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
   HINTS "${CUDFJNI_BUILD_DIR}"
 )
 
+# arrow
+find_library(ARROW_LIB "libarrow.a" REQUIRED NO_DEFAULT_PATH
+  HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
+)
+
 # parquet
 find_library(PARQUET_LIB "libparquet.a" REQUIRED NO_DEFAULT_PATH
-  HINTS "${CUDF_INSTALL_DIR}/lib64"
-  HINTS "${CUDF_INSTALL_DIR}/lib"
+  HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/release/"
 )
 
 # Internal parquet headers
 set (GENERATED_PARQUET_INCLUDE
-    "${CUDF_CPP_BUILD_DIR}/_deps/arrow-src/cpp/src/"
+    "${CUDFJNI_BUILD_DIR}/_deps/arrow-src/cpp/src/"
     CACHE STRING "generated parquet thrift headers"
 )
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDF_CPP_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
 )
 
 # ##################################################################################################
@@ -191,12 +195,12 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/JSONUtilsJni.cpp
-  src/MapUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/case_when.cu
@@ -207,13 +211,14 @@ add_library(
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/from_json_to_raw_map.cu
   src/get_json_object.cu
   src/histogram.cu
-  src/map_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
@@ -269,6 +274,7 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
+    ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
 )

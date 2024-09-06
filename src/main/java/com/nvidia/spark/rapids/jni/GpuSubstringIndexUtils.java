@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,21 +14,18 @@
  * limitations under the License.
  */
 
-#pragma once
+package com.nvidia.spark.rapids.jni;
 
-#include <cudf/column/column_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
+import ai.rapids.cudf.*;
 
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/resource_ref.hpp>
+public class GpuSubstringIndexUtils {
+    static{
+        NativeDepsLoader.loadNativeDeps();
+    }
 
-#include <memory>
+    public static ColumnVector substringIndex(ColumnView cv, Scalar delimiter, int count){
+        return new ColumnVector(substringIndex(cv.getNativeView(), CudfAccessor.getScalarHandle(delimiter), count));
+    }
 
-namespace spark_rapids_jni {
-
-std::unique_ptr<cudf::column> from_json(
-  cudf::column_view const& input,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-}  // namespace spark_rapids_jni
+    private static native long substringIndex(long columnView, long delimiter, int count) throws CudfException;
+}
