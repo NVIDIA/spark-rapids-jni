@@ -162,9 +162,9 @@ public class JSONUtils {
 
   public static class ConcatenatedJson {
     public final DeviceMemoryBuffer data;
-    public final char delimiter;
+    public final byte delimiter; // using byte type instead of char, to store ASCII character
 
-    public ConcatenatedJson(DeviceMemoryBuffer data, char delimiter) {
+    public ConcatenatedJson(DeviceMemoryBuffer data, byte delimiter) {
       this.data = data;
       this.delimiter = delimiter;
     }
@@ -175,7 +175,7 @@ public class JSONUtils {
     long[] concatenated = concatenateJsonStrings(input.getNativeView());
     return new ConcatenatedJson(
         DeviceMemoryBuffer.fromRmm(concatenated[0], concatenated[1], concatenated[2]),
-        (char) concatenated[3]);
+        (byte) concatenated[3]);
   }
 
   private static native int getMaxJSONPathDepth();
