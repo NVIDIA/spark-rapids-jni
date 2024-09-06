@@ -724,7 +724,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
                                  mr);
 }
 
-std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
+std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -810,8 +810,9 @@ std::pair<std::unique_ptr<rmm::device_buffer>, char> concat_json(
     stream,
     mr);
 
-  // TODO: return the null mask to reuse in spark-rapids
-  return {std::move(all_done->release().data), first_non_existing_char};
+  return {std::make_unique<cudf::column>(std::move(is_valid), rmm::device_buffer{}, 0),
+          std::move(all_done->release().data),
+          first_non_existing_char};
 }
 
 }  // namespace spark_rapids_jni
