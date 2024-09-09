@@ -43,10 +43,10 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
+#include <thrust/iterator/zip_iterator.h>
 #include <thrust/pair.h>
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
-#include <thrust/tabulate.h>
 #include <thrust/transform.h>
 #include <thrust/transform_reduce.h>
 
@@ -732,29 +732,59 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   CUDF_FUNC_RANGE();
 
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
-  rmm::device_uvector<int8_t> is_valid(input.size(), stream);  // not null, and has non space char
-  thrust::tabulate(rmm::exec_policy(stream),
-                   is_valid.begin(),
-                   is_valid.end(),
-                   [input = *d_input_ptr] __device__(cudf::size_type idx) -> int8_t {
-                     if (input.is_null(idx)) { return int8_t{0}; }
-                     auto const d_str = input.element<cudf::string_view>(idx);
-                     for (auto itr = d_str.begin(); itr < d_str.end(); ++itr) {
-                       if (*itr != ' ') { return int8_t{1}; }
-                     }
-                     return int8_t{0};
-                   });
-  auto [null_mask, null_count] =
-    cudf::detail::valid_if(is_valid.begin(), is_valid.end(), thrust::identity{}, stream, mr);
+
+  rmm::device_uvector<bool> is_valid_input(input.size(), stream);
+  rmm::device_uvector<bool> is_valid_output(input.size(), stream, mr);
+  rmm::device_scalar<char> first_char(stream);
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(input.size()),
+    thrust::make_zip_iterator(thrust::make_tuple(is_valid_input.begin(), is_valid_output.begin())),
+    [input      = *d_input_ptr,
+     first_char = first_char.data()] __device__(cudf::size_type idx) -> thrust::tuple<bool, bool> {
+      if (input.is_null(idx)) { return {false, false}; }
+
+      auto const d_str = input.element<cudf::string_view>(idx);
+      int i            = 0;
+      for (; i < d_str.size_bytes(); ++i) {
+        if (d_str[i] != ' ') { break; }
+      }
+
+      bool is_null_literal{false};
+      if (i + 4 <= d_str.size_bytes() && d_str[i] == 'n' && d_str[i + 1] == 'u' &&
+          d_str[i + 2] == 'l' && d_str[i + 3] == 'l') {
+        is_null_literal = true;
+        i += 4;
+      }
+
+      for (; i < d_str.size_bytes(); ++i) {
+        if (d_str[i] != ' ') {
+          is_null_literal = false;
+          break;
+        }
+      }
+
+      if (is_null_literal) { return {false, true}; }
+
+      auto const not_empty = i + 1 < d_str.size_bytes();
+      if (idx == 0) { *first_char = not_empty ? d_str[i] : '\0'; }
+
+      return {not_empty, not_empty};
+    });
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, mr);
 
   auto constexpr num_levels  = 256;
   auto constexpr lower_level = std::numeric_limits<char>::min();
   auto constexpr upper_level = std::numeric_limits<char>::max();
 
-  char first_char;
+  char h_first_char;
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &first_char, input.chars_begin(stream), sizeof(char), cudaMemcpyDefault, stream.value()));
-  auto const num_chars = input.chars_size(stream);  // <= stream sync
+    &h_first_char, first_char.data(), sizeof(char), cudaMemcpyDefault, stream.value()));
+  auto const num_chars = input.chars_size(stream);  // stream sync
+
+  // TODO: return when num_chars==0
 
   rmm::device_uvector<uint32_t> d_histogram(num_levels, stream);
   thrust::fill(rmm::exec_policy(stream), d_histogram.begin(), d_histogram.end(), 0);
@@ -806,11 +836,11 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   auto all_done                      = cudf::strings::detail::join_strings(
     null_count == 0 ? input : cudf::strings_column_view{input_applied_null->view()},
     cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, mr),
-    cudf::string_scalar(first_char == '[' ? "[]" : "{}", true, stream, mr),
+    cudf::string_scalar(h_first_char == '[' ? "[]" : "{}", true, stream, mr),
     stream,
     mr);
 
-  return {std::make_unique<cudf::column>(std::move(is_valid), rmm::device_buffer{}, 0),
+  return {std::make_unique<cudf::column>(std::move(is_valid_output), rmm::device_buffer{}, 0),
           std::move(all_done->release().data),
           first_non_existing_char};
 }
