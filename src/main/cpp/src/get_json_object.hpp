@@ -47,7 +47,7 @@ std::unique_ptr<cudf::column> get_json_object(
   bool allow_leading_zero_numbers   = false,
   bool allow_non_numeric_numbers    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
  * @brief Extract multiple JSON objects from a JSON string based on the specified JSON paths.
@@ -74,6 +74,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   bool allow_leading_zero_numbers   = false,
   bool allow_non_numeric_numbers    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
