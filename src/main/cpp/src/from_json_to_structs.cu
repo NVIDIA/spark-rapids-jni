@@ -396,11 +396,15 @@ void travel_path(
     printf("column_schema type: %d\n", static_cast<int>(column_schema.type.id()));
     paths.push_back(current_path);  // this will copy
   } else {
+    if (column_schema.type.id() != cudf::type_id::STRUCT) {
+      CUDF_FAIL("Unsupported column type in schema");
+    }
+
+    auto const last_path_size = paths.size();
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
       travel_path(paths, current_path, keep_quotes, child_name, child_schema);
     }
   }
-  travel_path(paths, current_path, keep_quotes, kv.first, kv.second);
   current_path.pop_back();
 }
 
@@ -419,53 +423,46 @@ flatten_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_elem
   return {std::move(paths), std::move(keep_quotes)};
 }
 
-void travel_path(std::vector<std::unique_ptr<cudf::column>>& output,
-                 std::vector<std::unique_ptr<cudf::column>> const& read_columns,
-                 cudf::io::schema_element const& column_schema)
+void assemble_column(std::size_t& column_order,
+                     std::vector<std::unique_ptr<cudf::column>>& output,
+                     std::vector<std::unique_ptr<cudf::column>>& read_columns,
+                     std::string const& name,
+                     cudf::io::schema_element const& column_schema)
 {
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
-    paths.push_back(current_path);              // this will copy
+    output.emplace_back(std::move(read_columns[column_order]));
+    ++column_order;
   } else {
-    for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      travel_path(paths, current_path, keep_quotes, child_name, child_schema);
+    if (column_schema.type.id() != cudf::type_id::STRUCT) {
+      CUDF_FAIL("Unsupported column type in schema");
     }
+
+    std::vector<std::unique_ptr<cudf::column>> children;
+    for (auto const& [child_name, child_schema] : column_schema.child_types) {
+      assemble_column(column_order, children, read_columns, child_name, child_schema);
+    }
+
+    // TODO: generate null mask from input.
+    auto const num_rows = children.front()->size();
+    output.emplace_back(std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
+                                                       num_rows,
+                                                       rmm::device_buffer{},
+                                                       rmm::device_buffer{},
+                                                       0,
+                                                       std::move(children)));
   }
 }
 
 std::vector<std::unique_ptr<cudf::column>> assemble_output(
   std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const& paths,
   std::vector<std::unique_ptr<cudf::column>>& read_columns)
 {
-  // Build a map from column name to column.
-  std::unordered_map<std::string, std::unique_ptr<cudf::column>> map_read_columns;
-  for (std::size_t idx = 0; idx < paths.size(); ++idx) {
-    map_read_columns.emplace(schema[idx].first, std::move(read_columns[idx]));
-  }
-
   std::vector<std::unique_ptr<cudf::column>> output;
-  output.reserve(schema.size());
+  output.reserve(read_columns.size());
+
+  std::size_t column_order{0};
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    auto const& name          = kv.first;
-    auto const& column_schema = kv.second;
-    if (column_schema.child_types.size() == 0) {
-      auto const it = map_read_columns.find(name);
-      CUDF_EXPECTS(it != map_read_columns.end() && it->second != nullptr, "TODO");
-      output.push_back(std::move(it->second));
-    } else if (column_schema.type.id() == cudf::type_id::STRUCT) {
-      auto children       = assemble_output();
-      auto const num_rows = children.front()->size();
-      // TODO: generate null mask from input.
-      output.emplace_back(std::make_unique<column>(cudf::data_type{type_id::STRUCT},
-                                                   num_rows,
-                                                   rmm::device_buffer{},
-                                                   {},
-                                                   0,
-                                                   std::move(children)));
-    } else {
-      CUDF_FAIL("Unsupported schema type");
-      // TODO: support list
-    }
+    assemble_column(column_order, output, read_columns, kv.first, kv.second);
   });
 
   return output;
@@ -528,7 +525,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-  return tmp;
+  return assemble_output(schema, tmp);
 }
 
 }  // namespace detail
