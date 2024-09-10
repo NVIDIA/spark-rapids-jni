@@ -1373,6 +1373,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           transition(thread->second, thread_state::THREAD_RUNNING);
           // TODO why do we not set this to is_for_cpu
           thread->second.is_cpu_alloc = false;
+          // num_bytes is likely not padded, which could cause slight inaccuracies
+          // but for now it shouldn't matter for watermark purposes
           thread->second.memory_allocated_bytes += num_bytes;
           thread->second.metrics.max_memory_allocated = std::max(
             thread->second.metrics.max_memory_allocated,
