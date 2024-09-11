@@ -433,7 +433,7 @@ std::unique_ptr<cudf::column> create_random_column(data_profile const& profile,
                            null_mask.end(),
                            thrust::identity<bool>{},
                            cudf::get_default_stream(),
-                           rmm::mr::get_current_device_resource());
+                           cudf::get_current_device_resource_ref());
 
   return std::make_unique<cudf::column>(
     cudf::data_type{cudf::type_to_id<T>()},
@@ -517,7 +517,7 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
                            null_mask.end() - 1,
                            thrust::identity<bool>{},
                            cudf::get_default_stream(),
-                           rmm::mr::get_current_device_resource());
+                           cudf::get_current_device_resource_ref());
 
   return cudf::make_strings_column(
     num_rows,
@@ -553,7 +553,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::string_view>(data_profi
                                         cudf::out_of_bounds_policy::DONT_CHECK,
                                         cudf::detail::negative_index_policy::NOT_ALLOWED,
                                         cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource());
+                                        cudf::get_current_device_resource_ref());
   return std::move(str_table->release()[0]);
 }
 
@@ -641,7 +641,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
                                         valids.end(),
                                         thrust::identity<bool>{},
                                         cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource());
+                                        cudf::get_current_device_resource_ref());
         }
         return std::pair<rmm::device_buffer, cudf::size_type>{};
       }();
@@ -731,7 +731,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::list_view>(data_profile
                                                           valids.end(),
                                                           thrust::identity<bool>{},
                                                           cudf::get_default_stream(),
-                                                          rmm::mr::get_current_device_resource());
+                                                          cudf::get_current_device_resource_ref());
     list_column                  = cudf::make_lists_column(
       num_rows,
       std::move(offsets_column),
@@ -851,7 +851,7 @@ std::pair<rmm::device_buffer, cudf::size_type> create_random_null_mask(
                                   thrust::make_counting_iterator<cudf::size_type>(size),
                                   bool_generator{seed, 1.0 - *null_probability},
                                   cudf::get_default_stream(),
-                                  rmm::mr::get_current_device_resource());
+                                  cudf::get_current_device_resource_ref());
   }
 }
 

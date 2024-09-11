@@ -353,7 +353,7 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
   if (input.size() == 0) { return cudf::empty_like(input); }
 
   auto const stream = cudf::get_default_stream();
-  auto const mr     = rmm::mr::get_current_device_resource();
+  auto const mr     = cudf::get_current_device_resource_ref();
   return type == cudf::type_id::TIMESTAMP_DAYS ? gregorian_to_julian_days(input, stream, mr)
                                                : gregorian_to_julian_micros(input, stream, mr);
 }
@@ -368,7 +368,7 @@ std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const
   if (input.size() == 0) { return cudf::empty_like(input); }
 
   auto const stream = cudf::get_default_stream();
-  auto const mr     = rmm::mr::get_current_device_resource();
+  auto const mr     = cudf::get_current_device_resource_ref();
   return type == cudf::type_id::TIMESTAMP_DAYS ? julian_to_gregorian_days(input, stream, mr)
                                                : julian_to_gregorian_micros(input, stream, mr);
 }
