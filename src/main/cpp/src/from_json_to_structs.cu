@@ -400,6 +400,8 @@ void travel_path(
       CUDF_FAIL("Unsupported column type in schema");
     }
 
+    paths.push_back(current_path);  // this will copy
+
     auto const last_path_size = paths.size();
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
       travel_path(paths, current_path, keep_quotes, child_name, child_schema);
@@ -427,7 +429,9 @@ void assemble_column(std::size_t& column_order,
                      std::vector<std::unique_ptr<cudf::column>>& output,
                      std::vector<std::unique_ptr<cudf::column>>& read_columns,
                      std::string const& name,
-                     cudf::io::schema_element const& column_schema)
+                     cudf::io::schema_element const& column_schema,
+                     rmm::cuda_stream_view stream,
+                     rmm::device_async_resource_ref mr)
 {
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
     output.emplace_back(std::move(read_columns[column_order]));
@@ -439,30 +443,32 @@ void assemble_column(std::size_t& column_order,
 
     std::vector<std::unique_ptr<cudf::column>> children;
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      assemble_column(column_order, children, read_columns, child_name, child_schema);
+      assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
     }
+
+    auto const null_count = read_columns[column_order]->null_count();
+    auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+    ++column_order;
 
     // TODO: generate null mask from input.
     auto const num_rows = children.front()->size();
-    output.emplace_back(std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
-                                                       num_rows,
-                                                       rmm::device_buffer{},
-                                                       rmm::device_buffer{},
-                                                       0,
-                                                       std::move(children)));
+    output.emplace_back(cudf::make_structs_column(
+      num_rows, std::move(children), null_count, std::move(*null_mask), stream, mr));
   }
 }
 
 std::vector<std::unique_ptr<cudf::column>> assemble_output(
   std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
-  std::vector<std::unique_ptr<cudf::column>>& read_columns)
+  std::vector<std::unique_ptr<cudf::column>>& read_columns,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   std::vector<std::unique_ptr<cudf::column>> output;
   output.reserve(read_columns.size());
 
   std::size_t column_order{0};
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    assemble_column(column_order, output, read_columns, kv.first, kv.second);
+    assemble_column(column_order, output, read_columns, kv.first, kv.second, stream, mr);
   });
 
   return output;
@@ -511,6 +517,20 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   }
   printf("\n\n\n");
   fflush(stdout);
+
+  auto ptr  = input.chars_begin(stream);
+  auto size = input.chars_size(stream);
+  std::vector<char> h_v(size);
+  CUDF_CUDA_TRY(
+    cudaMemcpyAsync(h_v.data(), ptr, sizeof(char) * size, cudaMemcpyDefault, stream.value()));
+  stream.synchronize();
+
+  printf("input (size = %d): ", (int)size);
+  for (auto c : h_v) {
+    printf("%c", c);
+  }
+  printf("\n");
+
 #endif
 
   auto tmp = get_json_object(input,
@@ -525,7 +545,25 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-  return assemble_output(schema, tmp);
+  if (1) {
+    for (std::size_t i = 0; i < tmp.size(); ++i) {
+      auto out  = cudf::strings_column_view{tmp[i]->view()};
+      auto ptr  = out.chars_begin(stream);
+      auto size = out.chars_size(stream);
+      std::vector<char> h_v(size);
+      CUDF_CUDA_TRY(
+        cudaMemcpyAsync(h_v.data(), ptr, sizeof(char) * size, cudaMemcpyDefault, stream.value()));
+      stream.synchronize();
+
+      printf("out %d (size = %d): ", (int)i, (int)size);
+      for (auto c : h_v) {
+        printf("%c", c);
+      }
+      printf("\n");
+    }
+  }
+
+  return assemble_output(schema, tmp, stream, mr);
 }
 
 }  // namespace detail
