@@ -441,14 +441,14 @@ void assemble_column(std::size_t& column_order,
       CUDF_FAIL("Unsupported column type in schema");
     }
 
+    auto const null_count = read_columns[column_order]->null_count();
+    auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+    ++column_order;
+
     std::vector<std::unique_ptr<cudf::column>> children;
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
       assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
     }
-
-    auto const null_count = read_columns[column_order]->null_count();
-    auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
-    ++column_order;
 
     // TODO: generate null mask from input.
     auto const num_rows = children.front()->size();
