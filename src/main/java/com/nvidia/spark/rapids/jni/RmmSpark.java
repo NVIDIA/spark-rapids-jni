@@ -589,7 +589,11 @@ public class RmmSpark {
     }
   }
 
-  // TODO add
+  /**
+   * Get the max device memory footprint, in bytes, that this task had allocated over its lifetime
+   * @param taskId the id of the task to get the metric for.
+   * @return the max device memory footprint.
+   */
   public static long getAndResetMaxMemoryAllocated(long taskId) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
