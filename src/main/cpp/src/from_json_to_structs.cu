@@ -471,11 +471,15 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
-        // printf("get obj line %d\n", __LINE__);
+        // If this is a struct column, we only need to check to see if there exists a struct.
+        if (path_type_id == cudf::type_id::STRUCT) {
+          if (p.get_current_token() != json_token::START_OBJECT) { return {false, 0}; }
+          if (!p.try_skip_children()) { return {false, 0}; }
 
-        // general case: just copy the child tree verbatim
-        if (!(ctx.g.copy_current_structure(p, out_buf))) {
-          // JSON validation check
+          // Just write anything into the output, to mark the output as a non-null row.
+          // Such output will be discarded anyway.
+          ctx.g.write_start_array(out_buf);
+        } else if (!(ctx.g.copy_current_structure(p, out_buf))) {
           return {false, 0};
         }
         ctx.dirty        = 1;
