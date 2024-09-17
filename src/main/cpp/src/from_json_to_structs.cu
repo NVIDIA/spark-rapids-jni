@@ -401,6 +401,7 @@ struct context {
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   json_parser& p,
   cudf::device_span<path_instruction const> path_commands,
+  cudf::type_id path_type_id,
   bool keep_quotes,
   char* out_buf,
   int8_t* max_path_depth_exceeded)
@@ -824,6 +825,7 @@ struct json_path_processing_data {
   char* out_buf;
   int8_t* has_out_of_bound;
   bool keep_quotes;
+  cudf::type_id type_id;
 };
 
 /**
@@ -872,8 +874,8 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
     json_parser p{char_range{str}};
     p.set_allow_leading_zero_numbers(allow_leading_zero_numbers);
     p.set_allow_non_numeric_numbers(allow_non_numeric_numbers);
-    thrust::tie(is_valid, out_size) =
-      evaluate_path(p, path.path_commands, path.keep_quotes, dst, max_path_depth_exceeded);
+    thrust::tie(is_valid, out_size) = evaluate_path(
+      p, path.path_commands, path.type_id, path.keep_quotes, dst, max_path_depth_exceeded);
 
     // We did not terminate the `evaluate_path` function early to reduce complexity of the code.
     // Instead, if max depth was encountered, we've just continued the evaluation until here
@@ -1054,6 +1056,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   cudf::detail::input_offsetalator const& in_offsets,
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
+  std::vector<cudf::type_id> const& type_ids,
   std::vector<std::size_t> const& output_ids,
   std::unordered_set<std::size_t> const& keep_quotes,
   int64_t scratch_size,
@@ -1101,7 +1104,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                 out_stringviews.back().data(),
                                 scratch_buffers.back().data(),
                                 d_error_check.data() + idx,
-                                keep_quotes.find(output_ids[idx]) != keep_quotes.end()});
+                                keep_quotes.find(output_ids[idx]) != keep_quotes.end(),
+                                type_ids[idx]});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
@@ -1169,7 +1173,8 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                   nullptr /*out_stringviews*/,
                                   out_char_buffers.back().data(),
                                   d_error_check.data() + idx,
-                                  keep_quotes.find(output_ids[idx]) != keep_quotes.end()});
+                                  keep_quotes.find(output_ids[idx]) != keep_quotes.end(),
+                                  type_ids[idx]});
     } else {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
@@ -1213,6 +1218,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   cudf::strings_column_view const& input,
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
+  std::vector<cudf::type_id> const& type_ids,
   std::unordered_set<std::size_t> const& keep_quotes,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
@@ -1249,19 +1255,23 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
 
+  // TODO: reserve
   std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> batch;
+  std::vector<cudf::type_id> batch_type_ids;
   std::vector<std::size_t> output_ids;
 
   std::size_t starting_path = 0;
   while (starting_path < num_outputs) {
     std::size_t at = starting_path;
     batch.resize(0);
+    batch_type_ids.resize(0);
     output_ids.resize(0);
     if (parallel_override > 0) {
       int count = 0;
       while (at < num_outputs && count < parallel_override) {
         auto output_location = sorted_indices[at];
         batch.emplace_back(json_paths[output_location]);
+        batch_type_ids.push_back(type_ids[output_location]);
         output_ids.push_back(output_location);
         at++;
         count++;
@@ -1271,6 +1281,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
       while (at < num_outputs && budget < memory_budget_bytes) {
         auto output_location = sorted_indices[at];
         batch.emplace_back(json_paths[output_location]);
+        batch_type_ids.push_back(type_ids[output_location]);
         output_ids.push_back(output_location);
         at++;
         budget += scratch_size;
@@ -1279,6 +1290,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     auto tmp = get_json_object_batch(*d_input_ptr,
                                      in_offsets,
                                      batch,
+                                     batch_type_ids,
                                      output_ids,
                                      keep_quotes,
                                      scratch_size,
@@ -1299,6 +1311,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
 void travel_path(
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>& paths,
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& current_path,
+  std::vector<cudf::type_id>& type_ids,
   std::unordered_set<std::size_t>& keep_quotes,
   std::string const& name,
   cudf::io::schema_element const& column_schema)
@@ -1311,34 +1324,38 @@ void travel_path(
     }
     printf("column_schema type: %d\n", static_cast<int>(column_schema.type.id()));
     paths.push_back(current_path);  // this will copy
+    type_ids.push_back(column_schema.type.id());
   } else {
     if (column_schema.type.id() != cudf::type_id::STRUCT) {
       CUDF_FAIL("Unsupported column type in schema");
     }
 
     paths.push_back(current_path);  // this will copy
+    type_ids.push_back(column_schema.type.id());
 
     auto const last_path_size = paths.size();
     for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      travel_path(paths, current_path, keep_quotes, child_name, child_schema);
+      travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
     }
   }
   current_path.pop_back();
 }
 
-std::pair<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
-          std::unordered_set<std::size_t>>
+std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
+           std::vector<cudf::type_id>,
+           std::unordered_set<std::size_t>>
 flatten_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
+  std::vector<cudf::type_id> type_ids;
   std::unordered_set<std::size_t> keep_quotes;
 
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> current_path;
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    travel_path(paths, current_path, keep_quotes, kv.first, kv.second);
+    travel_path(paths, current_path, type_ids, keep_quotes, kv.first, kv.second);
   });
 
-  return {std::move(paths), std::move(keep_quotes)};
+  return {std::move(paths), std::move(type_ids), std::move(keep_quotes)};
 }
 
 void assemble_column(std::size_t& column_order,
@@ -1400,7 +1417,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 {
   printf("line %d\n", __LINE__);
   fflush(stdout);
-  auto const [json_paths, keep_quotes] = flatten_schema_to_paths(schema);
+  auto const [json_paths, type_ids, keep_quotes] = flatten_schema_to_paths(schema);
 
   printf("line %d\n", __LINE__);
   fflush(stdout);
@@ -1438,6 +1455,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 
   auto tmp = test::get_json_object(input,
                                    json_paths,
+                                   type_ids,
                                    keep_quotes,
                                    -1L,
                                    -1,
