@@ -805,7 +805,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return get_and_reset_metric(task_id, &task_metrics::time_lost_nanos);
   }
 
-  long get_and_reset_max_memory_allocated(long const task_id) {
+  long get_and_reset_max_memory_allocated(long const task_id)
+  {
     return get_and_reset_metric(task_id, &task_metrics::max_memory_allocated);
   }
 
@@ -1343,7 +1344,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * `likely_spill` if this allocation should be treated differently, because
    * we detected recursion while handling a prior allocation in this thread.
    */
-  void post_alloc_success(long const thread_id, bool const likely_spill, std::size_t const num_bytes)
+  void post_alloc_success(long const thread_id,
+                          bool const likely_spill,
+                          std::size_t const num_bytes)
   {
     std::unique_lock<std::mutex> lock(state_mutex);
     post_alloc_success_core(thread_id, false, likely_spill, num_bytes, lock);
@@ -1376,9 +1379,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           // but for now it shouldn't matter for watermark purposes
           thread->second.memory_allocated_bytes += num_bytes;
           thread->second.metrics.max_memory_allocated = std::max(
-            thread->second.metrics.max_memory_allocated,
-            thread->second.memory_allocated_bytes
-          );
+            thread->second.metrics.max_memory_allocated, thread->second.memory_allocated_bytes);
           break;
         default: break;
       }
@@ -1770,7 +1771,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     throw rmm::bad_alloc("Internal Error");
   }
 
-  void dealloc_core(bool const is_for_cpu, std::unique_lock<std::mutex>& lock, std::size_t const num_bytes)
+  void dealloc_core(bool const is_for_cpu,
+                    std::unique_lock<std::mutex>& lock,
+                    std::size_t const num_bytes)
   {
     auto const tid    = static_cast<long>(pthread_self());
     auto const thread = threads.find(tid);
@@ -2100,8 +2103,10 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetComputeTimeLost
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetMaxMemoryAllocated(
-  JNIEnv* env, jclass, jlong ptr, jlong task_id)
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetMaxMemoryAllocated(JNIEnv* env,
+                                                                                    jclass,
+                                                                                    jlong ptr,
+                                                                                    jlong task_id)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {
