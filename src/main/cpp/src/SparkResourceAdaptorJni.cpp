@@ -1371,7 +1371,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             throw std::invalid_argument(ss.str());
           }
           transition(thread->second, thread_state::THREAD_RUNNING);
-          // TODO why do we not set this to is_for_cpu
           thread->second.is_cpu_alloc = false;
           // num_bytes is likely not padded, which could cause slight inaccuracies
           // but for now it shouldn't matter for watermark purposes
