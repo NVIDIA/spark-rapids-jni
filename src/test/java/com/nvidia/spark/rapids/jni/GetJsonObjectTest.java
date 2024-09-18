@@ -777,6 +777,18 @@ public class GetJsonObjectTest {
     }
   }
 
+  @Test
+  void getJsonObjectTest_NamesWithEscapedCharacters() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("data")
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        "{'data': 'TEST1'}", "{'\\u0064\\u0061t\\u0061': 'TEST2'}");
+         ColumnVector expected = ColumnVector.fromStrings("TEST1", "TEST2");
+         ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
 
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);

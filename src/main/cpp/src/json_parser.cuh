@@ -986,7 +986,7 @@ class json_parser {
 
     if (!to_match.is_null()) {
       for (cudf::size_type i = 0; i < bytes; i++) {
-        if (!(to_match.eof() && to_match.current_char() == buff[i])) { return false; }
+        if (to_match.eof() || to_match.current_char() != buff[i]) { return false; }
         to_match.next();
       }
     }
