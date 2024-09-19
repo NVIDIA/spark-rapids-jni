@@ -29,6 +29,12 @@
 
 namespace spark_rapids_jni {
 
+struct json_schema_element {
+  cudf::data_type type;
+
+  std::vector<std::pair<std::string, json_schema_element>> child_types;
+};
+
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
@@ -36,7 +42,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

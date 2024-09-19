@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "from_json.hpp"
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
@@ -1318,7 +1319,7 @@ void travel_path(
   std::vector<cudf::type_id>& type_ids,
   std::unordered_set<std::size_t>& keep_quotes,
   std::string const& name,
-  cudf::io::schema_element const& column_schema)
+  json_schema_element const& column_schema)
 {
   current_path.emplace_back(path_instruction_type::NAMED, name, -1);
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
@@ -1348,7 +1349,7 @@ void travel_path(
 std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
            std::vector<cudf::type_id>,
            std::unordered_set<std::size_t>>
-flatten_schema_to_paths(std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema)
+flatten_schema_to_paths(std::vector<std::pair<std::string, json_schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
   std::vector<cudf::type_id> type_ids;
@@ -1366,7 +1367,7 @@ void assemble_column(std::size_t& column_order,
                      std::vector<std::unique_ptr<cudf::column>>& output,
                      std::vector<std::unique_ptr<cudf::column>>& read_columns,
                      std::string const& name,
-                     cudf::io::schema_element const& column_schema,
+                     json_schema_element const& column_schema,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr)
 {
@@ -1395,7 +1396,7 @@ void assemble_column(std::size_t& column_order,
 }
 
 std::vector<std::unique_ptr<cudf::column>> assemble_output(
-  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
   std::vector<std::unique_ptr<cudf::column>>& read_columns,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1413,7 +1414,7 @@ std::vector<std::unique_ptr<cudf::column>> assemble_output(
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
@@ -1427,8 +1428,9 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   fflush(stdout);
 
 #if 1
+  int count{0};
   for (auto const& path : json_paths) {
-    printf("\n\npath: \n");
+    printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
     for (auto node : path) {
       printf(".%s", std::get<1>(node).c_str());
     }
@@ -1480,7 +1482,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
         cudaMemcpyAsync(h_v.data(), ptr, sizeof(char) * size, cudaMemcpyDefault, stream.value()));
       stream.synchronize();
 
-      printf("out %d (size = %d): ", (int)i, (int)size);
+      printf("out %d / %d (size = %d): ", (int)i, (int)tmp.size(), (int)size);
       for (auto c : h_v) {
         printf("%c", c);
       }
@@ -1495,7 +1497,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::vector<std::pair<std::string, cudf::io::schema_element>> const& schema,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
   rmm::cuda_stream_view stream,
