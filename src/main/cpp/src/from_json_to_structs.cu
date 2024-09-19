@@ -473,13 +473,30 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
         // If this is a struct column, we only need to check to see if there exists a struct.
-        if (path_type_id == cudf::type_id::STRUCT) {
-          if (p.get_current_token() != json_token::START_OBJECT) { return {false, 0}; }
-          if (!p.try_skip_children()) { return {false, 0}; }
+        if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
+          if (path_type_id == cudf::type_id::STRUCT &&
+              p.get_current_token() != json_token::START_OBJECT) {
+            return {false, 0};
+          }
+          if (path_type_id == cudf::type_id::LIST &&
+              p.get_current_token() != json_token::START_ARRAY) {
+            return {false, 0};
+          }
 
-          // Just write anything into the output, to mark the output as a non-null row.
-          // Such output will be discarded anyway.
-          ctx.g.write_start_array(out_buf);
+          // TODO: for now, just copy the entire lists for output
+          // Need to parse the child elements instead.
+          if (path_type_id == cudf::type_id::STRUCT) {
+            if (!p.try_skip_children()) { return {false, 0}; }
+          } else if (!(ctx.g.copy_current_structure(p, out_buf))) {
+            return {false, 0};
+          }
+
+          // TODO: this should be for both strucs and list
+          if (path_type_id == cudf::type_id::STRUCT) {
+            // Just write anything into the output, to mark the output as a non-null row.
+            // Such output will be discarded anyway.
+            ctx.g.write_start_array(out_buf);
+          }
         } else if (!(ctx.g.copy_current_structure(p, out_buf))) {
           return {false, 0};
         }
@@ -1331,16 +1348,20 @@ void travel_path(
     paths.push_back(current_path);  // this will copy
     type_ids.push_back(column_schema.type.id());
   } else {
-    if (column_schema.type.id() != cudf::type_id::STRUCT) {
-      CUDF_FAIL("Unsupported column type in schema");
+    if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      printf("column_schema type: STRUCT\n");
     }
+    if (column_schema.type.id() == cudf::type_id::LIST) { printf("column_schema type: LIST\n"); }
 
     paths.push_back(current_path);  // this will copy
     type_ids.push_back(column_schema.type.id());
 
-    auto const last_path_size = paths.size();
-    for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
+    // TODO: for now, don't have to parse child of lists column.
+    // Just output the entire lists.
+    if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
+      }
     }
   }
   current_path.pop_back();
@@ -1375,23 +1396,36 @@ void assemble_column(std::size_t& column_order,
     output.emplace_back(std::move(read_columns[column_order]));
     ++column_order;
   } else {
-    if (column_schema.type.id() != cudf::type_id::STRUCT) {
-      CUDF_FAIL("Unsupported column type in schema");
+    if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      // TODO: null mask and null count should be extracted for both list and structs
+      auto const null_count = read_columns[column_order]->null_count();
+      auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+      ++column_order;
+
+      std::vector<std::unique_ptr<cudf::column>> children;
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
+      }
+
+      // TODO: generate null mask from input.
+      auto const num_rows = children.front()->size();
+      output.emplace_back(cudf::make_structs_column(
+        num_rows, std::move(children), null_count, std::move(*null_mask), stream, mr));
+    } else if (column_schema.type.id() == cudf::type_id::LIST) {
+      // TODO: split LIST into child column
+      // For now, just output as a strings column.
+      output.emplace_back(std::move(read_columns[column_order]));
+      ++column_order;
+      // std::vector<std::unique_ptr<cudf::column>> children;
+      // for (auto const& [child_name, child_schema] : column_schema.child_types) {
+      //   assemble_column(column_order, children, read_columns, child_name, child_schema, stream,
+      //   mr);
+      // }
+      // CUDF_EXPECTS(children.size() == 1, "TODO");
+
+    } else {
+      CUDF_FAIL("Unsupported type");
     }
-
-    auto const null_count = read_columns[column_order]->null_count();
-    auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
-    ++column_order;
-
-    std::vector<std::unique_ptr<cudf::column>> children;
-    for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
-    }
-
-    // TODO: generate null mask from input.
-    auto const num_rows = children.front()->size();
-    output.emplace_back(cudf::make_structs_column(
-      num_rows, std::move(children), null_count, std::move(*null_mask), stream, mr));
   }
 }
 
