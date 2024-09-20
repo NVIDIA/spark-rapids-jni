@@ -1350,18 +1350,24 @@ void travel_path(
   } else {
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
       printf("column_schema type: STRUCT\n");
-    }
-    if (column_schema.type.id() == cudf::type_id::LIST) { printf("column_schema type: LIST\n"); }
+      if (column_schema.type.id() == cudf::type_id::STRUCT) {
+        for (auto const& [child_name, child_schema] : column_schema.child_types) {
+          travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
+        }
+      }
+    } else if (column_schema.type.id() == cudf::type_id::LIST) {
+      printf("column_schema type: LIST\n");
 
-    paths.push_back(current_path);  // this will copy
-    type_ids.push_back(column_schema.type.id());
-
-    // TODO: for now, don't have to parse child of lists column.
-    // Just output the entire lists.
-    if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
+      current_path.emplace_back(path_instruction_type::WILDCARD, "", -1);
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
         travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
       }
+      current_path.pop_back();
+
+    } else {
+      // TODO
+      CUDF_FAIL("Unsupported type");
     }
   }
   current_path.pop_back();
