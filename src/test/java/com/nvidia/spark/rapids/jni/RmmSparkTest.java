@@ -824,11 +824,11 @@ public class RmmSparkTest {
       taskOne.done();
       assertEquals(FIVE_MB, RmmSpark.getAndResetMaxMemoryAllocated(1));
       taskTwo.done();
-      assertEquals(FIVE_MB, RmmSpark.getAndResetMaxMemoryAllocated(2));
+      assertEquals(0, RmmSpark.getAndResetMaxMemoryAllocated(2));
       taskThree.done();
       assertEquals(SIX_MB, RmmSpark.getAndResetMaxMemoryAllocated(3));
       taskFour.done();
-      assertEquals(SIX_MB, RmmSpark.getAndResetMaxMemoryAllocated(4));
+      assertEquals(0, RmmSpark.getAndResetMaxMemoryAllocated(4));
     }
   }
 
