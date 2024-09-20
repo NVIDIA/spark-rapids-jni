@@ -472,6 +472,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
+        printf("path is empty, path type = %d\n", (int)path_type_id);
+
         // If this is a struct column, we only need to check to see if there exists a struct.
         if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
           if (path_type_id == cudf::type_id::STRUCT &&
@@ -483,20 +485,17 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             return {false, 0};
           }
 
-          // TODO: for now, just copy the entire lists for output
-          // Need to parse the child elements instead.
           if (path_type_id == cudf::type_id::STRUCT) {
+            // Or copy current structure?
             if (!p.try_skip_children()) { return {false, 0}; }
-          } else if (!(ctx.g.copy_current_structure(p, out_buf))) {
+          } else if (!(ctx.g.copy_current_structure(p, nullptr))) {
+            // not copy only if there is struct?
             return {false, 0};
           }
 
-          // TODO: this should be for both strucs and list
-          if (path_type_id == cudf::type_id::STRUCT) {
-            // Just write anything into the output, to mark the output as a non-null row.
-            // Such output will be discarded anyway.
-            ctx.g.write_start_array(out_buf);
-          }
+          // Just write anything into the output, to mark the output as a non-null row.
+          // Such output will be discarded anyway.
+          ctx.g.write_start_array(out_buf);
         } else if (!(ctx.g.copy_current_structure(p, out_buf))) {
           return {false, 0};
         }
@@ -507,6 +506,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                thrust::get<0>(path_match_named(ctx.path))) {
+        printf("start object\n");
+
         if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
@@ -606,6 +607,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD) &&
                ctx.style != write_style::QUOTED) {
+        printf("array * not quote\n");
+
         // retain Flatten, otherwise use Quoted... cannot use Raw within an array
         write_style next_style = write_style::RAW;
         switch (ctx.style) {
@@ -658,6 +661,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
+        printf("array *\n");
+
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
           ctx.g.write_start_array(out_buf);
@@ -1348,7 +1353,10 @@ void travel_path(
     paths.push_back(current_path);  // this will copy
     type_ids.push_back(column_schema.type.id());
   } else {
+    type_ids.push_back(column_schema.type.id());
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      current_path.pop_back();
+      paths.push_back(current_path);  // this will copy
       printf("column_schema type: STRUCT\n");
       if (column_schema.type.id() == cudf::type_id::STRUCT) {
         for (auto const& [child_name, child_schema] : column_schema.child_types) {
@@ -1359,7 +1367,9 @@ void travel_path(
       printf("column_schema type: LIST\n");
 
       CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
-      current_path.emplace_back(path_instruction_type::WILDCARD, "", -1);
+      paths.push_back(current_path);  // this will copy
+      current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
+
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
         travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
       }
@@ -1370,7 +1380,7 @@ void travel_path(
       CUDF_FAIL("Unsupported type");
     }
   }
-  current_path.pop_back();
+  if (column_schema.type.id() != cudf::type_id::STRUCT) { current_path.pop_back(); }
 }
 
 std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
@@ -1420,8 +1430,12 @@ void assemble_column(std::size_t& column_order,
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // TODO: split LIST into child column
       // For now, just output as a strings column.
-      output.emplace_back(std::move(read_columns[column_order]));
-      ++column_order;
+      ++column_order;  // todo: remove this when creating the lists column
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        // TODO: just ignore the current lists column
+        assemble_column(column_order, output, read_columns, child_name, child_schema, stream, mr);
+      }
+
       // std::vector<std::unique_ptr<cudf::column>> children;
       // for (auto const& [child_name, child_schema] : column_schema.child_types) {
       //   assemble_column(column_order, children, read_columns, child_name, child_schema, stream,
