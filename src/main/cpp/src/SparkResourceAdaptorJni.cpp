@@ -299,7 +299,7 @@ class full_thread_state {
   // time)
   long time_retry_running_nanos = 0;
   std::chrono::time_point<std::chrono::steady_clock> block_start;
-  long memory_allocated_bytes = 0;
+  long gpu_memory_allocated_bytes = 0;
 
   // metrics for the current thread
   task_metrics metrics;
@@ -1359,7 +1359,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                                std::unique_lock<std::mutex>& lock)
   {
     // pre allocate checks
-    std::cerr << "post_alloc_success_core" << std::endl;
     auto const thread = threads.find(thread_id);
     if (!was_recursive && thread != threads.end()) {
       switch (thread->second.state) {
@@ -1377,9 +1376,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           thread->second.is_cpu_alloc = false;
           // num_bytes is likely not padded, which could cause slight inaccuracies
           // but for now it shouldn't matter for watermark purposes
-          thread->second.memory_allocated_bytes += num_bytes;
-          thread->second.metrics.max_memory_allocated = std::max(
-            thread->second.metrics.max_memory_allocated, thread->second.memory_allocated_bytes);
+          if (!is_for_cpu) {
+            thread->second.gpu_memory_allocated_bytes += num_bytes;
+            thread->second.metrics.max_memory_allocated =
+              std::max(thread->second.metrics.max_memory_allocated,
+                       thread->second.gpu_memory_allocated_bytes);
+          }
           break;
         default: break;
       }
@@ -1801,7 +1803,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (is_for_cpu == t_state.is_cpu_alloc) {
               transition(t_state, thread_state::THREAD_ALLOC_FREE);
             }
-            t_state.memory_allocated_bytes -= num_bytes;
+            t_state.gpu_memory_allocated_bytes -= num_bytes;
             break;
           default: break;
         }
