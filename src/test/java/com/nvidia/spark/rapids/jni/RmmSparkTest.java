@@ -319,7 +319,7 @@ public class RmmSparkTest {
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid));
-    assertEquals(0, RmmSpark.getAndResetMaxMemoryAllocated(taskid));
+    assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
     RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
     assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     try {
@@ -346,7 +346,7 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
-      assertEquals(ALIGNMENT, RmmSpark.getAndResetMaxMemoryAllocated(taskid));
+      assertEquals(ALIGNMENT, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
@@ -360,7 +360,7 @@ public class RmmSparkTest {
       assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
-      assertEquals(ALIGNMENT * 2, RmmSpark.getAndResetMaxMemoryAllocated(taskid));
+      assertEquals(ALIGNMENT * 2, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
 
       // Verify that injecting OOM does not cause the block to actually happen
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
@@ -822,13 +822,13 @@ public class RmmSparkTest {
       }
     } finally {
       taskOne.done();
-      assertEquals(FIVE_MB, RmmSpark.getAndResetMaxMemoryAllocated(1));
+      assertEquals(FIVE_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(1));
       taskTwo.done();
-      assertEquals(0, RmmSpark.getAndResetMaxMemoryAllocated(2));
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(2));
       taskThree.done();
-      assertEquals(SIX_MB, RmmSpark.getAndResetMaxMemoryAllocated(3));
+      assertEquals(SIX_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(3));
       taskFour.done();
-      assertEquals(0, RmmSpark.getAndResetMaxMemoryAllocated(4));
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(4));
     }
   }
 
