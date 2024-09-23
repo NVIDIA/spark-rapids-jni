@@ -251,8 +251,8 @@ public class SparkResourceAdaptor
     return getAndResetComputeTimeLostToRetry(getHandle(), taskId);
   }
 
-  public long getAndResetMaxMemoryAllocated(long taskId) {
-    return getAndResetMaxMemoryAllocated(getHandle(), taskId);
+  public long getAndResetGpuMaxMemoryAllocated(long taskId) {
+    return getAndResetGpuMaxMemoryAllocated(getHandle(), taskId);
   }
 
 
@@ -323,7 +323,7 @@ public class SparkResourceAdaptor
   private static native int getAndResetSplitRetryThrowInternal(long handle, long taskId);
   private static native long getAndResetBlockTimeInternal(long handle, long taskId);
   private static native long getAndResetComputeTimeLostToRetry(long handle, long taskId);
-  private static native long getAndResetMaxMemoryAllocated(long handle, long taskId);
+  private static native long getAndResetGpuMaxMemoryAllocated(long handle, long taskId);
   private static native void startRetryBlock(long handle, long threadId);
   private static native void endRetryBlock(long handle, long threadId);
   private static native void checkAndBreakDeadlocks(long handle);

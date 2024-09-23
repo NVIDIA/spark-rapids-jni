@@ -204,7 +204,7 @@ struct task_metrics {
   // The amount of time that this thread has lost due to retries (not including blocked time)
   long time_lost_nanos = 0;
 
-  long max_memory_allocated = 0;
+  long gpu_max_memory_allocated = 0;
 
   void take_from(task_metrics& other)
   {
@@ -218,7 +218,8 @@ struct task_metrics {
     this->num_times_split_retry_throw += other.num_times_split_retry_throw;
     this->time_blocked_nanos += other.time_blocked_nanos;
     this->time_lost_nanos += other.time_lost_nanos;
-    this->max_memory_allocated = std::max(this->max_memory_allocated, other.max_memory_allocated);
+    this->gpu_max_memory_allocated =
+      std::max(this->gpu_max_memory_allocated, other.gpu_max_memory_allocated);
   }
 
   void clear()
@@ -805,9 +806,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return get_and_reset_metric(task_id, &task_metrics::time_lost_nanos);
   }
 
-  long get_and_reset_max_memory_allocated(long const task_id)
+  long get_and_reset_gpu_max_memory_allocated(long const task_id)
   {
-    return get_and_reset_metric(task_id, &task_metrics::max_memory_allocated);
+    return get_and_reset_metric(task_id, &task_metrics::gpu_max_memory_allocated);
   }
 
   void check_and_break_deadlocks()
@@ -818,7 +819,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   bool cpu_prealloc(size_t const amount, bool const blocking)
   {
-    // amount is not used yet, but is here in case we want it in the future.
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const thread_id = static_cast<long>(pthread_self());
     return pre_alloc_core(thread_id, true, blocking, lock);
@@ -831,7 +831,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   {
     // addr is not used yet, but is here in case we want it in the future.
     // amount is not used yet, but is here in case we want it for debugging/metrics.
-    // blocking is not used yet. It could be used for some debugging so we are keeping it.
     std::unique_lock<std::mutex> lock(state_mutex);
     auto const thread_id = static_cast<long>(pthread_self());
     post_alloc_success_core(thread_id, true, was_recursive, amount, lock);
@@ -1378,8 +1377,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           // but for now it shouldn't matter for watermark purposes
           if (!is_for_cpu) {
             thread->second.gpu_memory_allocated_bytes += num_bytes;
-            thread->second.metrics.max_memory_allocated =
-              std::max(thread->second.metrics.max_memory_allocated,
+            thread->second.metrics.gpu_max_memory_allocated =
+              std::max(thread->second.metrics.gpu_max_memory_allocated,
                        thread->second.gpu_memory_allocated_bytes);
           }
           break;
@@ -1803,7 +1802,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (is_for_cpu == t_state.is_cpu_alloc) {
               transition(t_state, thread_state::THREAD_ALLOC_FREE);
             }
-            t_state.gpu_memory_allocated_bytes -= num_bytes;
+            if (!is_for_cpu) { t_state.gpu_memory_allocated_bytes -= num_bytes; }
             break;
           default: break;
         }
@@ -2114,7 +2113,7 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetMaxMemoryAlloca
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
-    return mr->get_and_reset_max_memory_allocated(task_id);
+    return mr->get_and_reset_gpu_max_memory_allocated(task_id);
   }
   CATCH_STD(env, 0)
 }
