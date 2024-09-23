@@ -2104,10 +2104,8 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetComputeTimeLost
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetMaxMemoryAllocated(JNIEnv* env,
-                                                                                    jclass,
-                                                                                    jlong ptr,
-                                                                                    jlong task_id)
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetGpuMaxMemoryAllocated(
+  JNIEnv* env, jclass, jlong ptr, jlong task_id)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
   try {

@@ -594,10 +594,10 @@ public class RmmSpark {
    * @param taskId the id of the task to get the metric for.
    * @return the max device memory footprint.
    */
-  public static long getAndResetMaxMemoryAllocated(long taskId) {
+  public static long getAndResetGpuMaxMemoryAllocated(long taskId) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
-        return sra.getAndResetMaxMemoryAllocated(taskId);
+        return sra.getAndResetGpuMaxMemoryAllocated(taskId);
       } else {
         // sra is not set so the value is by definition 0
         return 0;
