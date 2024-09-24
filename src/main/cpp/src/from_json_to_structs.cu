@@ -578,6 +578,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           }
         }
       }
+#if 0
       // case (START_ARRAY, Wildcard :: Wildcard :: xs)
       // case path 5
       else if (json_token::START_ARRAY == ctx.token &&
@@ -606,7 +607,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 6
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD) &&
-               ctx.style != write_style::QUOTED) {
+               ctx.style == write_style::QUOTED) {
         printf("array * not quote\n");
 
         // retain Flatten, otherwise use Quoted... cannot use Raw within an array
@@ -646,7 +647,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           if (ctx.dirty > 1) {
             // add outer array tokens
             ctx.g.write_child_raw_value(
-              child_g_start, child_g_len, /* write_outer_array_tokens */ true);
+              child_g_start, child_g_len, /* write_outer_array_tokens */ false);
           } else if (ctx.dirty == 1) {
             // remove outer array tokens
             ctx.g.write_child_raw_value(
@@ -657,6 +658,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.task_is_done = true;
         }
       }
+#endif
       // case (START_ARRAY, Wildcard :: xs)
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
@@ -665,7 +667,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
-          ctx.g.write_start_array(out_buf);
+          ctx.g.write_first_start_array_without_output();
         }
         if (p.next_token() != json_token::END_ARRAY) {
           // JSON validation check
@@ -678,7 +680,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        write_style::QUOTED,
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
-          ctx.g.write_end_array(out_buf);
+          // ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
       }
@@ -715,6 +717,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                      write_style::QUOTED,
                      {ctx.path.data() + 1, ctx.path.size() - 1});
       }
+#if 0
       // case (START_ARRAY, Index(idx) :: xs)
       // case path 9
       else if (json_token::START_ARRAY == ctx.token && thrust::get<0>(path_match_index(ctx.path))) {
@@ -746,6 +749,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                      ctx.style,
                      {ctx.path.data() + 1, ctx.path.size() - 1});
       }
+#endif
       // case _ =>
       // case path 12
       else {
@@ -1333,6 +1337,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   }
   return output;
 }
+
 }  // namespace test
 
 void travel_path(
@@ -1430,18 +1435,17 @@ void assemble_column(std::size_t& column_order,
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // TODO: split LIST into child column
       // For now, just output as a strings column.
-      ++column_order;  // todo: remove this when creating the lists column
-      for (auto const& [child_name, child_schema] : column_schema.child_types) {
-        // TODO: just ignore the current lists column
-        assemble_column(column_order, output, read_columns, child_name, child_schema, stream, mr);
-      }
+      auto const null_count = read_columns[column_order]->null_count();
+      auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+      ++column_order;
 
       // std::vector<std::unique_ptr<cudf::column>> children;
-      // for (auto const& [child_name, child_schema] : column_schema.child_types) {
-      //   assemble_column(column_order, children, read_columns, child_name, child_schema, stream,
-      //   mr);
-      // }
-      // CUDF_EXPECTS(children.size() == 1, "TODO");
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        assemble_column(column_order, output, read_columns, child_name, child_schema, stream, mr);
+      }
+      // auto const num_rows = children.front()->size();
+      // output.emplace_back(cudf::make_lists_column(
+      //   num_rows, std::move(children), null_count, std::move(*null_mask), stream, mr));
 
     } else {
       CUDF_FAIL("Unsupported type");
