@@ -18,6 +18,8 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
+#include <cudf_test/debug_utilities.hpp>
+
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
@@ -26,8 +28,10 @@
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/json.hpp>
+#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/split/split.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/types.hpp>
@@ -1405,6 +1409,44 @@ flatten_schema_to_paths(std::vector<std::pair<std::string, json_schema_element>>
   return {std::move(paths), std::move(type_ids), std::move(keep_quotes)};
 }
 
+std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_lists(
+  std::unique_ptr<cudf::column>& input,
+  json_schema_element const& column_schema,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  if (column_schema.type.id() == cudf::type_id::STRUCT) {
+    std::unique_ptr<cudf::column> offsets{nullptr};
+    std::vector<std::unique_ptr<cudf::column>> new_children;
+    cudf::size_type num_child_rows{-1};
+    auto children = std::move(input->release().children);
+    for (std::size_t child_idx = 0; child_idx < children.size(); ++child_idx) {
+      auto& child = children[child_idx];
+      auto [new_child_offsets, new_child] =
+        extract_lists(child, column_schema.child_types[child_idx].second, stream, mr);
+      if (num_child_rows < 0) { num_child_rows = new_child->size(); }
+      CUDF_EXPECTS(num_child_rows == new_child->size(), "TODO");
+
+      if (!offsets) { offsets = std::move(new_child_offsets); }
+      new_children.emplace_back(std::move(new_child));
+    }
+
+    // return cudf::make_structs_column(
+    //             num_child_rows, std::move(children), null_count, std::move(*null_mask), stream,
+    //             mr);
+    // TODO: fix null mask
+    return {std::move(offsets),
+            cudf::make_structs_column(num_child_rows, std::move(new_children), 0, {}, stream, mr)};
+  }
+
+  auto split_content =
+    cudf::strings::split_record(
+      cudf::strings_column_view{input->view()}, cudf::string_scalar{","}, -1, stream, mr)
+      ->release();
+  return {std::move(split_content.children[cudf::lists_column_view::offsets_column_index]),
+          std::move(split_content.children[cudf::lists_column_view::child_column_index])};
+}
+
 void assemble_column(std::size_t& column_order,
                      std::vector<std::unique_ptr<cudf::column>>& output,
                      std::vector<std::unique_ptr<cudf::column>>& read_columns,
@@ -1418,7 +1460,6 @@ void assemble_column(std::size_t& column_order,
     ++column_order;
   } else {
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
-      // TODO: null mask and null count should be extracted for both list and structs
       auto const null_count = read_columns[column_order]->null_count();
       auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
       ++column_order;
@@ -1435,18 +1476,33 @@ void assemble_column(std::size_t& column_order,
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // TODO: split LIST into child column
       // For now, just output as a strings column.
-      auto const null_count = read_columns[column_order]->null_count();
-      auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+      // auto const null_count = read_columns[column_order]->null_count();
+      // auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+      auto const num_rows = read_columns[column_order]->size();
       ++column_order;
 
-      // std::vector<std::unique_ptr<cudf::column>> children;
+      std::vector<std::unique_ptr<cudf::column>> children;
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
-        assemble_column(column_order, output, read_columns, child_name, child_schema, stream, mr);
+        assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
       }
-      // auto const num_rows = children.front()->size();
-      // output.emplace_back(cudf::make_lists_column(
-      //   num_rows, std::move(children), null_count, std::move(*null_mask), stream, mr));
 
+      printf("line %d\n", __LINE__);
+      cudf::test::print(children.front()->view());
+
+      auto [offsets, child] =
+        extract_lists(children.front(), column_schema.child_types.front().second, stream, mr);
+
+      printf("line %d\n", __LINE__);
+      cudf::test::print(child->view());
+      printf("line %d\n", __LINE__);
+      cudf::test::print(offsets->view());
+
+      // TODO: fix null mask
+      output.emplace_back(
+        cudf::make_lists_column(num_rows, std::move(offsets), std::move(child), 0, {}, stream, mr));
+
+      printf("line %d\n", __LINE__);
+      cudf::test::print(output.back()->view());
     } else {
       CUDF_FAIL("Unsupported type");
     }
