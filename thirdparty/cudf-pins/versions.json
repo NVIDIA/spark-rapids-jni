@@ -1,14 +1,6 @@
 {
   "packages" : 
   {
-    "Arrow" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "7dd1d34074af176d9e861a360e135ae57b21cf96",
-      "git_url" : "https://github.com/apache/arrow.git",
-      "version" : "16.1.0"
-    },
     "CCCL" : 
     {
       "always_download" : true,
@@ -52,9 +44,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9bdd0640ab0436373754ed4c9608be828330a4d6",
+      "git_tag" : "3e0509f389c300781715c0c6f30a6fe2eb03c1e7",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.08"
+      "version" : "24.10"
     },
     "bs_thread_pool" : 
     {
@@ -68,7 +60,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ee5c10456c7ad584c254152411ba3dc114537a6f",
+      "git_tag" : "d3477661d771e0d6fd22259bf6dd6f8c64a7401c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -92,17 +84,16 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "f5e54359df4c26b6230fc61d38aa294581393084",
+      "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
       "git_url" : "https://github.com/fmtlib/fmt.git",
       "patches" : 
       [
         {
-          "file" : "fmt/fix_10_1_1_version.diff",
-          "fixed_in" : "10.2.0",
-          "issue" : "fmt 10.1.1 produces a CMake package with version 10.1.0"
+          "file" : "fmt/fix_11_0_2_unreachable_loop.diff",
+          "issue" : "fmt 11.0.2 produces a warning about an unreachable loop when compiled with nvcc"
         }
       ],
-      "version" : "10.1.1"
+      "version" : "11.0.2"
     },
     "jitify" : 
     {
@@ -128,15 +119,15 @@
       "git_url" : "https://github.com/NVIDIA/nvcomp.git",
       "proprietary_binary" : 
       {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_SBSA_${cuda-toolkit-version-mapping}.tgz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp_${version}_x86_64_${cuda-toolkit-version-mapping}.tgz"
+        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp-linux-sbsa-${version}-cuda${cuda-toolkit-version-mapping}.tar.gz",
+        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp-linux-x86_64-${version}-cuda${cuda-toolkit-version-mapping}.tar.gz"
       },
       "proprietary_binary_cuda_version_mapping" : 
       {
         "11" : "11.x",
         "12" : "12.x"
       },
-      "version" : "3.0.6"
+      "version" : "4.0.1"
     },
     "nvtx3" : 
     {
@@ -150,25 +141,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9d788cc0ece2676dc8a81079ecd1fcbf8804c72f",
+      "git_tag" : "ab6e2961d7b8f833f688775e941c4e2ed2bd4d8a",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.08"
+      "version" : "24.10"
     },
     "spdlog" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7e635fca68d014934b4af8a1cf874f63989352b7",
+      "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
       "git_url" : "https://github.com/gabime/spdlog.git",
-      "patches" : 
-      [
-        {
-          "file" : "spdlog/nvcc_constexpr_fix.diff",
-          "fixed_in" : "1.13",
-          "issue" : "Fix constexpr mismatch between spdlog and fmt [https://github.com/gabime/spdlog/issues/2856]"
-        }
-      ],
-      "version" : "1.12.0"
+      "version" : "1.14.1"
     }
   }
 }
