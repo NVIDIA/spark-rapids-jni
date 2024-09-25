@@ -446,10 +446,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     if (!ctx.task_is_done) {
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
-      if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size()) &&
-          ctx.style == write_style::RAW) {
+      if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size())) {
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
+        ctx.g.try_write_comma(out_buf);
         ctx.g.write_raw(p, out_buf, keep_quotes);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
@@ -613,7 +613,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 6
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD) &&
-               ctx.style == write_style::QUOTED) {
+               ctx.style != write_style::QUOTED) {
         printf("array * not quote\n");
 
         // retain Flatten, otherwise use Quoted... cannot use Raw within an array
@@ -669,7 +669,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
-        // printf("array *\n");
+        printf("array *\n");
 
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
@@ -1379,18 +1379,38 @@ void travel_path(
       printf("column_schema type: LIST\n");
 
       CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
+
+      // TODO: is this needed, if there is no struct child?
       paths.push_back(current_path);  // this will copy
+
       current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
 
+      bool has_struct_child{false};
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
-        travel_path(paths,
-                    current_path,
-                    type_ids,
-                    keep_quotes,
-                    child_name,
-                    child_schema,
-                    /*found_list_type=*/true);
+        if (child_schema.type.id() == cudf::type_id::STRUCT) {
+          has_struct_child = true;
+          break;
+        }
       }
+
+      // Only add a path name if this column is not under a list type.
+      if (has_struct_child) {
+        for (auto const& [child_name, child_schema] : column_schema.child_types) {
+          travel_path(paths,
+                      current_path,
+                      type_ids,
+                      keep_quotes,
+                      child_name,
+                      child_schema,
+                      /*found_list_type=*/true);
+        }
+      } else {
+        auto const child_type = column_schema.child_types.front().second.type;
+        if (cudf::is_fixed_width(child_type)) { keep_quotes.insert(paths.size()); }
+        paths.push_back(current_path);  // this will copy
+        type_ids.push_back(child_type.id());
+      }
+
       current_path.pop_back();
 
     } else {
@@ -1559,7 +1579,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-#if 0
+#if 1
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1604,7 +1624,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-  if constexpr (0) {
+  if constexpr (1) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
