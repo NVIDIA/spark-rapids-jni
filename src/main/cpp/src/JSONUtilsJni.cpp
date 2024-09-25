@@ -280,4 +280,19 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_isNullOrEmpty(JNIEnv* env,
+                                                                                 jclass,
+                                                                                 jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::is_null_or_empty(cudf::strings_column_view{*input_cv}));
+  }
+  CATCH_STD(env, 0);
+}
 }

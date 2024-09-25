@@ -177,6 +177,11 @@ public class JSONUtils {
         allowNumericLeadingZeros, allowNonNumericNumbers));
   }
 
+  public static ColumnVector isNullOrEmpty(ColumnVector input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(isNullOrEmpty(input.getNativeView()));
+  }
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -201,4 +206,6 @@ public class JSONUtils {
                                                  int[] dTypeScales,
                                                  boolean allowNumericLeadingZeros,
                                                  boolean allowNonNumericNumbers);
+
+  private static native long isNullOrEmpty(long input);
 }

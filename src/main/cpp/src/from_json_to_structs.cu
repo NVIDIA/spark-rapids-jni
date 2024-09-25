@@ -1603,6 +1603,31 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 
 }  // namespace detail
 
+std::unique_ptr<cudf::column> is_null_or_empty(cudf::strings_column_view const& input,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
+{
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
+  rmm::device_uvector<bool> output(input.size(), stream, mr);
+  thrust::transform(rmm::exec_policy(stream),
+                    thrust::make_counting_iterator(0),
+                    thrust::make_counting_iterator(input.size()),
+                    output.begin(),
+                    [input = *d_input_ptr] __device__(cudf::size_type idx) -> bool {
+                      if (input.is_null(idx)) { return true; }
+
+                      auto const d_str = input.element<cudf::string_view>(idx);
+                      int i            = 0;
+                      for (; i < d_str.size_bytes(); ++i) {
+                        if (d_str[i] != ' ') { break; }
+                      }
+                      auto const empty = i == d_str.size_bytes();
+                      return empty;
+                    });
+
+  return std::make_unique<cudf::column>(std::move(output), rmm::device_buffer{}, 0);
+}
+
 std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
