@@ -82,3 +82,29 @@ TEST_F(FromJsonTest, T2)
     cudf::test::print(col->view());
   }
 }
+
+TEST_F(FromJsonTest, T3)
+{
+  // The last row is invalid (has an extra quote).
+  auto const json_string = cudf::test::strings_column_wrapper{"{'data': [1,0]}"};
+
+  spark_rapids_jni::json_schema_element a{cudf::data_type{cudf::type_id::STRUCT}, {}};
+  a.child_types.emplace_back(
+    "b", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::INT32}, {}});
+  a.child_types.emplace_back(
+    "c", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::INT32}, {}});
+
+  std::vector<std::pair<std::string, spark_rapids_jni::json_schema_element>> schema;
+  schema.emplace_back("data", std::move(a));
+
+  auto const output = spark_rapids_jni::from_json_to_structs(
+    cudf::strings_column_view{json_string}, schema, false, false);
+
+  printf("\n\ninput: \n");
+  cudf::test::print(json_string);
+
+  printf("\n\noutput: \n");
+  for (auto const& col : output) {
+    cudf::test::print(col->view());
+  }
+}

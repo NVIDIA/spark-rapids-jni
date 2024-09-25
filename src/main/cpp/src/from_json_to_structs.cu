@@ -476,7 +476,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
-        printf("path is empty, path type = %d\n", (int)path_type_id);
+        printf("path is empty, path type = %d, token = %d\n",
+               (int)path_type_id,
+               (int)p.get_current_token());
 
         // If this is a struct column, we only need to check to see if there exists a struct.
         if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
@@ -510,7 +512,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                thrust::get<0>(path_match_named(ctx.path))) {
-        printf("start object\n");
+        // printf("start object\n");
 
         if (!ctx.is_first_enter) {
           // 2st enter
@@ -667,7 +669,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
-        printf("array *\n");
+        // printf("array *\n");
 
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
@@ -1350,7 +1352,8 @@ void travel_path(
   std::vector<cudf::type_id>& type_ids,
   std::unordered_set<std::size_t>& keep_quotes,
   std::string const& name,
-  json_schema_element const& column_schema)
+  json_schema_element const& column_schema,
+  bool found_list_type = false)
 {
   current_path.emplace_back(path_instruction_type::NAMED, name, -1);
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
@@ -1364,7 +1367,7 @@ void travel_path(
   } else {
     type_ids.push_back(column_schema.type.id());
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
-      current_path.pop_back();
+      if (found_list_type) { current_path.pop_back(); }
       paths.push_back(current_path);  // this will copy
       printf("column_schema type: STRUCT\n");
       if (column_schema.type.id() == cudf::type_id::STRUCT) {
@@ -1380,7 +1383,13 @@ void travel_path(
       current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
 
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
-        travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
+        travel_path(paths,
+                    current_path,
+                    type_ids,
+                    keep_quotes,
+                    child_name,
+                    child_schema,
+                    /*found_list_type=*/true);
       }
       current_path.pop_back();
 
@@ -1389,7 +1398,9 @@ void travel_path(
       CUDF_FAIL("Unsupported type");
     }
   }
-  if (column_schema.type.id() != cudf::type_id::STRUCT) { current_path.pop_back(); }
+  if (column_schema.type.id() != cudf::type_id::STRUCT || !found_list_type) {
+    current_path.pop_back();
+  }
 }
 
 std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
@@ -1476,9 +1487,11 @@ void assemble_column(std::size_t& column_order,
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // TODO: split LIST into child column
       // For now, just output as a strings column.
-      // auto const null_count = read_columns[column_order]->null_count();
-      // auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
-      auto const num_rows = read_columns[column_order]->size();
+      auto const num_rows   = read_columns[column_order]->size();
+      auto const null_count = read_columns[column_order]->null_count();
+      auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+
+      // printf("num rows: %d\n", num_rows);
       ++column_order;
 
       std::vector<std::unique_ptr<cudf::column>> children;
@@ -1486,23 +1499,28 @@ void assemble_column(std::size_t& column_order,
         assemble_column(column_order, children, read_columns, child_name, child_schema, stream, mr);
       }
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(children.front()->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(children.front()->view());
 
       auto [offsets, child] =
         extract_lists(children.front(), column_schema.child_types.front().second, stream, mr);
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(child->view());
-      printf("line %d\n", __LINE__);
-      cudf::test::print(offsets->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(child->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(offsets->view());
 
       // TODO: fix null mask
-      output.emplace_back(
-        cudf::make_lists_column(num_rows, std::move(offsets), std::move(child), 0, {}, stream, mr));
+      output.emplace_back(cudf::make_lists_column(num_rows,
+                                                  std::move(offsets),
+                                                  std::move(child),
+                                                  null_count,
+                                                  std::move(*null_mask),
+                                                  stream,
+                                                  mr));
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(output.back()->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(output.back()->view());
     } else {
       CUDF_FAIL("Unsupported type");
     }
@@ -1541,7 +1559,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-#if 1
+#if 0
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1586,7 +1604,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   printf("line %d\n", __LINE__);
   fflush(stdout);
 
-  if (1) {
+  if constexpr (0) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
