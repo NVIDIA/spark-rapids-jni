@@ -18,7 +18,7 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
-#include <cudf_test/debug_utilities.hpp>
+// #include <cudf_test/debug_utilities.hpp>
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -479,9 +479,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
-        printf("path is empty, path type = %d, token = %d\n",
-               (int)path_type_id,
-               (int)p.get_current_token());
+        // printf("path is empty, path type = %d, token = %d\n",
+        //        (int)path_type_id,
+        //        (int)p.get_current_token());
 
         // If this is a struct column, we only need to check to see if there exists a struct.
         if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
@@ -587,92 +587,11 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           }
         }
       }
-#if 0
-      // case (START_ARRAY, Wildcard :: Wildcard :: xs)
-      // case path 5
-      else if (json_token::START_ARRAY == ctx.token &&
-               path_match_elements(
-                 ctx.path, path_instruction_type::WILDCARD, path_instruction_type::WILDCARD)) {
-        // special handling for the non-structure preserving double wildcard
-        // behavior in Hive
-        if (ctx.is_first_enter) {
-          ctx.is_first_enter = false;
-          ctx.g.write_start_array(out_buf);
-        }
-
-        if (p.next_token() != json_token::END_ARRAY) {
-          // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-          push_context(evaluation_case_path::START_ARRAY___MATCHED_DOUBLE_WILDCARD,
-                       ctx.g,
-                       write_style::FLATTEN,
-                       {ctx.path.data() + 2, ctx.path.size() - 2});
-        } else {
-          ctx.g.write_end_array(out_buf);
-          ctx.task_is_done = true;
-        }
-      }
-      // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
-      // case path 6
-      else if (json_token::START_ARRAY == ctx.token &&
-               path_match_element(ctx.path, path_instruction_type::WILDCARD) &&
-               ctx.style != write_style::QUOTED) {
-        printf("array * not quote\n");
-
-        // retain Flatten, otherwise use Quoted... cannot use Raw within an array
-        write_style next_style = write_style::RAW;
-        switch (ctx.style) {
-          case write_style::RAW: next_style = write_style::QUOTED; break;
-          case write_style::FLATTEN: next_style = write_style::FLATTEN; break;
-          case write_style::QUOTED: next_style = write_style::QUOTED;  // never happen
-        }
-
-        // temporarily buffer child matches, the emitted json will need to be
-        // modified slightly if there is only a single element written
-
-        json_generator child_g;
-        if (ctx.is_first_enter) {
-          ctx.is_first_enter = false;
-          // create a child generator with hide outer array tokens mode.
-          child_g = ctx.g.new_child_generator();
-          // write first [ without output, without update len, only update internal state
-          child_g.write_first_start_array_without_output();
-        } else {
-          child_g = ctx.child_g;
-        }
-
-        if (p.next_token() != json_token::END_ARRAY) {
-          // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-          // track the number of array elements and only emit an outer array if
-          // we've written more than one element, this matches Hive's behavior
-          push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD___STYLE_NOT_QUOTED,
-                       child_g,
-                       next_style,
-                       {ctx.path.data() + 1, ctx.path.size() - 1});
-        } else {
-          char* child_g_start = out_buf + child_g.get_offset();
-          int child_g_len     = child_g.get_output_len();
-          if (ctx.dirty > 1) {
-            // add outer array tokens
-            ctx.g.write_child_raw_value(
-              child_g_start, child_g_len, /* write_outer_array_tokens */ false);
-          } else if (ctx.dirty == 1) {
-            // remove outer array tokens
-            ctx.g.write_child_raw_value(
-              child_g_start, child_g_len, /* write_outer_array_tokens */ false);
-          }  // else do not write anything
-
-          // Done anyway, since we already reached the end array.
-          ctx.task_is_done = true;
-        }
-      }
-#endif
       // case (START_ARRAY, Wildcard :: xs)
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
-        printf("array *\n");
+        // printf("array *\n");
 
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
@@ -693,72 +612,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.task_is_done = true;
         }
       }
-      /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
-      // case path 8
-      else if (json_token::START_ARRAY == ctx.token &&
-               thrust::get<0>(path_match_index_wildcard(ctx.path))) {
-        int idx = thrust::get<1>(path_match_index_wildcard(ctx.path));
-
-        p.next_token();
-        // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-        ctx.is_first_enter = false;
-
-        int i = idx;
-        while (i > 0) {
-          if (p.get_current_token() == json_token::END_ARRAY) {
-            // terminate, nothing has been written
-            return {false, 0};
-          }
-
-          if (!p.try_skip_children()) { return {false, 0}; }
-
-          p.next_token();
-          // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-
-          --i;
-        }
-
-        // i == 0
-        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX_AND_WILDCARD,
-                     ctx.g,
-                     write_style::QUOTED,
-                     {ctx.path.data() + 1, ctx.path.size() - 1});
-      }
-#if 0
-      // case (START_ARRAY, Index(idx) :: xs)
-      // case path 9
-      else if (json_token::START_ARRAY == ctx.token && thrust::get<0>(path_match_index(ctx.path))) {
-        int idx = thrust::get<1>(path_match_index(ctx.path));
-
-        p.next_token();
-        // JSON validation check
-        if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-
-        int i = idx;
-        while (i > 0) {
-          if (p.get_current_token() == json_token::END_ARRAY) {
-            // terminate, nothing has been written
-            return {false, 0};
-          }
-
-          if (!p.try_skip_children()) { return {false, 0}; }
-
-          p.next_token();
-          // JSON validation check
-          if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-
-          --i;
-        }
-
-        // i == 0
-        push_context(evaluation_case_path::START_ARRAY___MATCHED_INDEX,
-                     ctx.g,
-                     ctx.style,
-                     {ctx.path.data() + 1, ctx.path.size() - 1});
-      }
-#endif
       // case _ =>
       // case path 12
       else {
@@ -1142,10 +995,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
 
-    printf("idx: %d, output_ids[idx]: %d\n", (int)idx, (int)output_ids[idx]);
-    printf("keep_quotes.find(output_ids[idx]) != keep_quotes.end(): %d\n",
-           (int)(keep_quotes.find(output_ids[idx]) != keep_quotes.end()));
-    fflush(stdout);
+    // printf("idx: %d, output_ids[idx]: %d\n", (int)idx, (int)output_ids[idx]);
+    // printf("keep_quotes.find(output_ids[idx]) != keep_quotes.end(): %d\n",
+    //        (int)(keep_quotes.find(output_ids[idx]) != keep_quotes.end()));
+    // fflush(stdout);
 
     h_path_data.emplace_back(
       json_path_processing_data{d_json_paths[idx],
@@ -1377,7 +1230,7 @@ void travel_path(
       // TODO: comment
       keep_quotes.insert(paths.size());
     }
-    printf("column_schema type: %d\n", static_cast<int>(column_schema.type.id()));
+    // printf("column_schema type: %d\n", static_cast<int>(column_schema.type.id()));
     paths.push_back(current_path);  // this will copy
     type_ids.push_back(column_schema.type.id());
   } else {
@@ -1385,14 +1238,14 @@ void travel_path(
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
       if (found_list_type) { current_path.pop_back(); }
       paths.push_back(current_path);  // this will copy
-      printf("column_schema type: STRUCT\n");
+      // printf("column_schema type: STRUCT\n");
       if (column_schema.type.id() == cudf::type_id::STRUCT) {
         for (auto const& [child_name, child_schema] : column_schema.child_types) {
           travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
         }
       }
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
-      printf("column_schema type: LIST\n");
+      // printf("column_schema type: LIST\n");
 
       CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
 
@@ -1474,9 +1327,9 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
         child, column_schema.child_types[child_idx].second, element_delimiter, stream, mr);
       if (num_child_rows < 0) { num_child_rows = new_child->size(); }
       if (num_child_rows != new_child->size()) {
-        printf("num_child_rows != new_child->size(): %d != %d\n",
-               (int)num_child_rows,
-               (int)new_child->size());
+        // printf("num_child_rows != new_child->size(): %d != %d\n",
+        // (int)num_child_rows,
+        // (int)new_child->size());
       }
       CUDF_EXPECTS(num_child_rows == new_child->size(), "num_child_rows != new_child->size()");
 
@@ -1492,8 +1345,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
             cudf::make_structs_column(num_child_rows, std::move(new_children), 0, {}, stream, mr)};
   }
 
-  printf("before split:\n");
-  cudf::test::print(input->view());
+  // printf("before split:\n");
+  // cudf::test::print(input->view());
 
   auto tmp = cudf::strings::split_record(cudf::strings_column_view{input->view()},
                                          cudf::string_scalar{std::string{element_delimiter}},
@@ -1507,8 +1360,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   //                               stream,
   //                               mr)
   //     ->release();
-  printf("after split:\n");
-  cudf::test::print(tmp->view());
+  // printf("after split:\n");
+  // cudf::test::print(tmp->view());
   auto split_content = tmp->release();
 
   return {std::move(split_content.children[cudf::lists_column_view::offsets_column_index]),
@@ -1671,14 +1524,14 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  printf("line %d\n", __LINE__);
-  fflush(stdout);
+  // printf("line %d\n", __LINE__);
+  // fflush(stdout);
   auto const [json_paths, type_ids, keep_quotes] = flatten_schema_to_paths(schema);
 
-  printf("line %d\n", __LINE__);
-  fflush(stdout);
+  // printf("line %d\n", __LINE__);
+  // fflush(stdout);
 
-#if 1
+#if 0
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1711,7 +1564,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 #endif
 
   auto const delimiter = find_delimiter(input, stream);
-  printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
+  // printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
 
   auto tmp = test::get_json_object(input,
                                    json_paths,
@@ -1724,10 +1577,10 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
                                    allow_non_numeric_numbers,
                                    stream,
                                    mr);
-  printf("line %d\n", __LINE__);
-  fflush(stdout);
+  // printf("line %d\n", __LINE__);
+  // fflush(stdout);
 
-  if constexpr (1) {
+  if constexpr (0) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
