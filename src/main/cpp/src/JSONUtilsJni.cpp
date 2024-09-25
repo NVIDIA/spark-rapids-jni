@@ -33,40 +33,38 @@ json_schema_element read_schema_element(int& index,
                                         cudf::jni::native_jintArray const& types,
                                         cudf::jni::native_jintArray const& scales)
 {
-  printf("JNI line %d\n", __LINE__);
-  fflush(stdout);
+  // printf("JNI line %d\n", __LINE__);
+  // fflush(stdout);
 
   auto d_type = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
   if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
-    printf("JNI line %d\n", __LINE__);
-    fflush(stdout);
+    // printf("JNI line %d\n", __LINE__);
+    // fflush(stdout);
 
     std::vector<std::pair<std::string, json_schema_element>> child_elems;
     int num_children = children[index];
     // go to the next entry, so recursion can parse it.
     index++;
     for (int i = 0; i < num_children; i++) {
-      printf("JNI line %d\n", __LINE__);
-      fflush(stdout);
+      // printf("JNI line %d\n", __LINE__);
+      // fflush(stdout);
 
       auto const name = std::string{names.get(index).get()};
       child_elems.emplace_back(name, read_schema_element(index, names, children, types, scales));
     }
     return json_schema_element{d_type, std::move(child_elems)};
   } else {
-    printf("JNI line %d\n", __LINE__);
-
-    printf("children size: %d, idx = %d\n", children.size(), index);
-
-    fflush(stdout);
+    // printf("JNI line %d\n", __LINE__);
+    // printf("children size: %d, idx = %d\n", children.size(), index);
+    // fflush(stdout);
 
     if (children[index] != 0) {
       throw std::invalid_argument("found children for a type that should have none");
     }
     // go to the next entry before returning...
     index++;
-    printf("JNI line %d\n", __LINE__);
-    fflush(stdout);
+    // printf("JNI line %d\n", __LINE__);
+    // fflush(stdout);
     return json_schema_element{d_type, {}};
   }
 }
@@ -237,14 +235,14 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
       JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "types and num children must match size", 0);
     }
 
-    printf("JNI line %d, size = %d\n", __LINE__, (int)n_types.size());
-    fflush(stdout);
+    // printf("JNI line %d, size = %d\n", __LINE__, (int)n_types.size());
+    // fflush(stdout);
 
     std::vector<std::pair<std::string, spark_rapids_jni::json_schema_element>> schema;
     int idx = 0;
     while (idx < n_types.size()) {
-      printf("JNI line %d\n", __LINE__);
-      fflush(stdout);
+      // printf("JNI line %d\n", __LINE__);
+      // fflush(stdout);
 
       auto const name = std::string{n_col_names.get(idx).get()};
       schema.emplace_back(
@@ -252,16 +250,16 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
         spark_rapids_jni::read_schema_element(idx, n_col_names, n_children, n_types, n_scales));
 
       // auto const name = n_col_names.get(at).get();
-      printf("JNI line %d\n", __LINE__);
-      fflush(stdout);
+      // printf("JNI line %d\n", __LINE__);
+      // fflush(stdout);
 
       // auto child = cudf::jni::read_schema_element(at, n_children, n_col_names, n_types,
       // n_scales); printf("JNI line %d\n", __LINE__); fflush(stdout);
 
       // schema.emplace(name, std::move(child));
     }
-    printf("JNI line %d\n", __LINE__);
-    fflush(stdout);
+    // printf("JNI line %d\n", __LINE__);
+    // fflush(stdout);
 
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     auto output = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
@@ -269,8 +267,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
                                                          allow_leading_zero_numbers,
                                                          allow_non_numeric_numbers);
 
-    printf("JNI line %d\n", __LINE__);
-    fflush(stdout);
+    // printf("JNI line %d\n", __LINE__);
+    // fflush(stdout);
 
     auto out_handles = cudf::jni::native_jlongArray(env, output.size());
     std::transform(output.begin(), output.end(), out_handles.begin(), [](auto& col) {
