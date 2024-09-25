@@ -590,6 +590,22 @@ public class RmmSpark {
   }
 
   /**
+   * Get the max device memory footprint, in bytes, that this task had allocated over its lifetime
+   * @param taskId the id of the task to get the metric for.
+   * @return the max device memory footprint.
+   */
+  public static long getAndResetGpuMaxMemoryAllocated(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getAndResetGpuMaxMemoryAllocated(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
+  /**
    * Called before doing an allocation on the CPU. This could throw an injected exception to help
    * with testing.
    * @param amount the amount of memory being requested
