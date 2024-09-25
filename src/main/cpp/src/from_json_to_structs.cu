@@ -1571,7 +1571,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
                                    type_ids,
                                    keep_quotes,
                                    delimiter,
-                                   -1L,
+                                   1024 * 1024 * 1024 * 4L,
                                    -1,
                                    allow_leading_zero_numbers,
                                    allow_non_numeric_numbers,
