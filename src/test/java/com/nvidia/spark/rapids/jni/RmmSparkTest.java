@@ -43,6 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class RmmSparkTest {
+  private final static long ALIGNMENT = 256;
+
   @BeforeEach
   public void setup() {
     if (Rmm.isInitialized()) {
@@ -317,6 +319,7 @@ public class RmmSparkTest {
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
     assertEquals(0, RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid));
+    assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
     RmmSpark.startDedicatedTaskThread(threadId, taskid, t);
     assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     try {
@@ -343,6 +346,7 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+      assertEquals(ALIGNMENT, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
@@ -356,6 +360,7 @@ public class RmmSparkTest {
       assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
+      assertEquals(ALIGNMENT * 2, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
 
       // Verify that injecting OOM does not cause the block to actually happen
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
@@ -635,8 +640,8 @@ public class RmmSparkTest {
     boolean succeeded = false;
     try {
       resource = new RmmCudaMemoryResource();
-      resource = new RmmLimitingResourceAdaptor<>(resource, maxAllocSize, 256);
-      resource = new RmmTrackingResourceAdaptor<>(resource, 256);
+      resource = new RmmLimitingResourceAdaptor<>(resource, maxAllocSize, ALIGNMENT);
+      resource = new RmmTrackingResourceAdaptor<>(resource, ALIGNMENT);
       Rmm.setCurrentDeviceResource(resource, null, false);
       succeeded = true;
     } finally {
@@ -760,9 +765,9 @@ public class RmmSparkTest {
 
   @Test
   public void testBasicMixedBlocking() throws ExecutionException, InterruptedException, TimeoutException {
-    // 10 MiB
-    setupRmmForTestingWithLimits(10 * 1024 * 1024);
-    LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
+    final long MB = 1024 * 1024;
+    setupRmmForTestingWithLimits(10 * MB);
+    LimitingOffHeapAllocForTests.setLimit(10 * MB);
     TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
     TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
     TaskThread taskThree = new TaskThread("TEST THREAD THREE", 3);
@@ -771,6 +776,9 @@ public class RmmSparkTest {
     taskTwo.initialize();
     taskThree.initialize();
     taskFour.initialize();
+
+    final long FIVE_MB = 5 * MB;
+    final long SIX_MB = 6 * MB;
     try {
       long tOneId = taskOne.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tOneId));
@@ -784,18 +792,18 @@ public class RmmSparkTest {
       long tFourId = taskFour.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tFourId));
 
-      try (AllocOnAnotherThread firstGpuAlloc = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread firstGpuAlloc = new GpuAllocOnAnotherThread(taskOne, FIVE_MB)) {
         firstGpuAlloc.waitForAlloc();
 
-        try (AllocOnAnotherThread firstCpuAlloc = new CpuAllocOnAnotherThread(taskTwo, 5 * 1024 * 1024)) {
+        try (AllocOnAnotherThread firstCpuAlloc = new CpuAllocOnAnotherThread(taskTwo, FIVE_MB)) {
           firstCpuAlloc.waitForAlloc();
 
           // Blocking GPU Alloc
-          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, 6 * 1024 * 1024)) {
+          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, SIX_MB)) {
             taskThree.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
             // Blocking CPU Alloc
-            try (AllocOnAnotherThread secondCpuAlloc = new CpuAllocOnAnotherThread(taskFour, 6 * 1024 * 1024)) {
+            try (AllocOnAnotherThread secondCpuAlloc = new CpuAllocOnAnotherThread(taskFour, SIX_MB)) {
               taskFour.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
               // We want to make sure that the order of wakeup corresponds to the location of the data that was released
@@ -814,9 +822,13 @@ public class RmmSparkTest {
       }
     } finally {
       taskOne.done();
+      assertEquals(FIVE_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(1));
       taskTwo.done();
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(2));
       taskThree.done();
+      assertEquals(SIX_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(3));
       taskFour.done();
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(4));
     }
   }
 
