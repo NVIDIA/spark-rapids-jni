@@ -1252,6 +1252,7 @@ void travel_path(
   std::vector<cudf::type_id>& type_ids,
   std::unordered_set<std::size_t>& keep_quotes,
   bool& has_list_type,
+  bool parent_is_list,
   std::string const& name,
   json_schema_element const& column_schema)
 {
@@ -1268,17 +1269,22 @@ void travel_path(
   } else {
     type_ids.push_back(column_schema.type.id());
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
-      if (has_list_type) {
+      // STRUCT directly under array does not have name field.
+      if (parent_is_list) {
         popped = true;
-        current_path.pop_back();
+        current_path.pop_back();  // remove the last NAMED instruction.
       }
       paths.push_back(current_path);  // this will copy
-      // printf("column_schema type: STRUCT\n");
-      if (column_schema.type.id() == cudf::type_id::STRUCT) {
-        for (auto const& [child_name, child_schema] : column_schema.child_types) {
-          travel_path(
-            paths, current_path, type_ids, keep_quotes, has_list_type, child_name, child_schema);
-        }
+                                      // printf("column_schema type: STRUCT\n");
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        travel_path(paths,
+                    current_path,
+                    type_ids,
+                    keep_quotes,
+                    has_list_type,
+                    false /*parent_is_list*/,
+                    child_name,
+                    child_schema);
       }
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // printf("column_schema type: LIST\n");
@@ -1302,8 +1308,14 @@ void travel_path(
       // Only add a path name if this column is not under a list type.
       if (has_struct_child) {
         for (auto const& [child_name, child_schema] : column_schema.child_types) {
-          travel_path(
-            paths, current_path, type_ids, keep_quotes, has_list_type, child_name, child_schema);
+          travel_path(paths,
+                      current_path,
+                      type_ids,
+                      keep_quotes,
+                      has_list_type,
+                      true /*parent_is_list*/,
+                      child_name,
+                      child_schema);
         }
       } else {
         auto const child_type = column_schema.child_types.front().second.type;
@@ -1312,7 +1324,7 @@ void travel_path(
         type_ids.push_back(child_type.id());
       }
 
-      current_path.pop_back();
+      current_path.pop_back();  // remove WILDCARD
 
     } else {
       // TODO
@@ -1320,7 +1332,7 @@ void travel_path(
     }
   }
   // if (column_schema.type.id() != cudf::type_id::STRUCT || !has_list_type) {
-  if (column_schema.type.id() != cudf::type_id::STRUCT || !popped) { current_path.pop_back(); }
+  if (!popped) { current_path.pop_back(); }
 }
 
 std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
@@ -1336,7 +1348,14 @@ flatten_schema_to_paths(std::vector<std::pair<std::string, json_schema_element>>
 
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> current_path;
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    travel_path(paths, current_path, type_ids, keep_quotes, has_list_type, kv.first, kv.second);
+    travel_path(paths,
+                current_path,
+                type_ids,
+                keep_quotes,
+                has_list_type,
+                false /*parent_is_list*/,
+                kv.first,
+                kv.second);
   });
 
   return {std::move(paths), std::move(type_ids), std::move(keep_quotes), has_list_type};
@@ -1676,6 +1695,9 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 
 #endif
 
+  // array<struct<a: struct<b: int>>>
+  // [{'a': {'b': 1, 'c' : 2}, 'x': []}, {}]
+
   // This should only run when there is LIST column.
   char delimiter{','}, null_placeholder{'\0'};
   if (has_list_type) { std::tie(delimiter, null_placeholder) = find_delimiter(input, stream); }
@@ -1712,6 +1734,8 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
         printf("%c", c);
       }
       printf("\n");
+
+      // cudf::test::print(tmp[i]->view());
     }
   }
 

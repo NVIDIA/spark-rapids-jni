@@ -202,8 +202,8 @@ TEST_F(FromJsonTest, T5)
 
 TEST_F(FromJsonTest, T6)
 {
-  auto const json_string =
-    cudf::test::strings_column_wrapper{"{'data':[{'a':1}, {'a':2, 'b':3}, {'b':4}]}"};
+  auto const json_string = cudf::test::strings_column_wrapper{"{'data':[{'a':1}"};
+  // cudf::test::strings_column_wrapper{"{'data':[{'a':1}, {'a':2, 'b':3}, {'b':4}]}"};
   spark_rapids_jni::json_schema_element a{cudf::data_type{cudf::type_id::LIST}, {}};
 
   a.child_types.emplace_back(
@@ -225,5 +225,48 @@ TEST_F(FromJsonTest, T6)
   printf("\n\noutput: \n");
   for (auto const& col : output) {
     cudf::test::print(col->view());
+    printf("\n");
+  }
+}
+
+TEST_F(FromJsonTest, T7)
+{
+  auto const json_string = cudf::test::strings_column_wrapper{
+    R"({"id": 1,"name": "John","tags": ["developer", "python"],"details": {"age": 30,"address": {"city": "San Francisco","zip": "94105"}}})"};
+
+  // id INT, name STRING, tags ARRAY<STRING>, details STRUCT<age: INT, address: STRUCT<city: STRING,
+  // zip: STRING>>
+  spark_rapids_jni::json_schema_element a{cudf::data_type{cudf::type_id::STRUCT}, {}};
+  a.child_types.emplace_back(
+    "age", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::INT32}, {}});
+  a.child_types.emplace_back(
+    "address", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::STRUCT}, {}});
+  a.child_types.back().second.child_types.emplace_back(
+    "city", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::STRING}, {}});
+  a.child_types.back().second.child_types.emplace_back(
+    "zip", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::STRING}, {}});
+
+  spark_rapids_jni::json_schema_element b{cudf::data_type{cudf::type_id::LIST}, {}};
+  b.child_types.emplace_back(
+    "tags", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::STRING}, {}});
+
+  std::vector<std::pair<std::string, spark_rapids_jni::json_schema_element>> schema;
+  schema.emplace_back(
+    "id", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::INT32}, {}});
+  schema.emplace_back(
+    "name", spark_rapids_jni::json_schema_element{cudf::data_type{cudf::type_id::STRING}, {}});
+  schema.emplace_back("tags", std::move(b));
+  schema.emplace_back("details", std::move(a));
+
+  auto const output = spark_rapids_jni::from_json_to_structs(
+    cudf::strings_column_view{json_string}, schema, false, false);
+
+  printf("\n\ninput: \n");
+  cudf::test::print(json_string);
+
+  printf("\n\noutput: \n");
+  for (auto const& col : output) {
+    cudf::test::print(col->view());
+    printf("\n");
   }
 }
