@@ -1220,10 +1220,11 @@ void travel_path(
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>>& current_path,
   std::vector<cudf::type_id>& type_ids,
   std::unordered_set<std::size_t>& keep_quotes,
+  bool& has_list_type,
   std::string const& name,
-  json_schema_element const& column_schema,
-  bool found_list_type = false)
+  json_schema_element const& column_schema)
 {
+  bool popped{false};
   current_path.emplace_back(path_instruction_type::NAMED, name, -1);
   if (column_schema.child_types.size() == 0) {  // leaf of the schema
     if (cudf::is_fixed_width(column_schema.type)) {
@@ -1236,18 +1237,23 @@ void travel_path(
   } else {
     type_ids.push_back(column_schema.type.id());
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
-      if (found_list_type) { current_path.pop_back(); }
+      if (has_list_type) {
+        popped = true;
+        current_path.pop_back();
+      }
       paths.push_back(current_path);  // this will copy
       // printf("column_schema type: STRUCT\n");
       if (column_schema.type.id() == cudf::type_id::STRUCT) {
         for (auto const& [child_name, child_schema] : column_schema.child_types) {
-          travel_path(paths, current_path, type_ids, keep_quotes, child_name, child_schema);
+          travel_path(
+            paths, current_path, type_ids, keep_quotes, has_list_type, child_name, child_schema);
         }
       }
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // printf("column_schema type: LIST\n");
 
       CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
+      has_list_type = true;
 
       // TODO: is this needed, if there is no struct child?
       paths.push_back(current_path);  // this will copy
@@ -1265,13 +1271,8 @@ void travel_path(
       // Only add a path name if this column is not under a list type.
       if (has_struct_child) {
         for (auto const& [child_name, child_schema] : column_schema.child_types) {
-          travel_path(paths,
-                      current_path,
-                      type_ids,
-                      keep_quotes,
-                      child_name,
-                      child_schema,
-                      /*found_list_type=*/true);
+          travel_path(
+            paths, current_path, type_ids, keep_quotes, has_list_type, child_name, child_schema);
         }
       } else {
         auto const child_type = column_schema.child_types.front().second.type;
@@ -1287,26 +1288,27 @@ void travel_path(
       CUDF_FAIL("Unsupported type");
     }
   }
-  if (column_schema.type.id() != cudf::type_id::STRUCT || !found_list_type) {
-    current_path.pop_back();
-  }
+  // if (column_schema.type.id() != cudf::type_id::STRUCT || !has_list_type) {
+  if (column_schema.type.id() != cudf::type_id::STRUCT || !popped) { current_path.pop_back(); }
 }
 
 std::tuple<std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>>,
            std::vector<cudf::type_id>,
-           std::unordered_set<std::size_t>>
+           std::unordered_set<std::size_t>,
+           bool>
 flatten_schema_to_paths(std::vector<std::pair<std::string, json_schema_element>> const& schema)
 {
   std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> paths;
   std::vector<cudf::type_id> type_ids;
   std::unordered_set<std::size_t> keep_quotes;
+  bool has_list_type{false};
 
   std::vector<std::tuple<path_instruction_type, std::string, int32_t>> current_path;
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    travel_path(paths, current_path, type_ids, keep_quotes, kv.first, kv.second);
+    travel_path(paths, current_path, type_ids, keep_quotes, has_list_type, kv.first, kv.second);
   });
 
-  return {std::move(paths), std::move(type_ids), std::move(keep_quotes)};
+  return {std::move(paths), std::move(type_ids), std::move(keep_quotes), has_list_type};
 }
 
 std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_lists(
@@ -1452,7 +1454,8 @@ void assemble_column(std::size_t& column_order,
   }
 }
 
-char find_delimiter(cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
+std::pair<char, char> find_delimiter(cudf::strings_column_view const& input,
+                                     rmm::cuda_stream_view stream)
 {
   auto constexpr num_levels  = 256;
   auto constexpr lower_level = std::numeric_limits<char>::min();
@@ -1486,15 +1489,33 @@ char find_delimiter(cudf::strings_column_view const& input, rmm::cuda_stream_vie
                                       stream.value());
 
   auto const zero_level = d_histogram.begin() - lower_level;
-  auto const first_zero_count_pos =
-    thrust::find(rmm::exec_policy(stream), zero_level + '\n', d_histogram.end(), 0);
+  auto first_zero_count_pos =
+    thrust::find(rmm::exec_policy(stream), zero_level, d_histogram.end(), 0);
   if (first_zero_count_pos == d_histogram.end()) {
+    // Try again...
+    first_zero_count_pos =
+      thrust::find(rmm::exec_policy(stream), d_histogram.begin(), d_histogram.end(), 0);
+    if (first_zero_count_pos == d_histogram.end()) {
+      // TODO: change message
+      throw std::logic_error(
+        "can't find a character suitable as delimiter for combining json strings to json lines "
+        "with "
+        "custom delimiter");
+    }
+  }
+
+  auto second_zero_count_pos =
+    thrust::find(rmm::exec_policy(stream), first_zero_count_pos + 1, d_histogram.end(), 0);
+  if (second_zero_count_pos == d_histogram.end()) {
+    // TODO: change message
     throw std::logic_error(
-      "can't find a character suitable as delimiter for combining json strings to json lines with "
+      "can't find a character suitable as delimiter for combining json strings to json lines "
+      "with "
       "custom delimiter");
   }
-  auto const first_non_existing_char = first_zero_count_pos - zero_level;
-  return first_non_existing_char;
+
+  return {static_cast<char>(first_zero_count_pos - zero_level),
+          static_cast<char>(second_zero_count_pos - zero_level)};
 }
 
 std::vector<std::unique_ptr<cudf::column>> assemble_output(
@@ -1526,7 +1547,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 {
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
-  auto const [json_paths, type_ids, keep_quotes] = flatten_schema_to_paths(schema);
+  auto const [json_paths, type_ids, keep_quotes, has_list_type] = flatten_schema_to_paths(schema);
 
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
@@ -1563,8 +1584,11 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
 
 #endif
 
-  auto const delimiter = find_delimiter(input, stream);
-  // printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
+  // This should only run when there is LIST column.
+  char delimiter{','}, null_placeholder{'\0'};
+  if (has_list_type) { std::tie(delimiter, null_placeholder) = find_delimiter(input, stream); }
+  printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
+  printf("null_placeholder: %c (code: %d)\n", null_placeholder, (int)null_placeholder);
 
   auto tmp = test::get_json_object(input,
                                    json_paths,
