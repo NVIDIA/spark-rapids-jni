@@ -18,7 +18,7 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
-#include <cudf_test/debug_utilities.hpp>
+// #include <cudf_test/debug_utilities.hpp>
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -1384,8 +1384,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
             cudf::make_structs_column(num_child_rows, std::move(new_children), 0, {}, stream, mr)};
   }
 
-  printf("before split:\n");
-  cudf::test::print(input->view());
+  // printf("before split:\n");
+  // cudf::test::print(input->view());
 
   auto tmp            = cudf::strings::split_record(cudf::strings_column_view{input->view()},
                                          cudf::string_scalar{std::string{element_delimiter}},
@@ -1396,8 +1396,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   auto const child_cv = split_content.children[cudf::lists_column_view::child_column_index]->view();
   auto const child_strview = cudf::strings_column_view{child_cv};
 
-  printf("child_cv:\n");
-  cudf::test::print(child_cv);
+  // printf("child_cv:\n");
+  // cudf::test::print(child_cv);
 
   // Convert a row index into an invalid value (-1) if that row contains a null placeholder.
   // Don't care about nulls in the child column, as they will be gathered to the output.
@@ -1420,8 +1420,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
                                                   mr)
                                ->release()
                                .front());
-  printf("out_child:\n");
-  cudf::test::print(out_child->view());
+  // printf("out_child:\n");
+  // cudf::test::print(out_child->view());
 
   if (out_child->null_count() == 0) { out_child->set_null_mask(rmm::device_buffer{}, 0); }
 
@@ -1671,8 +1671,8 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // This should only run when there is LIST column.
   char delimiter{','}, null_placeholder{'\0'};
   if (has_list_type) { std::tie(delimiter, null_placeholder) = find_delimiter(input, stream); }
-  printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
-  printf("null_placeholder: %c (code: %d)\n", null_placeholder, (int)null_placeholder);
+  // printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
+  // printf("null_placeholder: %c (code: %d)\n", null_placeholder, (int)null_placeholder);
 
   auto tmp = test::get_json_object(input,
                                    json_paths,
