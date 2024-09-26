@@ -1267,8 +1267,9 @@ void travel_path(
     paths.push_back(current_path);  // this will copy
     type_ids.push_back(column_schema.type.id());
   } else {
-    type_ids.push_back(column_schema.type.id());
     if (column_schema.type.id() == cudf::type_id::STRUCT) {
+      type_ids.push_back(column_schema.type.id());
+
       // STRUCT directly under array does not have name field.
       if (parent_is_list) {
         popped = true;
@@ -1292,11 +1293,6 @@ void travel_path(
       CUDF_EXPECTS(column_schema.child_types.size() == 1, "TODO");
       has_list_type = true;
 
-      // TODO: is this needed, if there is no struct child?
-      paths.push_back(current_path);  // this will copy
-
-      current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
-
       bool has_struct_child{false};
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
         if (child_schema.type.id() == cudf::type_id::STRUCT) {
@@ -1304,6 +1300,14 @@ void travel_path(
           break;
         }
       }
+
+      // TODO: is this needed, if there is no struct child?
+      if (has_struct_child) {
+        paths.push_back(current_path);  // this will copy
+        type_ids.push_back(column_schema.type.id());
+      }
+
+      current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
 
       // Only add a path name if this column is not under a list type.
       if (has_struct_child) {
@@ -1505,12 +1509,25 @@ void assemble_column(std::size_t& column_order,
     } else if (column_schema.type.id() == cudf::type_id::LIST) {
       // TODO: split LIST into child column
       // For now, just output as a strings column.
+
+      bool has_struct_child{false};
+      for (auto const& [child_name, child_schema] : column_schema.child_types) {
+        if (child_schema.type.id() == cudf::type_id::STRUCT) {
+          has_struct_child = true;
+          break;
+        }
+      }
+
       auto const num_rows   = read_columns[column_order]->size();
       auto const null_count = read_columns[column_order]->null_count();
-      auto const null_mask  = std::move(read_columns[column_order]->release().null_mask);
+      std::unique_ptr<rmm::device_buffer> null_mask{nullptr};
 
       // printf("num rows: %d\n", num_rows);
-      ++column_order;
+      // If there is struct child, ..... TODO
+      if (has_struct_child) {
+        null_mask = std::move(read_columns[column_order]->release().null_mask);
+        ++column_order;
+      }
 
       std::vector<std::unique_ptr<cudf::column>> children;
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
@@ -1541,6 +1558,8 @@ void assemble_column(std::size_t& column_order,
       // cudf::test::print(offsets->view());
 
       // TODO: fix null mask
+      if (!has_struct_child) { null_mask = std::move(children.front()->release().null_mask); }
+
       output.emplace_back(cudf::make_lists_column(num_rows,
                                                   std::move(offsets),
                                                   std::move(child),
