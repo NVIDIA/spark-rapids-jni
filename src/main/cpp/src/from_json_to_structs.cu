@@ -18,10 +18,11 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
-// #include <cudf_test/debug_utilities.hpp>
+#include <cudf_test/debug_utilities.hpp>
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/gather.cuh>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/offsets_iterator_factory.cuh>
 #include <cudf/detail/utilities/cuda.cuh>
@@ -188,6 +189,13 @@ class json_generator {
     output_len += write_quote(out_begin + offset + output_len, keep_quotes);
     output_len += parser.write_unescaped_text(out_begin + offset + output_len);
     output_len += write_quote(out_begin + offset + output_len, keep_quotes);
+  }
+
+  __device__ void write_null_placeholder(char* out_begin, char null)
+  {
+    out_begin[offset + output_len] = null;
+    output_len += 1;
+    is_curr_array_empty = false;
   }
 
   /**
@@ -387,6 +395,8 @@ struct context {
 
   write_style style;
 
+  bool is_in_array;
+
   // for some case paths
   bool is_first_enter;
 
@@ -411,6 +421,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   cudf::type_id path_type_id,
   bool keep_quotes,
   char element_delimiter,
+  char null_placeholder,
   char* out_buf,
   int8_t* max_path_depth_exceeded)
 {
@@ -424,7 +435,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
   auto const push_context = [&](evaluation_case_path _case_path,
                                 json_generator _g,
                                 write_style _style,
-                                cudf::device_span<path_instruction const> _path) {
+                                cudf::device_span<path_instruction const> _path,
+                                bool is_in_array) {
     if (stack_size > MAX_JSON_PATH_DEPTH) {
       *max_path_depth_exceeded = 1;
       // Because no more context is pushed, the evaluation output should be wrong.
@@ -438,11 +450,13 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     ctx.case_path      = _case_path;
     ctx.token          = p.get_current_token();
     ctx.style          = _style;
+    ctx.is_in_array    = is_in_array;
     ctx.is_first_enter = true;
     ctx.task_is_done   = false;
   };
 
-  push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
+  push_context(
+    evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands, false);
 
   while (stack_size > 0) {
     auto& ctx = stack[stack_size - 1];
@@ -470,7 +484,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           push_context(evaluation_case_path::START_ARRAY___EMPTY_PATH___FLATTEN_STYLE,
                        ctx.g,
                        ctx.style,
-                       {nullptr, 0});
+                       {nullptr, 0},
+                       true);
         } else {
           // END_ARRAY
           ctx.task_is_done = true;
@@ -564,7 +579,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
               push_context(evaluation_case_path::START_OBJECT___MATCHED_NAME_PATH,
                            ctx.g,
                            ctx.style,
-                           {ctx.path.data() + 1, ctx.path.size() - 1});
+                           {ctx.path.data() + 1, ctx.path.size() - 1},
+                           ctx.is_in_array);
               found_expected_child = true;
               break;
             } else {
@@ -581,9 +597,14 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             }
           }
           if (!found_expected_child) {
-            // did not find any expected sub child
+            if (ctx.is_in_array) {
+              ctx.g.try_write_comma(out_buf, element_delimiter);
+              ctx.g.write_null_placeholder(out_buf, null_placeholder);
+              ctx.dirty = 1;
+            } else {
+              ctx.dirty = false;
+            }
             ctx.task_is_done = true;
-            ctx.dirty        = false;
           }
         }
       }
@@ -606,7 +627,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           push_context(evaluation_case_path::START_ARRAY___MATCHED_WILDCARD,
                        ctx.g,
                        write_style::QUOTED,
-                       {ctx.path.data() + 1, ctx.path.size() - 1});
+                       {ctx.path.data() + 1, ctx.path.size() - 1},
+                       true);
         } else {
           // ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
@@ -746,6 +768,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
                               char element_delimiter,
+                              char null_placeholder,
                               bool allow_leading_zero_numbers,
                               bool allow_non_numeric_numbers,
                               std::size_t num_threads_per_row,
@@ -773,6 +796,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
                                                     path.type_id,
                                                     path.keep_quotes,
                                                     element_delimiter,
+                                                    null_placeholder,
                                                     dst,
                                                     max_path_depth_exceeded);
 
@@ -803,6 +827,7 @@ struct kernel_launcher {
   static void exec(cudf::column_device_view const& input,
                    cudf::device_span<json_path_processing_data> path_data,
                    char element_delimiter,
+                   char null_placeholder,
                    bool allow_leading_zero_numbers,
                    bool allow_non_numeric_numbers,
                    int8_t* max_path_depth_exceeded,
@@ -824,6 +849,7 @@ struct kernel_launcher {
       <<<num_blocks, block_size, 0, stream.value()>>>(input,
                                                       path_data,
                                                       element_delimiter,
+                                                      null_placeholder,
                                                       allow_leading_zero_numbers,
                                                       allow_non_numeric_numbers,
                                                       num_threads_per_row,
@@ -961,6 +987,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::vector<std::size_t> const& output_ids,
   std::unordered_set<std::size_t> const& keep_quotes,
   char element_delimiter,
+  char null_placeholder,
   int64_t scratch_size,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
@@ -1017,6 +1044,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   kernel_launcher::exec(input,
                         d_path_data,
                         element_delimiter,
+                        null_placeholder,
                         allow_leading_zero_numbers,
                         allow_non_numeric_numbers,
                         d_max_path_depth_exceeded,
@@ -1094,6 +1122,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   kernel_launcher::exec(input,
                         d_path_data,
                         element_delimiter,
+                        null_placeholder,
                         allow_leading_zero_numbers,
                         allow_non_numeric_numbers,
                         d_max_path_depth_exceeded,
@@ -1125,6 +1154,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   std::vector<cudf::type_id> const& type_ids,
   std::unordered_set<std::size_t> const& keep_quotes,
   char element_delimiter,
+  char null_placeholder,
   int64_t memory_budget_bytes,
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
@@ -1199,6 +1229,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                      output_ids,
                                      keep_quotes,
                                      element_delimiter,
+                                     null_placeholder,
                                      scratch_size,
                                      allow_leading_zero_numbers,
                                      allow_non_numeric_numbers,
@@ -1315,6 +1346,7 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   std::unique_ptr<cudf::column>& input,
   json_schema_element const& column_schema,
   char element_delimiter,
+  char null_placeholder,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1324,9 +1356,14 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
     cudf::size_type num_child_rows{-1};
     auto children = std::move(input->release().children);
     for (std::size_t child_idx = 0; child_idx < children.size(); ++child_idx) {
-      auto& child                         = children[child_idx];
-      auto [new_child_offsets, new_child] = extract_lists(
-        child, column_schema.child_types[child_idx].second, element_delimiter, stream, mr);
+      auto& child = children[child_idx];
+      auto [new_child_offsets, new_child] =
+        extract_lists(child,
+                      column_schema.child_types[child_idx].second,
+                      element_delimiter,
+                      null_placeholder,
+                      stream,
+                      mr);
       if (num_child_rows < 0) { num_child_rows = new_child->size(); }
       if (num_child_rows != new_child->size()) {
         // printf("num_child_rows != new_child->size(): %d != %d\n",
@@ -1347,14 +1384,47 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
             cudf::make_structs_column(num_child_rows, std::move(new_children), 0, {}, stream, mr)};
   }
 
-  // printf("before split:\n");
-  // cudf::test::print(input->view());
+  printf("before split:\n");
+  cudf::test::print(input->view());
 
-  auto tmp = cudf::strings::split_record(cudf::strings_column_view{input->view()},
+  auto tmp            = cudf::strings::split_record(cudf::strings_column_view{input->view()},
                                          cudf::string_scalar{std::string{element_delimiter}},
                                          -1,
                                          stream,
                                          mr);
+  auto split_content  = tmp->release();
+  auto const child_cv = split_content.children[cudf::lists_column_view::child_column_index]->view();
+  auto const child_strview = cudf::strings_column_view{child_cv};
+
+  printf("child_cv:\n");
+  cudf::test::print(child_cv);
+
+  // Convert a row index into an invalid value (-1) if that row contains a null placeholder.
+  // Don't care about nulls in the child column, as they will be gathered to the output.
+  auto const gather_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [null_placeholder,
+       offsets = child_strview.offsets().begin<cudf::size_type>(),
+       chars   = child_strview.chars_begin(stream)] __device__(cudf::size_type idx) {
+        if (offsets[idx + 1] - offsets[idx] == 1) {
+          return chars[offsets[idx]] == null_placeholder ? -1 : idx;
+        }
+        return idx;
+      }));
+  auto out_child = std::move(cudf::detail::gather(cudf::table_view{{child_cv}},
+                                                  gather_it,
+                                                  gather_it + child_cv.size(),
+                                                  cudf::out_of_bounds_policy::NULLIFY,
+                                                  stream,
+                                                  mr)
+                               ->release()
+                               .front());
+  printf("out_child:\n");
+  cudf::test::print(out_child->view());
+
+  if (out_child->null_count() == 0) { out_child->set_null_mask(rmm::device_buffer{}, 0); }
+
   // auto split_content =
   //   cudf::strings::split_record(cudf::strings_column_view{input->view()},
   //                               cudf::string_scalar{std::string{element_delimiter}},
@@ -1364,10 +1434,9 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   //     ->release();
   // printf("after split:\n");
   // cudf::test::print(tmp->view());
-  auto split_content = tmp->release();
 
   return {std::move(split_content.children[cudf::lists_column_view::offsets_column_index]),
-          std::move(split_content.children[cudf::lists_column_view::child_column_index])};
+          std::move(out_child)};
 }
 
 void assemble_column(std::size_t& column_order,
@@ -1376,6 +1445,7 @@ void assemble_column(std::size_t& column_order,
                      std::string const& name,
                      json_schema_element const& column_schema,
                      char element_delimiter,
+                     char null_placeholder,
                      rmm::cuda_stream_view stream,
                      rmm::device_async_resource_ref mr)
 {
@@ -1396,6 +1466,7 @@ void assemble_column(std::size_t& column_order,
                         child_name,
                         child_schema,
                         element_delimiter,
+                        null_placeholder,
                         stream,
                         mr);
       }
@@ -1422,6 +1493,7 @@ void assemble_column(std::size_t& column_order,
                         child_name,
                         child_schema,
                         element_delimiter,
+                        null_placeholder,
                         stream,
                         mr);
       }
@@ -1429,8 +1501,12 @@ void assemble_column(std::size_t& column_order,
       // printf("line %d\n", __LINE__);
       // cudf::test::print(children.front()->view());
 
-      auto [offsets, child] = extract_lists(
-        children.front(), column_schema.child_types.front().second, element_delimiter, stream, mr);
+      auto [offsets, child] = extract_lists(children.front(),
+                                            column_schema.child_types.front().second,
+                                            element_delimiter,
+                                            null_placeholder,
+                                            stream,
+                                            mr);
 
       // printf("line %d\n", __LINE__);
       // cudf::test::print(child->view());
@@ -1522,6 +1598,7 @@ std::vector<std::unique_ptr<cudf::column>> assemble_output(
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
   std::vector<std::unique_ptr<cudf::column>>& read_columns,
   char element_delimiter,
+  char null_placeholder,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1530,8 +1607,15 @@ std::vector<std::unique_ptr<cudf::column>> assemble_output(
 
   std::size_t column_order{0};
   std::for_each(schema.begin(), schema.end(), [&](auto const& kv) {
-    assemble_column(
-      column_order, output, read_columns, kv.first, kv.second, element_delimiter, stream, mr);
+    assemble_column(column_order,
+                    output,
+                    read_columns,
+                    kv.first,
+                    kv.second,
+                    element_delimiter,
+                    null_placeholder,
+                    stream,
+                    mr);
   });
 
   return output;
@@ -1595,6 +1679,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
                                    type_ids,
                                    keep_quotes,
                                    delimiter,
+                                   null_placeholder,
                                    1024 * 1024 * 1024 * 4L,
                                    -1,
                                    allow_leading_zero_numbers,
@@ -1622,7 +1707,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
     }
   }
 
-  return assemble_output(schema, tmp, delimiter, stream, mr);
+  return assemble_output(schema, tmp, delimiter, null_placeholder, stream, mr);
 }
 
 }  // namespace detail
