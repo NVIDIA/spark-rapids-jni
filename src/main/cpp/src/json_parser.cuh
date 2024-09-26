@@ -1034,8 +1034,8 @@ class json_parser {
       auto const matched_sign = chars[curr_pos] == '-' || chars[curr_pos] == '+';
       if (matched_sign) { ++curr_pos; }
 
-      if ((curr_pos + 2) < chars.size() && chars[curr_pos] == 'I' && chars[curr_pos + 1] == 'N' &&
-          chars[curr_pos + 2] == 'F') {
+      if (matched_sign && (curr_pos + 2) < chars.size() && chars[curr_pos] == 'I' &&
+          chars[curr_pos + 1] == 'N' && chars[curr_pos + 2] == 'F') {
         current_token = json_token::VALUE_NON_NUMERIC_FLOAT;
         curr_pos += 3;
         number_token_len = curr_pos - current_token_start_pos;
