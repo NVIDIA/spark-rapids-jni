@@ -1387,12 +1387,18 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   // printf("before split:\n");
   // cudf::test::print(input->view());
 
-  auto tmp            = cudf::strings::split_record(cudf::strings_column_view{input->view()},
+  auto tmp           = cudf::strings::split_record(cudf::strings_column_view{input->view()},
                                          cudf::string_scalar{std::string{element_delimiter}},
                                          -1,
                                          stream,
                                          mr);
-  auto split_content  = tmp->release();
+  auto split_content = tmp->release();
+
+  if (input->size() == input->null_count()) {
+    return {std::move(split_content.children[cudf::lists_column_view::offsets_column_index]),
+            std::move(split_content.children[cudf::lists_column_view::child_column_index])};
+  }
+
   auto const child_cv = split_content.children[cudf::lists_column_view::child_column_index]->view();
   auto const child_strview = cudf::strings_column_view{child_cv};
 
@@ -1412,6 +1418,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
         }
         return idx;
       }));
+
+  // TODO: report issue when the input is strings column has null == size
   auto out_child = std::move(cudf::detail::gather(cudf::table_view{{child_cv}},
                                                   gather_it,
                                                   gather_it + child_cv.size(),
