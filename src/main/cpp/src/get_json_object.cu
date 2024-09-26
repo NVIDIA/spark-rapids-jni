@@ -1086,10 +1086,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
       static_cast<std::size_t>(input.size()), stream});
 
-    printf("idx: %d, output_ids[idx]: %d\n", (int)idx, (int)output_ids[idx]);
-    printf("keep_quotes.find(output_ids[idx]) != keep_quotes.end(): %d\n",
-           (int)(keep_quotes.find(output_ids[idx]) != keep_quotes.end()));
-    fflush(stdout);
+    // printf("idx: %d, output_ids[idx]: %d\n", (int)idx, (int)output_ids[idx]);
+    // printf("keep_quotes.find(output_ids[idx]) != keep_quotes.end(): %d\n",
+    //        (int)(keep_quotes.find(output_ids[idx]) != keep_quotes.end()));
+    // fflush(stdout);
 
     h_path_data.emplace_back(
       json_path_processing_data{d_json_paths[idx],
