@@ -228,7 +228,9 @@ class json_parser {
       curr_pos(0),
       current_token(json_token::INIT),
       max_depth_exceeded(false),
-      allow_leading_zero_numbers{false}
+      allow_leading_zero_numbers{false},
+      allow_non_numeric_numbers{false},
+      allow_unquoted_control_chars{true}
   {
   }
 
@@ -422,7 +424,7 @@ class json_parser {
   {
     // TODO eventually chars should be a reader so we can just pass it in...
     char_range_reader reader(chars, curr_pos);
-    auto [success, end_char_pos] = try_parse_string(reader);
+    auto [success, end_char_pos] = try_parse_string(reader, allow_unquoted_control_chars);
     if (success) {
       // TODO remove end_char_pos, and just get it from the reader...
       curr_pos      = end_char_pos;
@@ -562,7 +564,7 @@ class json_parser {
         // path 4: safe code point
 
         // handle single unescaped " char; happens when string is quoted by char '
-        // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
+        // e.g.:  'A"' string, escapcontrole to "A\\"" (5 chars: " A \ " ")
         if ('\"' == c && escape_style::ESCAPED == w_style) {
           if (copy_destination != nullptr) { *copy_destination++ = '\\'; }
           output_size_bytes++;
@@ -625,6 +627,7 @@ class json_parser {
    */
   static __device__ inline std::pair<bool, cudf::size_type> try_parse_string(
     char_range_reader& str,
+    bool allow_unquoted_control_chars,
     char_range_reader to_match = char_range_reader(char_range::null()),
     escape_style w_style       = escape_style::UNESCAPED)
   {
@@ -655,6 +658,8 @@ class json_parser {
 
         return std::make_pair(true, str.pos());
       } else if (v >= 0 && v < 32) {
+        if (!allow_unquoted_control_chars) { return {false, 0}; }
+
         // path 2: unescaped control char
 
         // copy if enabled, escape mode, write more chars
@@ -1264,7 +1269,7 @@ class json_parser {
     // TODO eventually chars should be a reader so we can just pass it in...
     char_range_reader reader(chars, curr_pos);
     current_token_start_pos      = curr_pos;
-    auto [success, end_char_pos] = try_parse_string(reader);
+    auto [success, end_char_pos] = try_parse_string(reader, allow_unquoted_control_chars);
     if (success) {
       // TODO remove end_char_pos, and just get it from the reader...
       curr_pos      = end_char_pos;
@@ -1662,7 +1667,8 @@ class json_parser {
     if (json_token::FIELD_NAME == current_token) {
       char_range_reader reader(current_range());
       char_range_reader to_match(name);
-      auto [b, end_pos] = try_parse_string(reader, to_match, escape_style::UNESCAPED);
+      auto [b, end_pos] =
+        try_parse_string(reader, allow_unquoted_control_chars, to_match, escape_style::UNESCAPED);
       return b;
     } else {
       return false;
@@ -1772,6 +1778,11 @@ class json_parser {
     allow_non_numeric_numbers = state;
   }
 
+  __device__ inline void set_allow_unquoted_control_chars(bool state)
+  {
+    allow_unquoted_control_chars = state;
+  }
+
  private:
   char_range const chars;
   cudf::size_type curr_pos;
@@ -1800,6 +1811,9 @@ class json_parser {
 
   // TODO
   bool allow_non_numeric_numbers;
+
+  // TODO
+  bool allow_unquoted_control_chars;
 };
 
 }  // namespace spark_rapids_jni

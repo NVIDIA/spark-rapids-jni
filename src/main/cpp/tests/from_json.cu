@@ -43,7 +43,7 @@ TEST_F(FromJsonTest, T1)
   schema.emplace_back("a", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -72,7 +72,7 @@ TEST_F(FromJsonTest, T2)
   schema.emplace_back("a", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -98,7 +98,7 @@ TEST_F(FromJsonTest, T3)
   schema.emplace_back("data", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -122,7 +122,7 @@ TEST_F(FromJsonTest, T4)
   schema.emplace_back("data", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -147,7 +147,7 @@ TEST_F(FromJsonTest, T42)
   schema.emplace_back("data", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -188,7 +188,7 @@ TEST_F(FromJsonTest, T5)
   schema.emplace_back("CGEGPD", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -217,7 +217,7 @@ TEST_F(FromJsonTest, T6)
   schema.emplace_back("data", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);
@@ -259,7 +259,7 @@ TEST_F(FromJsonTest, T7)
   schema.emplace_back("details", std::move(a));
 
   auto const output = spark_rapids_jni::from_json_to_structs(
-    cudf::strings_column_view{json_string}, schema, false, false);
+    cudf::strings_column_view{json_string}, schema, false, false, false);
 
   printf("\n\ninput: \n");
   cudf::test::print(json_string);

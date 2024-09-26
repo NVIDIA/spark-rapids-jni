@@ -210,7 +210,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
                                                              jintArray j_types,
                                                              jintArray j_scales,
                                                              jboolean allow_leading_zero_numbers,
-                                                             jboolean allow_non_numeric_numbers)
+                                                             jboolean allow_non_numeric_numbers,
+                                                             jboolean allow_unquoted_control_chars)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
   JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
@@ -265,7 +266,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJsonToStructs(JNIEnv* env,
     auto output = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
                                                          schema,
                                                          allow_leading_zero_numbers,
-                                                         allow_non_numeric_numbers);
+                                                         allow_non_numeric_numbers,
+                                                         allow_unquoted_control_chars);
 
     // printf("JNI line %d\n", __LINE__);
     // fflush(stdout);

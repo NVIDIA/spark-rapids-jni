@@ -771,6 +771,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
                               char null_placeholder,
                               bool allow_leading_zero_numbers,
                               bool allow_non_numeric_numbers,
+                              bool allow_unquoted_control_chars,
                               std::size_t num_threads_per_row,
                               int8_t* max_path_depth_exceeded)
 {
@@ -791,6 +792,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
     json_parser p{char_range{str}};
     p.set_allow_leading_zero_numbers(allow_leading_zero_numbers);
     p.set_allow_non_numeric_numbers(allow_non_numeric_numbers);
+    p.set_allow_unquoted_control_chars(allow_unquoted_control_chars);
     thrust::tie(is_valid, out_size) = evaluate_path(p,
                                                     path.path_commands,
                                                     path.type_id,
@@ -830,6 +832,7 @@ struct kernel_launcher {
                    char null_placeholder,
                    bool allow_leading_zero_numbers,
                    bool allow_non_numeric_numbers,
+                   bool allow_unquoted_control_chars,
                    int8_t* max_path_depth_exceeded,
                    rmm::cuda_stream_view stream)
   {
@@ -852,6 +855,7 @@ struct kernel_launcher {
                                                       null_placeholder,
                                                       allow_leading_zero_numbers,
                                                       allow_non_numeric_numbers,
+                                                      allow_unquoted_control_chars,
                                                       num_threads_per_row,
                                                       max_path_depth_exceeded);
   }
@@ -991,6 +995,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   int64_t scratch_size,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
+  bool allow_unquoted_control_chars,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1047,6 +1052,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                         null_placeholder,
                         allow_leading_zero_numbers,
                         allow_non_numeric_numbers,
+                        allow_unquoted_control_chars,
                         d_max_path_depth_exceeded,
                         stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
@@ -1125,6 +1131,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                         null_placeholder,
                         allow_leading_zero_numbers,
                         allow_non_numeric_numbers,
+                        allow_unquoted_control_chars,
                         d_max_path_depth_exceeded,
                         stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
@@ -1159,6 +1166,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   int32_t parallel_override,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
+  bool allow_unquoted_control_chars,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1233,6 +1241,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                      scratch_size,
                                      allow_leading_zero_numbers,
                                      allow_non_numeric_numbers,
+                                     allow_unquoted_control_chars,
                                      stream,
                                      mr);
     for (std::size_t i = 0; i < tmp.size(); i++) {
@@ -1672,6 +1681,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
+  bool allow_unquoted_control_chars,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -1733,6 +1743,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
                                    -1,
                                    allow_leading_zero_numbers,
                                    allow_non_numeric_numbers,
+                                   allow_unquoted_control_chars,
                                    stream,
                                    mr);
   // printf("line %d\n", __LINE__);
@@ -1793,12 +1804,18 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
   bool allow_leading_zero_numbers,
   bool allow_non_numeric_numbers,
+  bool allow_unquoted_control_chars,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::from_json_to_structs(
-    input, schema, allow_leading_zero_numbers, allow_non_numeric_numbers, stream, mr);
+  return detail::from_json_to_structs(input,
+                                      schema,
+                                      allow_leading_zero_numbers,
+                                      allow_non_numeric_numbers,
+                                      allow_unquoted_control_chars,
+                                      stream,
+                                      mr);
 }
 
 }  // namespace spark_rapids_jni

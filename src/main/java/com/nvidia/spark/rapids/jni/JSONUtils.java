@@ -169,12 +169,13 @@ public class JSONUtils {
    */
   public static Table fromJsonToStructs(ColumnView input, Schema schema,
                                         boolean allowNumericLeadingZeros,
-                                        boolean allowNonNumericNumbers) {
+                                        boolean allowNonNumericNumbers,
+                                        boolean allowUnquotedControlChars) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new Table(fromJsonToStructs(input.getNativeView(),
         schema.getFlattenedColumnNames(), schema.getFlattenedNumChildren(),
         schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales(),
-        allowNumericLeadingZeros, allowNonNumericNumbers));
+        allowNumericLeadingZeros, allowNonNumericNumbers, allowUnquotedControlChars));
   }
 
   public static ColumnVector isNullOrEmpty(ColumnVector input) {
@@ -205,7 +206,8 @@ public class JSONUtils {
                                                  int[] dTypeIds,
                                                  int[] dTypeScales,
                                                  boolean allowNumericLeadingZeros,
-                                                 boolean allowNonNumericNumbers);
+                                                 boolean allowNonNumericNumbers,
+                                                 boolean allowUnquotedControlChars);
 
   private static native long isNullOrEmpty(long input);
 }
