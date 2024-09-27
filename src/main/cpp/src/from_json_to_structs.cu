@@ -18,7 +18,7 @@
 #include "get_json_object.hpp"
 #include "json_parser.cuh"
 
-#include <cudf_test/debug_utilities.hpp>
+// #include <cudf_test/debug_utilities.hpp>
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -505,9 +505,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (_, Nil)
       // case path 3
       else if (path_is_empty(ctx.path.size())) {
-        printf("path is empty, path type = %d, token = %d\n",
-               (int)path_type_id,
-               (int)p.get_current_token());
+        // printf("path is empty, path type = %d, token = %d\n",
+        //        (int)path_type_id,
+        //        (int)p.get_current_token());
 
         // If this is a struct column, we only need to check to see if there exists a struct.
         if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
@@ -548,12 +548,12 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         } else if (!(ctx.g.copy_current_structure(p, out_buf, element_delimiter))) {
           return {false, 0};
         }
-        printf("done line %d, path type = %d, token = %d, stack size %d, %p\n",
-               __LINE__,
-               (int)path_type_id,
-               (int)p.get_current_token(),
-               (int)stack_size,
-               out_buf);
+        // printf("done line %d, path type = %d, token = %d, stack size %d, %p\n",
+        //        __LINE__,
+        //        (int)path_type_id,
+        //        (int)p.get_current_token(),
+        //        (int)stack_size,
+        //        out_buf);
         ctx.dirty        = 1;
         ctx.task_is_done = true;
       }
@@ -561,13 +561,13 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                thrust::get<0>(path_match_named(ctx.path))) {
-        printf("start object, %p\n", out_buf);
+        // printf("start object, %p\n", out_buf);
 
         if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
           if (ctx.dirty > 0) {
-            printf("object, token = %d, %p\n", (int)p.get_current_token(), out_buf);
+            // printf("object, token = %d, %p\n", (int)p.get_current_token(), out_buf);
 
             while (json_token::END_OBJECT != p.next_token()) {
               // JSON validation check
@@ -580,7 +580,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
               // skip value of FIELD_NAME
               if (!p.try_skip_children()) {
-                printf("object, can't skip, token = %d, %p\n", (int)p.get_current_token(), out_buf);
+                // printf("object, can't skip, token = %d, %p\n", (int)p.get_current_token(),
+                // out_buf);
 
                 // JSON validation check
                 return {false, 0};
@@ -647,7 +648,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
-        printf("array *, %p\n", out_buf);
+        // printf("array *, %p\n", out_buf);
 
         if (ctx.is_first_enter) {
           ctx.is_first_enter = false;
@@ -676,10 +677,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case _ =>
       // case path 12
       else {
-        printf("get obj line %d\n", __LINE__);
+        // printf("get obj line %d\n", __LINE__);
 
         if (!p.try_skip_children()) { return {false, 0}; }
-        printf("get obj line %d\n", __LINE__);
+        // printf("get obj line %d\n", __LINE__);
 
         // default case path, return false for this task
         ctx.dirty        = 0;
@@ -764,7 +765,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
   auto const success = stack[0].dirty > 0;
 
-  printf("dirty: %d\n", (int)stack[0].dirty);
+  // printf("dirty: %d\n", (int)stack[0].dirty);
 
   // generator may contain trash output, e.g.: generator writes some output,
   // then JSON format is invalid, the previous output becomes trash.
@@ -1427,8 +1428,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  printf("before split:\n");
-  cudf::test::print(input->view());
+  // printf("before split:\n");
+  // cudf::test::print(input->view());
 
   if (column_schema.type.id() == cudf::type_id::STRUCT) {
     std::unique_ptr<cudf::column> offsets{nullptr};
@@ -1473,8 +1474,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
                                          stream,
                                          mr);
 
-  printf("after split:\n");
-  cudf::test::print(tmp->view());
+  // printf("after split:\n");
+  // cudf::test::print(tmp->view());
 
   auto split_content = tmp->release();
 
@@ -1486,8 +1487,8 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   auto const child_cv = split_content.children[cudf::lists_column_view::child_column_index]->view();
   auto const child_strview = cudf::strings_column_view{child_cv};
 
-  printf("child_cv:\n");
-  cudf::test::print(child_cv);
+  // printf("child_cv:\n");
+  // cudf::test::print(child_cv);
 
   // Convert a row index into an invalid value (-1) if that row contains a null placeholder.
   // Don't care about nulls in the child column, as they will be gathered to the output.
@@ -1623,8 +1624,8 @@ void assemble_column(std::size_t& column_order,
                         mr);
       }
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(children.front()->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(children.front()->view());
 
       auto [offsets, child] = extract_lists(children.front(),
                                             column_schema.child_types.front().second,
@@ -1633,10 +1634,10 @@ void assemble_column(std::size_t& column_order,
                                             stream,
                                             mr);
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(child->view());
-      printf("line %d\n", __LINE__);
-      cudf::test::print(offsets->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(child->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(offsets->view());
 
       // auto const null_mask = std::move(children.front()->release().null_mask);
 
@@ -1648,8 +1649,8 @@ void assemble_column(std::size_t& column_order,
                                                   stream,
                                                   mr));
 
-      printf("line %d\n", __LINE__);
-      cudf::test::print(output.back()->view());
+      // printf("line %d\n", __LINE__);
+      // cudf::test::print(output.back()->view());
     } else {
       CUDF_FAIL("Unsupported type");
     }
@@ -1659,7 +1660,7 @@ void assemble_column(std::size_t& column_order,
 std::pair<char, char> find_delimiter(cudf::strings_column_view const& input,
                                      rmm::cuda_stream_view stream)
 {
-  return {',', 'N'};
+  // return {',', 'N'};
 
   auto constexpr num_levels  = 256;
   auto constexpr lower_level = std::numeric_limits<char>::min();
@@ -1765,7 +1766,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-#if 1
+#if 0
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1803,8 +1804,8 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // This should only run when there is LIST column.
   char delimiter{','}, null_placeholder{'\0'};
   if (has_list_type) { std::tie(delimiter, null_placeholder) = find_delimiter(input, stream); }
-  printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
-  printf("null_placeholder: %c (code: %d)\n", null_placeholder, (int)null_placeholder);
+  // printf("delimiter: %c (code: %d)\n", delimiter, (int)delimiter);
+  // printf("null_placeholder: %c (code: %d)\n", null_placeholder, (int)null_placeholder);
 
   auto tmp = test::get_json_object(input,
                                    json_paths,
@@ -1822,7 +1823,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-  if constexpr (1) {
+  if constexpr (0) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
@@ -1838,7 +1839,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
       }
       printf("\n");
 
-      cudf::test::print(tmp[i]->view());
+      // cudf::test::print(tmp[i]->view());
     }
   }
 
