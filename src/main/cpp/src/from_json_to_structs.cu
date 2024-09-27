@@ -111,6 +111,12 @@ class json_generator {
     is_curr_array_empty = true;
   }
 
+  __device__ void write_start_object(char* out_begin)
+  {
+    out_begin[offset + output_len] = '{';
+    output_len++;
+  }
+
   // write ]
   __device__ void write_end_array(char* out_begin)
   {
@@ -464,6 +470,9 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size())) {
+        if (path_type_id == cudf::type_id::STRUCT || path_type_id == cudf::type_id::LIST) {
+          return {false, 0};
+        }
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
         ctx.g.try_write_comma(out_buf, element_delimiter);
@@ -512,14 +521,22 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           if (path_type_id == cudf::type_id::STRUCT) {
             // Or copy current structure?
             if (!p.try_skip_children()) { return {false, 0}; }
-          } else if (!(ctx.g.copy_current_structure(p, nullptr, ','))) {
-            // not copy only if there is struct?
-            return {false, 0};
+            // Just write anything into the output, to mark the output as a non-null row.
+            // Such output will be discarded anyway.
+            if (ctx.g.get_output_len() == 0) { ctx.g.write_start_object(out_buf); }
+
+          } else {
+            if (!(ctx.g.copy_current_structure(p, nullptr, ','))) {
+              // not copy only if there is struct?
+              return {false, 0};
+            }
+            // Just write anything into the output, to mark the output as a non-null row.
+            // Such output will be discarded anyway.
+            // length == 1 due to called write_first_start_array_without_output before
+            ctx.g.set_output_len(0);
+            ctx.g.write_start_array(out_buf, element_delimiter);
           }
 
-          // Just write anything into the output, to mark the output as a non-null row.
-          // Such output will be discarded anyway.
-          ctx.g.write_start_array(out_buf, element_delimiter);
         } else if (!(ctx.g.copy_current_structure(p, out_buf, element_delimiter))) {
           return {false, 0};
         }
@@ -1692,7 +1709,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-#if 0
+#if 1
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1749,7 +1766,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-  if constexpr (0) {
+  if constexpr (1) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
