@@ -44,8 +44,10 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <thrust/count.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/pair.h>
+#include <thrust/tabulate.h>
 #include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
 
@@ -523,18 +525,23 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             if (!p.try_skip_children()) { return {false, 0}; }
             // Just write anything into the output, to mark the output as a non-null row.
             // Such output will be discarded anyway.
-            if (ctx.g.get_output_len() == 0) { ctx.g.write_start_object(out_buf); }
+            ctx.g.set_output_len(1);
 
           } else {
-            if (!(ctx.g.copy_current_structure(p, nullptr, ','))) {
-              // not copy only if there is struct?
-              return {false, 0};
+            // This is just write [
+            // if (!(ctx.g.copy_current_structure(p, nullptr, ','))) {
+            //   // not copy only if there is struct?
+            //   return {false, 0};
+            // }
+
+            if (p.next_token() == json_token::END_ARRAY) {
+              ctx.g.set_output_len(0);
+              ctx.g.write_null_placeholder(out_buf, null_placeholder);
+            } else {
+              // Just write anything into the output, to mark the output as a non-null row.
+              // Such output will be discarded anyway.
+              ctx.g.set_output_len(1);
             }
-            // Just write anything into the output, to mark the output as a non-null row.
-            // Such output will be discarded anyway.
-            // length == 1 due to called write_first_start_array_without_output before
-            ctx.g.set_output_len(0);
-            ctx.g.write_start_array(out_buf, element_delimiter);
           }
 
         } else if (!(ctx.g.copy_current_structure(p, out_buf, element_delimiter))) {
@@ -647,6 +654,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        {ctx.path.data() + 1, ctx.path.size() - 1},
                        true);
         } else {
+          if (path_type_id == cudf::type_id::LIST) {
+            ctx.g.set_output_len(0);
+            ctx.g.write_null_placeholder(out_buf, null_placeholder);
+          }
           // ctx.g.write_end_array(out_buf);
           ctx.task_is_done = true;
         }
@@ -1328,10 +1339,12 @@ void travel_path(
       }
 
       // TODO: is this needed, if there is no struct child?
-      if (has_struct_child) {
-        paths.push_back(current_path);  // this will copy
-        type_ids.push_back(column_schema.type.id());
-      }
+      // Needed, since we need to mark empty list in the kernel.
+      // if (has_struct_child) {
+
+      paths.push_back(current_path);  // this will copy
+      type_ids.push_back(column_schema.type.id());
+      // }
 
       current_path.emplace_back(path_instruction_type::WILDCARD, "*", -1);
 
@@ -1399,48 +1412,15 @@ std::pair<std::unique_ptr<cudf::column>, std::unique_ptr<cudf::column>> extract_
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  if (column_schema.type.id() == cudf::type_id::STRUCT) {
-    std::unique_ptr<cudf::column> offsets{nullptr};
-    std::vector<std::unique_ptr<cudf::column>> new_children;
-    cudf::size_type num_child_rows{-1};
-    auto children = std::move(input->release().children);
-    for (std::size_t child_idx = 0; child_idx < children.size(); ++child_idx) {
-      auto& child = children[child_idx];
-      auto [new_child_offsets, new_child] =
-        extract_lists(child,
-                      column_schema.child_types[child_idx].second,
-                      element_delimiter,
-                      null_placeholder,
-                      stream,
-                      mr);
-      if (num_child_rows < 0) { num_child_rows = new_child->size(); }
-      if (num_child_rows != new_child->size()) {
-        // printf("num_child_rows != new_child->size(): %d != %d\n",
-        // (int)num_child_rows,
-        // (int)new_child->size());
-      }
-      CUDF_EXPECTS(num_child_rows == new_child->size(), "num_child_rows != new_child->size()");
-
-      if (!offsets) { offsets = std::move(new_child_offsets); }
-      new_children.emplace_back(std::move(new_child));
-    }
-
-    // return cudf::make_structs_column(
-    //             num_child_rows, std::move(children), null_count, std::move(*null_mask), stream,
-    //             mr);
-    // TODO: fix null mask
-    return {std::move(offsets),
-            cudf::make_structs_column(num_child_rows, std::move(new_children), 0, {}, stream, mr)};
-  }
-
   // printf("before split:\n");
   // cudf::test::print(input->view());
 
-  auto tmp           = cudf::strings::split_record(cudf::strings_column_view{input->view()},
+  auto tmp = cudf::strings::split_record(cudf::strings_column_view{input->view()},
                                          cudf::string_scalar{std::string{element_delimiter}},
                                          -1,
                                          stream,
                                          mr);
+
   auto split_content = tmp->release();
 
   if (input->size() == input->null_count()) {
@@ -1536,24 +1516,44 @@ void assemble_column(std::size_t& column_order,
       // TODO: split LIST into child column
       // For now, just output as a strings column.
 
-      bool has_struct_child{false};
-      for (auto const& [child_name, child_schema] : column_schema.child_types) {
-        if (child_schema.type.id() == cudf::type_id::STRUCT) {
-          has_struct_child = true;
-          break;
+      auto const num_rows      = read_columns[column_order]->size();
+      auto const cv            = read_columns[column_order]->view();
+      auto const cv_null_count = read_columns[column_order]->null_count();
+      auto cv_null_mask        = std::move(read_columns[column_order]->release().null_mask);
+      ++column_order;
+
+      auto const d_col_ptr = cudf::column_device_view::create(cv, stream);
+      rmm::device_uvector<bool> empty_list_markers(cv.size(), stream);
+      thrust::tabulate(rmm::exec_policy(stream),
+                       empty_list_markers.begin(),
+                       empty_list_markers.end(),
+                       [null_placeholder, data = *d_col_ptr] __device__(auto idx) -> bool {
+                         if (data.is_null(idx)) { return false; }
+                         auto const d_str = data.element<cudf::string_view>(idx);
+                         return d_str.size_bytes() == 1 && d_str[0] == null_placeholder;
+                       });
+
+      auto const has_empty_list    = thrust::count_if(rmm::exec_policy(stream),
+                                                   empty_list_markers.begin(),
+                                                   empty_list_markers.end(),
+                                                   thrust::identity{}) > 0;
+      auto [null_mask, null_count] = [&] {
+        if (has_empty_list) {
+          return cudf::detail::valid_if(
+            thrust::make_counting_iterator(0),
+            thrust::make_counting_iterator(cv.size()),
+            [is_empty_list = empty_list_markers.begin(),
+             data          = *d_col_ptr] __device__(auto idx) -> bool {
+              if (is_empty_list[idx]) { return true; }  // data.is_valid(idx) should be false here
+              return data.is_valid(idx);
+            },
+            stream,
+            mr);
+        } else {
+          return std::pair<rmm::device_buffer, cudf::size_type>{std::move(*cv_null_mask),
+                                                                cv_null_count};
         }
-      }
-
-      auto const num_rows   = read_columns[column_order]->size();
-      auto const null_count = read_columns[column_order]->null_count();
-      std::unique_ptr<rmm::device_buffer> null_mask{nullptr};
-
-      // printf("num rows: %d\n", num_rows);
-      // If there is struct child, ..... TODO
-      if (has_struct_child) {
-        null_mask = std::move(read_columns[column_order]->release().null_mask);
-        ++column_order;
-      }
+      }();
 
       std::vector<std::unique_ptr<cudf::column>> children;
       for (auto const& [child_name, child_schema] : column_schema.child_types) {
@@ -1583,14 +1583,13 @@ void assemble_column(std::size_t& column_order,
       // printf("line %d\n", __LINE__);
       // cudf::test::print(offsets->view());
 
-      // TODO: fix null mask
-      if (!has_struct_child) { null_mask = std::move(children.front()->release().null_mask); }
+      // auto const null_mask = std::move(children.front()->release().null_mask);
 
       output.emplace_back(cudf::make_lists_column(num_rows,
                                                   std::move(offsets),
                                                   std::move(child),
                                                   null_count,
-                                                  std::move(*null_mask),
+                                                  std::move(null_mask),
                                                   stream,
                                                   mr));
 
@@ -1709,7 +1708,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-#if 1
+#if 0
   int count{0};
   for (auto const& path : json_paths) {
     printf("\n\npath (%d/%d): \n", count++, (int)json_paths.size());
@@ -1766,7 +1765,7 @@ std::vector<std::unique_ptr<cudf::column>> from_json_to_structs(
   // printf("line %d\n", __LINE__);
   // fflush(stdout);
 
-  if constexpr (1) {
+  if constexpr (0) {
     for (std::size_t i = 0; i < tmp.size(); ++i) {
       auto out  = cudf::strings_column_view{tmp[i]->view()};
       auto ptr  = out.chars_begin(stream);
