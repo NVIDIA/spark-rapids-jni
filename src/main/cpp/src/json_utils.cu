@@ -88,6 +88,14 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       if (is_null_literal) { return {false, true}; }
 
       auto const not_eol = i < d_str.size_bytes();
+
+      // If the first row is not null or empty, it should start with `{`.
+      // Otherwise, we need to replace it by a null.
+      // This is necessary for libcudf's JSON reader to work.
+      // Note that if we want to support ARRAY schema, we need to check for either `{` or `[`.
+      auto constexpr start_character = '{';
+      if (not_eol && d_str[i] != start_character) { return {false, true}; }
+
       return {not_eol, not_eol};
     });
 
