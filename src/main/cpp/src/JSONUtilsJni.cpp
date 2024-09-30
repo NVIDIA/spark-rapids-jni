@@ -15,8 +15,8 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "from_json.hpp"
 #include "get_json_object.hpp"
+#include "json_utils.hpp"
 
 #include <cudf/strings/strings_column_view.hpp>
 
