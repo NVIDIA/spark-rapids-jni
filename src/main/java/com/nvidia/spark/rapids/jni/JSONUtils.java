@@ -160,25 +160,45 @@ public class JSONUtils {
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
-  // TODO: auto close
-  public static class ConcatenatedJson {
-    public final ColumnVector isValid;
+  /**
+   * A class to hold the result when concatenating JSON strings.
+   * <p>
+   * A long with the concatenated data, the result also contains a vector that indicates
+   * whether each row in the input is null or empty, and the delimiter used for concatenation.
+   */
+  public static class ConcatenatedJson implements AutoCloseable {
+    public final ColumnVector isNullOrEmpty;
     public final DeviceMemoryBuffer data;
-    public final byte delimiter; // using byte type instead of char, to store ASCII character
+    public final char delimiter;
 
-    public ConcatenatedJson(ColumnVector isValid, DeviceMemoryBuffer data, byte delimiter) {
-      this.isValid = isValid;
+    public ConcatenatedJson(ColumnVector isNullOrEmpty, DeviceMemoryBuffer data, char delimiter) {
+      this.isNullOrEmpty = isNullOrEmpty;
       this.data = data;
       this.delimiter = delimiter;
     }
+
+    @Override
+    public void close() {
+      isNullOrEmpty.close();
+      data.close();
+    }
   }
 
+  /**
+   * Concatenate JSON strings in the input column into a single JSON string.
+   * <p>
+   * During concatenation, the function also generates a boolean vector that indicates whether
+   * each row in the input is null or empty. The delimiter used for concatenation is also returned.
+   *
+   * @param input The input strings column to concatenate
+   * @return A {@link ConcatenatedJson} object that contains the concatenated output
+   */
   public static ConcatenatedJson concatenateJsonStrings(ColumnView input) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     long[] concatenated = concatenateJsonStrings(input.getNativeView());
     return new ConcatenatedJson(new ColumnVector(concatenated[0]),
         DeviceMemoryBuffer.fromRmm(concatenated[1], concatenated[2], concatenated[3]),
-        (byte) concatenated[4]);
+        (char) concatenated[4]);
   }
 
   private static native int getMaxJSONPathDepth();

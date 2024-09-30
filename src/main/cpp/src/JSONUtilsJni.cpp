@@ -170,7 +170,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concaten
     // [0]: address of the cudf::column object `is_valid` in host memory
     // [1]: address of data buffer of the concatenated strings in device memory
     // [2]: data length
-    // [3]: address of the rmm::device_buffer object in host memory
+    // [3]: address of the rmm::device_buffer object (of the concatenated strings) in host memory
     // [4]: delimiter char
     auto out_handles = cudf::jni::native_jlongArray(env, 5);
     out_handles[0]   = reinterpret_cast<jlong>(is_valid.release());
