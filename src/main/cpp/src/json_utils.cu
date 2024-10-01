@@ -87,44 +87,43 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       if (input.is_null(idx)) { return {false, false}; }
 
       auto const d_str = input.element<cudf::string_view>(idx);
-      auto itr         = d_str.data();
-      auto const end   = itr + d_str.size_bytes();
+      auto const size  = d_str.size_bytes();
+      int i            = 0;
+      char ch;
 
-      while (itr < end) {
-        cudf::char_utf8 ch   = 0;
-        auto const chr_width = cudf::strings::detail::to_char_utf8(itr, ch);
+      // Skip the very first whitespace characters.
+      for (; i < size; ++i) {
+        ch = d_str[i];
         if (not_whitespace(ch)) { break; }
-        itr += chr_width;
       }
 
       bool is_null_literal{false};
-      if (itr + 3 < end &&
-          (*itr == 'n' && *(itr + 1) == 'u' && *(itr + 2) == 'l' && *(itr + 3) == 'l')) {
+      if (i + 3 < size &&
+          (d_str[i] == 'n' && d_str[i + 1] == 'u' && d_str[i + 2] == 'l' && d_str[i + 3] == 'l')) {
         is_null_literal = true;
-        itr += 4;
+        i += 4;
       }
 
-      while (itr < end) {
-        cudf::char_utf8 ch   = 0;
-        auto const chr_width = cudf::strings::detail::to_char_utf8(itr, ch);
+      // Skip the very last whitespace characters.
+      for (; i < size; ++i) {
+        ch = d_str[i];
         if (not_whitespace(ch)) {
           is_null_literal = false;
           break;
         }
-        itr += chr_width;
       }
 
       // The current row contains only `null` string literal and not any other non-empty characters.
       // Such rows need to be masked out as null when doing concatenation.
       if (is_null_literal) { return {false, true}; }
 
-      auto const not_eol = itr < end;
+      auto const not_eol = i < size;
 
       // If the current row is not null or empty, it should start with `{`. Otherwise, we need to
       // replace it by a null. This is necessary for libcudf's JSON reader to work.
       // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
-      if (not_eol && *itr != start_character) { return {false, true}; }
+      if (not_eol && ch != start_character) { return {false, true}; }
 
       return {not_eol, not_eol};
     });
