@@ -130,8 +130,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 
   auto constexpr min_value  = std::numeric_limits<char>::min();
   auto constexpr max_value  = std::numeric_limits<char>::max();
-  auto constexpr num_values = max_value - min_value;
-  auto const num_chars      = input.chars_size(stream);
+  auto constexpr num_values = max_value - min_value + 1;
 
   rmm::device_uvector<bool> existence_map(num_values, stream);
   thrust::uninitialized_fill(
