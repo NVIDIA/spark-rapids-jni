@@ -84,7 +84,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
     thrust::make_counting_iterator(input.size()),
     thrust::make_zip_iterator(thrust::make_tuple(is_valid_input.begin(), is_null_or_empty.begin())),
     [input = *d_input_ptr] __device__(cudf::size_type idx) -> thrust::tuple<bool, bool> {
-      if (input.is_null(idx)) { return {false, false}; }
+      if (input.is_null(idx)) { return {false, true}; }
 
       auto const d_str = input.element<cudf::string_view>(idx);
       auto const size  = d_str.size_bytes();
@@ -115,7 +115,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 
       // The current row contains only `null` string literal and not any other non-empty characters.
       // Such rows need to be masked out as null when doing concatenation.
-      if (is_null_literal) { return {false, true}; }
+      if (is_null_literal) { return {false, false}; }
 
       auto const not_eol = i < size;
 
@@ -123,9 +123,9 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       // replace it by a null. This is necessary for libcudf's JSON reader to work.
       // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
-      if (not_eol && ch != start_character) { return {false, true}; }
+      if (not_eol && ch != start_character) { return {false, false}; }
 
-      return {not_eol, not_eol};
+      return {not_eol, !not_eol};
     });
 
   auto constexpr max_value  = std::numeric_limits<char>::max();
@@ -138,7 +138,6 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
                    input.chars_begin(stream),
                    input.chars_end(stream),
                    [existence = existence_map.begin()] __device__(char ch) {
-                     // This should not happen, since ASCII chars are non-negative.
                      if (ch < 0) { return; }
 
                      auto const idx = static_cast<int>(ch);
@@ -157,8 +156,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
                     });
   auto const found_val = thrust::distance(it, first_zero_count_pos);
 
-  // In theory, this should never happen, since we are searching even with the characters starting
-  // from `\0`.
+  // This should never happen since the input should never cover the entire char range.
   if (found_val == num_values) {
     throw std::logic_error(
       "Cannot find any character suitable as delimiter during joining json strings.");
