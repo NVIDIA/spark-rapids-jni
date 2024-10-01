@@ -128,9 +128,8 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       return {not_eol, not_eol};
     });
 
-  auto constexpr min_value  = std::numeric_limits<char>::min();
   auto constexpr max_value  = std::numeric_limits<char>::max();
-  auto constexpr num_values = max_value - min_value + 1;
+  auto constexpr num_values = max_value + 1;
 
   rmm::device_uvector<bool> existence_map(num_values, stream);
   thrust::uninitialized_fill(
@@ -138,32 +137,33 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    input.chars_begin(stream),
                    input.chars_end(stream),
-                   [min_value, existence = existence_map.begin()] __device__(char ch) {
-                     auto const idx = static_cast<int>(ch) - min_value;
+                   [existence = existence_map.begin()] __device__(char ch) {
+                     // This should not happen, since ASCII chars are non-negative.
+                     if (ch < 0) { return; }
+
+                     auto const idx = static_cast<int>(ch);
                      existence[idx] = true;
                    });
 
-  auto const it            = thrust::make_counting_iterator(0);
-  auto const zero_char_idx = -min_value;  // the bin storing count for character `\0`
-  auto const zero_char_it  = it + zero_char_idx;
-
-  auto const first_zero_count_pos = thrust::find_if(
-    rmm::exec_policy_nosync(stream),
-    it,
-    it + num_values,
-    [zero_char_idx, existence = existence_map.begin()] __device__(auto idx) -> bool {
-      if (existence[idx]) { return false; }
-      auto const first_non_existing_char = static_cast<char>(idx - zero_char_idx);
-      return can_be_delimiter(first_non_existing_char);
-    });
+  auto const it = thrust::make_counting_iterator(0);
+  auto const first_zero_count_pos =
+    thrust::find_if(rmm::exec_policy_nosync(stream),
+                    it,
+                    it + num_values,
+                    [existence = existence_map.begin()] __device__(auto idx) -> bool {
+                      if (existence[idx]) { return false; }
+                      auto const first_non_existing_char = static_cast<char>(idx);
+                      return can_be_delimiter(first_non_existing_char);
+                    });
+  auto const found_val = thrust::distance(it, first_zero_count_pos);
 
   // In theory, this should never happen, since we are searching even with the characters starting
   // from `\0`.
-  if (thrust::distance(it, first_zero_count_pos) == num_values) {
+  if (found_val == num_values) {
     throw std::logic_error(
       "Cannot find any character suitable as delimiter during joining json strings.");
   }
-  auto const delimiter = static_cast<char>(thrust::distance(zero_char_it, first_zero_count_pos));
+  auto const delimiter = static_cast<char>(found_val);
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
