@@ -17,6 +17,7 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/combine.hpp>
+#include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -35,6 +36,8 @@
 namespace spark_rapids_jni {
 
 namespace detail {
+
+constexpr bool not_whitespace(cudf::char_utf8 ch) { return ch > ' '; }
 
 std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
   cudf::strings_column_view const& input,
@@ -60,41 +63,45 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
     [input = *d_input_ptr] __device__(cudf::size_type idx) -> thrust::tuple<bool, bool> {
       if (input.is_null(idx)) { return {false, false}; }
 
-      // Currently, only check for empty character.
-      constexpr char empty_char{' '};
+      auto const d_str = input.element<cudf::string_view>(idx);
+      auto itr         = d_str.data();
+      auto const end   = itr + d_str.size_bytes();
 
-      auto const d_str  = input.element<cudf::string_view>(idx);
-      cudf::size_type i = 0;
-      for (; i < d_str.size_bytes(); ++i) {
-        if (d_str[i] != empty_char) { break; }
+      while (itr < end) {
+        cudf::char_utf8 ch   = 0;
+        auto const chr_width = cudf::strings::detail::to_char_utf8(itr, ch);
+        if (not_whitespace(ch)) { break; }
+        itr += chr_width;
       }
 
       bool is_null_literal{false};
-      if (i + 3 < d_str.size_bytes() &&
-          (d_str[i] == 'n' && d_str[i + 1] == 'u' && d_str[i + 2] == 'l' && d_str[i + 3] == 'l')) {
+      if (itr + 3 < end &&
+          (*itr == 'n' && *(itr + 1) == 'u' && *(itr + 2) == 'l' && *(itr + 3) == 'l')) {
         is_null_literal = true;
-        i += 4;
+        itr += 4;
       }
 
-      for (; i < d_str.size_bytes(); ++i) {
-        if (d_str[i] != empty_char) {
+      while (itr < end) {
+        cudf::char_utf8 ch   = 0;
+        auto const chr_width = cudf::strings::detail::to_char_utf8(itr, ch);
+        if (not_whitespace(ch)) {
           is_null_literal = false;
           break;
         }
+        itr += chr_width;
       }
 
       // The current row contains only `null` string literal and not any other non-empty characters.
       // Such rows need to be masked out as null when doing concatenation.
       if (is_null_literal) { return {false, true}; }
 
-      auto const not_eol = i < d_str.size_bytes();
+      auto const not_eol = itr < end;
 
-      // If the first row is not null or empty, it should start with `{`.
-      // Otherwise, we need to replace it by a null.
-      // This is necessary for libcudf's JSON reader to work.
-      // Note that if we want to support ARRAY schema, we need to check for either `{` or `[`.
+      // If the current row is not null or empty, it should start with `{`. Otherwise, we need to
+      // replace it by a null. This is necessary for libcudf's JSON reader to work.
+      // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
-      if (not_eol && d_str[i] != start_character) { return {false, true}; }
+      if (not_eol && *itr != start_character) { return {false, true}; }
 
       return {not_eol, not_eol};
     });
