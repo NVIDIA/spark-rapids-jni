@@ -37,7 +37,10 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
-constexpr bool not_whitespace(cudf::char_utf8 ch) { return ch > ' '; }
+constexpr bool not_whitespace(cudf::char_utf8 ch)
+{
+  return ch != ' ' && ch != '\r' && ch != '\n' && ch != '\t';
+}
 
 constexpr bool can_be_delimiter(char c)
 {
