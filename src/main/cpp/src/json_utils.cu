@@ -39,6 +39,26 @@ namespace detail {
 
 constexpr bool not_whitespace(cudf::char_utf8 ch) { return ch > ' '; }
 
+constexpr bool can_be_delimiter(char c)
+{
+  // The character list below is from `json_reader_options.set_delimiter`.
+  switch (c) {
+    case '{':
+    case '[':
+    case '}':
+    case ']':
+    case ',':
+    case ':':
+    case '"':
+    case '\'':
+    case '\\':
+    case ' ':
+    case '\t':
+    case '\r': return false;
+    default: return true;
+  }
+}
+
 std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream,
@@ -138,22 +158,42 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 
   auto const zero_level = d_histogram.begin() - lower_level;
 
+  auto const find_first_zero_count_pos = [&](auto const begin, auto const end) {
+    return thrust::find(rmm::exec_policy_nosync(stream), begin, end, 0);
+  };
+
+  auto const find_first_non_existing_char_in_range = [&](auto const begin,
+                                                         auto const end) -> std::pair<char, bool> {
+    auto first_zero_count_pos = find_first_zero_count_pos(begin, end);
+    if (first_zero_count_pos == end) { return {'\0', false}; }
+
+    auto first_non_existing_char = static_cast<char>(first_zero_count_pos - zero_level);
+    while (!can_be_delimiter(first_non_existing_char)) {
+      first_zero_count_pos = find_first_zero_count_pos(first_zero_count_pos + 1, end);
+      if (first_zero_count_pos == end) { return {'\0', false}; }
+      first_non_existing_char = static_cast<char>(first_zero_count_pos - zero_level);
+    }
+    return {first_non_existing_char, true};
+  };
+
   // Firstly, search from the `\n` character to the end of the histogram,
   // so the delimiter will be `\n` if it doesn't exist in the input.
-  auto first_zero_count_pos =
-    thrust::find(rmm::exec_policy_nosync(stream), zero_level + '\n', d_histogram.end(), 0);
-  if (first_zero_count_pos == d_histogram.end()) {
-    // Try again, but search from the beginning of the histogram to the last begin position.
-    first_zero_count_pos =
-      thrust::find(rmm::exec_policy_nosync(stream), d_histogram.begin(), zero_level + '\n', 0);
+  char delimiter;
+  bool success;
+  std::tie(delimiter, success) =
+    find_first_non_existing_char_in_range(zero_level + '\n', d_histogram.end());
+
+  // If not found, try again but search from the beginning of the histogram.
+  if (!success) {
+    std::tie(delimiter, success) =
+      find_first_non_existing_char_in_range(d_histogram.begin(), zero_level + '\n');
 
     // This should never happen, since we are searching even with the characters starting from `\0`.
-    if (first_zero_count_pos == d_histogram.end()) {
+    if (!success) {
       throw std::logic_error(
         "Cannot find any character suitable as delimiter during joining json strings.");
     }
   }
-  auto const first_non_existing_char = static_cast<char>(first_zero_count_pos - zero_level);
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
@@ -172,14 +212,14 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 
   auto concat_strings = cudf::strings::detail::join_strings(
     null_count == input.null_count() ? input : cudf::strings_column_view{input_applied_null},
-    cudf::string_scalar(std::string(1, first_non_existing_char), true, stream, default_mr),
+    cudf::string_scalar(std::string(1, delimiter), true, stream, default_mr),
     cudf::string_scalar("{}", true, stream, default_mr),
     stream,
     mr);
 
   return {std::make_unique<cudf::column>(std::move(is_null_or_empty), rmm::device_buffer{}, 0),
           std::move(concat_strings->release().data),
-          first_non_existing_char};
+          delimiter};
 }
 
 }  // namespace detail
