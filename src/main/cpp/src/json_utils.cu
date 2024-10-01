@@ -159,37 +159,46 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
                                       num_chars,
                                       stream.value());
 
-  auto const zero_level = d_histogram.begin() - lower_level;
+  auto const it             = thrust::make_counting_iterator(0);
+  auto const zero_level_idx = -lower_level;  // the bin storing count for character `\0`
+  auto const zero_level_it  = it + zero_level_idx;
 
-  auto const find_first_zero_count_pos = [&](auto const begin, auto const end) {
-    return thrust::find(rmm::exec_policy_nosync(stream), begin, end, 0);
+  auto const find_first_zero_count_pos = [&](thrust::counting_iterator<int> begin,
+                                             thrust::counting_iterator<int> end) {
+    return thrust::find_if(
+      rmm::exec_policy_nosync(stream),
+      begin,
+      end,
+      [zero_level_idx, counts = d_histogram.begin()] __device__(auto idx) -> bool {
+        auto const count = counts[idx];
+        if (count > 0) { return false; }
+        auto const first_non_existing_char = static_cast<char>(idx - zero_level_idx);
+        return can_be_delimiter(first_non_existing_char);
+      });
   };
 
-  auto const find_first_non_existing_char_in_range = [&](auto const begin,
-                                                         auto const end) -> std::pair<char, bool> {
-    auto first_zero_count_pos = find_first_zero_count_pos(begin, end);
-    if (first_zero_count_pos == end) { return {'\0', false}; }
-
-    auto first_non_existing_char = static_cast<char>(first_zero_count_pos - zero_level);
-    while (!can_be_delimiter(first_non_existing_char)) {
-      first_zero_count_pos = find_first_zero_count_pos(first_zero_count_pos + 1, end);
-      if (first_zero_count_pos == end) { return {'\0', false}; }
-      first_non_existing_char = static_cast<char>(first_zero_count_pos - zero_level);
-    }
-    return {first_non_existing_char, true};
+  auto const find_first_non_existing_char_in_range =
+    [&](auto const begin_idx, auto const end_idx) -> std::pair<char, bool> {
+    auto const begin                = it + begin_idx;
+    auto const end                  = it + end_idx;
+    auto const first_zero_count_pos = find_first_zero_count_pos(begin, end);
+    return first_zero_count_pos == end
+             ? std::pair{'\0', false}
+             : std::pair{static_cast<char>(thrust::distance(zero_level_it, first_zero_count_pos)),
+                         true};
   };
 
   // Firstly, search from the `\n` character to the end of the histogram,
   // so the delimiter will be `\n` if it doesn't exist in the input.
   char delimiter;
   bool success;
-  std::tie(delimiter, success) =
-    find_first_non_existing_char_in_range(zero_level + '\n', d_histogram.end());
+  std::tie(delimiter, success) = find_first_non_existing_char_in_range(
+    static_cast<int>(zero_level_idx + '\n'), static_cast<int>(d_histogram.size()));
 
   // If not found, try again but search from the beginning of the histogram.
   if (!success) {
     std::tie(delimiter, success) =
-      find_first_non_existing_char_in_range(d_histogram.begin(), zero_level + '\n');
+      find_first_non_existing_char_in_range(0, static_cast<int>(zero_level_idx + '\n'));
 
     // This should never happen, since we are searching even with the characters starting from `\0`.
     if (!success) {
