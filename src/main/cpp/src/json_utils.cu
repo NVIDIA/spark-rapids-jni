@@ -24,8 +24,8 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cub/device/device_histogram.cuh>
 #include <thrust/find.h>
-#include <thrust/for_each.h>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
@@ -128,40 +128,58 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       return {not_eol, !not_eol};
     });
 
-  auto constexpr max_value  = std::numeric_limits<char>::max();
-  auto constexpr num_values = max_value + 1;
+  auto constexpr num_levels  = 256;
+  auto constexpr lower_level = std::numeric_limits<char>::min();
+  auto constexpr upper_level = std::numeric_limits<char>::max();
+  auto const num_chars       = input.chars_size(stream);
 
-  rmm::device_uvector<bool> existence_map(num_values, stream);
+  rmm::device_uvector<uint32_t> histogram(num_levels, stream);
   thrust::uninitialized_fill(
-    rmm::exec_policy_nosync(stream), existence_map.begin(), existence_map.end(), false);
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   input.chars_begin(stream),
-                   input.chars_end(stream),
-                   [existence = existence_map.begin()] __device__(char ch) {
-                     if (ch < 0) { return; }
+    rmm::exec_policy_nosync(stream), histogram.begin(), histogram.end(), 0);
 
-                     auto const idx = static_cast<int>(ch);
-                     existence[idx] = true;
-                   });
+  size_t temp_storage_bytes = 0;
+  cub::DeviceHistogram::HistogramEven(nullptr,
+                                      temp_storage_bytes,
+                                      input.chars_begin(stream),
+                                      histogram.begin(),
+                                      num_levels,
+                                      lower_level,
+                                      upper_level,
+                                      num_chars,
+                                      stream.value());
+  rmm::device_buffer d_temp(temp_storage_bytes, stream);
+  cub::DeviceHistogram::HistogramEven(d_temp.data(),
+                                      temp_storage_bytes,
+                                      input.chars_begin(stream),
+                                      histogram.begin(),
+                                      num_levels,
+                                      lower_level,
+                                      upper_level,
+                                      num_chars,
+                                      stream.value());
 
-  auto const it = thrust::make_counting_iterator(0);
+  auto const it             = thrust::make_counting_iterator(0);
+  auto const zero_level_idx = -lower_level;  // the bin storing count for character `\0`
+  auto const zero_level_it  = it + zero_level_idx;
+  auto const end            = it + num_levels;
+
   auto const first_zero_count_pos =
     thrust::find_if(rmm::exec_policy_nosync(stream),
-                    it,
-                    it + num_values,
-                    [existence = existence_map.begin()] __device__(auto idx) -> bool {
-                      if (existence[idx]) { return false; }
-                      auto const first_non_existing_char = static_cast<char>(idx);
+                    zero_level_it,  // ignore the negative characters
+                    end,
+                    [zero_level_idx, counts = histogram.begin()] __device__(auto idx) -> bool {
+                      auto const count = counts[idx];
+                      if (count > 0) { return false; }
+                      auto const first_non_existing_char = static_cast<char>(idx - zero_level_idx);
                       return can_be_delimiter(first_non_existing_char);
                     });
-  auto const found_val = thrust::distance(it, first_zero_count_pos);
 
   // This should never happen since the input should never cover the entire char range.
-  if (found_val == num_values) {
+  if (first_zero_count_pos == end) {
     throw std::logic_error(
       "Cannot find any character suitable as delimiter during joining json strings.");
   }
-  auto const delimiter = static_cast<char>(found_val);
+  auto const delimiter = static_cast<char>(thrust::distance(zero_level_it, first_zero_count_pos));
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
