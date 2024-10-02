@@ -37,4 +37,10 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<cudf::column> make_structs(
+  std::vector<cudf::column_view> const& input,
+  cudf::column_view const& is_null,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

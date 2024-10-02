@@ -15,6 +15,7 @@
  */
 
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/copying.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/string_view.cuh>
@@ -208,6 +209,33 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
           delimiter};
 }
 
+std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& input,
+                                           cudf::column_view const& is_null,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
+{
+  if (input.size() == 0) { return nullptr; }
+
+  auto const row_count = input.front().size();
+  for (auto const& col : input) {
+    CUDF_EXPECTS(col.size() == row_count, "All columns must have the same number of rows.");
+  }
+
+  auto const [null_mask, null_count] = cudf::detail::valid_if(
+    is_null.begin<bool>(), is_null.end<bool>(), thrust::logical_not{}, stream, mr);
+  if (null_count == 0) { return std::make_unique<cudf::column>(structs, stream, mr); }
+
+  auto const structs =
+    cudf::column_view(cudf::data_type{cudf::type_id::STRUCT},
+                      row_count,
+                      nullptr,
+                      reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
+                      null_count,
+                      0,
+                      input);
+  return cudf::purge_nonempty_nulls(structs, stream, mr);
+}
+
 }  // namespace detail
 
 std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
@@ -217,6 +245,15 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 {
   CUDF_FUNC_RANGE();
   return detail::concat_json(input, stream, mr);
+}
+
+std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& input,
+                                           cudf::column_view const& is_null,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::make_structs(input, is_null, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

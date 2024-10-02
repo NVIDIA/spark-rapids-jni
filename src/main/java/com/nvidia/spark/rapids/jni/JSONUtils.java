@@ -201,6 +201,22 @@ public class JSONUtils {
         (char) concatenated[4]);
   }
 
+  /**
+   * Create a structs column from the given children columns and a boolean column specifying
+   * the rows at which the output column.should be null.
+   *
+   * @param children The children columns of the output structs column
+   * @param isNull A boolean column specifying the rows at which the output column should be null
+   * @return A structs column created from the given children and the isNull column
+   */
+  public static ColumnVector makeStructs(ColumnView[] children, ColumnView isNull) {
+    long[] handles = new long[children.length];
+    for (int i = 0; i < children.length; i++) {
+      handles[i] = children[i].getNativeView();
+    }
+    return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
+  }
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -220,4 +236,6 @@ public class JSONUtils {
   private static native long extractRawMapFromJsonString(long input);
 
   private static native long[] concatenateJsonStrings(long input);
+
+  private static native long makeStructs(long[] children, long isNull);
 }
