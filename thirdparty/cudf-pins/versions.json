@@ -44,9 +44,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "59edda01ff356d748b72d677d88f4d9cea11755a",
+      "git_tag" : "b2592d493ec00b799c93a88b3328d07ce2be390d",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.10"
+      "version" : "24.12"
     },
     "bs_thread_pool" : 
     {
@@ -84,17 +84,16 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "f5e54359df4c26b6230fc61d38aa294581393084",
+      "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
       "git_url" : "https://github.com/fmtlib/fmt.git",
       "patches" : 
       [
         {
-          "file" : "fmt/fix_10_1_1_version.diff",
-          "fixed_in" : "10.2.0",
-          "issue" : "fmt 10.1.1 produces a CMake package with version 10.1.0"
+          "file" : "fmt/fix_11_0_2_unreachable_loop.diff",
+          "issue" : "fmt 11.0.2 produces a warning about an unreachable loop when compiled with nvcc"
         }
       ],
-      "version" : "10.1.1"
+      "version" : "11.0.2"
     },
     "jitify" : 
     {
@@ -142,25 +141,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "800dc8749aa889c6b51046739449ef5322217ddf",
+      "git_tag" : "9e410c0591f38aa6c0a17c4e2c2edc4f6bfed058",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.10"
+      "version" : "24.12"
     },
     "spdlog" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7e635fca68d014934b4af8a1cf874f63989352b7",
+      "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
       "git_url" : "https://github.com/gabime/spdlog.git",
-      "patches" : 
-      [
-        {
-          "file" : "spdlog/nvcc_constexpr_fix.diff",
-          "fixed_in" : "1.13",
-          "issue" : "Fix constexpr mismatch between spdlog and fmt [https://github.com/gabime/spdlog/issues/2856]"
-        }
-      ],
-      "version" : "1.12.0"
+      "version" : "1.14.1"
     }
   }
 }
