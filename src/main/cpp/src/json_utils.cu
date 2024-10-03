@@ -37,6 +37,8 @@ namespace spark_rapids_jni {
 
 namespace detail {
 
+namespace {
+
 constexpr bool not_whitespace(cudf::char_utf8 ch)
 {
   return ch != ' ' && ch != '\r' && ch != '\n' && ch != '\t';
@@ -61,6 +63,8 @@ constexpr bool can_be_delimiter(char c)
     default: return true;
   }
 }
+
+}  // namespace
 
 std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
   cudf::strings_column_view const& input,
@@ -133,7 +137,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   auto constexpr upper_level = std::numeric_limits<char>::max();
   auto const num_chars       = input.chars_size(stream);
 
-  rmm::device_uvector<uint32_t> histogram(num_levels, stream);
+  rmm::device_uvector<uint32_t> histogram(num_levels, stream, default_mr);
   thrust::uninitialized_fill(
     rmm::exec_policy_nosync(stream), histogram.begin(), histogram.end(), 0);
 
