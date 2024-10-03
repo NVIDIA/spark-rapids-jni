@@ -79,32 +79,23 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   // This will be used for masking out the input when doing string concatenation.
   rmm::device_uvector<bool> is_valid_input(input.size(), stream, default_mr);
 
-  // Assume that the input has most rows are valid.
-  thrust::uninitialized_fill(
-    rmm::exec_policy_nosync(stream), is_valid_input.begin(), is_valid_input.end(), true);
-
   // Check if the input rows are either null or empty.
   // This will be returned to the caller.
   rmm::device_uvector<bool> is_null_or_empty(input.size(), stream, mr);
-
-  // Assume that the input has most rows are not null or empty.
-  thrust::uninitialized_fill(
-    rmm::exec_policy_nosync(stream), is_null_or_empty.begin(), is_null_or_empty.end(), false);
 
   thrust::for_each(
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0L),
     thrust::make_counting_iterator(input.size() * static_cast<int64_t>(cudf::detail::warp_size)),
-    [input            = *d_input_ptr,
-     is_valid_input   = is_valid_input.begin(),
-     is_null_or_empty = is_null_or_empty.begin()] __device__(int64_t tidx) {
+    [input  = *d_input_ptr,
+     output = thrust::make_zip_iterator(thrust::make_tuple(
+       is_valid_input.begin(), is_null_or_empty.begin()))] __device__(int64_t tidx) {
       // Execute one warp per row to minimize thread divergence.
       if ((tidx % cudf::detail::warp_size) != 0) { return; }
       auto const idx = tidx / cudf::detail::warp_size;
 
       if (input.is_null(idx)) {
-        is_valid_input[idx]   = false;
-        is_null_or_empty[idx] = true;
+        output[idx] = thrust::make_tuple(false, true);
         return;
       }
 
@@ -135,29 +126,27 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
             break;
           }
         }
-
-        // The current row contains only `null` string literal and not any other non-empty
-        // characters. Such rows need to be masked out as null when doing concatenation.
-        if (is_null_literal) {
-          is_valid_input[idx] = false;
-          return;
-        }
       }
 
+      // The current row contains only `null` string literal and not any other non-empty characters.
+      // Such rows need to be masked out as null when doing concatenation.
+      if (is_null_literal) {
+        output[idx] = thrust::make_tuple(false, false);
+        return;
+      }
+
+      auto const not_eol = i < size;
+
+      // If the current row is not null or empty, it should start with `{`. Otherwise, we need to
+      // replace it by a null. This is necessary for libcudf's JSON reader to work.
+      // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
-      if (i < size) {  // non-whitespace detected
-        // If the current row is not null or empty, it should start with `{`. Otherwise, we need
-        // to replace it by a null. This is necessary for libcudf's JSON reader to work.
-        // Note that if we want to support ARRAY schema, we need to check for `[` instead.
-        if (ch != start_character) {
-          is_valid_input[idx] = false;
-          return;
-        }
-        // Until here, everything looks good.
-      } else {  // all white-space characters
-        is_valid_input[idx]   = false;
-        is_null_or_empty[idx] = true;
+      if (not_eol && ch != start_character) {
+        output[idx] = thrust::make_tuple(false, false);
+        return;
       }
+
+      output[idx] = thrust::make_tuple(not_eol, !not_eol);
     });
 
   auto constexpr num_levels  = 256;
