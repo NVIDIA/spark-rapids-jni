@@ -109,11 +109,13 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       }
 
       // Skip the very last whitespace characters.
-      for (; i < size; ++i) {
-        ch = d_str[i];
-        if (not_whitespace(ch)) {
-          is_null_literal = false;
-          break;
+      if (is_null_literal) {
+        for (; i < size; ++i) {
+          ch = d_str[i];
+          if (not_whitespace(ch)) {
+            is_null_literal = false;
+            break;
+          }
         }
       }
 
