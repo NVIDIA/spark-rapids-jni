@@ -183,20 +183,18 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concaten
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_makeStructs(JNIEnv* env,
-                                                                               jclass,
-                                                                               jlongArray j_input,
-                                                                               jlong j_is_null)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_makeStructs(
+  JNIEnv* env, jclass, jlongArray j_children, jlong j_is_null)
 {
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_children, "j_children is null", 0);
   JNI_NULL_CHECK(env, j_is_null, "j_is_null is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input =
-      cudf::jni::native_jpointerArray<cudf::column_view>{env, j_input}.get_dereferenced();
+    auto const children =
+      cudf::jni::native_jpointerArray<cudf::column_view>{env, j_children}.get_dereferenced();
     auto const is_null = *reinterpret_cast<cudf::column_view const*>(j_is_null);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::make_structs(input, is_null).release());
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::make_structs(children, is_null).release());
   }
   CATCH_STD(env, 0);
 }

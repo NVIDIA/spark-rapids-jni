@@ -204,6 +204,9 @@ public class JSONUtils {
   /**
    * Create a structs column from the given children columns and a boolean column specifying
    * the rows at which the output column.should be null.
+   * <p>
+   * Note that the children columns are expected to have null rows at the same positions indicated
+   * by the input isNull column.
    *
    * @param children The children columns of the output structs column
    * @param isNull A boolean column specifying the rows at which the output column should be null
