@@ -15,6 +15,7 @@
  */
 
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/string_view.cuh>
@@ -82,13 +83,21 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   // This will be returned to the caller.
   rmm::device_uvector<bool> is_null_or_empty(input.size(), stream, mr);
 
-  thrust::transform(
+  thrust::for_each(
     rmm::exec_policy_nosync(stream),
-    thrust::make_counting_iterator(0),
-    thrust::make_counting_iterator(input.size()),
-    thrust::make_zip_iterator(thrust::make_tuple(is_valid_input.begin(), is_null_or_empty.begin())),
-    [input = *d_input_ptr] __device__(cudf::size_type idx) -> thrust::tuple<bool, bool> {
-      if (input.is_null(idx)) { return {false, true}; }
+    thrust::make_counting_iterator(0L),
+    thrust::make_counting_iterator(input.size() * static_cast<int64_t>(cudf::detail::warp_size)),
+    [input  = *d_input_ptr,
+     output = thrust::make_zip_iterator(thrust::make_tuple(
+       is_valid_input.begin(), is_null_or_empty.begin()))] __device__(int64_t tidx) {
+      // Execute one warp per row to minimize thread divergence.
+      if ((tidx % cudf::detail::warp_size) != 0) { return; }
+      auto const idx = tidx / cudf::detail::warp_size;
+
+      if (input.is_null(idx)) {
+        output[idx] = thrust::make_tuple(false, true);
+        return;
+      }
 
       auto const d_str = input.element<cudf::string_view>(idx);
       auto const size  = d_str.size_bytes();
@@ -121,7 +130,10 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 
       // The current row contains only `null` string literal and not any other non-empty characters.
       // Such rows need to be masked out as null when doing concatenation.
-      if (is_null_literal) { return {false, false}; }
+      if (is_null_literal) {
+        output[idx] = thrust::make_tuple(false, false);
+        return;
+      }
 
       auto const not_eol = i < size;
 
@@ -129,9 +141,12 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       // replace it by a null. This is necessary for libcudf's JSON reader to work.
       // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
-      if (not_eol && ch != start_character) { return {false, false}; }
+      if (not_eol && ch != start_character) {
+        output[idx] = thrust::make_tuple(false, false);
+        return;
+      }
 
-      return {not_eol, !not_eol};
+      output[idx] = thrust::make_tuple(not_eol, !not_eol);
     });
 
   auto constexpr num_levels  = 256;
