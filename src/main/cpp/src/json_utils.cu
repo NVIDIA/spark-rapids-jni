@@ -16,7 +16,7 @@
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/detail/valid_if.cuh>
-#include <cudf/strings/detail/combine.hpp>
+#include <cudf/strings/combine.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -64,13 +64,13 @@ constexpr bool can_be_delimiter(char c)
   }
 }
 
-}  // namespace
-
-std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
+std::pair<rmm::device_uvector<bool>, rmm::device_uvector<bool>> check_validity(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const default_mr  = rmm::mr::get_current_device_resource();
 
@@ -132,11 +132,20 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       return {not_eol, !not_eol};
     });
 
+  stream.synchronize();
+  return {std::move(is_valid_input), std::move(is_null_or_empty)};
+}
+
+std::tuple<rmm::device_uvector<uint32_t>, int, int> compute_histogram(
+  cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
+{
+  CUDF_FUNC_RANGE();
   auto constexpr num_levels  = 256;
-  auto constexpr lower_level = std::numeric_limits<char>::min();
-  auto constexpr upper_level = std::numeric_limits<char>::max();
+  auto constexpr lower_level = static_cast<int>(std::numeric_limits<char>::min());
+  auto constexpr upper_level = static_cast<int>(std::numeric_limits<char>::max());
   auto const num_chars       = input.chars_size(stream);
 
+  auto const default_mr = rmm::mr::get_current_device_resource();
   rmm::device_uvector<uint32_t> histogram(num_levels, stream, default_mr);
   thrust::uninitialized_fill(
     rmm::exec_policy_nosync(stream), histogram.begin(), histogram.end(), 0);
@@ -162,21 +171,33 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
                                       num_chars,
                                       stream.value());
 
-  auto const it             = thrust::make_counting_iterator(0);
-  auto const zero_level_idx = -lower_level;  // the bin storing count for character `\0`
-  auto const zero_level_it  = it + zero_level_idx;
-  auto const end            = it + num_levels;
+  stream.synchronize();
+  return {std::move(histogram), -lower_level /*the bin storing count for `\0`*/, num_levels};
+}
 
-  auto const first_zero_count_pos =
-    thrust::find_if(rmm::exec_policy_nosync(stream),
-                    zero_level_it,  // ignore the negative characters
-                    end,
-                    [zero_level_idx, counts = histogram.begin()] __device__(auto idx) -> bool {
-                      auto const count = counts[idx];
-                      if (count > 0) { return false; }
-                      auto const first_non_existing_char = static_cast<char>(idx - zero_level_idx);
-                      return can_be_delimiter(first_non_existing_char);
-                    });
+}  // namespace
+
+std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const [histogram, zero_level_idx, num_levels] = compute_histogram(input, stream);
+
+  auto const it                   = thrust::make_counting_iterator(0);
+  auto const zero_level_it        = it + zero_level_idx;
+  auto const end                  = it + num_levels;
+  auto const first_zero_count_pos = thrust::find_if(
+    rmm::exec_policy_nosync(stream),
+    zero_level_it,  // ignore the negative characters
+    end,
+    [zero_level_idx = zero_level_idx, counts = histogram.begin()] __device__(auto idx) -> bool {
+      auto const count = counts[idx];
+      if (count > 0) { return false; }
+      auto const first_non_existing_char = static_cast<char>(idx - zero_level_idx);
+      return can_be_delimiter(first_non_existing_char);
+    });
+  stream.synchronize();
 
   // This should never happen since the input should never cover the entire char range.
   if (first_zero_count_pos == end) {
@@ -185,7 +206,9 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   }
   auto const delimiter = static_cast<char>(thrust::distance(zero_level_it, first_zero_count_pos));
 
-  auto [null_mask, null_count] = cudf::detail::valid_if(
+  auto [is_valid_input, is_null_or_empty] = check_validity(input, stream, mr);
+  auto const default_mr                   = rmm::mr::get_current_device_resource();
+  auto [null_mask, null_count]            = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
   // If the null count doesn't change, that mean we do not have any rows containing `null` string
   // literal or empty rows. In such cases, just use the input column for concatenation.
@@ -200,7 +223,8 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
                           0,
                           std::vector<cudf::column_view>{input.offsets()}};
 
-  auto concat_strings = cudf::strings::detail::join_strings(
+  stream.synchronize();
+  auto concat_strings = cudf::strings::join_strings(
     null_count == input.null_count() ? input : cudf::strings_column_view{input_applied_null},
     cudf::string_scalar(std::string(1, delimiter), true, stream, default_mr),
     cudf::string_scalar("{}", true, stream, default_mr),
