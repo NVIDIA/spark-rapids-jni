@@ -464,7 +464,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (START_OBJECT, Named :: xs)
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
-               thrust::get<0>(path_match_named(ctx.path))) {
+               ctx.path.front().type == path_instruction_type::NAMED) {
         if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
@@ -492,15 +492,13 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.is_first_enter = false;
           // match first mached children with expected name
           bool found_expected_child = false;
+          auto const to_match_name  = ctx.path.front().name;
           while (json_token::END_OBJECT != p.next_token()) {
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
-            // need to try more children
-            auto match_named = path_match_named(ctx.path);
-            auto named       = thrust::get<1>(match_named);
             // current token is FIELD_NAME
-            if (p.match_current_field_name(named)) {
+            if (p.match_current_field_name(to_match_name)) {
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
