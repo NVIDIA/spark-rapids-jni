@@ -110,15 +110,12 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
         if (not_whitespace(ch)) { break; }
       }
 
-      bool is_null_literal{false};
       if (i + 3 < size &&
           (d_str[i] == 'n' && d_str[i + 1] == 'u' && d_str[i + 2] == 'l' && d_str[i + 3] == 'l')) {
-        is_null_literal = true;
         i += 4;
-      }
 
-      // Skip the very last whitespace characters.
-      if (is_null_literal) {
+        // Skip the very last whitespace characters.
+        bool is_null_literal{true};
         for (; i < size; ++i) {
           ch = d_str[i];
           if (not_whitespace(ch)) {
@@ -126,13 +123,13 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
             break;
           }
         }
-      }
 
-      // The current row contains only `null` string literal and not any other non-empty characters.
-      // Such rows need to be masked out as null when doing concatenation.
-      if (is_null_literal) {
-        output[idx] = thrust::make_tuple(false, false);
-        return;
+        // The current row contains only `null` string literal and not any other non-whitespace
+        // characters. Such rows need to be masked out as null when doing concatenation.
+        if (is_null_literal) {
+          output[idx] = thrust::make_tuple(false, false);
+          return;
+        }
       }
 
       auto const not_eol = i < size;
