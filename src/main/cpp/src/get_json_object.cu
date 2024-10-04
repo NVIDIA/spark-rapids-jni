@@ -493,12 +493,16 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           // match first mached children with expected name
           bool found_expected_child = false;
           auto const to_match_name  = ctx.path.front().name;
-          while (json_token::END_OBJECT != p.next_token()) {
+          while (true) {
+            auto const is_name_matched = p.parse_next_token_with_matching(to_match_name);
+            if (json_token::END_OBJECT == p.get_current_token()) { break; }
+
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
             // current token is FIELD_NAME
-            if (p.match_current_field_name(to_match_name)) {
+            // if (p.match_current_field_name(to_match_name)) {
+            if (is_name_matched) {
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
