@@ -547,7 +547,7 @@ class json_parser {
         // path 3: escape path
         str.next();
         char_range_reader to_match(char_range::null());  // unused
-        bool matched_field_name;                         // unused
+        bool matched_field_name{false};                  // unused
         if (!try_skip_escape_part(
               str, to_match, copy_destination, w_style, output_size_bytes, matched_field_name)) {
           return output_size_bytes;
@@ -622,9 +622,9 @@ class json_parser {
     escape_style w_style       = escape_style::UNESCAPED)
   {
     if (str.eof()) { return thrust::make_tuple(false, false, 0); }
-    char const quote_char = str.current_char();
-    int output_size_bytes = 0;
-    bool matched_field_name{true};  // if to_match is null, this doesn't matter
+    char const quote_char   = str.current_char();
+    int output_size_bytes   = 0;
+    bool matched_field_name = !to_match.is_null();
 
     // write the first " if write style is escaped
     if (escape_style::ESCAPED == w_style) { output_size_bytes++; }
@@ -642,7 +642,7 @@ class json_parser {
         str.next();
 
         // match check, the last char in match_str is quote_char
-        if (!to_match.is_null() && !to_match.eof()) { matched_field_name = false; }
+        matched_field_name = matched_field_name && (to_match.is_null() || to_match.eof());
 
         // write the end " if write style is escaped
         if (escape_style::ESCAPED == w_style) { output_size_bytes++; }
@@ -658,7 +658,7 @@ class json_parser {
         }
 
         // check match if enabled
-        if (!try_match_char(to_match, str.current_char())) { matched_field_name = false; }
+        matched_field_name = matched_field_name && try_match_char(to_match, c);
 
         str.next();
         output_size_bytes++;
@@ -680,7 +680,7 @@ class json_parser {
 
         if (!try_skip_safe_code_point(str, c)) { return thrust::make_tuple(false, false, 0); }
         // check match if enabled
-        if (!try_match_char(to_match, c)) { matched_field_name = false; }
+        matched_field_name = matched_field_name && try_match_char(to_match, c);
         output_size_bytes++;
       }
     }
@@ -981,7 +981,7 @@ class json_parser {
       }
     }
 
-    if (!to_match.is_null()) {
+    if (matched_field_name && !to_match.is_null()) {
       for (cudf::size_type i = 0; i < bytes; i++) {
         if (to_match.eof() || to_match.current_char() != buff[i]) {
           matched_field_name = false;

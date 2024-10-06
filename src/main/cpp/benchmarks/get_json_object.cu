@@ -1009,7 +1009,7 @@ void test(rmm::cuda_stream_view stream, int method, bool warm_up = false)
     stream.synchronize();
     test_time += timer.tock();
 
-    if (num_chunks > 10) { break; }
+    // if (num_chunks > 10) { break; }
 
     if (warm_up) {
       break;  // just test one chunk
