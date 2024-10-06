@@ -501,7 +501,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
             // current token is FIELD_NAME
-            // if (p.match_current_field_name(to_match_name)) {
             if (is_name_matched) {
               // skip FIELD_NAME token
               p.next_token();

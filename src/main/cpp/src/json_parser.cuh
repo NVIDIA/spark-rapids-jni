@@ -416,7 +416,6 @@ class json_parser {
     char_range_reader reader(chars, curr_pos);
     [[maybe_unused]] auto const [success, matched, end_char_pos] = try_parse_string(reader);
     if (success) {
-      // TODO remove end_char_pos, and just get it from the reader...
       curr_pos      = end_char_pos;
       current_token = json_token::VALUE_STRING;
     } else {
@@ -612,22 +611,15 @@ class json_parser {
    *
    * @param str string to parse
    * @param to_match expected match str
-   * @param w_style the escape style for writing.
    * @return a tuple of values indicating if the parse process was successful, field name was
    * matched, and byte length needed to encode the string in the given style.
    */
   static __device__ inline thrust::tuple<bool, bool, cudf::size_type> try_parse_string(
-    char_range_reader& str,
-    char_range_reader to_match = char_range_reader(char_range::null()),
-    escape_style w_style       = escape_style::UNESCAPED)
+    char_range_reader& str, char_range_reader to_match = char_range_reader(char_range::null()))
   {
     if (str.eof()) { return thrust::make_tuple(false, false, 0); }
     char const quote_char   = str.current_char();
-    int output_size_bytes   = 0;
     bool matched_field_name = !to_match.is_null();
-
-    // write the first " if write style is escaped
-    if (escape_style::ESCAPED == w_style) { output_size_bytes++; }
 
     // skip left quote char
     // We don't need to actually verify what it is, because we just read it.
@@ -637,51 +629,29 @@ class json_parser {
     while (!str.eof()) {
       char c = str.current_char();
       int v  = static_cast<int>(c);
-      if (c == quote_char) {
-        // path 1: match closing quote char
+      if (c == quote_char) {  // path 1: match closing quote char
         str.next();
-
-        // match check, the last char in match_str is quote_char
         matched_field_name = matched_field_name && (to_match.is_null() || to_match.eof());
-
-        // write the end " if write style is escaped
-        if (escape_style::ESCAPED == w_style) { output_size_bytes++; }
-
         return thrust::make_tuple(true, matched_field_name, str.pos());
-      } else if (v >= 0 && v < 32) {
-        // path 2: unescaped control char
-
-        // copy if enabled, escape mode, write more chars
-        if (escape_style::ESCAPED == w_style) {
-          int escape_chars = escape_char(str.current_char(), nullptr);
-          output_size_bytes += (escape_chars - 1);
-        }
-
-        // check match if enabled
+      } else if (v >= 0 && v < 32) {  // path 2: unescaped control char
         matched_field_name = matched_field_name && try_match_char(to_match, c);
-
         str.next();
-        output_size_bytes++;
         continue;
-      } else if ('\\' == c) {
-        // path 3: escape path
+      } else if ('\\' == c) {  // path 3: escape path
         str.next();
         char* copy_dest_nullptr = nullptr;  // unused
-        if (!try_skip_escape_part(
-              str, to_match, copy_dest_nullptr, w_style, output_size_bytes, matched_field_name)) {
+        int output_size_bytes   = 0;        // unused
+        if (!try_skip_escape_part(str,
+                                  to_match,
+                                  copy_dest_nullptr,
+                                  escape_style::UNESCAPED,
+                                  output_size_bytes,
+                                  matched_field_name)) {
           return thrust::make_tuple(false, false, 0);
         }
-      } else {
-        // path 4: safe code point
-
-        // handle single unescaped " char; happens when string is quoted by char '
-        // e.g.:  'A"' string, escape to "A\\"" (5 chars: " A \ " ")
-        if ('\"' == c && escape_style::ESCAPED == w_style) { output_size_bytes++; }
-
+      } else {  // path 4: safe code point
         if (!try_skip_safe_code_point(str, c)) { return thrust::make_tuple(false, false, 0); }
-        // check match if enabled
         matched_field_name = matched_field_name && try_match_char(to_match, c);
-        output_size_bytes++;
       }
     }
 
