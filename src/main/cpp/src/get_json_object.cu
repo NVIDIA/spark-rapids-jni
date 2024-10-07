@@ -341,17 +341,6 @@ enum class evaluation_case_path : int8_t {
   START_ARRAY___MATCHED_INDEX                       = 9
 };
 
-struct context_state {
-  static constexpr uint32_t TASK_IS_DONE = 1;
-  static constexpr uint32_t FIRST_ENTER  = 2;
-};
-
-constexpr __device__ bool task_is_done(int8_t state) { return state & context_state::TASK_IS_DONE; }
-constexpr __device__ bool is_first_enter(int8_t state)
-{
-  return state & context_state::FIRST_ENTER;
-}
-
 /**
  * @brief The struct to store states during processing JSON through different nested levels.
  */
@@ -371,9 +360,16 @@ struct context {
   // which case path that this task is from
   evaluation_case_path case_path;
 
+  // current token
   json_token token;
+
   write_style style;
-  int8_t state;
+
+  // for some case paths
+  bool is_first_enter;
+
+  // is this context task is done
+  bool task_is_done;
 };
 
 /**
@@ -409,21 +405,22 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // But that is not important, since we will throw exception after the kernel finishes.
       return;
     }
-    auto& ctx     = stack[stack_size++];
-    ctx.g         = std::move(_g);
-    ctx.path      = std::move(_path);
-    ctx.dirty     = 0;
-    ctx.case_path = _case_path;
-    ctx.token     = p.get_current_token();
-    ctx.style     = _style;
-    ctx.state     = static_cast<int8_t>(context_state::FIRST_ENTER);
+    auto& ctx          = stack[stack_size++];
+    ctx.g              = std::move(_g);
+    ctx.path           = std::move(_path);
+    ctx.dirty          = 0;
+    ctx.case_path      = _case_path;
+    ctx.token          = p.get_current_token();
+    ctx.style          = _style;
+    ctx.is_first_enter = true;
+    ctx.task_is_done   = false;
   };
 
   push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
 
   while (stack_size > 0) {
     auto& ctx = stack[stack_size - 1];
-    if (!task_is_done(ctx.state)) {
+    if (!ctx.task_is_done) {
       // case (VALUE_STRING, Nil) if style == RawStyle
       // case path 1
       if (json_token::VALUE_STRING == ctx.token && path_is_empty(ctx.path.size()) &&
@@ -431,8 +428,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         // there is no array wildcard or slice parent, emit this string without
         // quotes write current string in parser to generator
         ctx.g.write_raw(p, out_buf);
-        ctx.dirty = 1;
-        ctx.state |= context_state::TASK_IS_DONE;
+        ctx.dirty        = 1;
+        ctx.task_is_done = true;
       }
       // case (START_ARRAY, Nil) if style == FlattenStyle
       // case path 2
@@ -450,7 +447,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        {nullptr, 0});
         } else {
           // END_ARRAY
-          ctx.state |= context_state::TASK_IS_DONE;
+          ctx.task_is_done = true;
         }
       }
       // case (_, Nil)
@@ -461,14 +458,14 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           // JSON validation check
           return {false, 0};
         }
-        ctx.dirty = 1;
-        ctx.state |= context_state::TASK_IS_DONE;
+        ctx.dirty        = 1;
+        ctx.task_is_done = true;
       }
       // case (START_OBJECT, Named :: xs)
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
                ctx.path.front().type == path_instruction_type::NAMED) {
-        if (!is_first_enter(ctx.state)) {
+        if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
           if (ctx.dirty > 0) {
@@ -489,10 +486,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             }
           }
           // Mark task is done regardless whether the expected child was found.
-          ctx.state |= context_state::TASK_IS_DONE;
+          ctx.task_is_done = true;
         } else {
           // below is 1st enter
-          ctx.state &= ~context_state::FIRST_ENTER;
+          ctx.is_first_enter = false;
           // match first mached children with expected name
           bool found_expected_child = false;
           auto const to_match_name  = ctx.path.front().name;
@@ -534,8 +531,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           }
           if (!found_expected_child) {
             // did not find any expected sub child
-            ctx.state |= context_state::TASK_IS_DONE;
-            ctx.dirty = false;
+            ctx.task_is_done = true;
+            ctx.dirty        = false;
           }
         }
       }
@@ -546,8 +543,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                  ctx.path, path_instruction_type::WILDCARD, path_instruction_type::WILDCARD)) {
         // special handling for the non-structure preserving double wildcard
         // behavior in Hive
-        if (is_first_enter(ctx.state)) {
-          ctx.state &= ~context_state::FIRST_ENTER;
+        if (ctx.is_first_enter) {
+          ctx.is_first_enter = false;
           ctx.g.write_start_array(out_buf);
         }
 
@@ -560,7 +557,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        {ctx.path.data() + 2, ctx.path.size() - 2});
         } else {
           ctx.g.write_end_array(out_buf);
-          ctx.state |= context_state::TASK_IS_DONE;
+          ctx.task_is_done = true;
         }
       }
       // case (START_ARRAY, Wildcard :: xs) if style != QuotedStyle
@@ -580,8 +577,8 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         // modified slightly if there is only a single element written
 
         json_generator child_g;
-        if (is_first_enter(ctx.state)) {
-          ctx.state &= ~context_state::FIRST_ENTER;
+        if (ctx.is_first_enter) {
+          ctx.is_first_enter = false;
           // create a child generator with hide outer array tokens mode.
           child_g = ctx.g.new_child_generator();
           // write first [ without output, without update len, only update internal state
@@ -613,15 +610,15 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           }  // else do not write anything
 
           // Done anyway, since we already reached the end array.
-          ctx.state |= context_state::TASK_IS_DONE;
+          ctx.task_is_done = true;
         }
       }
       // case (START_ARRAY, Wildcard :: xs)
       // case path 7
       else if (json_token::START_ARRAY == ctx.token &&
                path_match_element(ctx.path, path_instruction_type::WILDCARD)) {
-        if (is_first_enter(ctx.state)) {
-          ctx.state &= ~context_state::FIRST_ENTER;
+        if (ctx.is_first_enter) {
+          ctx.is_first_enter = false;
           ctx.g.write_start_array(out_buf);
         }
         if (p.next_token() != json_token::END_ARRAY) {
@@ -636,7 +633,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
                        {ctx.path.data() + 1, ctx.path.size() - 1});
         } else {
           ctx.g.write_end_array(out_buf);
-          ctx.state |= context_state::TASK_IS_DONE;
+          ctx.task_is_done = true;
         }
       }
       /* case (START_ARRAY, Index(idx) :: (xs@Wildcard :: _)) */
@@ -648,7 +645,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         p.next_token();
         // JSON validation check
         if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
-        ctx.state &= ~context_state::FIRST_ENTER;
+        ctx.is_first_enter = false;
 
         int i = idx;
         while (i > 0) {
@@ -708,10 +705,10 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       else {
         if (!p.try_skip_children()) { return {false, 0}; }
         // default case path, return false for this task
-        ctx.dirty = 0;
-        ctx.state |= context_state::TASK_IS_DONE;
+        ctx.dirty        = 0;
+        ctx.task_is_done = true;
       }
-    }       // if (!task_is_done(ctx.state))
+    }       // if (!ctx.task_is_done)
     else {  // current context is done.
       // pop current top context
       stack_size--;
@@ -776,7 +773,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
             if (!p.try_skip_children()) { return {false, 0}; }
           }
           // task is done
-          p_ctx.state |= context_state::TASK_IS_DONE;
+          p_ctx.task_is_done = true;
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
 
@@ -785,7 +782,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
 
         default:;  // Never happens!
       }            // end switch (ctx.case_path)
-    }              // task_is_done(ctx.state)
+    }              // ctx.task_is_done
   }                // while (stack_size > 0)
 
   auto const success = stack[0].dirty > 0;
