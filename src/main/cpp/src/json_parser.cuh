@@ -154,7 +154,10 @@ class char_range {
 };
 
 /**
- * A char_range that keeps track of where in the data it currently is.
+ * A char range that moves the begin pointer of the current range forward while reading.
+ *
+ * This support continuous reading of characters without the need of an additional variable
+ * to keep track of the current reading position.
  */
 class char_range_reader : public char_range {
  public:
@@ -166,6 +169,7 @@ class char_range_reader : public char_range {
   }
 
   // Warning: this does not check for out-of-bound access.
+  // The caller must be responsible to check for empty range before calling this.
   __device__ inline char current_char() const { return _data[0]; }
 };
 
@@ -623,6 +627,7 @@ class json_parser {
         continue;
       } else if ('\\' == c) {  // path 3: escape path
         str.next();
+
         char* copy_dest_nullptr = nullptr;  // unused
         int output_size_bytes   = 0;        // unused
         if (!try_skip_escape_part(str,
@@ -1176,7 +1181,7 @@ class json_parser {
     bool& matched_field_name, char_range to_match_field_name = char_range::null())
   {
     current_token_start_pos = curr_pos;
-    auto [success, matched, end] =
+    auto const [success, matched, end] =
       try_parse_string(char_range_reader{chars.slice(curr_pos, chars.size() - curr_pos)},
                        char_range_reader{std::move(to_match_field_name)});
     if (success) {
@@ -1191,8 +1196,6 @@ class json_parser {
   /**
    * continute parsing the next token and update current token
    * Note: only parse one token at a time
-   * @param[out] has_comma_before_token has comma before next token
-   * @param[out] has_colon_before_token has colon before next token
    */
   __device__ inline void parse_next_token_and_set_current(
     bool& has_comma_before_token,

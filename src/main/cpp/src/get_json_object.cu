@@ -304,17 +304,6 @@ __device__ inline thrust::tuple<bool, int> path_match_index(
   }
 }
 
-__device__ inline thrust::tuple<bool, cudf::string_view> path_match_named(
-  cudf::device_span<path_instruction const> path)
-{
-  auto match = path_match_element(path, path_instruction_type::NAMED);
-  if (match) {
-    return thrust::make_tuple(true, path.data()[0].name);
-  } else {
-    return thrust::make_tuple(false, cudf::string_view());
-  }
-}
-
 __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   cudf::device_span<path_instruction const> path)
 {
