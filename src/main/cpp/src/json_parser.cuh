@@ -134,13 +134,8 @@ class char_range {
 
   __device__ inline cudf::size_type size() const { return _len; }
   __device__ inline char const* data() const { return _data; }
-  __device__ inline char const* start() const { return _data; }
-  __device__ inline char const* end() const { return _data + _len; }
-
-  __device__ inline bool eof(cudf::size_type pos) const { return pos >= _len; }
   __device__ inline bool is_null() const { return _data == nullptr; }
-  __device__ inline bool is_empty() const { return _len == 0; }
-
+  __device__ inline bool is_empty() const { return _len <= 0; }
   __device__ inline char operator[](cudf::size_type pos) const { return _data[pos]; }
 
   __device__ inline cudf::string_view slice_sv(cudf::size_type pos, cudf::size_type len) const
@@ -153,7 +148,7 @@ class char_range {
     return char_range(_data + pos, len);
   }
 
- private:
+ protected:
   char const* _data;
   cudf::size_type _len;
 };
@@ -161,27 +156,17 @@ class char_range {
 /**
  * A char_range that keeps track of where in the data it currently is.
  */
-class char_range_reader {
+class char_range_reader : public char_range {
  public:
-  __device__ inline explicit char_range_reader(char_range range) : _range(range), _pos(0) {}
-
-  __device__ inline char_range_reader(char_range range, cudf::size_type start)
-    : _range(range), _pos(start)
+  __device__ inline explicit char_range_reader(char_range range) : char_range(std::move(range)) {}
+  __device__ inline void next()
   {
+    _data++;
+    _len--;
   }
 
-  __device__ inline bool eof() const { return _range.eof(_pos); }
-  __device__ inline bool is_null() const { return _range.is_null(); }
-
-  __device__ inline void next() { _pos++; }
-
-  __device__ inline char current_char() const { return _range[_pos]; }
-
-  __device__ inline cudf::size_type pos() const { return _pos; }
-
- private:
-  char_range _range;
-  cudf::size_type _pos;
+  // Warning: this does not check for out-of-bound access.
+  __device__ inline char current_char() const { return _data[0]; }
 };
 
 /**
@@ -298,7 +283,7 @@ class json_parser {
    */
   static __device__ inline bool try_skip(char_range_reader& reader, char expected)
   {
-    if (!reader.eof() && reader.current_char() == expected) {
+    if (!reader.is_empty() && reader.current_char() == expected) {
       reader.next();
       return true;
     }
@@ -412,11 +397,10 @@ class json_parser {
    */
   __device__ inline void parse_string_and_set_current()
   {
-    // TODO eventually chars should be a reader so we can just pass it in...
-    char_range_reader reader(chars, curr_pos);
-    [[maybe_unused]] auto const [success, matched, end_char_pos] = try_parse_string(reader);
+    [[maybe_unused]] auto const [success, matched, end] =
+      try_parse_string(char_range_reader{chars.slice(curr_pos, chars.size() - curr_pos)});
     if (success) {
-      curr_pos      = end_char_pos;
+      curr_pos      = static_cast<cudf::size_type>(thrust::distance(chars.data(), end));
       current_token = json_token::VALUE_STRING;
     } else {
       set_current_error();
@@ -498,7 +482,7 @@ class json_parser {
                                             char* copy_destination,
                                             escape_style w_style)
   {
-    if (str.eof()) { return 0; }
+    if (str.is_empty()) { return 0; }
     char const quote_char = str.current_char();
     int output_size_bytes = 0;
 
@@ -513,7 +497,7 @@ class json_parser {
     str.next();
 
     // scan string content
-    while (!str.eof()) {
+    while (!str.is_empty()) {
       char const c = str.current_char();
       int const v  = static_cast<int>(c);
       if (c == quote_char) {
@@ -611,13 +595,13 @@ class json_parser {
    *
    * @param str string to parse
    * @param to_match expected match str
-   * @return a tuple of values indicating if the parse process was successful, field name was
-   * matched, and byte length needed to encode the string in the given style.
+   * @return a tuple of values indicating if the parse process was successful, if field name was
+   *         matched, and a pointer to the past-end position of the parsed data
    */
-  static __device__ inline thrust::tuple<bool, bool, cudf::size_type> try_parse_string(
-    char_range_reader& str, char_range_reader to_match = char_range_reader(char_range::null()))
+  static __device__ inline thrust::tuple<bool, bool, char const*> try_parse_string(
+    char_range_reader str, char_range_reader to_match = char_range_reader(char_range::null()))
   {
-    if (str.eof()) { return thrust::make_tuple(false, false, 0); }
+    if (str.is_empty()) { return thrust::make_tuple(false, false, nullptr); }
     char const quote_char   = str.current_char();
     bool matched_field_name = !to_match.is_null();
 
@@ -626,13 +610,13 @@ class json_parser {
     str.next();
 
     // scan string content
-    while (!str.eof()) {
+    while (!str.is_empty()) {
       char c = str.current_char();
       int v  = static_cast<int>(c);
       if (c == quote_char) {  // path 1: match closing quote char
         str.next();
-        matched_field_name = matched_field_name && (to_match.is_null() || to_match.eof());
-        return thrust::make_tuple(true, matched_field_name, str.pos());
+        matched_field_name = matched_field_name && (to_match.is_null() || to_match.is_empty());
+        return thrust::make_tuple(true, matched_field_name, str.data());
       } else if (v >= 0 && v < 32) {  // path 2: unescaped control char
         matched_field_name = matched_field_name && try_match_char(to_match, c);
         str.next();
@@ -647,21 +631,21 @@ class json_parser {
                                   escape_style::UNESCAPED,
                                   output_size_bytes,
                                   matched_field_name)) {
-          return thrust::make_tuple(false, false, 0);
+          return thrust::make_tuple(false, false, nullptr);
         }
       } else {  // path 4: safe code point
-        if (!try_skip_safe_code_point(str, c)) { return thrust::make_tuple(false, false, 0); }
+        if (!try_skip_safe_code_point(str, c)) { return thrust::make_tuple(false, false, nullptr); }
         matched_field_name = matched_field_name && try_match_char(to_match, c);
       }
     }
 
-    return thrust::make_tuple(false, false, 0);
+    return thrust::make_tuple(false, false, nullptr);
   }
 
   static __device__ inline bool try_match_char(char_range_reader& reader, char c)
   {
     if (!reader.is_null()) {
-      if (!reader.eof() && reader.current_char() == c) {
+      if (!reader.is_empty() && reader.current_char() == c) {
         reader.next();
         return true;
       } else {
@@ -686,7 +670,7 @@ class json_parser {
   {
     // already skipped the first '\'
     // try skip second part
-    if (!str.eof()) {
+    if (!str.is_empty()) {
       char const c = str.current_char();
       switch (c) {
         // path 1: \", \', \\, \/, \b, \f, \n, \r, \t
@@ -929,7 +913,7 @@ class json_parser {
     // now we expect 4 hex chars.
     cudf::char_utf8 code_point = 0;
     for (size_t i = 0; i < 4; i++) {
-      if (str.eof()) { return false; }
+      if (str.is_empty()) { return false; }
       char const c = str.current_char();
       str.next();
       if (!is_hex_digit(c)) { return false; }
@@ -953,7 +937,7 @@ class json_parser {
 
     if (matched_field_name && !to_match.is_null()) {
       for (cudf::size_type i = 0; i < bytes; i++) {
-        if (to_match.eof() || to_match.current_char() != buff[i]) {
+        if (to_match.is_empty() || to_match.current_char() != buff[i]) {
           matched_field_name = false;
           break;
         }
@@ -1191,14 +1175,13 @@ class json_parser {
   __device__ inline void parse_field_name_and_set_current(
     bool& matched_field_name, char_range to_match_field_name = char_range::null())
   {
-    // TODO eventually chars should be a reader so we can just pass it in...
-    char_range_reader reader(chars, curr_pos);
     current_token_start_pos = curr_pos;
-    auto [success, matched, end_char_pos] =
-      try_parse_string(reader, char_range_reader{to_match_field_name});
+    auto [success, matched, end] =
+      try_parse_string(char_range_reader{chars.slice(curr_pos, chars.size() - curr_pos)},
+                       char_range_reader{std::move(to_match_field_name)});
     if (success) {
       matched_field_name = matched;
-      curr_pos           = end_char_pos;
+      curr_pos           = static_cast<cudf::size_type>(thrust::distance(chars.data(), end));
       current_token      = json_token::FIELD_NAME;
     } else {
       set_current_error();
