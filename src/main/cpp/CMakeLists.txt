@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.10.00
+  VERSION 24.12.00
   LANGUAGES C CXX CUDA
 )
 
@@ -194,6 +194,7 @@ add_library(
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
+  src/HostTableJni.cpp
   src/JSONUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
