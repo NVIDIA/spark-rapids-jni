@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>24.08.0</version>
+  <version>24.10.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -605,8 +605,6 @@
                   <directory>${libcudfjni.build.path}</directory>
                   <includes>
                     <include>libnvcomp.so</include>
-                    <include>libnvcomp_gdeflate.so</include>
-                    <include>libnvcomp_bitcomp.so</include>
                   </includes>
                 </resource>
               </resources>
