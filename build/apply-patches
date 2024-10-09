@@ -27,13 +27,13 @@ PATCH_DIR=${PATCH_DIR:-$(realpath "$SCRIPT_DIR/../patches/")}
 CUDF_DIR=${CUDF_DIR:-$(realpath "$SCRIPT_DIR/../thirdparty/cudf/")}
 
 pushd "$CUDF_DIR"
-if ! git diff-index --quiet HEAD --; then
+if [ -n "$(git status --porcelain --untracked-files=no)" ] ; then
     echo "Error: CUDF repository has uncommitted changes. No patches will be applied..."
     exit 1
 fi
 
 find "$PATCH_DIR" -maxdepth 1 -type f -print0 | sort -zV | while IFS= read -r -d '' file; do
     echo "patching with: $file"
-    patch --no-backup-if-mismatch -f -t -p1 -i "$file"
+    patch --no-backup-if-mismatch -f -t --reject-file=- -p1 -i "$file"
 done
 popd

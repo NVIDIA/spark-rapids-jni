@@ -28,17 +28,17 @@ CUDF_DIR=${CUDF_DIR:-$(realpath "$SCRIPT_DIR/../thirdparty/cudf/")}
 
 
 pushd "$CUDF_DIR"
-if ! git diff-index --quiet HEAD --; then
+if [ -n "$(git status --porcelain --untracked-files=no)" ] ; then
   #only try to remove patches if it looks like something was changed
   find "$PATCH_DIR" -maxdepth 1 -type f -print0 | sort -zV -r | while IFS= read -r -d '' file; do
       echo "patching with: $file"
-      patch -R --no-backup-if-mismatch -f -t -p1 -i "$file"
+      patch -R --no-backup-if-mismatch --reject-file=- -f -t -p1 -i "$file"
   done
+fi
 
-  # Check for modifications
-  if ! git diff-index --quiet HEAD --; then
-      echo "Error: CUDF repository has uncommitted changes. You might want to clean in manually if you know that is expected"
-      exit 1
-  fi
+# Check for modifications
+if [ -n "$(git status --porcelain --untracked-files=no)" ] ; then
+    echo "Error: CUDF repository has uncommitted changes. You might want to clean in manually if you know that is expected"
+    exit 1
 fi
 popd
