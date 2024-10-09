@@ -41,15 +41,11 @@
 #include <thrust/transform_reduce.h>
 #include <thrust/tuple.h>
 
+#include <numeric>
+
 namespace spark_rapids_jni {
 
 namespace detail {
-
-// path max depth limitation
-// There is a same constant in JSONUtil.java, keep them consistent when changing
-// Note: Spark-Rapids should guarantee the path depth is less or equal to this limit,
-// or GPU reports cudaErrorIllegalAddress
-constexpr int max_path_depth = 16;
 
 /**
  * @brief JSON style to write.
@@ -379,29 +375,36 @@ struct context {
 /**
  * @brief Parse a single json string using the provided command buffer.
  *
- * @param input The incoming json string
+ * @param p The JSON parser for input string
  * @param path_commands The command buffer to be applied to the string
  * @param out_buf Buffer user to store the string resulted from the query
+ * @param max_path_depth_exceeded A marker to record if the maximum path depth has been reached
+ *        during parsing the input string
  * @return A pair containing the result code and the output size
  */
 __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
-  char_range input, cudf::device_span<path_instruction const> path_commands, char* out_buf)
+  json_parser& p,
+  cudf::device_span<path_instruction const> path_commands,
+  char* out_buf,
+  int8_t* max_path_depth_exceeded)
 {
-  json_parser p{input};
   p.next_token();
   if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
-  // define stack; plus 1 indicates root context task needs an extra memory
-  context stack[max_path_depth + 1];
+  // Define stack; plus 1 indicates root context task needs an extra memory.
+  context stack[MAX_JSON_PATH_DEPTH + 1];
   int stack_size = 0;
 
-  // push context function
-  auto push_context = [&p, &stack, &stack_size](evaluation_case_path _case_path,
-                                                json_generator _g,
-                                                write_style _style,
-                                                cudf::device_span<path_instruction const> _path) {
-    // no need to check stack is full
-    // because Spark-Rapids already checked maximum length of `path_instruction`
+  auto const push_context = [&](evaluation_case_path _case_path,
+                                json_generator _g,
+                                write_style _style,
+                                cudf::device_span<path_instruction const> _path) {
+    if (stack_size > MAX_JSON_PATH_DEPTH) {
+      *max_path_depth_exceeded = 1;
+      // Because no more context is pushed, the evaluation output should be wrong.
+      // But that is not important, since we will throw exception after the kernel finishes.
+      return;
+    }
     auto& ctx          = stack[stack_size++];
     ctx.g              = std::move(_g);
     ctx.path           = std::move(_path);
@@ -413,7 +416,6 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
     ctx.task_is_done   = false;
   };
 
-  // put the first context task
   push_context(evaluation_case_path::INVALID, json_generator{}, write_style::RAW, path_commands);
 
   while (stack_size > 0) {
@@ -818,12 +820,15 @@ struct json_path_processing_data {
  * @param input The input JSON strings stored in a strings column
  * @param path_data Array containing all path data
  * @param num_threads_per_row Number of threads processing each input row
+ * @param max_path_depth_exceeded A marker to record if the maximum path depth has been reached
+ *        during parsing the input string
  */
 template <int block_size, int min_block_per_sm>
 __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
   void get_json_object_kernel(cudf::column_device_view input,
                               cudf::device_span<json_path_processing_data> path_data,
-                              std::size_t num_threads_per_row)
+                              std::size_t num_threads_per_row,
+                              int8_t* max_path_depth_exceeded)
 {
   auto const tidx    = cudf::detail::grid_1d::global_thread_id();
   auto const row_idx = tidx / num_threads_per_row;
@@ -839,7 +844,17 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 
   auto const str = input.element<cudf::string_view>(row_idx);
   if (str.size_bytes() > 0) {
-    thrust::tie(is_valid, out_size) = evaluate_path(char_range{str}, path.path_commands, dst);
+    json_parser p{char_range{str}};
+    thrust::tie(is_valid, out_size) =
+      evaluate_path(p, path.path_commands, dst, max_path_depth_exceeded);
+
+    // We did not terminate the `evaluate_path` function early to reduce complexity of the code.
+    // Instead, if max depth was encountered, we've just continued the evaluation until here
+    // then discard the output entirely.
+    if (p.max_nesting_depth_exceeded()) {
+      *max_path_depth_exceeded = 1;
+      return;
+    }
 
     auto const max_size = path.offsets[row_idx + 1] - path.offsets[row_idx];
     if (out_size > max_size) { *(path.has_out_of_bound) = 1; }
@@ -859,6 +874,7 @@ __launch_bounds__(block_size, min_block_per_sm) CUDF_KERNEL
 struct kernel_launcher {
   static void exec(cudf::column_device_view const& input,
                    cudf::device_span<json_path_processing_data> path_data,
+                   int8_t* max_path_depth_exceeded,
                    rmm::cuda_stream_view stream)
   {
     // The optimal values for block_size and min_block_per_sm were found through testing,
@@ -874,7 +890,8 @@ struct kernel_launcher {
     auto const num_blocks = cudf::util::div_rounding_up_safe(num_threads_per_row * input.size(),
                                                              static_cast<std::size_t>(block_size));
     get_json_object_kernel<block_size, min_block_per_sm>
-      <<<num_blocks, block_size, 0, stream.value()>>>(input, path_data, num_threads_per_row);
+      <<<num_blocks, block_size, 0, stream.value()>>>(
+        input, path_data, num_threads_per_row, max_path_depth_exceeded);
   }
 };
 
@@ -892,7 +909,7 @@ std::tuple<std::vector<rmm::device_uvector<path_instruction>>,
            cudf::string_scalar,
            std::string>
 construct_path_commands(
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
     json_paths,
   rmm::cuda_stream_view stream)
 {
@@ -951,30 +968,10 @@ construct_path_commands(
           std::move(h_inst_names)};
 }
 
-std::vector<std::unique_ptr<cudf::column>> get_json_object(
-  cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
-    json_paths,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+int64_t calc_scratch_size(cudf::strings_column_view const& input,
+                          cudf::detail::input_offsetalator const& in_offsets,
+                          rmm::cuda_stream_view stream)
 {
-  auto const num_outputs = json_paths.size();
-  std::vector<std::unique_ptr<cudf::column>> output;
-
-  // Input is empty or all nulls - just return all null columns.
-  if (input.is_empty() || input.size() == input.null_count()) {
-    for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-      output.emplace_back(std::make_unique<cudf::column>(input.parent(), stream, mr));
-    }
-    return output;
-  }
-
-  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
-  auto const in_offsets =
-    cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
-  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
-    construct_path_commands(json_paths, stream);
-
   auto const max_row_size = thrust::transform_reduce(
     rmm::exec_policy(stream),
     thrust::make_counting_iterator(0),
@@ -994,8 +991,51 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
     auto constexpr padding_rows = 10;
     return input.chars_size(stream) + max_row_size * padding_rows;
   }();
+  return scratch_size;
+}
 
-  rmm::device_uvector<int8_t> d_has_out_of_bound(num_outputs, stream);
+/**
+ * @brief Error handling using error markers gathered after kernel launch.
+ *
+ * If the input JSON has nesting depth exceeds the maximum allowed value, an exception will be
+ * thrown as it is unacceptable. Otherwise, out of bound write is checked and returned.
+ *
+ * @param error_check The array of markers to check for error
+ * @return A boolean value indicating if there is any out of bound write
+ */
+bool check_error(cudf::detail::host_vector<int8_t> const& error_check)
+{
+  // The last value is to mark if nesting depth has exceeded.
+  CUDF_EXPECTS(error_check.back() == 0,
+               "The processed input has nesting depth exceeds depth limit.");
+
+  // Do not use parallel check since we do not have many elements.
+  // The last element is not related, but its value is already `0` thus just check until
+  // the end of the array for simplicity.
+  return std::none_of(
+    error_check.cbegin(), error_check.cend(), [](auto const val) { return val != 0; });
+}
+
+std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
+  cudf::column_device_view const& input,
+  cudf::detail::input_offsetalator const& in_offsets,
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> const&
+    json_paths,
+  int64_t scratch_size,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const [d_json_paths, h_json_paths, d_inst_names, h_inst_names] =
+    construct_path_commands(json_paths, stream);
+
+  auto const num_outputs = json_paths.size();
+  std::vector<std::unique_ptr<cudf::column>> output;
+
+  // The error check array contains markers denoting if there is any out-of-bound write occurs
+  // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
+  rmm::device_uvector<int8_t> d_error_check(num_outputs + 1, stream);
+  auto const d_max_path_depth_exceeded = d_error_check.data() + num_outputs;
+
   std::vector<rmm::device_uvector<char>> scratch_buffers;
   std::vector<rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>> out_stringviews;
   std::vector<json_path_processing_data> h_path_data;
@@ -1004,8 +1044,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   h_path_data.reserve(json_paths.size());
 
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-    auto const& instructions = json_paths[idx];
-    if (instructions.size() > max_path_depth) { CUDF_FAIL("JSONPath query exceeds maximum depth"); }
+    auto const& path = json_paths[idx];
+    if (path.size() > MAX_JSON_PATH_DEPTH) {
+      CUDF_FAIL("JSON Path has depth exceeds the maximum allowed value.");
+    }
 
     scratch_buffers.emplace_back(rmm::device_uvector<char>(scratch_size, stream));
     out_stringviews.emplace_back(rmm::device_uvector<thrust::pair<char const*, cudf::size_type>>{
@@ -1015,18 +1057,16 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                                        in_offsets,
                                                        out_stringviews.back().data(),
                                                        scratch_buffers.back().data(),
-                                                       d_has_out_of_bound.data() + idx});
+                                                       d_error_check.data() + idx});
   }
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-  kernel_launcher::exec(*d_input_ptr, d_path_data, stream);
+    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
 
-  // Do not use parallel check since we do not have many elements.
-  auto h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  auto has_no_oob         = std::none_of(
-    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
+  auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  auto has_no_oob    = check_error(h_error_check);
 
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
@@ -1053,7 +1093,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
     auto const& out_sview = out_stringviews[idx];
 
-    if (h_has_out_of_bound[idx]) {
+    if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
       output.emplace_back(nullptr);  // just placeholder.
 
@@ -1079,7 +1119,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
                                     out_offsets_and_sizes.back().first->view()),
                                   nullptr /*out_stringviews*/,
                                   out_char_buffers.back().data(),
-                                  d_has_out_of_bound.data() + idx});
+                                  d_error_check.data() + idx});
     } else {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
@@ -1092,13 +1132,10 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_has_out_of_bound.begin(), d_has_out_of_bound.end(), 0);
-  kernel_launcher::exec(*d_input_ptr, d_path_data, stream);
-
-  // Check out of bound again to make sure everything looks right.
-  h_has_out_of_bound = cudf::detail::make_host_vector_sync(d_has_out_of_bound, stream);
-  has_no_oob         = std::none_of(
-    h_has_out_of_bound.begin(), h_has_out_of_bound.end(), [](auto const val) { return val != 0; });
+    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+  kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
+  h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  has_no_oob    = check_error(h_error_check);
 
   // The last kernel call should not encounter any out-of-bound write.
   // If OOB is still detected, there must be something wrong happened.
@@ -1116,27 +1153,104 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object(
   return output;
 }
 
+std::vector<std::unique_ptr<cudf::column>> get_json_object(
+  cudf::strings_column_view const& input,
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
+    json_paths,
+  int64_t memory_budget_bytes,
+  int32_t parallel_override,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_outputs = json_paths.size();
+
+  // Input is empty or all nulls - just return all null columns.
+  if (input.is_empty() || input.size() == input.null_count()) {
+    std::vector<std::unique_ptr<cudf::column>> output;
+    for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+      output.emplace_back(std::make_unique<cudf::column>(input.parent(), stream, mr));
+    }
+    return output;
+  }
+
+  std::vector<std::size_t> sorted_indices(json_paths.size());
+  std::iota(sorted_indices.begin(), sorted_indices.end(), 0);  // Fill with 0, 1, 2, ...
+
+  // Sort indices based on the corresponding paths.
+  std::sort(sorted_indices.begin(), sorted_indices.end(), [&json_paths](size_t i, size_t j) {
+    return json_paths[i] < json_paths[j];
+  });
+
+  auto const in_offsets =
+    cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
+  auto const scratch_size = calc_scratch_size(input, in_offsets, stream);
+  if (memory_budget_bytes <= 0 && parallel_override <= 0) {
+    parallel_override = static_cast<int>(sorted_indices.size());
+  }
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
+  std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
+
+  std::vector<cudf::host_span<std::tuple<path_instruction_type, std::string, int32_t> const>> batch;
+  std::vector<std::size_t> output_ids;
+
+  std::size_t starting_path = 0;
+  while (starting_path < num_outputs) {
+    std::size_t at = starting_path;
+    batch.resize(0);
+    output_ids.resize(0);
+    if (parallel_override > 0) {
+      int count = 0;
+      while (at < num_outputs && count < parallel_override) {
+        auto output_location = sorted_indices[at];
+        batch.emplace_back(json_paths[output_location]);
+        output_ids.push_back(output_location);
+        at++;
+        count++;
+      }
+    } else {
+      long budget = 0;
+      while (at < num_outputs && budget < memory_budget_bytes) {
+        auto output_location = sorted_indices[at];
+        batch.emplace_back(json_paths[output_location]);
+        output_ids.push_back(output_location);
+        at++;
+        budget += scratch_size;
+      }
+    }
+    auto tmp = get_json_object_batch(*d_input_ptr, in_offsets, batch, scratch_size, stream, mr);
+    for (std::size_t i = 0; i < tmp.size(); i++) {
+      std::size_t out_i = output_ids[i];
+      output[out_i]     = std::move(tmp[i]);
+    }
+    starting_path = at;
+  }
+  return output;
+}
+
 }  // namespace detail
 
 std::unique_ptr<cudf::column> get_json_object(
   cudf::strings_column_view const& input,
-  std::vector<std::tuple<path_instruction_type, std::string, int64_t>> const& instructions,
+  std::vector<std::tuple<path_instruction_type, std::string, int32_t>> const& instructions,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return std::move(detail::get_json_object(input, {instructions}, stream, mr).front());
+  return std::move(detail::get_json_object(input, {instructions}, -1, -1, stream, mr).front());
 }
 
 std::vector<std::unique_ptr<cudf::column>> get_json_object_multiple_paths(
   cudf::strings_column_view const& input,
-  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int64_t>>> const&
+  std::vector<std::vector<std::tuple<path_instruction_type, std::string, int32_t>>> const&
     json_paths,
+  int64_t memory_budget_bytes,
+  int32_t parallel_override,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::get_json_object(input, json_paths, stream, mr);
+  return detail::get_json_object(
+    input, json_paths, memory_budget_bytes, parallel_override, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "map_utils_debug.cuh"
+#include "from_json_to_raw_map_debug.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -59,7 +59,7 @@ namespace {
 // 1. Append one comma character (',') to the end of each input string, except the last one.
 // 2. Concatenate all input strings into one string.
 // 3. Add a pair of bracket characters ('[' and ']') to the beginning and the end of the output.
-rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
+rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& input,
                                              rmm::cuda_stream_view stream)
 {
   if (input.is_empty()) {
@@ -67,9 +67,8 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
       std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource());
   }
 
-  auto const d_strings  = cudf::column_device_view::create(input, stream);
-  auto const input_scv  = cudf::strings_column_view{input};
-  auto const chars_size = input_scv.chars_size(stream);
+  auto const d_strings  = cudf::column_device_view::create(input.parent(), stream);
+  auto const chars_size = input.chars_size(stream);
   auto const output_size =
     2l +                                            // two extra bracket characters '[' and ']'
     static_cast<int64_t>(chars_size) +
@@ -81,7 +80,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::column_view const& input,
                "The input json column is too large and causes overflow.");
 
   auto const joined_input = cudf::strings::detail::join_strings(
-    input_scv,
+    input,
     cudf::string_scalar(","),   // append `,` character between the input rows
     cudf::string_scalar("{}"),  // replacement for null rows
     stream,
@@ -641,12 +640,10 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 
 }  // namespace
 
-std::unique_ptr<cudf::column> from_json(cudf::column_view const& input,
-                                        rmm::cuda_stream_view stream,
-                                        rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view const& input,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Invalid input format");
-
   // Firstly, concatenate all the input json strings into one giant input json string.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
@@ -718,7 +715,7 @@ std::unique_ptr<cudf::column> from_json(cudf::column_view const& input,
                                  std::move(offsets),
                                  std::move(structs_col),
                                  input.null_count(),
-                                 cudf::detail::copy_bitmask(input, stream, mr),
+                                 cudf::detail::copy_bitmask(input.parent(), stream, mr),
                                  stream,
                                  mr);
 }

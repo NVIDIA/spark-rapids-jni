@@ -28,6 +28,7 @@
 
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>
+#include <cuda/std/optional>
 
 using namespace cudf;
 
@@ -245,9 +246,8 @@ CUDF_KERNEL void string_to_integer_kernel(T* out,
 }
 
 template <typename T>
-__device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent(const char* chars,
-                                                                                 const int len,
-                                                                                 bool strip)
+__device__ cuda::std::optional<thrust::tuple<bool, int, int>> validate_and_exponent(
+  const char* chars, const int len, bool strip)
 {
   T exponent_val         = 0;
   int i                  = 0;
@@ -318,7 +318,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
     return state;
   };
 
-  if (len == 0) { return thrust::nullopt; }
+  if (len == 0) { return cuda::std::nullopt; }
 
   processing_state state = ST_DIGITS;
 
@@ -338,7 +338,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
   }
 
   // if there is no data left, this is invalid
-  if (i == len) { return thrust::nullopt; }
+  if (i == len) { return cuda::std::nullopt; }
 
   auto const first_digit = i;
   int last_digit         = len;
@@ -348,7 +348,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
     auto const last_state = state;
     state                 = validate_char(state, chr, char_num);
 
-    if (state == ST_INVALID) { return thrust::nullopt; }
+    if (state == ST_INVALID) { return cuda::std::nullopt; }
 
     if (last_state == ST_DIGITS && state != ST_DIGITS && state != ST_DECIMAL_POINT) {
       // past digits, save location
@@ -359,7 +359,7 @@ __device__ thrust::optional<thrust::tuple<bool, int, int>> validate_and_exponent
       T const new_digit = chr - '0';
       auto const [success, new_val] =
         process_value(exponent_val == 0, exponent_val, new_digit, exponent_positive);
-      if (!success) { return thrust::nullopt; }
+      if (!success) { return cuda::std::nullopt; }
       exponent_val = new_val;
     }
   }

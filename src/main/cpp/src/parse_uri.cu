@@ -32,6 +32,7 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/optional>
 
 #include <memory>
 #include <optional>
@@ -534,7 +535,7 @@ __device__ std::pair<string_view, bool> find_query_part(string_view haystack, st
 
 uri_parts __device__ validate_uri(const char* str,
                                   int len,
-                                  thrust::optional<column_device_view const> query_match,
+                                  cuda::std::optional<column_device_view const> query_match,
                                   size_type row_idx)
 {
   uri_parts ret;
@@ -776,7 +777,7 @@ CUDF_KERNEL void parse_uri_char_counter(column_device_view const in_strings,
                                         size_type* const out_lengths,
                                         size_type* const out_offsets,
                                         bitmask_type* out_validity,
-                                        thrust::optional<column_device_view const> query_match)
+                                        cuda::std::optional<column_device_view const> query_match)
 {
   // thread per row
   auto const tid = cudf::detail::grid_1d::global_thread_id();
@@ -916,7 +917,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
     offsets_mutable_view.begin<size_type>(),
     reinterpret_cast<size_type*>(src_offsets.data()),
     reinterpret_cast<bitmask_type*>(null_mask.data()),
-    d_matches ? thrust::optional<column_device_view const>{*d_matches} : thrust::nullopt);
+    d_matches ? cuda::std::optional<column_device_view const>{*d_matches} : cuda::std::nullopt);
 
   // use scan to transform number of bytes into offsets
   thrust::exclusive_scan(rmm::exec_policy(stream),
