@@ -160,6 +160,65 @@ public class JSONUtils {
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
+  /**
+   * A class to hold the result when concatenating JSON strings.
+   * <p>
+   * A long with the concatenated data, the result also contains a vector that indicates
+   * whether each row in the input is null or empty, and the delimiter used for concatenation.
+   */
+  public static class ConcatenatedJson implements AutoCloseable {
+    public final ColumnVector isNullOrEmpty;
+    public final DeviceMemoryBuffer data;
+    public final char delimiter;
+
+    public ConcatenatedJson(ColumnVector isNullOrEmpty, DeviceMemoryBuffer data, char delimiter) {
+      this.isNullOrEmpty = isNullOrEmpty;
+      this.data = data;
+      this.delimiter = delimiter;
+    }
+
+    @Override
+    public void close() {
+      isNullOrEmpty.close();
+      data.close();
+    }
+  }
+
+  /**
+   * Concatenate JSON strings in the input column into a single JSON string.
+   * <p>
+   * During concatenation, the function also generates a boolean vector that indicates whether
+   * each row in the input is null or empty. The delimiter used for concatenation is also returned.
+   *
+   * @param input The input strings column to concatenate
+   * @return A {@link ConcatenatedJson} object that contains the concatenated output
+   */
+  public static ConcatenatedJson concatenateJsonStrings(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    long[] concatenated = concatenateJsonStrings(input.getNativeView());
+    return new ConcatenatedJson(new ColumnVector(concatenated[0]),
+        DeviceMemoryBuffer.fromRmm(concatenated[1], concatenated[2], concatenated[3]),
+        (char) concatenated[4]);
+  }
+
+  /**
+   * Create a structs column from the given children columns and a boolean column specifying
+   * the rows at which the output column.should be null.
+   * <p>
+   * Note that the children columns are expected to have null rows at the same positions indicated
+   * by the input isNull column.
+   *
+   * @param children The children columns of the output structs column
+   * @param isNull A boolean column specifying the rows at which the output column should be null
+   * @return A structs column created from the given children and the isNull column
+   */
+  public static ColumnVector makeStructs(ColumnView[] children, ColumnView isNull) {
+    long[] handles = new long[children.length];
+    for (int i = 0; i < children.length; i++) {
+      handles[i] = children[i].getNativeView();
+    }
+    return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
+  }
 
   private static native int getMaxJSONPathDepth();
 
@@ -178,4 +237,8 @@ public class JSONUtils {
 
 
   private static native long extractRawMapFromJsonString(long input);
+
+  private static native long[] concatenateJsonStrings(long input);
+
+  private static native long makeStructs(long[] children, long isNull);
 }
