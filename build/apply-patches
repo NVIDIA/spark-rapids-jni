@@ -20,11 +20,11 @@
 
 set -e
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+BASE_DIR=$( git rev-parse --show-toplevel )
 
-PATCH_DIR=${PATCH_DIR:-$(realpath "$SCRIPT_DIR/../patches/")}
+PATCH_DIR=${PATCH_DIR:-$(realpath "$BASE_DIR/patches/")}
 
-CUDF_DIR=${CUDF_DIR:-$(realpath "$SCRIPT_DIR/../thirdparty/cudf/")}
+CUDF_DIR=${CUDF_DIR:-$(realpath "$BASE_DIR/thirdparty/cudf/")}
 
 pushd "$CUDF_DIR"
 if [ -n "$(git status --porcelain --untracked-files=no)" ] ; then
