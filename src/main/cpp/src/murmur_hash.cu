@@ -60,10 +60,15 @@ namespace {
  * @tparam hash_function Hash functor to use for hashing elements. Must be SparkMurmurHash3_32.
  * @tparam Nullate A cudf::nullate type describing whether to check for nulls.
  */
-template <template <typename> class hash_function, typename Nullate>
+template <template <typename> class hash_function,
+          typename Nullate,
+          template <typename> typename dispatch_conditional_t = cudf::experimental::type_identity_t>
 class murmur_device_row_hasher {
   friend class cudf::experimental::row::hash::row_hasher;  ///< Allow row_hasher to access private
                                                            ///< members.
+  template <cudf::type_id T>
+  using dispatch_conditional =
+    cudf::experimental::transform_sequence<cudf::id_to_type<T>, dispatch_conditional_t>;
 
  public:
   /**
@@ -80,7 +85,7 @@ class murmur_device_row_hasher {
       _seed,
       cuda::proclaim_return_type<murmur_hash_value_type>(
         [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
-          return cudf::type_dispatcher(
+          return cudf::type_dispatcher<dispatch_conditional>(
             column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
         }));
   }
