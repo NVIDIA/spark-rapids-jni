@@ -1071,12 +1071,25 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
   if (has_no_oob) {
+    nvtx3::scoped_range_in range("create output");
+#if 0
     for (auto const& out_sview : out_stringviews) {
       output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
     }
     return output;
+#else
+    std::vector<cudf::device_span<thrust::pair<char const*, cudf::size_type> const>>
+      batch_stringviews;
+    batch_stringviews.reserve(out_stringviews.size());
+    for (auto const& out_sview : out_stringviews) {
+      batch_stringviews.emplace_back(out_sview);
+    }
+    return cudf::make_strings_column_batch(batch_stringviews, stream, mr);
+#endif
   }
   // From here, we had out-of-bound write. Although this is very rare, it may still happen.
+
+  throw std::runtime_error("Not implemented");
 
   std::vector<std::pair<rmm::device_buffer, cudf::size_type>> out_null_masks_and_null_counts;
   std::vector<std::pair<std::unique_ptr<cudf::column>, int64_t>> out_offsets_and_sizes;
