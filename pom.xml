@@ -110,6 +110,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
+    <submodule.patch.skip>false</submodule.patch.skip>
     <antrun.version>3.0.0</antrun.version>
     <hilbert.version>0.2.2</hilbert.version>
   </properties>
@@ -393,6 +394,38 @@
             </goals>
           </execution>
           <execution>
+            <id>cudf patch</id>
+            <phase>validate</phase>
+            <configuration>
+              <skip>${submodule.patch.skip}</skip>
+              <target>
+                <exec dir="${project.basedir}"
+                      failonerror="true"
+                      executable="${project.basedir}/build/apply-patches">
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>cudf un-patch</id>
+            <phase>clean</phase>
+            <configuration>
+              <skip>${submodule.patch.skip}</skip>
+              <target>
+                <exec dir="${project.basedir}"
+                      failonerror="true"
+                      executable="${project.basedir}/build/unapply-patches">
+                </exec>
+              </target>
+            </configuration>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+          <execution>
             <id>build-libcudf</id>
             <phase>validate</phase>
             <configuration>
@@ -606,6 +639,8 @@
                   <directory>${libcudfjni.build.path}</directory>
                   <includes>
                     <include>libnvcomp.so</include>
+                    <include>libnvcomp_gdeflate.so</include>
+                    <include>libnvcomp_bitcomp.so</include>
                   </includes>
                 </resource>
               </resources>
