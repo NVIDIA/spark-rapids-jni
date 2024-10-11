@@ -82,10 +82,6 @@ ${MVN} validate ${MVN_MIRROR} \
 validate_status=$?
 set -e
 
-build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
-cuda_version=$(${MVN} help:evaluate -Dexpression=cuda.version -q -DforceStdout)
-. ci/check-cuda-dependencies.sh "target/${build_name}-${cuda_version}.jar"
-
 LIBCUDF_BUILD_PATH=$(${MVN} help:evaluate -Dexpression=libcudf.build.path -q -DforceStdout)
 # Extract the rapids-cmake sha1 that we need to pin too
 rapids_cmake_sha=$(git -C ${LIBCUDF_BUILD_PATH}/_deps/rapids-cmake-src/ rev-parse HEAD)
@@ -125,6 +121,10 @@ if [[ ( "${verify_status}" == "0" ) && ( "${validate_status}" == "0" ) ]]; then
 else
   echo "Test failed, will update the result"
 fi
+
+build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
+cuda_version=$(${MVN} help:evaluate -Dexpression=cuda.version -q -DforceStdout)
+. ci/check-cuda-dependencies.sh "target/${build_name}-${cuda_version}.jar"
 
 # push the intermediate branch and create PR against REF
 # if test passed, it will try auto-merge the PR
