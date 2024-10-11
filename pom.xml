@@ -429,7 +429,7 @@
             <id>build-libcudf</id>
             <phase>validate</phase>
             <configuration>
-              <target xmlns:if="ant:if">
+              <target xmlns:if="ant:if" xmlns:unless="ant:unless">
                 <condition property="needConfigure">
                   <or>
                     <istrue value="${libcudf.build.configure}"/>
@@ -466,7 +466,8 @@
                 </exec>
                 <exec dir="${libcudf.build.path}"
                       failonerror="true"
-                      executable="cmake">
+                      executable="cmake"
+                      unless:true="${submodule.patch.skip}">
                   <arg value="--build"/>
                   <arg value="${libcudf.build.path}"/>
                   <arg value="--target"/>
@@ -483,6 +484,7 @@
             <id>build-libcudfjni</id>
             <phase>validate</phase>
             <configuration>
+              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${libcudfjni.build.path}"/>
                 <exec dir="${libcudfjni.build.path}"
@@ -518,6 +520,7 @@
             <id>build-sparkrapidsjni</id>
             <phase>validate</phase>
             <configuration>
+              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${native.build.path}"/>
                 <exec dir="${native.build.path}"
@@ -556,6 +559,7 @@
             <id>build-info</id>
             <phase>generate-resources</phase>
             <configuration>
+              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${project.build.directory}/extra-resources"/>
                 <exec executable="bash"
