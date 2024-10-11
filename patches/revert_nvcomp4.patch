@@ -25,7 +25,7 @@ index 5e9f7f8a0c..0e4745bda2 100755
      ${package_dir}/dist/*
  
 diff --git a/conda/environments/all_cuda-118_arch-x86_64.yaml b/conda/environments/all_cuda-118_arch-x86_64.yaml
-index 5a05dfd053..e7363645d6 100644
+index bd5e6c3d56..74ca3fda1a 100644
 --- a/conda/environments/all_cuda-118_arch-x86_64.yaml
 +++ b/conda/environments/all_cuda-118_arch-x86_64.yaml
 @@ -58,7 +58,7 @@ dependencies:
@@ -38,11 +38,11 @@ index 5a05dfd053..e7363645d6 100644
  - openpyxl
  - packaging
 diff --git a/conda/environments/all_cuda-125_arch-x86_64.yaml b/conda/environments/all_cuda-125_arch-x86_64.yaml
-index 8490296233..3559a1a341 100644
+index 565a3ebfa3..22619acf4a 100644
 --- a/conda/environments/all_cuda-125_arch-x86_64.yaml
 +++ b/conda/environments/all_cuda-125_arch-x86_64.yaml
 @@ -56,7 +56,7 @@ dependencies:
- - numba>=0.57
+ - numba-cuda>=0.0.13
  - numpy>=1.23,<3.0a0
  - numpydoc
 -- nvcomp==4.0.1
@@ -50,6 +50,15 @@ index 8490296233..3559a1a341 100644
  - nvtx>=0.2.1
  - openpyxl
  - packaging
+@@ -67,7 +67,7 @@ dependencies:
+ - pre-commit
+ - pyarrow>=14.0.0,<18.0.0a0
+ - pydata-sphinx-theme!=0.14.2
+-- pynvjitlink>=0.0.0a0
++- pynvjitlink
+ - pytest-benchmark
+ - pytest-cases>=3.8.2
+ - pytest-cov
 diff --git a/conda/recipes/libcudf/conda_build_config.yaml b/conda/recipes/libcudf/conda_build_config.yaml
 index dc75eb4b25..67d501d746 100644
 --- a/conda/recipes/libcudf/conda_build_config.yaml
@@ -697,7 +706,7 @@ index 60a64fb0ee..40cfbe763b 100644
  
  /**
 diff --git a/cpp/src/io/parquet/reader_impl_chunking.cu b/cpp/src/io/parquet/reader_impl_chunking.cu
-index c588fedb85..bab70c126b 100644
+index 27312a4da8..779d40281b 100644
 --- a/cpp/src/io/parquet/reader_impl_chunking.cu
 +++ b/cpp/src/io/parquet/reader_impl_chunking.cu
 @@ -865,18 +865,8 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
@@ -735,10 +744,10 @@ index 396d44c076..e2f09f872d 100644
  
  size_t max_compression_output_size(Compression codec, uint32_t compression_blocksize)
 diff --git a/cpp/tests/io/comp/decomp_test.cpp b/cpp/tests/io/comp/decomp_test.cpp
-index 840cf263ed..38c1a57eca 100644
+index 54262dc3b4..3b8549c9f4 100644
 --- a/cpp/tests/io/comp/decomp_test.cpp
 +++ b/cpp/tests/io/comp/decomp_test.cpp
-@@ -176,19 +176,23 @@ TEST_F(NvcompConfigTest, Compression)
+@@ -184,19 +184,23 @@ TEST_F(NvcompConfigTest, Compression)
    using cudf::io::nvcomp::compression_type;
    auto const& comp_disabled = cudf::io::nvcomp::is_compression_disabled;
  
@@ -770,7 +779,7 @@ index 840cf263ed..38c1a57eca 100644
  }
  
  TEST_F(NvcompConfigTest, Decompression)
-@@ -196,19 +200,27 @@ TEST_F(NvcompConfigTest, Decompression)
+@@ -204,19 +208,27 @@ TEST_F(NvcompConfigTest, Decompression)
    using cudf::io::nvcomp::compression_type;
    auto const& decomp_disabled = cudf::io::nvcomp::is_decompression_disabled;
  
@@ -808,18 +817,53 @@ index 840cf263ed..38c1a57eca 100644
  
  CUDF_TEST_PROGRAM_MAIN()
 diff --git a/dependencies.yaml b/dependencies.yaml
-index 6909eb7168..2fa58a31b1 100644
+index ca17917c90..1ec1f5f6da 100644
 --- a/dependencies.yaml
 +++ b/dependencies.yaml
-@@ -368,7 +368,7 @@ dependencies:
-           - flatbuffers==24.3.25
-           - librdkafka>=2.5.0,<2.6.0a0
+@@ -381,21 +381,21 @@ dependencies:
+       - output_types: conda
+         packages:
            # Align nvcomp version with rapids-cmake
 -          - nvcomp==4.0.1
 +          - nvcomp==3.0.6
-           - spdlog>=1.14.1,<1.15
+     specific:
+       - output_types: [requirements, pyproject]
+         matrices:
+           - matrix:
+               cuda: "12.*"
+             packages:
+-              - nvidia-nvcomp-cu12==4.0.1
++              - nvidia-nvcomp-cu12==3.0.6
+           - matrix:
+               cuda: "11.*"
+             packages:
+-              - nvidia-nvcomp-cu11==4.0.1
++              - nvidia-nvcomp-cu11==3.0.6
+           - matrix:
+             packages:
+-              - nvidia-nvcomp==4.0.1
++              - nvidia-nvcomp==3.0.6
    rapids_build_skbuild:
      common:
+       - output_types: [conda, requirements, pyproject]
+@@ -665,7 +665,7 @@ dependencies:
+         matrices:
+           - matrix: {cuda: "12.*"}
+             packages:
+-              - &pynvjitlink_unsuffixed pynvjitlink>=0.0.0a0
++              - &pynvjitlink_unsuffixed pynvjitlink
+           - matrix: {cuda: "11.*"}
+             packages:
+               - &cubinlinker_unsuffixed cubinlinker
+@@ -676,7 +676,7 @@ dependencies:
+               cuda: "12.*"
+               cuda_suffixed: "true"
+             packages:
+-              - pynvjitlink-cu12>=0.0.0a0
++              - pynvjitlink-cu12
+           - matrix:
+               cuda: "12.*"
+               cuda_suffixed: "false"
 diff --git a/docs/cudf/source/user_guide/io/io.md b/docs/cudf/source/user_guide/io/io.md
 index 97b961b455..adcdaa51e7 100644
 --- a/docs/cudf/source/user_guide/io/io.md
@@ -843,7 +887,7 @@ index 97b961b455..adcdaa51e7 100644
 -
  ```
 diff --git a/java/pom.xml b/java/pom.xml
-index e4f1cdf64e..9694e741f1 100644
+index 450cfbdbc8..55cb055398 100644
 --- a/java/pom.xml
 +++ b/java/pom.xml
 @@ -1,6 +1,6 @@
@@ -893,15 +937,3 @@ index 32045f3c50..c18a90140b 100644
      COMMENT "Copying nvcomp libraries to ${PROJECT_BINARY_DIR}"
    )
  endif()
-diff --git a/python/libcudf/CMakeLists.txt b/python/libcudf/CMakeLists.txt
-index 0a8f5c4807..96eb6c3bb3 100644
---- a/python/libcudf/CMakeLists.txt
-+++ b/python/libcudf/CMakeLists.txt
-@@ -48,5 +48,6 @@ add_subdirectory(../../cpp cudf-cpp)
- # Ensure other libraries needed by libcudf.so get installed alongside it.
- include(cmake/Modules/WheelHelpers.cmake)
- install_aliased_imported_targets(
--  TARGETS cudf nvcomp::nvcomp DESTINATION ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
-+  TARGETS cudf nvcomp::nvcomp nvcomp::nvcomp_gdeflate nvcomp::nvcomp_bitcomp DESTINATION
-+  ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
- )

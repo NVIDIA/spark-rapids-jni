@@ -71,7 +71,7 @@ echo "Test against ${cudf_sha}..."
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 set +e
 # Don't do a full build. Just try to update/build CUDF with no patches on top of it.
-${MVN} validate ${MVN_MIRROR} \
+${MVN} antrun:run@build-libcudf ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -Dlibcudf.dependency.mode=latest \
