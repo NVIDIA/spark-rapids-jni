@@ -1,0 +1,907 @@
+diff --git a/ci/build_wheel_cudf.sh b/ci/build_wheel_cudf.sh
+index fb93b06dbe..e5565c4b53 100755
+--- a/ci/build_wheel_cudf.sh
++++ b/ci/build_wheel_cudf.sh
+@@ -23,6 +23,8 @@ export PIP_CONSTRAINT="/tmp/constraints.txt"
+ python -m auditwheel repair \
+     --exclude libcudf.so \
+     --exclude libnvcomp.so \
++    --exclude libnvcomp_bitcomp.so \
++    --exclude libnvcomp_gdeflate.so \
+     -w ${package_dir}/final_dist \
+     ${package_dir}/dist/*
+ 
+diff --git a/ci/build_wheel_pylibcudf.sh b/ci/build_wheel_pylibcudf.sh
+index 5e9f7f8a0c..0e4745bda2 100755
+--- a/ci/build_wheel_pylibcudf.sh
++++ b/ci/build_wheel_pylibcudf.sh
+@@ -21,6 +21,8 @@ export PIP_CONSTRAINT="/tmp/constraints.txt"
+ python -m auditwheel repair \
+     --exclude libcudf.so \
+     --exclude libnvcomp.so \
++    --exclude libnvcomp_bitcomp.so \
++    --exclude libnvcomp_gdeflate.so \
+     -w ${package_dir}/final_dist \
+     ${package_dir}/dist/*
+ 
+diff --git a/conda/environments/all_cuda-118_arch-x86_64.yaml b/conda/environments/all_cuda-118_arch-x86_64.yaml
+index 5a05dfd053..e7363645d6 100644
+--- a/conda/environments/all_cuda-118_arch-x86_64.yaml
++++ b/conda/environments/all_cuda-118_arch-x86_64.yaml
+@@ -58,7 +58,7 @@ dependencies:
+ - numpy>=1.23,<3.0a0
+ - numpydoc
+ - nvcc_linux-64=11.8
+-- nvcomp==4.0.1
++- nvcomp==3.0.6
+ - nvtx>=0.2.1
+ - openpyxl
+ - packaging
+diff --git a/conda/environments/all_cuda-125_arch-x86_64.yaml b/conda/environments/all_cuda-125_arch-x86_64.yaml
+index 8490296233..3559a1a341 100644
+--- a/conda/environments/all_cuda-125_arch-x86_64.yaml
++++ b/conda/environments/all_cuda-125_arch-x86_64.yaml
+@@ -56,7 +56,7 @@ dependencies:
+ - numba>=0.57
+ - numpy>=1.23,<3.0a0
+ - numpydoc
+-- nvcomp==4.0.1
++- nvcomp==3.0.6
+ - nvtx>=0.2.1
+ - openpyxl
+ - packaging
+diff --git a/conda/recipes/libcudf/conda_build_config.yaml b/conda/recipes/libcudf/conda_build_config.yaml
+index dc75eb4b25..67d501d746 100644
+--- a/conda/recipes/libcudf/conda_build_config.yaml
++++ b/conda/recipes/libcudf/conda_build_config.yaml
+@@ -35,7 +35,7 @@ spdlog_version:
+   - ">=1.14.1,<1.15"
+ 
+ nvcomp_version:
+-  - "=4.0.1"
++  - "=3.0.6"
+ 
+ zlib_version:
+   - ">=1.2.13"
+diff --git a/cpp/include/cudf/io/nvcomp_adapter.hpp b/cpp/include/cudf/io/nvcomp_adapter.hpp
+index 0d74a4158a..f3260d0cb5 100644
+--- a/cpp/include/cudf/io/nvcomp_adapter.hpp
++++ b/cpp/include/cudf/io/nvcomp_adapter.hpp
+@@ -24,7 +24,7 @@
+ namespace CUDF_EXPORT cudf {
+ namespace io::nvcomp {
+ 
+-enum class compression_type { SNAPPY, ZSTD, DEFLATE, LZ4, GZIP };
++enum class compression_type { SNAPPY, ZSTD, DEFLATE, LZ4 };
+ 
+ /**
+  * @brief Set of parameters that impact whether nvCOMP features are enabled.
+@@ -36,20 +36,33 @@ struct feature_status_parameters {
+   int lib_patch_version;                 ///< patch version
+   bool are_all_integrations_enabled;     ///< all integrations
+   bool are_stable_integrations_enabled;  ///< stable integrations
++  int compute_capability_major;          ///< cuda compute major version
+ 
+   /**
+-   * @brief Default constructor using the current version of nvcomp and current environment
+-   * variables
++   * @brief Default Constructor
+    */
+   feature_status_parameters();
+ 
+   /**
+-   * @brief Constructor using the current version of nvcomp
++   * @brief feature_status_parameters Constructor
+    *
++   * @param major positive integer representing major value of nvcomp
++   * @param minor positive integer representing minor value of nvcomp
++   * @param patch positive integer representing patch value of nvcomp
+    * @param all_enabled if all integrations are enabled
+    * @param stable_enabled if stable integrations are enabled
++   * @param cc_major CUDA compute capability
+    */
+-  feature_status_parameters(bool all_enabled, bool stable_enabled);
++  feature_status_parameters(
++    int major, int minor, int patch, bool all_enabled, bool stable_enabled, int cc_major)
++    : lib_major_version{major},
++      lib_minor_version{minor},
++      lib_patch_version{patch},
++      are_all_integrations_enabled{all_enabled},
++      are_stable_integrations_enabled{stable_enabled},
++      compute_capability_major{cc_major}
++  {
++  }
+ };
+ 
+ /**
+@@ -61,7 +74,8 @@ inline bool operator==(feature_status_parameters const& lhs, feature_status_para
+          lhs.lib_minor_version == rhs.lib_minor_version and
+          lhs.lib_patch_version == rhs.lib_patch_version and
+          lhs.are_all_integrations_enabled == rhs.are_all_integrations_enabled and
+-         lhs.are_stable_integrations_enabled == rhs.are_stable_integrations_enabled;
++         lhs.are_stable_integrations_enabled == rhs.are_stable_integrations_enabled and
++         lhs.compute_capability_major == rhs.compute_capability_major;
+ }
+ 
+ /**
+diff --git a/cpp/src/io/comp/nvcomp_adapter.cpp b/cpp/src/io/comp/nvcomp_adapter.cpp
+index c3187f73a9..3191e8f015 100644
+--- a/cpp/src/io/comp/nvcomp_adapter.cpp
++++ b/cpp/src/io/comp/nvcomp_adapter.cpp
+@@ -22,46 +22,94 @@
+ #include <cudf/io/config_utils.hpp>
+ #include <cudf/utilities/error.hpp>
+ 
+-#include <nvcomp/deflate.h>
+-#include <nvcomp/gzip.h>
+ #include <nvcomp/lz4.h>
+ #include <nvcomp/snappy.h>
+-#include <nvcomp/zstd.h>
+ 
+ #include <mutex>
+ 
++#define NVCOMP_DEFLATE_HEADER <nvcomp/deflate.h>
++#if __has_include(NVCOMP_DEFLATE_HEADER)
++#include NVCOMP_DEFLATE_HEADER
++#endif
++
++#define NVCOMP_ZSTD_HEADER <nvcomp/zstd.h>
++#if __has_include(NVCOMP_ZSTD_HEADER)
++#include NVCOMP_ZSTD_HEADER
++#endif
++
++// When building with nvcomp 4.0 or newer, map the new version macros to the old ones
++#ifndef NVCOMP_MAJOR_VERSION
++#define NVCOMP_MAJOR_VERSION NVCOMP_VER_MAJOR
++#define NVCOMP_MINOR_VERSION NVCOMP_VER_MINOR
++#define NVCOMP_PATCH_VERSION NVCOMP_VER_PATCH
++#endif
++
++#define NVCOMP_HAS_ZSTD_DECOMP(MAJOR, MINOR, PATCH) (MAJOR > 2 or (MAJOR == 2 and MINOR >= 3))
++
++#define NVCOMP_HAS_ZSTD_COMP(MAJOR, MINOR, PATCH) (MAJOR > 2 or (MAJOR == 2 and MINOR >= 4))
++
++#define NVCOMP_HAS_DEFLATE(MAJOR, MINOR, PATCH) (MAJOR > 2 or (MAJOR == 2 and MINOR >= 5))
++
++#define NVCOMP_HAS_DECOMP_TEMPSIZE_EX(MAJOR, MINOR, PATCH) \
++  (MAJOR > 2 or (MAJOR == 2 and MINOR > 3) or (MAJOR == 2 and MINOR == 3 and PATCH >= 1))
++
++#define NVCOMP_HAS_COMP_TEMPSIZE_EX(MAJOR, MINOR, PATCH) (MAJOR > 2 or (MAJOR == 2 and MINOR >= 6))
++
++// ZSTD is stable for nvcomp 2.3.2 or newer
++#define NVCOMP_ZSTD_DECOMP_IS_STABLE(MAJOR, MINOR, PATCH) \
++  (MAJOR > 2 or (MAJOR == 2 and MINOR > 3) or (MAJOR == 2 and MINOR == 3 and PATCH >= 2))
++
+ namespace cudf::io::nvcomp {
+ 
+ // Dispatcher for nvcompBatched<format>DecompressGetTempSizeEx
+ template <typename... Args>
+-auto batched_decompress_get_temp_size_ex(compression_type compression, Args&&... args)
++std::optional<nvcompStatus_t> batched_decompress_get_temp_size_ex(compression_type compression,
++                                                                  Args&&... args)
+ {
++#if NVCOMP_HAS_DECOMP_TEMPSIZE_EX(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+   switch (compression) {
+     case compression_type::SNAPPY:
+       return nvcompBatchedSnappyDecompressGetTempSizeEx(std::forward<Args>(args)...);
+     case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_DECOMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       return nvcompBatchedZstdDecompressGetTempSizeEx(std::forward<Args>(args)...);
++#else
++      return std::nullopt;
++#endif
+     case compression_type::LZ4:
+       return nvcompBatchedLZ4DecompressGetTempSizeEx(std::forward<Args>(args)...);
+-    case compression_type::DEFLATE:
+-      return nvcompBatchedDeflateDecompressGetTempSizeEx(std::forward<Args>(args)...);
+-    case compression_type::GZIP:
+-      return nvcompBatchedGzipDecompressGetTempSizeEx(std::forward<Args>(args)...);
+-    default: CUDF_FAIL("Unsupported compression type");
++    case compression_type::DEFLATE: [[fallthrough]];
++    default: return std::nullopt;
+   }
++#endif
++  return std::nullopt;
+ }
+-size_t batched_decompress_temp_size(compression_type compression,
+-                                    size_t num_chunks,
+-                                    size_t max_uncomp_chunk_size,
+-                                    size_t max_total_uncomp_size)
+-{
+-  size_t temp_size             = 0;
+-  nvcompStatus_t nvcomp_status = batched_decompress_get_temp_size_ex(
+-    compression, num_chunks, max_uncomp_chunk_size, &temp_size, max_total_uncomp_size);
+ 
+-  CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess,
+-               "Unable to get scratch size for decompression");
+-  return temp_size;
++// Dispatcher for nvcompBatched<format>DecompressGetTempSize
++template <typename... Args>
++auto batched_decompress_get_temp_size(compression_type compression, Args&&... args)
++{
++  switch (compression) {
++    case compression_type::SNAPPY:
++      return nvcompBatchedSnappyDecompressGetTempSize(std::forward<Args>(args)...);
++    case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_DECOMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++      return nvcompBatchedZstdDecompressGetTempSize(std::forward<Args>(args)...);
++#else
++      CUDF_FAIL("Decompression error: " +
++                nvcomp::is_decompression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
++    case compression_type::DEFLATE:
++#if NVCOMP_HAS_DEFLATE(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++      return nvcompBatchedDeflateDecompressGetTempSize(std::forward<Args>(args)...);
++#else
++      CUDF_FAIL("Decompression error: " +
++                nvcomp::is_decompression_disabled(nvcomp::compression_type::DEFLATE).value());
++#endif
++    case compression_type::LZ4:
++      return nvcompBatchedLZ4DecompressGetTempSize(std::forward<Args>(args)...);
++    default: CUDF_FAIL("Unsupported compression type");
++  }
+ }
+ 
+ // Dispatcher for nvcompBatched<format>DecompressAsync
+@@ -72,12 +120,20 @@ auto batched_decompress_async(compression_type compression, Args&&... args)
+     case compression_type::SNAPPY:
+       return nvcompBatchedSnappyDecompressAsync(std::forward<Args>(args)...);
+     case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_DECOMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       return nvcompBatchedZstdDecompressAsync(std::forward<Args>(args)...);
++#else
++      CUDF_FAIL("Decompression error: " +
++                nvcomp::is_decompression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
+     case compression_type::DEFLATE:
++#if NVCOMP_HAS_DEFLATE(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       return nvcompBatchedDeflateDecompressAsync(std::forward<Args>(args)...);
++#else
++      CUDF_FAIL("Decompression error: " +
++                nvcomp::is_decompression_disabled(nvcomp::compression_type::DEFLATE).value());
++#endif
+     case compression_type::LZ4: return nvcompBatchedLZ4DecompressAsync(std::forward<Args>(args)...);
+-    case compression_type::GZIP:
+-      return nvcompBatchedGzipDecompressAsync(std::forward<Args>(args)...);
+     default: CUDF_FAIL("Unsupported compression type");
+   }
+ }
+@@ -89,11 +145,31 @@ std::string compression_type_name(compression_type compression)
+     case compression_type::ZSTD: return "Zstandard";
+     case compression_type::DEFLATE: return "Deflate";
+     case compression_type::LZ4: return "LZ4";
+-    case compression_type::GZIP: return "GZIP";
+   }
+   return "compression_type(" + std::to_string(static_cast<int>(compression)) + ")";
+ }
+ 
++size_t batched_decompress_temp_size(compression_type compression,
++                                    size_t num_chunks,
++                                    size_t max_uncomp_chunk_size,
++                                    size_t max_total_uncomp_size)
++{
++  size_t temp_size   = 0;
++  auto nvcomp_status = batched_decompress_get_temp_size_ex(
++    compression, num_chunks, max_uncomp_chunk_size, &temp_size, max_total_uncomp_size);
++
++  if (nvcomp_status.value_or(nvcompStatus_t::nvcompErrorInternal) !=
++      nvcompStatus_t::nvcompSuccess) {
++    nvcomp_status =
++      batched_decompress_get_temp_size(compression, num_chunks, max_uncomp_chunk_size, &temp_size);
++  }
++
++  CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess,
++               "Unable to get scratch size for decompression");
++
++  return temp_size;
++}
++
+ void batched_decompress(compression_type compression,
+                         device_span<device_span<uint8_t const> const> inputs,
+                         device_span<device_span<uint8_t> const> outputs,
+@@ -128,10 +204,54 @@ void batched_decompress(compression_type compression,
+   update_compression_results(nvcomp_statuses, actual_uncompressed_data_sizes, results, stream);
+ }
+ 
+-size_t batched_compress_temp_size(compression_type compression,
+-                                  size_t batch_size,
+-                                  size_t max_uncompressed_chunk_bytes,
+-                                  size_t max_total_uncompressed_bytes)
++// Wrapper for nvcompBatched<format>CompressGetTempSize
++auto batched_compress_get_temp_size(compression_type compression,
++                                    size_t batch_size,
++                                    size_t max_uncompressed_chunk_bytes)
++{
++  size_t temp_size             = 0;
++  nvcompStatus_t nvcomp_status = nvcompStatus_t::nvcompSuccess;
++  switch (compression) {
++    case compression_type::SNAPPY:
++      nvcomp_status = nvcompBatchedSnappyCompressGetTempSize(
++        batch_size, max_uncompressed_chunk_bytes, nvcompBatchedSnappyDefaultOpts, &temp_size);
++      break;
++    case compression_type::DEFLATE:
++#if NVCOMP_HAS_DEFLATE(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++      nvcomp_status = nvcompBatchedDeflateCompressGetTempSize(
++        batch_size, max_uncompressed_chunk_bytes, nvcompBatchedDeflateDefaultOpts, &temp_size);
++      break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::DEFLATE).value());
++#endif
++    case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_COMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++      nvcomp_status = nvcompBatchedZstdCompressGetTempSize(
++        batch_size, max_uncompressed_chunk_bytes, nvcompBatchedZstdDefaultOpts, &temp_size);
++      break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
++    case compression_type::LZ4:
++      nvcomp_status = nvcompBatchedLZ4CompressGetTempSize(
++        batch_size, max_uncompressed_chunk_bytes, nvcompBatchedLZ4DefaultOpts, &temp_size);
++      break;
++    default: CUDF_FAIL("Unsupported compression type");
++  }
++
++  CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess,
++               "Unable to get scratch size for compression");
++  return temp_size;
++}
++
++#if NVCOMP_HAS_COMP_TEMPSIZE_EX(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++// Wrapper for nvcompBatched<format>CompressGetTempSizeEx
++auto batched_compress_get_temp_size_ex(compression_type compression,
++                                       size_t batch_size,
++                                       size_t max_uncompressed_chunk_bytes,
++                                       size_t max_total_uncompressed_bytes)
+ {
+   size_t temp_size             = 0;
+   nvcompStatus_t nvcomp_status = nvcompStatus_t::nvcompSuccess;
+@@ -171,8 +291,28 @@ size_t batched_compress_temp_size(compression_type compression,
+                "Unable to get scratch size for compression");
+   return temp_size;
+ }
++#endif
++
++size_t batched_compress_temp_size(compression_type compression,
++                                  size_t num_chunks,
++                                  size_t max_uncomp_chunk_size,
++                                  size_t max_total_uncomp_size)
++{
++#if NVCOMP_HAS_COMP_TEMPSIZE_EX(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++  try {
++    return batched_compress_get_temp_size_ex(
++      compression, num_chunks, max_uncomp_chunk_size, max_total_uncomp_size);
++  } catch (...) {
++    // Ignore errors in the expanded version; fall back to the old API in case of failure
++    CUDF_LOG_WARN(
++      "CompressGetTempSizeEx call failed, falling back to CompressGetTempSize; this may increase "
++      "the memory usage");
++  }
++#endif
++
++  return batched_compress_get_temp_size(compression, num_chunks, max_uncomp_chunk_size);
++}
+ 
+-// Wrapper for nvcompBatched<format>CompressGetMaxOutputChunkSize
+ size_t compress_max_output_chunk_size(compression_type compression,
+                                       uint32_t max_uncompressed_chunk_bytes)
+ {
+@@ -188,13 +328,23 @@ size_t compress_max_output_chunk_size(compression_type compression,
+         capped_uncomp_bytes, nvcompBatchedSnappyDefaultOpts, &max_comp_chunk_size);
+       break;
+     case compression_type::DEFLATE:
++#if NVCOMP_HAS_DEFLATE(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       status = nvcompBatchedDeflateCompressGetMaxOutputChunkSize(
+         capped_uncomp_bytes, nvcompBatchedDeflateDefaultOpts, &max_comp_chunk_size);
+       break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::DEFLATE).value());
++#endif
+     case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_COMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       status = nvcompBatchedZstdCompressGetMaxOutputChunkSize(
+         capped_uncomp_bytes, nvcompBatchedZstdDefaultOpts, &max_comp_chunk_size);
+       break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
+     case compression_type::LZ4:
+       status = nvcompBatchedLZ4CompressGetMaxOutputChunkSize(
+         capped_uncomp_bytes, nvcompBatchedLZ4DefaultOpts, &max_comp_chunk_size);
+@@ -234,6 +384,7 @@ static void batched_compress_async(compression_type compression,
+                                                        stream.value());
+       break;
+     case compression_type::DEFLATE:
++#if NVCOMP_HAS_DEFLATE(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       nvcomp_status = nvcompBatchedDeflateCompressAsync(device_uncompressed_ptrs,
+                                                         device_uncompressed_bytes,
+                                                         max_uncompressed_chunk_bytes,
+@@ -245,7 +396,12 @@ static void batched_compress_async(compression_type compression,
+                                                         nvcompBatchedDeflateDefaultOpts,
+                                                         stream.value());
+       break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::DEFLATE).value());
++#endif
+     case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_COMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
+       nvcomp_status = nvcompBatchedZstdCompressAsync(device_uncompressed_ptrs,
+                                                      device_uncompressed_bytes,
+                                                      max_uncompressed_chunk_bytes,
+@@ -257,6 +413,10 @@ static void batched_compress_async(compression_type compression,
+                                                      nvcompBatchedZstdDefaultOpts,
+                                                      stream.value());
+       break;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
+     case compression_type::LZ4:
+       nvcomp_status = nvcompBatchedLZ4CompressAsync(device_uncompressed_ptrs,
+                                                     device_uncompressed_bytes,
+@@ -318,18 +478,16 @@ void batched_compress(compression_type compression,
+ }
+ 
+ feature_status_parameters::feature_status_parameters()
+-  : feature_status_parameters(nvcomp_integration::is_all_enabled(),
+-                              nvcomp_integration::is_stable_enabled())
+-{
+-}
+-
+-feature_status_parameters::feature_status_parameters(bool all_enabled, bool stable_enabled)
+-  : lib_major_version{NVCOMP_VER_MAJOR},
+-    lib_minor_version{NVCOMP_VER_MINOR},
+-    lib_patch_version{NVCOMP_VER_PATCH},
+-    are_all_integrations_enabled{all_enabled},
+-    are_stable_integrations_enabled{stable_enabled}
++  : lib_major_version{NVCOMP_MAJOR_VERSION},
++    lib_minor_version{NVCOMP_MINOR_VERSION},
++    lib_patch_version{NVCOMP_PATCH_VERSION},
++    are_all_integrations_enabled{nvcomp_integration::is_all_enabled()},
++    are_stable_integrations_enabled{nvcomp_integration::is_stable_enabled()}
+ {
++  int device;
++  CUDF_CUDA_TRY(cudaGetDevice(&device));
++  CUDF_CUDA_TRY(
++    cudaDeviceGetAttribute(&compute_capability_major, cudaDevAttrComputeCapabilityMajor, device));
+ }
+ 
+ // Represents all parameters required to determine status of a compression/decompression feature
+@@ -352,21 +510,42 @@ std::optional<std::string> is_compression_disabled_impl(compression_type compres
+ {
+   switch (compression) {
+     case compression_type::DEFLATE: {
++      if (not NVCOMP_HAS_DEFLATE(
++            params.lib_major_version, params.lib_minor_version, params.lib_patch_version)) {
++        return "nvCOMP 2.5 or newer is required for Deflate compression";
++      }
+       if (not params.are_all_integrations_enabled) {
+         return "DEFLATE compression is experimental, you can enable it through "
+                "`LIBCUDF_NVCOMP_POLICY` environment variable.";
+       }
+       return std::nullopt;
+     }
++    case compression_type::SNAPPY: {
++      if (not params.are_stable_integrations_enabled) {
++        return "Snappy compression has been disabled through the `LIBCUDF_NVCOMP_POLICY` "
++               "environment variable.";
++      }
++      return std::nullopt;
++    }
++    case compression_type::ZSTD: {
++      if (not NVCOMP_HAS_ZSTD_COMP(
++            params.lib_major_version, params.lib_minor_version, params.lib_patch_version)) {
++        return "nvCOMP 2.4 or newer is required for Zstandard compression";
++      }
++      if (not params.are_stable_integrations_enabled) {
++        return "Zstandard compression is experimental, you can enable it through "
++               "`LIBCUDF_NVCOMP_POLICY` environment variable.";
++      }
++      return std::nullopt;
++    }
+     case compression_type::LZ4:
+-    case compression_type::SNAPPY:
+-    case compression_type::ZSTD:
+       if (not params.are_stable_integrations_enabled) {
+-        return "nvCOMP use is disabled through the `LIBCUDF_NVCOMP_POLICY` environment variable.";
++        return "LZ4 compression has been disabled through the `LIBCUDF_NVCOMP_POLICY` "
++               "environment variable.";
+       }
+       return std::nullopt;
+-    default: return "Unsupported compression type";
+   }
++  return "Unsupported compression type";
+ }
+ 
+ std::optional<std::string> is_compression_disabled(compression_type compression,
+@@ -398,26 +577,58 @@ std::optional<std::string> is_compression_disabled(compression_type compression,
+   return reason;
+ }
+ 
++std::optional<std::string> is_zstd_decomp_disabled(feature_status_parameters const& params)
++{
++  if (not NVCOMP_HAS_ZSTD_DECOMP(
++        params.lib_major_version, params.lib_minor_version, params.lib_patch_version)) {
++    return "nvCOMP 2.3 or newer is required for Zstandard decompression";
++  }
++
++  if (NVCOMP_ZSTD_DECOMP_IS_STABLE(
++        params.lib_major_version, params.lib_minor_version, params.lib_patch_version)) {
++    if (not params.are_stable_integrations_enabled) {
++      return "Zstandard decompression has been disabled through the `LIBCUDF_NVCOMP_POLICY` "
++             "environment variable.";
++    }
++  } else if (not params.are_all_integrations_enabled) {
++    return "Zstandard decompression is experimental, you can enable it through "
++           "`LIBCUDF_NVCOMP_POLICY` environment variable.";
++  }
++
++  return std::nullopt;
++}
++
+ std::optional<std::string> is_decompression_disabled_impl(compression_type compression,
+                                                           feature_status_parameters params)
+ {
+   switch (compression) {
+-    case compression_type::DEFLATE:
+-    case compression_type::GZIP: {
++    case compression_type::DEFLATE: {
++      if (not NVCOMP_HAS_DEFLATE(
++            params.lib_major_version, params.lib_minor_version, params.lib_patch_version)) {
++        return "nvCOMP 2.5 or newer is required for Deflate decompression";
++      }
+       if (not params.are_all_integrations_enabled) {
+         return "DEFLATE decompression is experimental, you can enable it through "
+                "`LIBCUDF_NVCOMP_POLICY` environment variable.";
+       }
+       return std::nullopt;
+     }
+-    case compression_type::LZ4:
+-    case compression_type::SNAPPY:
+-    case compression_type::ZSTD: {
++    case compression_type::SNAPPY: {
+       if (not params.are_stable_integrations_enabled) {
+-        return "nvCOMP use is disabled through the `LIBCUDF_NVCOMP_POLICY` environment variable.";
++        return "Snappy decompression has been disabled through the `LIBCUDF_NVCOMP_POLICY` "
++               "environment variable.";
+       }
+       return std::nullopt;
+     }
++    case compression_type::ZSTD: return is_zstd_decomp_disabled(params);
++    case compression_type::LZ4: {
++      if (not params.are_stable_integrations_enabled) {
++        return "LZ4 decompression has been disabled through the `LIBCUDF_NVCOMP_POLICY` "
++               "environment variable.";
++      }
++      return std::nullopt;
++    }
++    default: return "Unsupported compression type";
+   }
+   return "Unsupported compression type";
+ }
+@@ -451,27 +662,43 @@ std::optional<std::string> is_decompression_disabled(compression_type compressio
+   return reason;
+ }
+ 
+-size_t required_alignment(compression_type compression)
++size_t compress_input_alignment_bits(compression_type compression)
+ {
+   switch (compression) {
+-    case compression_type::GZIP:
+-    case compression_type::DEFLATE: return nvcompDeflateRequiredAlignment;
+-    case compression_type::SNAPPY: return nvcompSnappyRequiredAlignment;
+-    case compression_type::ZSTD: return nvcompZstdRequiredAlignment;
+-    case compression_type::LZ4: return nvcompLZ4RequiredAlignment;
++    case compression_type::DEFLATE: return 0;
++    case compression_type::SNAPPY: return 0;
++    case compression_type::ZSTD: return 2;
++    case compression_type::LZ4: return 2;
+     default: CUDF_FAIL("Unsupported compression type");
+   }
+ }
+ 
+-std::optional<size_t> compress_max_allowed_chunk_size(compression_type compression)
++size_t compress_output_alignment_bits(compression_type compression)
+ {
+   switch (compression) {
+-    case compression_type::DEFLATE: return nvcompDeflateCompressionMaxAllowedChunkSize;
+-    case compression_type::SNAPPY: return nvcompSnappyCompressionMaxAllowedChunkSize;
+-    case compression_type::ZSTD: return nvcompZstdCompressionMaxAllowedChunkSize;
+-    case compression_type::LZ4: return nvcompLZ4CompressionMaxAllowedChunkSize;
++    case compression_type::DEFLATE: return 3;
++    case compression_type::SNAPPY: return 0;
++    case compression_type::ZSTD: return 0;
++    case compression_type::LZ4: return 2;
+     default: CUDF_FAIL("Unsupported compression type");
+   }
+ }
+ 
++std::optional<size_t> compress_max_allowed_chunk_size(compression_type compression)
++{
++  switch (compression) {
++    case compression_type::DEFLATE: return 64 * 1024;
++    case compression_type::SNAPPY: return std::nullopt;
++    case compression_type::ZSTD:
++#if NVCOMP_HAS_ZSTD_COMP(NVCOMP_MAJOR_VERSION, NVCOMP_MINOR_VERSION, NVCOMP_PATCH_VERSION)
++      return nvcompZstdCompressionMaxAllowedChunkSize;
++#else
++      CUDF_FAIL("Compression error: " +
++                nvcomp::is_compression_disabled(nvcomp::compression_type::ZSTD).value());
++#endif
++    case compression_type::LZ4: return 16 * 1024 * 1024;
++    default: return std::nullopt;
++   }
++}
++
+ }  // namespace cudf::io::nvcomp
+diff --git a/cpp/src/io/comp/nvcomp_adapter.hpp b/cpp/src/io/comp/nvcomp_adapter.hpp
+index 583bd6a352..43c79e3237 100644
+--- a/cpp/src/io/comp/nvcomp_adapter.hpp
++++ b/cpp/src/io/comp/nvcomp_adapter.hpp
+@@ -75,12 +75,20 @@ size_t batched_decompress_temp_size(compression_type compression,
+                                                     uint32_t max_uncomp_chunk_size);
+ 
+ /**
+- * @brief Gets input and output alignment requirements for the given compression type.
++ * @brief Gets input alignment requirements for the given compression type.
+  *
+  * @param compression Compression type
+- * @returns required alignment
++ * @returns required alignment, in bits
+  */
+-[[nodiscard]] size_t required_alignment(compression_type compression);
++[[nodiscard]] size_t compress_input_alignment_bits(compression_type compression);
++
++/**
++ * @brief Gets output alignment requirements for the given compression type.
++ *
++ * @param compression Compression type
++ * @returns required alignment, in bits
++ */
++[[nodiscard]] size_t compress_output_alignment_bits(compression_type compression);
+ 
+ /**
+  * @brief Maximum size of uncompressed chunks that can be compressed with nvCOMP.
+diff --git a/cpp/src/io/orc/writer_impl.cu b/cpp/src/io/orc/writer_impl.cu
+index 60a64fb0ee..40cfbe763b 100644
+--- a/cpp/src/io/orc/writer_impl.cu
++++ b/cpp/src/io/orc/writer_impl.cu
+@@ -533,20 +533,20 @@ auto uncomp_block_alignment(CompressionKind compression_kind)
+ {
+   if (compression_kind == NONE or
+       nvcomp::is_compression_disabled(to_nvcomp_compression_type(compression_kind))) {
+-    return 1ul;
++    return 1u;
+   }
+ 
+-  return nvcomp::required_alignment(to_nvcomp_compression_type(compression_kind));
++  return 1u << nvcomp::compress_input_alignment_bits(to_nvcomp_compression_type(compression_kind));
+ }
+ 
+ auto comp_block_alignment(CompressionKind compression_kind)
+ {
+   if (compression_kind == NONE or
+       nvcomp::is_compression_disabled(to_nvcomp_compression_type(compression_kind))) {
+-    return 1ul;
++    return 1u;
+   }
+ 
+-  return nvcomp::required_alignment(to_nvcomp_compression_type(compression_kind));
++  return 1u << nvcomp::compress_output_alignment_bits(to_nvcomp_compression_type(compression_kind));
+ }
+ 
+ /**
+diff --git a/cpp/src/io/parquet/reader_impl_chunking.cu b/cpp/src/io/parquet/reader_impl_chunking.cu
+index c588fedb85..bab70c126b 100644
+--- a/cpp/src/io/parquet/reader_impl_chunking.cu
++++ b/cpp/src/io/parquet/reader_impl_chunking.cu
+@@ -865,18 +865,8 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
+ 
+     switch (codec.compression_type) {
+       case GZIP:
+-        if (cudf::io::nvcomp_integration::is_all_enabled()) {
+-          nvcomp::batched_decompress(nvcomp::compression_type::GZIP,
+-                                     d_comp_in_view,
+-                                     d_comp_out_view,
+-                                     d_comp_res_view,
+-                                     codec.max_decompressed_size,
+-                                     codec.total_decomp_size,
+-                                     stream);
+-        } else {
+-          gpuinflate(
+-            d_comp_in_view, d_comp_out_view, d_comp_res_view, gzip_header_included::YES, stream);
+-        }
++        gpuinflate(
++          d_comp_in_view, d_comp_out_view, d_comp_res_view, gzip_header_included::YES, stream);
+         break;
+       case SNAPPY:
+         if (cudf::io::nvcomp_integration::is_stable_enabled()) {
+diff --git a/cpp/src/io/parquet/writer_impl_helpers.cpp b/cpp/src/io/parquet/writer_impl_helpers.cpp
+index 396d44c076..e2f09f872d 100644
+--- a/cpp/src/io/parquet/writer_impl_helpers.cpp
++++ b/cpp/src/io/parquet/writer_impl_helpers.cpp
+@@ -62,7 +62,7 @@ uint32_t page_alignment(Compression codec)
+     return 1u;
+   }
+ 
+-  return nvcomp::required_alignment(to_nvcomp_compression_type(codec));
++  return 1u << nvcomp::compress_input_alignment_bits(to_nvcomp_compression_type(codec));
+ }
+ 
+ size_t max_compression_output_size(Compression codec, uint32_t compression_blocksize)
+diff --git a/cpp/tests/io/comp/decomp_test.cpp b/cpp/tests/io/comp/decomp_test.cpp
+index 840cf263ed..38c1a57eca 100644
+--- a/cpp/tests/io/comp/decomp_test.cpp
++++ b/cpp/tests/io/comp/decomp_test.cpp
+@@ -176,19 +176,23 @@ TEST_F(NvcompConfigTest, Compression)
+   using cudf::io::nvcomp::compression_type;
+   auto const& comp_disabled = cudf::io::nvcomp::is_compression_disabled;
+ 
+-  EXPECT_FALSE(comp_disabled(compression_type::DEFLATE, {true, true}));
++  EXPECT_FALSE(comp_disabled(compression_type::DEFLATE, {2, 5, 0, true, true, 0}));
++  // version 2.5 required
++  EXPECT_TRUE(comp_disabled(compression_type::DEFLATE, {2, 4, 0, true, true, 0}));
+   // all integrations enabled required
+-  EXPECT_TRUE(comp_disabled(compression_type::DEFLATE, {false, true}));
++  EXPECT_TRUE(comp_disabled(compression_type::DEFLATE, {2, 5, 0, false, true, 0}));
+ 
+-  EXPECT_FALSE(comp_disabled(compression_type::ZSTD, {true, true}));
+-  EXPECT_FALSE(comp_disabled(compression_type::ZSTD, {false, true}));
++  EXPECT_FALSE(comp_disabled(compression_type::ZSTD, {2, 4, 0, true, true, 0}));
++  EXPECT_FALSE(comp_disabled(compression_type::ZSTD, {2, 4, 0, false, true, 0}));
++  // 2.4 version required
++  EXPECT_TRUE(comp_disabled(compression_type::ZSTD, {2, 3, 1, false, true, 0}));
+   // stable integrations enabled required
+-  EXPECT_TRUE(comp_disabled(compression_type::ZSTD, {false, false}));
++  EXPECT_TRUE(comp_disabled(compression_type::ZSTD, {2, 4, 0, false, false, 0}));
+ 
+-  EXPECT_FALSE(comp_disabled(compression_type::SNAPPY, {true, true}));
+-  EXPECT_FALSE(comp_disabled(compression_type::SNAPPY, {false, true}));
++  EXPECT_FALSE(comp_disabled(compression_type::SNAPPY, {2, 5, 0, true, true, 0}));
++  EXPECT_FALSE(comp_disabled(compression_type::SNAPPY, {2, 4, 0, false, true, 0}));
+   // stable integrations enabled required
+-  EXPECT_TRUE(comp_disabled(compression_type::SNAPPY, {false, false}));
++  EXPECT_TRUE(comp_disabled(compression_type::SNAPPY, {2, 3, 0, false, false, 0}));
+ }
+ 
+ TEST_F(NvcompConfigTest, Decompression)
+@@ -196,19 +200,27 @@ TEST_F(NvcompConfigTest, Decompression)
+   using cudf::io::nvcomp::compression_type;
+   auto const& decomp_disabled = cudf::io::nvcomp::is_decompression_disabled;
+ 
+-  EXPECT_FALSE(decomp_disabled(compression_type::DEFLATE, {true, true}));
++  EXPECT_FALSE(decomp_disabled(compression_type::DEFLATE, {2, 5, 0, true, true, 7}));
++  // version 2.5 required
++  EXPECT_TRUE(decomp_disabled(compression_type::DEFLATE, {2, 4, 0, true, true, 7}));
+   // all integrations enabled required
+-  EXPECT_TRUE(decomp_disabled(compression_type::DEFLATE, {false, true}));
+-
+-  EXPECT_FALSE(decomp_disabled(compression_type::ZSTD, {true, true}));
+-  EXPECT_FALSE(decomp_disabled(compression_type::ZSTD, {false, true}));
++  EXPECT_TRUE(decomp_disabled(compression_type::DEFLATE, {2, 5, 0, false, true, 7}));
++
++  EXPECT_FALSE(decomp_disabled(compression_type::ZSTD, {2, 4, 0, true, true, 7}));
++  EXPECT_FALSE(decomp_disabled(compression_type::ZSTD, {2, 3, 2, false, true, 6}));
++  EXPECT_FALSE(decomp_disabled(compression_type::ZSTD, {2, 3, 0, true, true, 6}));
++  // 2.3.1 and earlier requires all integrations to be enabled
++  EXPECT_TRUE(decomp_disabled(compression_type::ZSTD, {2, 3, 1, false, true, 7}));
++  // 2.3 version required
++  EXPECT_TRUE(decomp_disabled(compression_type::ZSTD, {2, 2, 0, true, true, 7}));
+   // stable integrations enabled required
+-  EXPECT_TRUE(decomp_disabled(compression_type::ZSTD, {false, false}));
++  EXPECT_TRUE(decomp_disabled(compression_type::ZSTD, {2, 4, 0, false, false, 7}));
+ 
+-  EXPECT_FALSE(decomp_disabled(compression_type::SNAPPY, {true, true}));
+-  EXPECT_FALSE(decomp_disabled(compression_type::SNAPPY, {false, true}));
++  EXPECT_FALSE(decomp_disabled(compression_type::SNAPPY, {2, 4, 0, true, true, 7}));
++  EXPECT_FALSE(decomp_disabled(compression_type::SNAPPY, {2, 3, 0, false, true, 7}));
++  EXPECT_FALSE(decomp_disabled(compression_type::SNAPPY, {2, 2, 0, false, true, 7}));
+   // stable integrations enabled required
+-  EXPECT_TRUE(decomp_disabled(compression_type::SNAPPY, {false, false}));
++  EXPECT_TRUE(decomp_disabled(compression_type::SNAPPY, {2, 2, 0, false, false, 7}));
+ }
+ 
+ CUDF_TEST_PROGRAM_MAIN()
+diff --git a/dependencies.yaml b/dependencies.yaml
+index 6909eb7168..2fa58a31b1 100644
+--- a/dependencies.yaml
++++ b/dependencies.yaml
+@@ -368,7 +368,7 @@ dependencies:
+           - flatbuffers==24.3.25
+           - librdkafka>=2.5.0,<2.6.0a0
+           # Align nvcomp version with rapids-cmake
+-          - nvcomp==4.0.1
++          - nvcomp==3.0.6
+           - spdlog>=1.14.1,<1.15
+   rapids_build_skbuild:
+     common:
+diff --git a/docs/cudf/source/user_guide/io/io.md b/docs/cudf/source/user_guide/io/io.md
+index 97b961b455..adcdaa51e7 100644
+--- a/docs/cudf/source/user_guide/io/io.md
++++ b/docs/cudf/source/user_guide/io/io.md
+@@ -75,6 +75,7 @@ IO format.
+ 
+ </div>
+ 
++
+ **Notes:**
+ 
+ - \[¹\] - Not all orientations are GPU-accelerated.
+@@ -176,9 +177,4 @@ If no value is set, behavior will be the same as the "STABLE" option.
+     +-----------------------+--------+--------+--------------+--------------+---------+--------+--------------+--------------+--------+
+     | DEFLATE               | ❌     | ❌     | ❌           | ❌           | ❌      | ❌     | Experimental | Experimental | ❌     |
+     +-----------------------+--------+--------+--------------+--------------+---------+--------+--------------+--------------+--------+
+-    | LZ4                   | ❌     | ❌     | Stable       | Stable       | ❌      | ❌     | Stable       | Stable       | ❌     |
+-    +-----------------------+--------+--------+--------------+--------------+---------+--------+--------------+--------------+--------+
+-    | GZIP                  | ❌     | ❌     | Experimental | Experimental | ❌      | ❌     | ❌           | ❌           | ❌     |
+-    +-----------------------+--------+--------+--------------+--------------+---------+--------+--------------+--------------+--------+
+-
+ ```
+diff --git a/java/pom.xml b/java/pom.xml
+index e4f1cdf64e..9694e741f1 100644
+--- a/java/pom.xml
++++ b/java/pom.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <!--
+-  Copyright (c) 2019-2024, NVIDIA CORPORATION.
++  Copyright (c) 2019-2023, NVIDIA CORPORATION.
+ 
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+@@ -590,6 +590,8 @@
+                                         <include>libcudfjni.so</include>
+                                         <include>libcufilejni.so</include>
+                                         <include>libnvcomp.so</include>
++                                        <include>libnvcomp_gdeflate.so</include>
++                                        <include>libnvcomp_bitcomp.so</include>
+                                     </includes>
+                                 </resource>
+                                 <resource>
+diff --git a/java/src/main/java/ai/rapids/cudf/NativeDepsLoader.java b/java/src/main/java/ai/rapids/cudf/NativeDepsLoader.java
+index 58182c3e62..7ee590e3c8 100755
+--- a/java/src/main/java/ai/rapids/cudf/NativeDepsLoader.java
++++ b/java/src/main/java/ai/rapids/cudf/NativeDepsLoader.java
+@@ -54,6 +54,9 @@ public class NativeDepsLoader {
+    * subsequent stages are loaded.
+    */
+   private static final String[][] loadOrder = new String[][]{
++      new String[]{
++          "nvcomp_bitcomp", "nvcomp_gdeflate"
++      },
+       new String[]{
+           "nvcomp"
+       },
+diff --git a/java/src/main/native/CMakeLists.txt b/java/src/main/native/CMakeLists.txt
+index 32045f3c50..c18a90140b 100644
+--- a/java/src/main/native/CMakeLists.txt
++++ b/java/src/main/native/CMakeLists.txt
+@@ -267,8 +267,9 @@ if(TARGET nvcomp::nvcomp)
+   add_custom_command(
+     TARGET cudfjni
+     PRE_LINK
+-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:nvcomp::nvcomp>
+-            "${PROJECT_BINARY_DIR}/libnvcomp.so"
++    COMMAND
++      ${CMAKE_COMMAND} -E copy $<TARGET_FILE:nvcomp::nvcomp> $<TARGET_FILE:nvcomp::nvcomp_gdeflate>
++      $<TARGET_FILE:nvcomp::nvcomp_bitcomp> "${PROJECT_BINARY_DIR}"
+     COMMENT "Copying nvcomp libraries to ${PROJECT_BINARY_DIR}"
+   )
+ endif()
+diff --git a/python/libcudf/CMakeLists.txt b/python/libcudf/CMakeLists.txt
+index 0a8f5c4807..96eb6c3bb3 100644
+--- a/python/libcudf/CMakeLists.txt
++++ b/python/libcudf/CMakeLists.txt
+@@ -48,5 +48,6 @@ add_subdirectory(../../cpp cudf-cpp)
+ # Ensure other libraries needed by libcudf.so get installed alongside it.
+ include(cmake/Modules/WheelHelpers.cmake)
+ install_aliased_imported_targets(
+-  TARGETS cudf nvcomp::nvcomp DESTINATION ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
++  TARGETS cudf nvcomp::nvcomp nvcomp::nvcomp_gdeflate nvcomp::nvcomp_bitcomp DESTINATION
++  ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
+ )

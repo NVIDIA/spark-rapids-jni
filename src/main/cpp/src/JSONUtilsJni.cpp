@@ -15,6 +15,7 @@
  */
 
 #include "cudf_jni_apis.hpp"
+#include "from_json.hpp"
 #include "get_json_object.hpp"
 
 #include <cudf/strings/strings_column_view.hpp>
@@ -25,42 +26,49 @@ using path_instruction_type = spark_rapids_jni::path_instruction_type;
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(
-  JNIEnv* env, jclass, jlong input_column, jobjectArray path_instructions)
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getMaxJSONPathDepth(JNIEnv* env,
+                                                                                      jclass)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    return spark_rapids_jni::MAX_JSON_PATH_DEPTH;
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
+                                                         jclass,
+                                                         jlong input_column,
+                                                         jbyteArray j_type_nums,
+                                                         jobjectArray j_names,
+                                                         jintArray j_indexes)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  JNI_NULL_CHECK(env, path_instructions, "path_instructions is null", 0);
+  JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
+  JNI_NULL_CHECK(env, j_names, "j_names is null", 0);
+  JNI_NULL_CHECK(env, j_indexes, "j_indexes is null", 0);
   try {
     cudf::jni::auto_set_device(env);
     auto const n_column_view      = reinterpret_cast<cudf::column_view const*>(input_column);
     auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
 
-    std::vector<std::tuple<path_instruction_type, std::string, int64_t>> instructions;
-    int size = env->GetArrayLength(path_instructions);
+    std::vector<std::tuple<path_instruction_type, std::string, int32_t>> instructions;
+
+    auto const type_nums = cudf::jni::native_jbyteArray(env, j_type_nums).to_vector();
+    auto const names     = cudf::jni::native_jstringArray(env, j_names);
+    auto const indexes   = cudf::jni::native_jintArray(env, j_indexes).to_vector();
+    int size             = type_nums.size();
+    if (names.size() != size || indexes.size() != static_cast<std::size_t>(size) ||
+        type_nums.size() != static_cast<std::size_t>(size)) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
+    }
+
     for (int i = 0; i < size; i++) {
-      jobject instruction = env->GetObjectArrayElement(path_instructions, i);
-      JNI_NULL_CHECK(env, instruction, "path_instruction is null", 0);
-      jclass instruction_class = env->GetObjectClass(instruction);
-      JNI_NULL_CHECK(env, instruction_class, "instruction_class is null", 0);
-
-      jfieldID field_id = env->GetFieldID(instruction_class, "type", "I");
-      JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-      jint type                              = env->GetIntField(instruction, field_id);
-      path_instruction_type instruction_type = static_cast<path_instruction_type>(type);
-
-      field_id = env->GetFieldID(instruction_class, "name", "Ljava/lang/String;");
-      JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-      jstring name = (jstring)env->GetObjectField(instruction, field_id);
-      JNI_NULL_CHECK(env, name, "name is null", 0);
-      const char* name_str = env->GetStringUTFChars(name, JNI_FALSE);
-
-      field_id = env->GetFieldID(instruction_class, "index", "J");
-      JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-      jlong index = env->GetLongField(instruction, field_id);
-
+      path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[i]);
+      const char* name_str                   = names[i].get();
+      jlong index                            = indexes[i];
       instructions.emplace_back(instruction_type, name_str, index);
-
-      env->ReleaseStringUTFChars(name, name_str);
     }
 
     return cudf::jni::release_as_jlong(
@@ -69,64 +77,80 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(
-  JNIEnv* env, jclass, jlong j_input, jobjectArray j_paths, jintArray j_path_offsets)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* env,
+                                                                      jclass,
+                                                                      jlong j_input,
+                                                                      jbyteArray j_type_nums,
+                                                                      jobjectArray j_names,
+                                                                      jintArray j_indexes,
+                                                                      jintArray j_path_offsets,
+                                                                      jlong memory_budget_bytes,
+                                                                      jint parallel_override)
 {
   JNI_NULL_CHECK(env, j_input, "j_input column is null", 0);
-  JNI_NULL_CHECK(env, j_paths, "j_paths is null", 0);
+  JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
+  JNI_NULL_CHECK(env, j_names, "j_names is null", 0);
+  JNI_NULL_CHECK(env, j_indexes, "j_indexes is null", 0);
   JNI_NULL_CHECK(env, j_path_offsets, "j_path_offsets is null", 0);
 
-  using path_type = std::vector<std::tuple<path_instruction_type, std::string, int64_t>>;
+  using path_type = std::vector<std::tuple<path_instruction_type, std::string, int32_t>>;
 
   try {
     cudf::jni::auto_set_device(env);
 
     auto const path_offsets = cudf::jni::native_jintArray(env, j_path_offsets).to_vector();
     CUDF_EXPECTS(path_offsets.size() > 1, "Invalid path offsets.");
+    auto const type_nums = cudf::jni::native_jbyteArray(env, j_type_nums).to_vector();
+    auto const names     = cudf::jni::native_jstringArray(env, j_names);
+    auto const indexes   = cudf::jni::native_jintArray(env, j_indexes).to_vector();
     auto const num_paths = path_offsets.size() - 1;
     std::vector<path_type> paths(num_paths);
+    auto const num_entries = path_offsets[num_paths];
+
+    if (num_entries < 0 || names.size() != num_entries ||
+        indexes.size() != static_cast<std::size_t>(num_entries) ||
+        type_nums.size() != static_cast<std::size_t>(num_entries)) {
+      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
+    }
 
     for (std::size_t i = 0; i < num_paths; ++i) {
       auto const path_size = path_offsets[i + 1] - path_offsets[i];
       auto path            = path_type{};
       path.reserve(path_size);
       for (int j = path_offsets[i]; j < path_offsets[i + 1]; ++j) {
-        jobject instruction = env->GetObjectArrayElement(j_paths, j);
-        JNI_NULL_CHECK(env, instruction, "path_instruction is null", 0);
-        jclass instruction_class = env->GetObjectClass(instruction);
-        JNI_NULL_CHECK(env, instruction_class, "instruction_class is null", 0);
-
-        jfieldID field_id = env->GetFieldID(instruction_class, "type", "I");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jint type                              = env->GetIntField(instruction, field_id);
-        path_instruction_type instruction_type = static_cast<path_instruction_type>(type);
-
-        field_id = env->GetFieldID(instruction_class, "name", "Ljava/lang/String;");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jstring name = (jstring)env->GetObjectField(instruction, field_id);
-        JNI_NULL_CHECK(env, name, "name is null", 0);
-        const char* name_str = env->GetStringUTFChars(name, JNI_FALSE);
-
-        field_id = env->GetFieldID(instruction_class, "index", "J");
-        JNI_NULL_CHECK(env, field_id, "field_id is null", 0);
-        jlong index = env->GetLongField(instruction, field_id);
-
+        path_instruction_type instruction_type = static_cast<path_instruction_type>(type_nums[j]);
+        const char* name_str                   = names[j].get();
+        jlong index                            = indexes[j];
         path.emplace_back(instruction_type, name_str, index);
-        env->ReleaseStringUTFChars(name, name_str);
       }
 
       paths[i] = std::move(path);
     }
 
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
-    auto output =
-      spark_rapids_jni::get_json_object_multiple_paths(cudf::strings_column_view{*input_cv}, paths);
+    auto output         = spark_rapids_jni::get_json_object_multiple_paths(
+      cudf::strings_column_view{*input_cv}, paths, memory_budget_bytes, parallel_override);
 
     auto out_handles = cudf::jni::native_jlongArray(env, output.size());
     std::transform(output.begin(), output.end(), out_handles.begin(), [](auto& col) {
       return cudf::jni::release_as_jlong(col);
     });
     return out_handles.get_jArray();
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMapFromJsonString(
+  JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
   }
   CATCH_STD(env, 0);
 }
