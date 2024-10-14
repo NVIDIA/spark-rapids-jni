@@ -110,6 +110,10 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
+    <!-- This skips applying and unapplying patchs to CUDF. Be aware that if you 
+    try to build the main jar without patching CUDF it could result in build
+    failures becasue the two often need to be in sync with each other. So use
+    at your own risk. -->
     <submodule.patch.skip>false</submodule.patch.skip>
     <antrun.version>3.0.0</antrun.version>
     <hilbert.version>0.2.2</hilbert.version>
@@ -429,7 +433,7 @@
             <id>build-libcudf</id>
             <phase>validate</phase>
             <configuration>
-              <target xmlns:if="ant:if" xmlns:unless="ant:unless">
+              <target xmlns:if="ant:if">
                 <condition property="needConfigure">
                   <or>
                     <istrue value="${libcudf.build.configure}"/>
@@ -466,8 +470,7 @@
                 </exec>
                 <exec dir="${libcudf.build.path}"
                       failonerror="true"
-                      executable="cmake"
-                      unless:true="${submodule.patch.skip}">
+                      executable="cmake">
                   <arg value="--build"/>
                   <arg value="${libcudf.build.path}"/>
                   <arg value="--target"/>
@@ -484,7 +487,6 @@
             <id>build-libcudfjni</id>
             <phase>validate</phase>
             <configuration>
-              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${libcudfjni.build.path}"/>
                 <exec dir="${libcudfjni.build.path}"
@@ -520,7 +522,6 @@
             <id>build-sparkrapidsjni</id>
             <phase>validate</phase>
             <configuration>
-              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${native.build.path}"/>
                 <exec dir="${native.build.path}"
@@ -559,7 +560,6 @@
             <id>build-info</id>
             <phase>generate-resources</phase>
             <configuration>
-              <skip>${submodule.patch.skip}</skip>
               <target>
                 <mkdir dir="${project.build.directory}/extra-resources"/>
                 <exec executable="bash"
