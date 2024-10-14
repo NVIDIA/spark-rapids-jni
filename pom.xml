@@ -112,7 +112,7 @@
     <submodule.check.skip>false</submodule.check.skip>
     <!-- This skips applying and unapplying patchs to CUDF. Be aware that if you 
     try to build the main jar without patching CUDF it could result in build
-    failures becasue the two often need to be in sync with each other. So use
+    failures because the two often need to be in sync with each other. So use
     at your own risk. -->
     <submodule.patch.skip>false</submodule.patch.skip>
     <antrun.version>3.0.0</antrun.version>
