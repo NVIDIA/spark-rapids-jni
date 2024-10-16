@@ -263,35 +263,47 @@ std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const&
 
 namespace {
 
+using string_index_pair = thrust::pair<char const*, cudf::size_type>;
+
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
-  auto output = cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
-  auto validity = rmm::device_uvector<bool>(input.size(), stream);  // intentionally not use `mr`
+  auto const string_count = input.size();
+  auto output             = cudf::make_fixed_width_column(
+    cudf::data_type{cudf::type_id::BOOL8}, string_count, cudf::mask_state::UNALLOCATED, stream, mr);
+  auto validity = rmm::device_uvector<bool>(string_count, stream);  // intentionally not use `mr`
 
+  auto const input_sv = cudf::strings_column_view{input};
+  auto const offsets_it =
+    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
   auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+  auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
   auto const output_it   = thrust::make_zip_iterator(
     thrust::make_tuple(output->mutable_view().begin<bool>(), validity.begin()));
-  thrust::tabulate(rmm::exec_policy_nosync(stream),
-                   output_it,
-                   output_it + input.size(),
-                   [input = *d_input_ptr] __device__(auto idx) -> thrust::tuple<bool, bool> {
-                     if (input.is_valid(idx)) {
-                       auto const d_str = input.element<cudf::string_view>(idx);
-                       if (d_str.size_bytes() == 4 && d_str[0] == 't' && d_str[1] == 'r' &&
-                           d_str[2] == 'u' && d_str[3] == 'e') {
-                         return {true, true};
-                       }
-                       if (d_str.size_bytes() == 5 && d_str[0] == 'f' && d_str[1] == 'a' &&
-                           d_str[2] == 'l' && d_str[3] == 's' && d_str[4] == 'e') {
-                         return {false, true};
-                       }
-                     }
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream),
+    output_it,
+    output_it + string_count,
+    [chars = input_sv.chars_begin(stream), offsets = offsets_it, is_valid = is_valid_it] __device__(
+      auto idx) -> thrust::tuple<bool, bool> {
+      if (is_valid[idx]) {
+        auto const start_offset = offsets[idx];
+        auto const end_offset   = offsets[idx + 1];
+        auto const size         = end_offset - start_offset;
+        auto const str          = chars + start_offset;
 
-                     // Either null input, or the input string is neither `true` nor `false`.
-                     return {false, false};
-                   });
+        if (size == 4 && str[0] == 't' && str[1] == 'r' && str[2] == 'u' && str[3] == 'e') {
+          return {true, true};
+        }
+        if (size == 5 && str[0] == 'f' && str[1] == 'a' && str[2] == 'l' && str[3] == 's' &&
+            str[4] == 'e') {
+          return {false, true};
+        }
+      }
+
+      // Either null input, or the input string is neither `true` nor `false`.
+      return {false, false};
+    });
 
   return {std::move(output), std::move(validity)};
 }
@@ -342,47 +354,44 @@ rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
-  auto const d_input_ptr  = cudf::column_device_view::create(input, stream);
+  auto const input_sv = cudf::strings_column_view{input};
+  auto const input_offsets_it =
+    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
+  auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+  auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
+
   auto const string_count = input.size();
-
-  // Materialize the output string sizes to avoid repeated computation when being used multiple
-  // times later on.
-  auto output_sizes = rmm::device_uvector<cudf::size_type>(string_count, stream);
+  auto string_pairs       = rmm::device_uvector<string_index_pair>(string_count, stream);
   thrust::tabulate(rmm::exec_policy_nosync(stream),
-                   output_sizes.begin(),
-                   output_sizes.end(),
-                   [input = *d_input_ptr] __device__(cudf::size_type idx) -> cudf::size_type {
-                     if (input.is_null(idx)) { return 0; }
+                   string_pairs.begin(),
+                   string_pairs.end(),
+                   [chars    = input_sv.chars_begin(stream),
+                    offsets  = input_offsets_it,
+                    is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
+                     if (!is_valid[idx]) { return {nullptr, 0}; }
 
-                     auto const d_str = input.element<cudf::string_view>(idx);
-                     auto const size  = d_str.size_bytes();
+                     auto const start_offset = offsets[idx];
+                     auto const end_offset   = offsets[idx + 1];
+                     auto const size         = end_offset - start_offset;
+                     auto const str          = chars + start_offset;
 
                      // Need to check for size, since the input string may contain just a single
                      // character `"`. Such input should not be considered as quoted.
-                     auto const is_quoted = size > 1 && d_str[0] == '"' && d_str[size - 1] == '"';
-                     return is_quoted ? size - 2 : size;
+                     auto const is_quoted   = size > 1 && str[0] == '"' && str[size - 1] == '"';
+                     auto const output_size = is_quoted ? size - 2 : size;
+                     return {chars + start_offset + (is_quoted ? 1 : 0), output_size};
                    });
 
-  auto [offsets_column, bytes] = cudf::strings::detail::make_offsets_child_column(
-    output_sizes.begin(), output_sizes.end(), stream, mr);
-
-  auto const input_sv = cudf::strings_column_view{input};
-  auto const d_input_offsets =
-    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
-  auto const index_pair_fn = cuda::proclaim_return_type<thrust::pair<const char*, cudf::size_type>>(
-    [chars         = input_sv.chars_begin(stream),
-     input_offsets = d_input_offsets,
-     output_sizes  = output_sizes.begin()] __device__(cudf::size_type idx) {
-      auto const start_offset = input_offsets[idx];
-      auto const end_offset   = input_offsets[idx + 1];
-      auto const input_size   = end_offset - start_offset;
-      auto const output_size  = output_sizes[idx];
-
-      return thrust::pair{chars + start_offset + (input_size == output_size ? 0 : 1), output_size};
-    });
-  auto const index_pair_it = cudf::detail::make_counting_transform_iterator(0, index_pair_fn);
-  auto chars_data          = /*cudf::strings::detail::*/ make_chars_buffer(
-    offsets_column->view(), bytes, index_pair_it, string_count, stream, mr);
+  auto const size_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
+        return string_pairs[idx].second;
+      }));
+  auto [offsets_column, bytes] =
+    cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+    offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   auto output = cudf::make_strings_column(string_count,
                                           std::move(offsets_column),
