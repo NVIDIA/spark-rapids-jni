@@ -220,7 +220,7 @@ public class JSONUtils {
     return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
   }
 
-  public static ColumnVector castStringsToBooleans(ColumnVector input) {
+  public static ColumnVector castStringsToBooleans(ColumnView input) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(castStringsToBooleans(input.getNativeView()));
   }
