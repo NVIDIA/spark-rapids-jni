@@ -198,4 +198,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_makeStructs(
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToBooleans(JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_booleans(input).release());
+  }
+  CATCH_STD(env, 0);
 }
+
+}  // extern "C"

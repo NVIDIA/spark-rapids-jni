@@ -43,4 +43,21 @@ std::unique_ptr<cudf::column> make_structs(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+struct json_schema_element {
+  cudf::data_type type;
+
+  std::vector<std::pair<std::string, json_schema_element>> child_types;
+};
+
+std::unique_ptr<cudf::column> convert_types(
+  cudf::table_view const& input,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_booleans(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

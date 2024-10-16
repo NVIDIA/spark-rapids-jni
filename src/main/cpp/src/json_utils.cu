@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
+#include "json_utils.hpp"
+
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/strings/detail/combine.hpp>
@@ -30,6 +33,7 @@
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
+#include <thrust/tabulate.h>
 #include <thrust/transform.h>
 #include <thrust/tuple.h>
 #include <thrust/uninitialized_fill.h>
@@ -252,6 +256,69 @@ std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const&
   return std::make_unique<cudf::column>(structs, stream, mr);
 }
 
+namespace {
+
+std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
+  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+{
+  auto output = cudf::make_fixed_width_column(
+    cudf::data_type{cudf::type_id::BOOL8}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
+  auto validity = rmm::device_uvector<bool>(input.size(), stream);  // intentionally not use `mr`
+
+  auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+  auto const output_it   = thrust::make_zip_iterator(
+    thrust::make_tuple(output->mutable_view().begin<bool>(), validity.begin()));
+  thrust::tabulate(rmm::exec_policy_nosync(stream),
+                   output_it,
+                   output_it + input.size(),
+                   [input = *d_input_ptr] __device__(auto idx) -> thrust::tuple<bool, bool> {
+                     if (input.is_valid(idx)) {
+                       auto const d_str = input.element<cudf::string_view>(idx);
+                       if (d_str.size_bytes() == 4 && d_str[0] == 't' && d_str[1] == 'r' &&
+                           d_str[2] == 'u' && d_str[3] == 'e') {
+                         return {true, true};
+                       }
+                       if (d_str.size_bytes() == 5 && d_str[0] == 'f' && d_str[1] == 'a' &&
+                           d_str[2] == 'l' && d_str[3] == 's' && d_str[4] == 'e') {
+                         return {false, true};
+                       }
+                     }
+
+                     // Either null input, or the input string is neither `true` nor `false`.
+                     return {false, false};
+                   });
+
+  return {std::move(output), std::move(validity)};
+}
+
+std::unique_ptr<cudf::column> convert_column_type(cudf::column_view const& input,
+                                                  json_schema_element const& schema,
+                                                  rmm::cuda_stream_view stream,
+                                                  rmm::device_async_resource_ref mr)
+{
+  return nullptr;
+}
+
+}  // namespace
+
+std::unique_ptr<cudf::column> convert_types(
+  cudf::table_view const& input,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_columns = input.num_columns();
+  CUDF_EXPECTS(static_cast<std::size_t>(num_columns) == schema.size(),
+               "Numbers of columns in the input table is different from schema size.");
+
+  std::vector<std::unique_ptr<cudf::column>> converted_cols(num_columns);
+  for (int i = 0; i < num_columns; ++i) {
+    converted_cols[i] = convert_column_type(input.column(i), schema[i].second, stream, mr);
+  }
+
+  return nullptr;
+}
+
 }  // namespace detail
 
 std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
@@ -270,6 +337,33 @@ std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const&
 {
   CUDF_FUNC_RANGE();
   return detail::make_structs(children, is_null, stream, mr);
+}
+
+std::unique_ptr<cudf::column> convert_types(
+  cudf::table_view const& input,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::convert_types(input, schema, stream, mr);
+}
+
+std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& input,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  auto [output, validity] = detail::cast_strings_to_booleans(input, stream, mr);
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if(null_count > 0) {
+    output->set_null_mask(std::move(null_mask), null_count);
+  } else {
+    output->set_null_mask(rmm::device_buffer{}, 0);
+  }
+  return std::move(output);
 }
 
 }  // namespace spark_rapids_jni
