@@ -196,6 +196,7 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
+  src/HLLPPJni.cpp
   src/JSONUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
@@ -204,6 +205,7 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
+  src/HLLPP.cu
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
