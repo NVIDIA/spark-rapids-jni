@@ -310,6 +310,9 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
       return {false, false};
     });
 
+  // Reset null count, as it is invalidated after calling to `mutable_view()`.
+  output->set_null_mask(rmm::device_buffer{}, 0);
+
   return {std::move(output), std::move(validity)};
 }
 
@@ -480,11 +483,7 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
   auto [output, validity] = detail::cast_strings_to_booleans(input, stream, mr);
   auto [null_mask, null_count] =
     cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
-  if (null_count > 0) {
-    output->set_null_mask(std::move(null_mask), null_count);
-  } else {
-    output->set_null_mask(rmm::device_buffer{}, 0);
-  }
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
   return std::move(output);
 }
 
