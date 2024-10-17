@@ -15,8 +15,8 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "from_json.hpp"
 #include "get_json_object.hpp"
+#include "json_utils.hpp"
 
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -151,6 +151,50 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concatenateJsonStrings(
+  JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto [is_valid, joined_strings, delimiter] =
+      spark_rapids_jni::concat_json(cudf::strings_column_view{*input_cv});
+
+    // The output array contains 5 elements:
+    // [0]: address of the cudf::column object `is_valid` in host memory
+    // [1]: address of data buffer of the concatenated strings in device memory
+    // [2]: data length
+    // [3]: address of the rmm::device_buffer object (of the concatenated strings) in host memory
+    // [4]: delimiter char
+    auto out_handles = cudf::jni::native_jlongArray(env, 5);
+    out_handles[0]   = reinterpret_cast<jlong>(is_valid.release());
+    out_handles[1]   = reinterpret_cast<jlong>(joined_strings->data());
+    out_handles[2]   = static_cast<jlong>(joined_strings->size());
+    out_handles[3]   = reinterpret_cast<jlong>(joined_strings.release());
+    out_handles[4]   = static_cast<jlong>(delimiter);
+    return out_handles.get_jArray();
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_makeStructs(
+  JNIEnv* env, jclass, jlongArray j_children, jlong j_is_null)
+{
+  JNI_NULL_CHECK(env, j_children, "j_children is null", 0);
+  JNI_NULL_CHECK(env, j_is_null, "j_is_null is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const children =
+      cudf::jni::native_jpointerArray<cudf::column_view>{env, j_children}.get_dereferenced();
+    auto const is_null = *reinterpret_cast<cudf::column_view const*>(j_is_null);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::make_structs(children, is_null).release());
   }
   CATCH_STD(env, 0);
 }

@@ -20,6 +20,7 @@
 #include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <memory>
@@ -30,5 +31,16 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> make_structs(
+  std::vector<cudf::column_view> const& input,
+  cudf::column_view const& is_null,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
