@@ -225,9 +225,9 @@ public class JSONUtils {
     return new ColumnVector(castStringsToBooleans(input.getNativeView()));
   }
 
-  public static ColumnVector removeQuotes(ColumnView input) {
+  public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(removeQuotes(input.getNativeView()));
+    return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
   }
 
   private static native int getMaxJSONPathDepth();
@@ -254,5 +254,5 @@ public class JSONUtils {
 
   private static native long castStringsToBooleans(long input);
 
-  private static native long removeQuotes(long input);
+  private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 }

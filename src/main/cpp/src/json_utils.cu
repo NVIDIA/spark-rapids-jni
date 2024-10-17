@@ -276,7 +276,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
 
   auto output = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, string_count, cudf::mask_state::UNALLOCATED, stream, mr);
-  auto validity = rmm::device_uvector<bool>(string_count, stream);  // intentionally not use `mr`
+  auto validity = rmm::device_uvector<bool>(string_count, stream);
 
   auto const input_sv = cudf::strings_column_view{input};
   auto const offsets_it =
@@ -311,7 +311,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
     });
 
   // Reset null count, as it is invalidated after calling to `mutable_view()`.
-  output->set_null_mask(rmm::device_buffer{}, 0);
+  output->set_null_mask(rmm::device_buffer{0, stream, mr}, 0);
 
   return {std::move(output), std::move(validity)};
 }
@@ -360,7 +360,10 @@ rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
 }
 
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes(
-  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+  cudf::column_view const& input,
+  bool nullify_if_not_quoted,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   auto const string_count = input.size();
   if (string_count == 0) {
@@ -378,7 +381,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   thrust::tabulate(rmm::exec_policy_nosync(stream),
                    string_pairs.begin(),
                    string_pairs.end(),
-                   [chars    = input_sv.chars_begin(stream),
+                   [nullify_if_not_quoted,
+                    chars    = input_sv.chars_begin(stream),
                     offsets  = input_offsets_it,
                     is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
                      if (!is_valid[idx]) { return {nullptr, 0}; }
@@ -390,7 +394,9 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
 
                      // Need to check for size, since the input string may contain just a single
                      // character `"`. Such input should not be considered as quoted.
-                     auto const is_quoted   = size > 1 && str[0] == '"' && str[size - 1] == '"';
+                     auto const is_quoted = size > 1 && str[0] == '"' && str[size - 1] == '"';
+                     if (nullify_if_not_quoted && !is_quoted) { return {nullptr, 0}; }
+
                      auto const output_size = is_quoted ? size - 2 : size;
                      return {chars + start_offset + (is_quoted ? 1 : 0), output_size};
                    });
@@ -406,14 +412,32 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  auto output = cudf::make_strings_column(string_count,
-                                          std::move(offsets_column),
-                                          chars_data.release(),
-                                          input.null_count(),
-                                          cudf::detail::copy_bitmask(input, stream, mr));
+  if (nullify_if_not_quoted) {
+    auto validity = rmm::device_uvector<bool>(string_count, stream);
+    thrust::transform(
+      rmm::exec_policy_nosync(stream),
+      string_pairs.begin(),
+      string_pairs.end(),
+      validity.begin(),
+      [] __device__(string_index_pair const& pair) { return pair.first != nullptr; });
 
-  // This function does not return the validity vector.
-  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+    // Null mask and null count will be updated later from the validity vector.
+    auto output = cudf::make_strings_column(string_count,
+                                            std::move(offsets_column),
+                                            chars_data.release(),
+                                            0,
+                                            rmm::device_buffer{0, stream, mr});
+
+    return {std::move(output), std::move(validity)};
+  } else {
+    auto output = cudf::make_strings_column(string_count,
+                                            std::move(offsets_column),
+                                            chars_data.release(),
+                                            input.null_count(),
+                                            cudf::detail::copy_bitmask(input, stream, mr));
+
+    return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+  }
 }
 
 std::unique_ptr<cudf::column> convert_column_type(cudf::column_view const& input,
@@ -488,12 +512,18 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
 }
 
 std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
+                                            bool nullify_if_not_quoted,
                                             rmm::cuda_stream_view stream,
                                             rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
-  auto [output, validity] = detail::remove_quotes(input, stream, mr);
+  auto [output, validity] = detail::remove_quotes(input, nullify_if_not_quoted, stream, mr);
+  if (validity.size() > 0) {
+    auto [null_mask, null_count] =
+      cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+    if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+  }
   return std::move(output);
 }
 
