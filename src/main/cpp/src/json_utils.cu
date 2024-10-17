@@ -269,7 +269,12 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
   auto const string_count = input.size();
-  auto output             = cudf::make_fixed_width_column(
+  if (string_count == 0) {
+    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
+            rmm::device_uvector<bool>(0, stream)};
+  }
+
+  auto output = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, string_count, cudf::mask_state::UNALLOCATED, stream, mr);
   auto validity = rmm::device_uvector<bool>(string_count, stream);  // intentionally not use `mr`
 
@@ -354,14 +359,19 @@ rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
+  auto const string_count = input.size();
+  if (string_count == 0) {
+    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
+            rmm::device_uvector<bool>(0, stream)};
+  }
+
   auto const input_sv = cudf::strings_column_view{input};
   auto const input_offsets_it =
     cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
   auto const d_input_ptr = cudf::column_device_view::create(input, stream);
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
 
-  auto const string_count = input.size();
-  auto string_pairs       = rmm::device_uvector<string_index_pair>(string_count, stream);
+  auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
   thrust::tabulate(rmm::exec_policy_nosync(stream),
                    string_pairs.begin(),
                    string_pairs.end(),
@@ -398,7 +408,9 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
                                           chars_data.release(),
                                           input.null_count(),
                                           cudf::detail::copy_bitmask(input, stream, mr));
-  return {std::move(output), rmm::device_uvector<bool>{0, stream}};
+
+  // This function does not return the validity vector.
+  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
 }
 
 std::unique_ptr<cudf::column> convert_column_type(cudf::column_view const& input,
