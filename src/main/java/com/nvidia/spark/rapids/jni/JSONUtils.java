@@ -220,6 +220,16 @@ public class JSONUtils {
     return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
   }
 
+  public static ColumnVector castStringsToBooleans(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToBooleans(input.getNativeView()));
+  }
+
+  public static ColumnVector removeQuotes(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(removeQuotes(input.getNativeView()));
+  }
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -241,4 +251,8 @@ public class JSONUtils {
   private static native long[] concatenateJsonStrings(long input);
 
   private static native long makeStructs(long[] children, long isNull);
+
+  private static native long castStringsToBooleans(long input);
+
+  private static native long removeQuotes(long input);
 }
