@@ -594,6 +594,71 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   }
 }
 
+// TODO: extract commond code for this and `remove_quotes`.
+std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes_for_floats(
+  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+{
+  auto const string_count = input.size();
+  if (string_count == 0) {
+    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
+            rmm::device_uvector<bool>(0, stream)};
+  }
+
+  auto const input_sv = cudf::strings_column_view{input};
+  auto const input_offsets_it =
+    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
+  auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+  auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
+
+  auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream),
+    string_pairs.begin(),
+    string_pairs.end(),
+    [chars    = input_sv.chars_begin(stream),
+     offsets  = input_offsets_it,
+     is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
+      if (!is_valid[idx]) { return {nullptr, 0}; }
+
+      auto const start_offset = offsets[idx];
+      auto const end_offset   = offsets[idx + 1];
+      auto const size         = end_offset - start_offset;
+      auto const str          = chars + start_offset;
+
+      // Need to check for size, since the input string may contain just a single
+      // character `"`. Such input should not be considered as quoted.
+      auto const is_quoted = size > 1 && str[0] == '"' && str[size - 1] == '"';
+
+      // This is a special case, when `"INF"` is not accepted in `from_json`.
+      // We need to check for such string and nullify it.
+      if (is_quoted && size == 5 && str[1] == 'I' && str[2] == 'N' && str[3] == 'F') {
+        return {nullptr, 0};
+      }
+
+      auto const output_size = is_quoted ? size - 2 : size;
+      return {chars + start_offset + (is_quoted ? 1 : 0), output_size};
+    });
+
+  auto const size_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
+        return string_pairs[idx].second;
+      }));
+  auto [offsets_column, bytes] =
+    cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+    offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
+
+  auto output = cudf::make_strings_column(string_count,
+                                          std::move(offsets_column),
+                                          chars_data.release(),
+                                          input.null_count(),
+                                          cudf::detail::copy_bitmask(input, stream, mr));
+
+  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+}
+
 std::unique_ptr<cudf::column> convert_column_type(cudf::column_view const& input,
                                                   json_schema_element const& schema,
                                                   rmm::cuda_stream_view stream,
@@ -690,6 +755,16 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
       cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
     if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
   }
+  return std::move(output);
+}
+
+std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& input,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  auto [output, validity] = detail::remove_quotes_for_floats(input, stream, mr);
   return std::move(output);
 }
 

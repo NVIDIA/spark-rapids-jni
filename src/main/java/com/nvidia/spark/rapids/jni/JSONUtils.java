@@ -236,6 +236,11 @@ public class JSONUtils {
     return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
   }
 
+  public static ColumnVector removeQuotesForFloats(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(removeQuotesForFloats(input.getNativeView()));
+  }
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -263,4 +268,6 @@ public class JSONUtils {
   private static native long castStringsToDecimals(long input, int precision, int scale, boolean isUSLocale);
 
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
+
+  private static native long removeQuotesForFloats(long input);
 }
