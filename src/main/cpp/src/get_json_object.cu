@@ -1019,7 +1019,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     construct_path_commands(json_paths, stream);
 
   auto const num_outputs = json_paths.size();
-  std::vector<std::unique_ptr<cudf::column>> output;
 
   // The error check array contains markers denoting if there is any out-of-bound write occurs
   // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
@@ -1052,19 +1051,23 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+    rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
 
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
+  std::vector<cudf::device_span<thrust::pair<char const*, cudf::size_type> const>>
+    batch_stringviews;
+  batch_stringviews.reserve(out_stringviews.size());
+
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
   if (has_no_oob) {
     for (auto const& out_sview : out_stringviews) {
-      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+      batch_stringviews.emplace_back(out_sview);
     }
-    return output;
+    return cudf::make_strings_column_batch(batch_stringviews, stream, mr);
   }
   // From here, we had out-of-bound write. Although this is very rare, it may still happen.
 
@@ -1072,6 +1075,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::vector<std::pair<std::unique_ptr<cudf::column>, int64_t>> out_offsets_and_sizes;
   std::vector<rmm::device_uvector<char>> out_char_buffers;
   std::vector<std::size_t> oob_indices;
+  std::vector<std::size_t> no_oob_indices;
 
   // Check validity from the stored char pointers.
   auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
@@ -1085,7 +1089,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
     if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
-      output.emplace_back(nullptr);  // just placeholder.
 
       out_null_masks_and_null_counts.emplace_back(
         cudf::detail::valid_if(out_sview.begin(), out_sview.end(), validator, stream, mr));
@@ -1111,9 +1114,18 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                   out_char_buffers.back().data(),
                                   d_error_check.data() + idx});
     } else {
-      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+      no_oob_indices.emplace_back(idx);
+      batch_stringviews.emplace_back(out_sview);
     }
   }
+
+  std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
+  auto no_oob_output = cudf::make_strings_column_batch(batch_stringviews, stream, mr);
+  for (std::size_t idx = 0; idx < no_oob_indices.size(); ++idx) {
+    auto const out_idx = no_oob_indices[idx];
+    output[out_idx]    = std::move(no_oob_output[idx]);
+  }
+
   // These buffers are no longer needed.
   scratch_buffers.clear();
   out_stringviews.clear();
@@ -1122,7 +1134,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+    rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
