@@ -611,33 +611,50 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
 
   auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
-  thrust::tabulate(
-    rmm::exec_policy_nosync(stream),
-    string_pairs.begin(),
-    string_pairs.end(),
-    [chars    = input_sv.chars_begin(stream),
-     offsets  = input_offsets_it,
-     is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
-      if (!is_valid[idx]) { return {nullptr, 0}; }
+  thrust::tabulate(rmm::exec_policy_nosync(stream),
+                   string_pairs.begin(),
+                   string_pairs.end(),
+                   [chars    = input_sv.chars_begin(stream),
+                    offsets  = input_offsets_it,
+                    is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
+                     if (!is_valid[idx]) { return {nullptr, 0}; }
 
-      auto const start_offset = offsets[idx];
-      auto const end_offset   = offsets[idx + 1];
-      auto const size         = end_offset - start_offset;
-      auto const str          = chars + start_offset;
+                     auto const start_offset = offsets[idx];
+                     auto const end_offset   = offsets[idx + 1];
+                     auto const size         = end_offset - start_offset;
+                     auto const str          = chars + start_offset;
 
-      // Need to check for size, since the input string may contain just a single
-      // character `"`. Such input should not be considered as quoted.
-      auto const is_quoted = size > 1 && str[0] == '"' && str[size - 1] == '"';
+                     // Need to check for size, since the input string may contain just a single
+                     // character `"`. Such input should not be considered as quoted.
+                     auto const is_quoted = size > 1 && str[0] == '"' && str[size - 1] == '"';
 
-      // This is a special case, when `"INF"` is not accepted in `from_json`.
-      // We need to check for such string and nullify it.
-      if (is_quoted && size == 5 && str[1] == 'I' && str[2] == 'N' && str[3] == 'F') {
-        return {nullptr, 0};
-      }
+                     // We check and remove quotes only for the special cases (non-numeric numbers
+                     // wrapped in double quotes) that are accepted in `from_json`.
+                     // They are "NaN", "+INF", "-INF", "+Infinity", "Infinity", "-Infinity".
+                     if (is_quoted) {
+                       // "NaN"
+                       auto accepted = size == 5 && str[1] == 'N' && str[2] == 'a' && str[3] == 'N';
 
-      auto const output_size = is_quoted ? size - 2 : size;
-      return {chars + start_offset + (is_quoted ? 1 : 0), output_size};
-    });
+                       // "+INF" and "-INF"
+                       accepted = accepted || (size == 6 && (str[1] == '+' || str[1] == '-') &&
+                                               str[2] == 'I' && str[3] == 'N' && str[4] == 'F');
+
+                       // "Infinity"
+                       accepted = accepted || (size == 10 && str[1] == 'I' && str[2] == 'n' &&
+                                               str[3] == 'f' && str[4] == 'i' && str[5] == 'n' &&
+                                               str[6] == 'i' && str[7] == 't' && str[8] == 'y');
+
+                       // "+Infinity" and "-Infinity"
+                       accepted = accepted || (size == 11 && (str[1] == '+' || str[1] == '-') &&
+                                               str[2] == 'I' && str[3] == 'n' && str[4] == 'f' &&
+                                               str[5] == 'i' && str[6] == 'n' && str[7] == 'i' &&
+                                               str[8] == 't' && str[9] == 'y');
+
+                       if (accepted) { return {str + 1, size - 2}; }
+                     }
+
+                     return {str, size};
+                   });
 
   auto const size_it = cudf::detail::make_counting_transform_iterator(
     0,
