@@ -23,8 +23,11 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/strings/contains.hpp>
+#include <cudf/strings/convert/convert_datetime.hpp>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
+#include <cudf/strings/regex/regex_program.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -427,6 +430,101 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   return {std::move(output), rmm::device_uvector<bool>(0, stream)};
 }
 
+std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_dates(
+  cudf::column_view const& input,
+  std::string const& date_regex,
+  std::string const& date_format,
+  bool error_if_invalid,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const string_count = input.size();
+  if (string_count == 0) {
+    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::TIMESTAMP_DAYS}),
+            rmm::device_uvector<bool>(0, stream)};
+  }
+
+  // TODO: mr
+  auto const removed_quotes = remove_quotes(input, false, stream, mr);
+
+  auto const input_sv   = cudf::strings_column_view{removed_quotes->view()};
+  auto const regex_prog = cudf::strings::regex_program::create(
+    date_regex, cudf::strings::regex_flags::DEFAULT, cudf::strings::capture_groups::NON_CAPTURE);
+  auto const is_matched     = cudf::strings::matches_re(input_sv, *regex_prog, stream);
+  auto const is_timestamp   = cudf::strings::is_timestamp(input_sv, date_format, stream);
+  auto const d_is_matched   = is_matched->view().begin<bool>();
+  auto const d_is_timestamp = is_timestamp->view().begin<bool>();
+
+  auto const d_input_ptr   = cudf::column_device_view::create(removed_quotes->view(), stream);
+  auto const is_valid_it   = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
+  auto const invalid_count = thrust::count_if(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(string_count),
+    [is_valid = is_valid_it, is_matched = d_is_matched, is_timestamp = d_is_timestamp] __device__(
+      auto idx) { return is_valid[idx] && (!is_matched[idx] || !is_timestamp[idx]); });
+
+  if (invalid_count == 0) {
+    auto output = cudf::strings::to_timestamps(
+      input_sv, cudf::data_type{cudf::type_id::TIMESTAMP_DAYS}, date_format, stream, mr);
+    return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+  }
+
+  // From here we have invalid_count > 0.
+  if (error_if_invalid) { return {nullptr, rmm::device_uvector<bool>(0, stream)}; }
+
+  auto const input_offsets_it =
+    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
+  auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
+
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream),
+    string_pairs.begin(),
+    string_pairs.end(),
+    [chars        = input_sv.chars_begin(stream),
+     offsets      = input_offsets_it,
+     is_valid     = is_valid_it,
+     is_matched   = d_is_matched,
+     is_timestamp = d_is_timestamp] __device__(cudf::size_type idx) -> string_index_pair {
+      if (!is_valid[idx] || !is_matched[idx] || !is_timestamp[idx]) { return {nullptr, 0}; }
+
+      auto const start_offset = offsets[idx];
+      auto const end_offset   = offsets[idx + 1];
+      return {chars + start_offset, end_offset - start_offset};
+    });
+
+  auto const size_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
+        return string_pairs[idx].second;
+      }));
+  auto [offsets_column, bytes] =
+    cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+    offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
+
+  // Don't care about the null mask, as nulls imply empty strings, and will be nullified.
+  auto const sanitized_input =
+    cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
+
+  auto output = cudf::strings::to_timestamps(cudf::strings_column_view{sanitized_input->view()},
+                                             cudf::data_type{cudf::type_id::TIMESTAMP_DAYS},
+                                             date_format,
+                                             stream,
+                                             mr);
+
+  auto validity = rmm::device_uvector<bool>(string_count, stream);
+  thrust::transform(rmm::exec_policy_nosync(stream),
+                    string_pairs.begin(),
+                    string_pairs.end(),
+                    validity.begin(),
+                    [] __device__(string_index_pair const& pair) { return pair.first != nullptr; });
+
+  // Null mask and null count will be updated later from the validity vector.
+  return {std::move(output), std::move(validity)};
+}
+
 // TODO there is a bug here around 0 https://github.com/NVIDIA/spark-rapids/issues/10898
 std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& input,
                                                        int precision,
@@ -819,6 +917,25 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
   CUDF_FUNC_RANGE();
 
   auto [output, validity] = detail::cast_strings_to_integers(input, output_type, stream, mr);
+  return std::move(output);
+}
+
+std::unique_ptr<cudf::column> cast_strings_to_dates(cudf::column_view const& input,
+                                                    std::string const& date_regex,
+                                                    std::string const& date_format,
+                                                    bool error_if_invalid,
+                                                    rmm::cuda_stream_view stream,
+                                                    rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  auto [output, validity] =
+    detail::cast_strings_to_dates(input, date_regex, date_format, error_if_invalid, stream, mr);
+
+  if (output == nullptr) { return nullptr; }
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
   return std::move(output);
 }
 

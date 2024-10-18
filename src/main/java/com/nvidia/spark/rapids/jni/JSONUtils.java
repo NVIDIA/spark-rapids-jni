@@ -237,6 +237,16 @@ public class JSONUtils {
         output_type.getTypeId().getNativeId()));
   }
 
+  public static ColumnVector castStringsToDates(ColumnView input, String dateRegex,
+                                                String dateFormat, boolean failOnInvalid) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    long output = castStringsToDates(input.getNativeView(), dateRegex, dateFormat, failOnInvalid);
+    if (output == 0) {
+      return null;
+    }
+    return new ColumnVector(output);
+  }
+
   public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
@@ -274,6 +284,8 @@ public class JSONUtils {
   private static native long castStringsToDecimals(long input, int precision, int scale, boolean isUSLocale);
 
   private static native long castStringsToIntegers(long input, int outputType);
+
+  private static native long castStringsToDates(long input, String dateRegex, String dateFormat, boolean failOnInvalid);
 
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 

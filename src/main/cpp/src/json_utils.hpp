@@ -27,6 +27,8 @@
 
 namespace spark_rapids_jni {
 
+// TODO: replace rmm::mr::get_current_device_resource() by cudf
+
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
@@ -71,6 +73,14 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(
 std::unique_ptr<cudf::column> cast_strings_to_integers(
   cudf::column_view const& input,
   cudf::data_type output_type,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_dates(
+  cudf::column_view const& input,
+  std::string const& date_regex,
+  std::string const& date_format,
+  bool error_if_invalid,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
