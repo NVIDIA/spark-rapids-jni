@@ -68,6 +68,12 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<cudf::column> cast_strings_to_integers(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 std::unique_ptr<cudf::column> remove_quotes(
   cudf::column_view const& input,
   bool nullify_if_not_quoted,

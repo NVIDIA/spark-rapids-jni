@@ -269,12 +269,55 @@ namespace {
 
 using string_index_pair = thrust::pair<char const*, cudf::size_type>;
 
+// TODO: remove this.
+template <typename IndexPairIterator>
+rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
+                                            int64_t chars_size,
+                                            IndexPairIterator begin,
+                                            cudf::size_type string_count,
+                                            rmm::cuda_stream_view stream,
+                                            rmm::device_async_resource_ref mr)
+{
+  auto chars_data      = rmm::device_uvector<char>(chars_size, stream, mr);
+  auto const d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets);
+
+  auto const src_ptrs = cudf::detail::make_counting_transform_iterator(
+    0u, cuda::proclaim_return_type<void*>([begin] __device__(uint32_t idx) {
+      // Due to a bug in cub (https://github.com/NVIDIA/cccl/issues/586),
+      // we have to use `const_cast` to remove `const` qualifier from the source pointer.
+      // This should be fine as long as we only read but not write anything to the source.
+      return reinterpret_cast<void*>(const_cast<char*>(begin[idx].first));
+    }));
+  auto const src_sizes = cudf::detail::make_counting_transform_iterator(
+    0u, cuda::proclaim_return_type<cudf::size_type>([begin] __device__(uint32_t idx) {
+      return begin[idx].second;
+    }));
+  auto const dst_ptrs = cudf::detail::make_counting_transform_iterator(
+    0u,
+    cuda::proclaim_return_type<char*>([offsets = d_offsets, output = chars_data.data()] __device__(
+                                        uint32_t idx) { return output + offsets[idx]; }));
+
+  size_t temp_storage_bytes = 0;
+  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(
+    nullptr, temp_storage_bytes, src_ptrs, dst_ptrs, src_sizes, string_count, stream.value()));
+  rmm::device_buffer d_temp_storage(temp_storage_bytes, stream);
+  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(d_temp_storage.data(),
+                                           temp_storage_bytes,
+                                           src_ptrs,
+                                           dst_ptrs,
+                                           src_sizes,
+                                           string_count,
+                                           stream.value()));
+
+  return chars_data;
+}
+
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
   auto const string_count = input.size();
   if (string_count == 0) {
-    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
+    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}),
             rmm::device_uvector<bool>(0, stream)};
   }
 
@@ -320,47 +363,68 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   return {std::move(output), std::move(validity)};
 }
 
-// TODO: remove this.
-template <typename IndexPairIterator>
-rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
-                                            int64_t chars_size,
-                                            IndexPairIterator begin,
-                                            cudf::size_type string_count,
-                                            rmm::cuda_stream_view stream,
-                                            rmm::device_async_resource_ref mr)
+std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_integers(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
-  auto chars_data      = rmm::device_uvector<char>(chars_size, stream, mr);
-  auto const d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets);
+  auto const string_count = input.size();
+  if (string_count == 0) {
+    return {cudf::make_empty_column(output_type), rmm::device_uvector<bool>(0, stream)};
+  }
 
-  auto const src_ptrs = cudf::detail::make_counting_transform_iterator(
-    0u, cuda::proclaim_return_type<void*>([begin] __device__(uint32_t idx) {
-      // Due to a bug in cub (https://github.com/NVIDIA/cccl/issues/586),
-      // we have to use `const_cast` to remove `const` qualifier from the source pointer.
-      // This should be fine as long as we only read but not write anything to the source.
-      return reinterpret_cast<void*>(const_cast<char*>(begin[idx].first));
-    }));
-  auto const src_sizes = cudf::detail::make_counting_transform_iterator(
-    0u, cuda::proclaim_return_type<cudf::size_type>([begin] __device__(uint32_t idx) {
-      return begin[idx].second;
-    }));
-  auto const dst_ptrs = cudf::detail::make_counting_transform_iterator(
-    0u,
-    cuda::proclaim_return_type<char*>([offsets = d_offsets, output = chars_data.data()] __device__(
-                                        uint32_t idx) { return output + offsets[idx]; }));
+  auto const input_sv = cudf::strings_column_view{input};
+  auto const input_offsets_it =
+    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
+  auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+  auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
 
-  size_t temp_storage_bytes = 0;
-  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(
-    nullptr, temp_storage_bytes, src_ptrs, dst_ptrs, src_sizes, string_count, stream.value()));
-  rmm::device_buffer d_temp_storage(temp_storage_bytes, stream);
-  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(d_temp_storage.data(),
-                                           temp_storage_bytes,
-                                           src_ptrs,
-                                           dst_ptrs,
-                                           src_sizes,
-                                           string_count,
-                                           stream.value()));
+  auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
+  // Since the strings store integer numbers, they should be very short.
+  // As such, using one thread per string should be good.
+  thrust::tabulate(rmm::exec_policy_nosync(stream),
+                   string_pairs.begin(),
+                   string_pairs.end(),
+                   [chars    = input_sv.chars_begin(stream),
+                    offsets  = input_offsets_it,
+                    is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
+                     if (!is_valid[idx]) { return {nullptr, 0}; }
 
-  return chars_data;
+                     auto const start_offset = offsets[idx];
+                     auto const end_offset   = offsets[idx + 1];
+
+                     auto in_ptr = chars + start_offset;
+                     auto in_end = chars + end_offset;
+                     while (in_ptr != in_end) {
+                       if (*in_ptr == '.' || *in_ptr == 'e' || *in_ptr == 'E') {
+                         return {nullptr, 0};
+                       }
+                       ++in_ptr;
+                     }
+
+                     return {chars + start_offset, end_offset - start_offset};
+                   });
+
+  auto const size_it = cudf::detail::make_counting_transform_iterator(
+    0,
+    cuda::proclaim_return_type<cudf::size_type>(
+      [string_pairs = string_pairs.begin()] __device__(cudf::size_type idx) -> cudf::size_type {
+        return string_pairs[idx].second;
+      }));
+  auto [offsets_column, bytes] =
+    cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+    offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
+
+  // Don't care about the null mask, as nulls imply empty strings, and will be nullified.
+  auto const sanitized_input =
+    cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
+
+  auto output = string_to_integer(
+    output_type, cudf::strings_column_view{sanitized_input->view()}, false, false, stream, mr);
+
+  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
 }
 
 // TODO there is a bug here around 0 https://github.com/NVIDIA/spark-rapids/issues/10898
@@ -744,6 +808,17 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
   auto [null_mask, null_count] =
     cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
   if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+  return std::move(output);
+}
+
+std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& input,
+                                                       cudf::data_type output_type,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  auto [output, validity] = detail::cast_strings_to_integers(input, output_type, stream, mr);
   return std::move(output);
 }
 

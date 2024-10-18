@@ -227,6 +227,23 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsTo
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToIntegers(
+  JNIEnv* env, jclass, jlong j_input, jint output_type_id)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_integers(
+        input, cudf::data_type{static_cast<cudf::type_id>(output_type_id)})
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
   JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
 {

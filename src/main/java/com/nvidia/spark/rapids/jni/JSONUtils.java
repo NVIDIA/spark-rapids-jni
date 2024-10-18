@@ -231,6 +231,12 @@ public class JSONUtils {
     return new ColumnVector(castStringsToDecimals(input.getNativeView(), precision, scale, isUSLocale));
   }
 
+  public static ColumnVector castStringsToIntegers(ColumnView input, DType output_type) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToIntegers(input.getNativeView(),
+        output_type.getTypeId().getNativeId()));
+  }
+
   public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
@@ -266,6 +272,8 @@ public class JSONUtils {
   private static native long castStringsToBooleans(long input);
 
   private static native long castStringsToDecimals(long input, int precision, int scale, boolean isUSLocale);
+
+  private static native long castStringsToIntegers(long input, int outputType);
 
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 
