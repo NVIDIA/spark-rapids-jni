@@ -212,6 +212,21 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToBooleans(JNIEnv* env, jc
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToDecimals(
+  JNIEnv* env, jclass, jlong j_input, jint precision, jint scale, jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_decimals(input, precision, scale, is_us_locale).release());
+  }
+  CATCH_STD(env, 0);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
   JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
 {
