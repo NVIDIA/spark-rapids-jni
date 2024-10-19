@@ -64,7 +64,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& in
 {
   if (input.is_empty()) {
     return cudf::detail::make_device_uvector_async<char>(
-      std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource());
+      std::vector<char>{'[', ']'}, stream, cudf::get_current_device_resource_ref());
   }
 
   auto const d_strings  = cudf::column_device_view::create(input.parent(), stream);
@@ -84,7 +84,7 @@ rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& in
     cudf::string_scalar(","),   // append `,` character between the input rows
     cudf::string_scalar("{}"),  // replacement for null rows
     stream,
-    rmm::mr::get_current_device_resource());
+    cudf::get_current_device_resource_ref());
   auto const joined_input_scv        = cudf::strings_column_view{*joined_input};
   auto const joined_input_size_bytes = joined_input_scv.chars_size(stream);
   // TODO: This assertion requires a stream synchronization, may want to remove at some point.
@@ -656,7 +656,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
     cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
     cudf::io::json_reader_options{},
     stream,
-    rmm::mr::get_current_device_resource());
+    cudf::get_current_device_resource_ref());
 
 #ifdef DEBUG_FROM_JSON
   print_debug(tokens, "Tokens", ", ", stream);
