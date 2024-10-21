@@ -84,13 +84,6 @@ std::unique_ptr<cudf::column> cast_strings_to_dates(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
-std::unique_ptr<cudf::column> cast_strings_to_dates_legacy(
-  cudf::column_view const& input,
-  std::vector<std::pair<std::string, int64_t>> const& special_dates,
-  bool error_if_invalid,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
 std::unique_ptr<cudf::column> remove_quotes(
   cudf::column_view const& input,
   bool nullify_if_not_quoted,
