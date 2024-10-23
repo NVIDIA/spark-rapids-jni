@@ -272,49 +272,6 @@ namespace {
 
 using string_index_pair = thrust::pair<char const*, cudf::size_type>;
 
-// TODO: remove this.
-template <typename IndexPairIterator>
-rmm::device_uvector<char> make_chars_buffer(cudf::column_view const& offsets,
-                                            int64_t chars_size,
-                                            IndexPairIterator begin,
-                                            cudf::size_type string_count,
-                                            rmm::cuda_stream_view stream,
-                                            rmm::device_async_resource_ref mr)
-{
-  auto chars_data      = rmm::device_uvector<char>(chars_size, stream, mr);
-  auto const d_offsets = cudf::detail::offsetalator_factory::make_input_iterator(offsets);
-
-  auto const src_ptrs = cudf::detail::make_counting_transform_iterator(
-    0u, cuda::proclaim_return_type<void*>([begin] __device__(uint32_t idx) {
-      // Due to a bug in cub (https://github.com/NVIDIA/cccl/issues/586),
-      // we have to use `const_cast` to remove `const` qualifier from the source pointer.
-      // This should be fine as long as we only read but not write anything to the source.
-      return reinterpret_cast<void*>(const_cast<char*>(begin[idx].first));
-    }));
-  auto const src_sizes = cudf::detail::make_counting_transform_iterator(
-    0u, cuda::proclaim_return_type<cudf::size_type>([begin] __device__(uint32_t idx) {
-      return begin[idx].second;
-    }));
-  auto const dst_ptrs = cudf::detail::make_counting_transform_iterator(
-    0u,
-    cuda::proclaim_return_type<char*>([offsets = d_offsets, output = chars_data.data()] __device__(
-                                        uint32_t idx) { return output + offsets[idx]; }));
-
-  size_t temp_storage_bytes = 0;
-  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(
-    nullptr, temp_storage_bytes, src_ptrs, dst_ptrs, src_sizes, string_count, stream.value()));
-  rmm::device_buffer d_temp_storage(temp_storage_bytes, stream);
-  CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(d_temp_storage.data(),
-                                           temp_storage_bytes,
-                                           src_ptrs,
-                                           dst_ptrs,
-                                           src_sizes,
-                                           string_count,
-                                           stream.value()));
-
-  return chars_data;
-}
-
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
@@ -417,7 +374,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
-  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+  auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   // Don't care about the null mask, as nulls imply empty strings, and will be nullified.
@@ -501,7 +458,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
-  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+  auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   // Don't care about the null mask, as nulls imply empty strings, and will be nullified.
@@ -725,7 +682,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
-  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+  auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   if (nullify_if_not_quoted) {
@@ -826,7 +783,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
-  auto chars_data = /*cudf::strings::detail::*/ make_chars_buffer(
+  auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   auto output = cudf::make_strings_column(string_count,
