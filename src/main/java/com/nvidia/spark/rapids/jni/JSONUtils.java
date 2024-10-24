@@ -225,10 +225,11 @@ public class JSONUtils {
     return new ColumnVector(castStringsToBooleans(input.getNativeView()));
   }
 
-  public static ColumnVector castStringsToDecimals(ColumnView input, int precision, int scale,
+  public static ColumnVector castStringsToDecimals(ColumnView input, DType outputType,
                                                    boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(castStringsToDecimals(input.getNativeView(), precision, scale, isUSLocale));
+    return new ColumnVector(castStringsToDecimals(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), isUSLocale));
   }
 
   public static ColumnVector castStringsToIntegers(ColumnView input, DType output_type) {
@@ -283,7 +284,7 @@ public class JSONUtils {
 
   private static native long castStringsToBooleans(long input);
 
-  private static native long castStringsToDecimals(long input, int precision, int scale, boolean isUSLocale);
+  private static native long castStringsToDecimals(long input, int outputTypeId, boolean isUSLocale);
 
   private static native long castStringsToIntegers(long input, int outputType);
 

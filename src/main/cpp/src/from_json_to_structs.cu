@@ -486,27 +486,13 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
 
 // TODO there is a bug here around 0 https://github.com/NVIDIA/spark-rapids/issues/10898
 std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& input,
-                                                       int precision,
-                                                       int scale,
+                                                       cudf::data_type output_type,
                                                        bool is_us_locale,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
   auto const string_count = input.size();
-  if (string_count == 0) {
-    auto const dtype = [precision, scale]() {
-      if (precision <= std::numeric_limits<int32_t>::digits10) {
-        return cudf::data_type(cudf::type_id::DECIMAL32, scale);
-      } else if (precision <= std::numeric_limits<int64_t>::digits10) {
-        return cudf::data_type(cudf::type_id::DECIMAL64, scale);
-      } else if (precision <= std::numeric_limits<__int128_t>::digits10) {
-        return cudf::data_type(cudf::type_id::DECIMAL128, scale);
-      } else {
-        CUDF_FAIL("Unable to support decimal with precision " + std::to_string(precision));
-      }
-    }();
-    return cudf::make_empty_column(dtype);
-  }
+  if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   CUDF_EXPECTS(is_us_locale, "String to decimal conversion is only supported in US locale.");
 
@@ -799,6 +785,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
 
 std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>& input,
                                                   json_schema_element const& schema,
+                                                  bool allow_nonnumeric_numbers,
+                                                  bool is_us_locale,
                                                   rmm::cuda_stream_view stream,
                                                   rmm::device_async_resource_ref mr)
 {
@@ -810,14 +798,16 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
     CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
     return ::spark_rapids_jni::cast_strings_to_integers(input->view(), schema.type, stream, mr);
   }
-  // if (cudf::is_floating_point(schema.type)) {
-  //   CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
-  //   return ::cast_strings_to_floats(input->view(), schema.type, stream, mr);
-  // }
-  // if (cudf::is_fixed_point(schema.type)) {
-  //   CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
-  //   return ::cast_strings_to_decimals(input->view(), schema.type, stream, mr);
-  // }
+  if (cudf::is_floating_point(schema.type)) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return ::spark_rapids_jni::cast_strings_to_floats(
+      input->view(), schema.type, allow_nonnumeric_numbers, stream, mr);
+  }
+  if (cudf::is_fixed_point(schema.type)) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return ::spark_rapids_jni::cast_strings_to_decimals(
+      input->view(), schema.type, is_us_locale, stream, mr);
+  }
   if (schema.type.id() == cudf::type_id::STRING) {
     CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
     return ::spark_rapids_jni::remove_quotes(input->view(), false, stream, mr);
@@ -833,6 +823,8 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
     auto new_child =
       convert_column_type(input_content.children[cudf::lists_column_view::child_column_index],
                           schema.child_types.front().second,
+                          allow_nonnumeric_numbers,
+                          is_us_locale,
                           stream,
                           mr);
 
@@ -854,8 +846,12 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
     new_children.reserve(num_children);
     auto input_content = input->release();
     for (cudf::size_type i = 0; i < input->num_children(); ++i) {
-      new_children.emplace_back(
-        convert_column_type(input_content.children[i], schema.child_types[i].second, stream, mr));
+      new_children.emplace_back(convert_column_type(input_content.children[i],
+                                                    schema.child_types[i].second,
+                                                    allow_nonnumeric_numbers,
+                                                    is_us_locale,
+                                                    stream,
+                                                    mr));
     }
 
     return cudf::make_structs_column(num_rows,
@@ -890,6 +886,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
   cudf::io::json_reader_options const& json_options,
+  bool is_us_locale,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -924,7 +921,12 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   std::vector<std::unique_ptr<cudf::column>> converted_cols(parsed_columns.size());
   for (std::size_t i = 0; i < parsed_columns.size(); ++i) {
     check_schema(parsed_meta.schema_info[i], schema[i]);
-    converted_cols[i] = convert_column_type(parsed_columns[i], schema[i].second, stream, mr);
+    converted_cols[i] = convert_column_type(parsed_columns[i],
+                                            schema[i].second,
+                                            json_options.is_allowed_nonnumeric_numbers(),
+                                            is_us_locale,
+                                            stream,
+                                            mr);
   }
 
   auto const valid_it          = is_null_or_empty->view().begin<bool>();
@@ -1004,15 +1006,14 @@ std::unique_ptr<cudf::column> cast_strings_to_dates(cudf::column_view const& inp
 }
 
 std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& input,
-                                                       int precision,
-                                                       int scale,
+                                                       cudf::data_type output_type,
                                                        bool is_us_locale,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
-  return detail::cast_strings_to_decimals(input, precision, scale, is_us_locale, stream, mr);
+  return detail::cast_strings_to_decimals(input, output_type, is_us_locale, stream, mr);
 }
 
 std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
