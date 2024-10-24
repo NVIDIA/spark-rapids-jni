@@ -1,6 +1,7 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
+import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.io.*;
@@ -102,7 +103,7 @@ public class KudoSerializer {
   }
 
   public Pair<HostMergeResult, MergeMetrics> mergeToHost(List<SerializedTable> serializedTables,
-      Schema schema) {
+                                                         Schema schema) {
     MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
 
     MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, serializedTables),

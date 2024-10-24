@@ -3,6 +3,8 @@ package com.nvidia.spark.rapids.jni.kudo;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.DeviceMemoryBuffer;
 
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToInt;
+
 
 public class ColumnViewInfo {
     private final DType dtype;
