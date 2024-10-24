@@ -252,9 +252,11 @@ public class JSONUtils {
     return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
   }
 
-  public static ColumnVector removeQuotesForFloats(ColumnView input) {
+  public static ColumnVector castStringsToFloats(ColumnView input, DType outputType,
+                                                 boolean allowNonNumericNumbers) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(removeQuotesForFloats(input.getNativeView()));
+    return new ColumnVector(castStringsToFloats(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), allowNonNumericNumbers));
   }
 
   private static native int getMaxJSONPathDepth();
@@ -289,5 +291,5 @@ public class JSONUtils {
 
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 
-  private static native long removeQuotesForFloats(long input);
+  private static native long castStringsToFloats(long input, int outputTypeId, boolean allowNonNumericNumbers);
 }

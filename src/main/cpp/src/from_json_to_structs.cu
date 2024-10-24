@@ -1031,14 +1031,20 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
   return std::move(output);
 }
 
-std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& input,
-                                                       rmm::cuda_stream_view stream,
-                                                       rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& input,
+                                                     cudf::data_type output_type,
+                                                     bool allow_nonnumeric_numbers,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
-  auto [output, validity] = detail::remove_quotes_for_floats(input, stream, mr);
-  return std::move(output);
+  if (allow_nonnumeric_numbers) {
+    auto [removed_quotes, validity] = detail::remove_quotes_for_floats(input, stream, mr);
+    return string_to_float(
+      output_type, cudf::strings_column_view{removed_quotes->view()}, false, stream, mr);
+  }
+  return string_to_float(output_type, cudf::strings_column_view{input}, false, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
