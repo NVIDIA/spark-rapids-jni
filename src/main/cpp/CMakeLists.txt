@@ -207,6 +207,7 @@ add_library(
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/format_float.cu
+  src/from_json_to_structs.cu
   src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
@@ -215,7 +216,6 @@ add_library(
   src/from_json_to_raw_map.cu
   src/get_json_object.cu
   src/histogram.cu
-  src/json_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu

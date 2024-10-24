@@ -198,4 +198,109 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_makeStructs(
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToBooleans(JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_booleans(input).release());
+  }
+  CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToDecimals(
+  JNIEnv* env, jclass, jlong j_input, jint j_output_type_id, jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_decimals(
+        input, cudf::data_type{static_cast<cudf::type_id>(j_output_type_id)}, is_us_locale)
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToIntegers(
+  JNIEnv* env, jclass, jlong j_input, jint output_type_id)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_integers(
+        input, cudf::data_type{static_cast<cudf::type_id>(output_type_id)})
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToDates(JNIEnv* env,
+                                                              jclass,
+                                                              jlong j_input,
+                                                              jstring j_date_regex,
+                                                              jstring j_date_format,
+                                                              jboolean error_if_invalid)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_date_regex, "date_regex is null", 0);
+  JNI_NULL_CHECK(env, j_date_format, "date_format is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    cudf::jni::native_jstring date_regex(env, j_date_regex);
+    cudf::jni::native_jstring date_format(env, j_date_format);
+
+    auto output = spark_rapids_jni::cast_strings_to_dates(
+      input, date_regex.get(), date_format.get(), error_if_invalid);
+    if (output == nullptr) { return 0; }
+    return cudf::jni::ptr_as_jlong(output.release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
+  JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::remove_quotes(input, nullify_if_not_quoted).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToFloats(
+  JNIEnv* env, jclass, jlong j_input, jint j_output_type_id, jboolean allow_nonnumeric_numbers)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_floats(
+                                     input,
+                                     cudf::data_type{static_cast<cudf::type_id>(j_output_type_id)},
+                                     allow_nonnumeric_numbers)
+                                     .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+}  // extern "C"

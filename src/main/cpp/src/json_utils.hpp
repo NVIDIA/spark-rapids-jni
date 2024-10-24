@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
@@ -26,6 +27,8 @@
 #include <memory>
 
 namespace spark_rapids_jni {
+
+// TODO: replace rmm::mr::get_current_device_resource() by cudf
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
@@ -40,6 +43,66 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
 std::unique_ptr<cudf::column> make_structs(
   std::vector<cudf::column_view> const& input,
   cudf::column_view const& is_null,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+struct json_schema_element {
+  cudf::data_type type;
+
+  std::vector<std::pair<std::string, json_schema_element>> child_types;
+};
+
+std::unique_ptr<cudf::column> from_json_to_structs(
+  cudf::strings_column_view const& input,
+  std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  cudf::io::json_reader_options const& json_options,
+  bool is_us_locale,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+//
+//
+//
+//
+//
+//
+//
+std::unique_ptr<cudf::column> cast_strings_to_booleans(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_decimals(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  bool is_us_locale,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_integers(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_dates(
+  cudf::column_view const& input,
+  std::string const& date_regex,
+  std::string const& date_format,
+  bool error_if_invalid,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> remove_quotes(
+  cudf::column_view const& input,
+  bool nullify_if_not_quoted,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> cast_strings_to_floats(
+  cudf::column_view const& input,
+  cudf::data_type output_type,
+  bool allow_nonnumeric_numbers,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

@@ -220,6 +220,46 @@ public class JSONUtils {
     return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
   }
 
+  public static ColumnVector castStringsToBooleans(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToBooleans(input.getNativeView()));
+  }
+
+  public static ColumnVector castStringsToDecimals(ColumnView input, DType outputType,
+                                                   boolean isUSLocale) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToDecimals(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), isUSLocale));
+  }
+
+  public static ColumnVector castStringsToIntegers(ColumnView input, DType output_type) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToIntegers(input.getNativeView(),
+        output_type.getTypeId().getNativeId()));
+  }
+
+  public static ColumnVector castStringsToDates(ColumnView input, String dateRegex,
+                                                String dateFormat, boolean failOnInvalid) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    long output = castStringsToDates(input.getNativeView(), dateRegex, dateFormat, failOnInvalid);
+    if (output == 0) {
+      return null;
+    }
+    return new ColumnVector(output);
+  }
+
+  public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
+  }
+
+  public static ColumnVector castStringsToFloats(ColumnView input, DType outputType,
+                                                 boolean allowNonNumericNumbers) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToFloats(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), allowNonNumericNumbers));
+  }
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -241,4 +281,16 @@ public class JSONUtils {
   private static native long[] concatenateJsonStrings(long input);
 
   private static native long makeStructs(long[] children, long isNull);
+
+  private static native long castStringsToBooleans(long input);
+
+  private static native long castStringsToDecimals(long input, int outputTypeId, boolean isUSLocale);
+
+  private static native long castStringsToIntegers(long input, int outputType);
+
+  private static native long castStringsToDates(long input, String dateRegex, String dateFormat, boolean failOnInvalid);
+
+  private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
+
+  private static native long castStringsToFloats(long input, int outputTypeId, boolean allowNonNumericNumbers);
 }
