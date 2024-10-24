@@ -23,6 +23,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/io/json.hpp>
 #include <cudf/strings/contains.hpp>
 #include <cudf/strings/convert/convert_datetime.hpp>
 #include <cudf/strings/detail/combine.hpp>
@@ -30,6 +31,7 @@
 #include <cudf/strings/regex/regex_program.hpp>
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/utilities/traits.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -795,32 +797,145 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   return {std::move(output), rmm::device_uvector<bool>(0, stream)};
 }
 
-std::unique_ptr<cudf::column> convert_column_type(cudf::column_view const& input,
+std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>& input,
                                                   json_schema_element const& schema,
                                                   rmm::cuda_stream_view stream,
                                                   rmm::device_async_resource_ref mr)
 {
+  if (schema.type.id() == cudf::type_id::BOOL8) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return cast_strings_to_booleans(input->view(), stream, mr);
+  }
+  if (cudf::is_integral(schema.type)) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return cast_strings_to_integers(input->view(), schema.type, stream, mr);
+  }
+  if (cudf::is_floating_point(schema.type)) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return cast_strings_to_floats(input->view(), schema.type, stream, mr);
+  }
+  if (cudf::is_fixed_point(schema.type)) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return cast_strings_to_decimals(input->view(), schema.type, stream, mr);
+  }
+  if (schema.type.id() == cudf::type_id::STRING) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRING, "Input column should be STRING.");
+    return remove_quotes(input->view(), false, stream, mr);
+  }
+
+  auto const num_rows  = input->size();
+  auto const num_count = input->null_count();
+
+  if (schema.type.id() == cudf::type_id::LIST) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::LIST, "Input column should be LIST.");
+
+    auto input_content = input->release();
+    auto new_child     = convert_column_type(
+      std::move(input_content.children[cudf::lists_column_view::child_column_index]),
+      schema.child_types.front(),
+      stream,
+      mr);
+
+    return std::make_lists_column(
+      num_rows,
+      std::move(input_content.children[cudf::lists_column_view::offsets_column_index]),
+      std::move(new_child),
+      null_count,
+      std::move(input_content.null_mask),
+      stream,
+      mr);
+  }
+
+  if (schema.type.id() == cudf::type_id::STRUCT) {
+    CUDF_EXPECTS(input->type().id() == cudf::type_id::STRUCT, "Input column should be LIST.");
+
+    auto const num_children = input->num_children();
+    std::vector<std::unique_ptr<cudf::column>> new_children;
+    new_children.reserve(num_children);
+    auto input_content = input->release();
+    for (cudf::size_type i = 0; i < input->num_children(); ++i) {
+      new_children.emplace_back(convert_column_type(
+        std::move(input_content.children[i]), schema.child_types[i], stream, mr));
+    }
+
+    return std::make_structs_column(num_rows,
+                                    std::move(new_children),
+                                    null_count,
+                                    std::move(input_content.null_mask),
+                                    stream,
+                                    mr);
+  }
+
+  CUDF_FAIL("Unexpected column type for conversion.");
   return nullptr;
+}
+
+bool check_schema(cudf::io::column_name_info const& read_info,
+                  std::pair<std::string, json_schema_element> const& column_schema)
+{
+  CUDF_EXPECTS(read_info.name == column_schema.first, "Mismatched column name.");
+  CUDF_EXPECTS(read_info.children.size() == column_schema.child_types.size(),
+               "Mismatched number of children.");
+  for (std::size_t i = 0; i < read_info.children.size(); ++i) {
+    check_schema(read_info.children[i], column_schema.child_types[i]);
+  }
 }
 
 }  // namespace
 
-std::unique_ptr<cudf::column> convert_types(
-  cudf::table_view const& input,
+std::unique_ptr<cudf::column> from_json_to_structs(
+  cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  cudf::io::json_reader_options const& json_options,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const num_columns = input.num_columns();
-  CUDF_EXPECTS(static_cast<std::size_t>(num_columns) == schema.size(),
+  auto const [is_null_or_empty, concat_input, delimiter] = concat_json(input, stream, mr);
+  auto opts_builder =
+    cudf::io::json_reader_options::builder(
+      cudf::io::source_info{cudf::device_span{concat_input.data(), concat_input.size()}})
+      .dayfirst(json_options.is_enabled_dayfirst())
+      .lines(json_options.is_enabled_lines())
+      .recovery_mode(json_options.recovery_mode())
+      .normalize_single_quotes(json_options.is_enabled_normalize_single_quotes())
+      .normalize_whitespace(json_options.is_enabled_normalize_whitespace())
+      .mixed_types_as_string(json_options.is_enabled_mixed_types_as_string())
+      .delimiter(json_options.get_delimiter())
+      .strict_validation(json_options.is_strict_validation())
+      .keep_quotes(json_options.is_enabled_keep_quotes())
+      .prune_columns(json_options.is_enabled_prune_columns())
+      .experimental(json_options.is_enabled_experimental());
+  if (json_options.is_strict_validation()) {
+    opts_builder.numeric_leading_zeros(json_options.is_allowed_numeric_leading_zeros())
+      .nonnumeric_numbers(json_options.is_allowed_nonnumeric_numbers())
+      .unquoted_control_chars(json_options.is_allowed_unquoted_control_chars());
+  }
+  auto const parsed_table_with_meta = cudf::io::read_json(opts_builder.build());
+  auto const& parsed_meta           = parsed_table_with_meta.metadata;
+  auto parsed_columns               = parsed_table_with_meta.tbl->release();
+
+  CUDF_EXPECTS(parsed_columns.size() == schema.size(),
                "Numbers of columns in the input table is different from schema size.");
 
   std::vector<std::unique_ptr<cudf::column>> converted_cols(num_columns);
-  for (int i = 0; i < num_columns; ++i) {
-    converted_cols[i] = convert_column_type(input.column(i), schema[i].second, stream, mr);
+  for (std::size_t i = 0; i < parsed_columns.size(); ++i) {
+    check_schema(parsed_meta.schema_info[i], schema[i]);
+    converted_cols[i] = convert_column_type(parsed_columns[i], schema[i].second, stream, mr);
   }
 
-  return nullptr;
+  auto [null_mask, null_count] = cudf::detail::valid_if(is_null_or_empty.begin<bool>(),
+                                                        is_null_or_empty.end<bool>(),
+                                                        thrust::logical_not{},
+                                                        stream,
+                                                        mr);
+
+  return cudf::make_structs_column(
+    input.size(),
+    std::move(converted_cols),
+    null_count,
+    null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
+    stream,
+    mr);
 }
 
 }  // namespace detail

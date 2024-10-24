@@ -51,12 +51,20 @@ struct json_schema_element {
   std::vector<std::pair<std::string, json_schema_element>> child_types;
 };
 
-std::unique_ptr<cudf::column> convert_types(
-  cudf::table_view const& input,
+std::unique_ptr<cudf::column> from_json_to_structs(
+  cudf::strings_column_view const& input,
   std::vector<std::pair<std::string, json_schema_element>> const& schema,
+  cudf::io::json_reader_options const& json_options,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+//
+//
+//
+//
+//
+//
+//
 std::unique_ptr<cudf::column> cast_strings_to_booleans(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
