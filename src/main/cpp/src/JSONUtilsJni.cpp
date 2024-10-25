@@ -18,6 +18,7 @@
 #include "get_json_object.hpp"
 #include "json_utils.hpp"
 
+#include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <vector>
@@ -299,6 +300,52 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsTo
                                      cudf::data_type{static_cast<cudf::type_id>(j_output_type_id)},
                                      allow_nonnumeric_numbers)
                                      .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
+                                                             jclass,
+                                                             jlong j_input,
+                                                             jobjectArray j_col_names,
+                                                             jintArray j_num_children,
+                                                             jintArray j_types,
+                                                             jintArray j_scales,
+                                                             jintArray j_precisions,
+                                                             jboolean normalize_single_quotes,
+                                                             jboolean allow_leading_zeros,
+                                                             jboolean allow_nonnumeric_numbers,
+                                                             jboolean allow_unquoted_control,
+                                                             jboolean prune_columns,
+                                                             jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const input        = *reinterpret_cast<cudf::column_view const*>(j_input).to_vector();
+    auto const col_names    = cudf::jni::native_jstringArray(env, j_col_names).as_cpp_vector();
+    auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
+    auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
+    auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
+    auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
+                                             col_names,
+                                             num_children,
+                                             types,
+                                             scales,
+                                             precisions,
+                                             normalize_single_quotes,
+                                             allow_leading_zeros,
+                                             allow_nonnumeric_numbers,
+                                             allow_unquoted_control,
+                                             prune_columns,
+                                             is_us_locale)
+        .release());
   }
   CATCH_STD(env, 0);
 }

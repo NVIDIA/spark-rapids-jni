@@ -260,6 +260,27 @@ public class JSONUtils {
         outputType.getTypeId().getNativeId(), allowNonNumericNumbers));
   }
 
+  public static ColumnVector fromJSONToStructs(ColumnVector input, Schema schema,
+                                               int[] flattenedPrecision, JSONOptions opts,
+                                               boolean isUSLocale) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    boolean cudfPruneSchema = schema.getColumnNames() != null &&
+        schema.getColumnNames().length != 0 &&
+        opts.shouldCudfPruneSchema();
+
+    return new ColumnVector(fromJSONToStructs(input.getNativeView(),
+        schema.getFlattenedColumnNames(), schema.getFlattenedNumChildren(),
+        schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales(),
+        flattenedPrecision,
+        opts.isNormalizeSingleQuotes(),
+        opts.leadingZerosAllowed(),
+        opts.nonNumericNumbersAllowed(),
+        opts.unquotedControlChars(),
+        cudfPruneSchema,
+        isUSLocale));
+  }
+
+
   private static native int getMaxJSONPathDepth();
 
   private static native long getJsonObject(long input,
@@ -293,4 +314,18 @@ public class JSONUtils {
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 
   private static native long castStringsToFloats(long input, int outputTypeId, boolean allowNonNumericNumbers);
+
+  private static native long fromJSONToStructs(long input,
+                                               String[] names,
+                                               int[] numChildren,
+                                               int[] typeIds,
+                                               int[] typeScales,
+                                               int[] typePrecision,
+                                               boolean normalizeSingleQuotes,
+                                               boolean leadingZerosAllowed,
+                                               boolean nonNumericNumbersAllowed,
+                                               boolean unquotedControlChars,
+                                               boolean cudfPruneSchema,
+                                               boolean isUSLocale);
+
 }

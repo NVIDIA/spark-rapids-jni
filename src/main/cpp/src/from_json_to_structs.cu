@@ -891,6 +891,22 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   rmm::device_async_resource_ref mr)
 {
   auto const [is_null_or_empty, concat_input, delimiter] = concat_json(input, stream, mr);
+
+  // cudf::io::json_reader_options_builder builder =
+  //   cudf::io::json_reader_options::builder()
+  //     .lines(true)
+  //     .recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL)
+  //     .normalize_whitespace(true)
+  //     .mixed_types_as_string(true)
+  //     .keep_quotes(true)
+  //     .experimental(true)
+  //     .normalize_single_quotes(normalize_single_quotes)
+  //     .strict_validation(true)
+  //     .numeric_leading_zeros(allow_leading_zeros)
+  //     .nonnumeric_numbers(allow_nonnumeric_numbers)
+  //     .unquoted_control_chars(allow_unquoted_control)
+  //     .prune_columns(prune_columns);
+
   auto opts_builder =
     cudf::io::json_reader_options::builder(
       cudf::io::source_info{cudf::device_span<std::byte const>{

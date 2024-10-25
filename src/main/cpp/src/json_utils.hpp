@@ -54,8 +54,16 @@ struct json_schema_element {
 
 std::unique_ptr<cudf::column> from_json_to_structs(
   cudf::strings_column_view const& input,
-  std::vector<std::pair<std::string, json_schema_element>> const& schema,
-  cudf::io::json_reader_options const& json_options,
+  std::vector<std::string> const& col_names,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions,
+  bool normalize_single_quotes,
+  bool allow_leading_zeros,
+  bool allow_nonnumeric_numbers,
+  bool allow_unquoted_control,
+  bool prune_columns,
   bool is_us_locale,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
