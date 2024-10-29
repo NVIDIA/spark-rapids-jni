@@ -160,14 +160,37 @@ public class JSONUtils {
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
   }
 
-  /**
-   *
-   * @param input
-   * @param schema
-   * @param opts
-   * @param isUSLocale
-   * @return
-   */
+  public static ColumnVector castStringsToBooleans(ColumnView input) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToBooleans(input.getNativeView()));
+  }
+
+  public static ColumnVector castStringsToDecimals(ColumnView input, DType outputType,
+                                                   int precision, int scale,
+                                                   boolean isUSLocale) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToDecimals(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), precision, scale, isUSLocale));
+  }
+
+  public static ColumnVector castStringsToIntegers(ColumnView input, DType output_type) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToIntegers(input.getNativeView(),
+        output_type.getTypeId().getNativeId()));
+  }
+
+  public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
+  }
+
+  public static ColumnVector castStringsToFloats(ColumnView input, DType outputType,
+                                                 boolean allowNonNumericNumbers) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(castStringsToFloats(input.getNativeView(),
+        outputType.getTypeId().getNativeId(), allowNonNumericNumbers));
+  }
+
   public static ColumnVector fromJSONToStructs(ColumnVector input, Schema schema, JSONOptions opts,
                                                boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
@@ -199,7 +222,21 @@ public class JSONUtils {
                                                           long memoryBudgetBytes,
                                                           int parallelOverride);
 
+
   private static native long extractRawMapFromJsonString(long input);
+
+  private static native long castStringsToBooleans(long input);
+
+  private static native long castStringsToDecimals(long input, int outputTypeId,
+                                                   int precision,
+                                                   int scale,
+                                                   boolean isUSLocale);
+
+  private static native long castStringsToIntegers(long input, int outputType);
+
+  private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
+
+  private static native long castStringsToFloats(long input, int outputTypeId, boolean allowNonNumericNumbers);
 
   private static native long fromJSONToStructs(long input,
                                                String[] names,

@@ -157,6 +157,93 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
 }
 
 JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToBooleans(JNIEnv* env, jclass, jlong j_input)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_booleans(input).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToDecimals(JNIEnv* env,
+                                                                 jclass,
+                                                                 jlong j_input,
+                                                                 jint j_output_type_id,
+                                                                 jint precision,
+                                                                 jint scale,
+                                                                 jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_decimals(
+        input,
+        cudf::data_type{static_cast<cudf::type_id>(j_output_type_id), scale},
+        precision,
+        is_us_locale)
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToIntegers(
+  JNIEnv* env, jclass, jlong j_input, jint output_type_id)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::cast_strings_to_integers(
+        input, cudf::data_type{static_cast<cudf::type_id>(output_type_id)})
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
+  JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::remove_quotes(input, nullify_if_not_quoted).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToFloats(
+  JNIEnv* env, jclass, jlong j_input, jint j_output_type_id, jboolean allow_nonnumeric_numbers)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_floats(
+                                     input,
+                                     cudf::data_type{static_cast<cudf::type_id>(j_output_type_id)},
+                                     allow_nonnumeric_numbers)
+                                     .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
                                                              jclass,
                                                              jlong j_input,
