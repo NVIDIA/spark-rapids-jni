@@ -226,10 +226,11 @@ public class JSONUtils {
   }
 
   public static ColumnVector castStringsToDecimals(ColumnView input, DType outputType,
+                                                   int precision, int scale,
                                                    boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(castStringsToDecimals(input.getNativeView(),
-        outputType.getTypeId().getNativeId(), isUSLocale));
+        outputType.getTypeId().getNativeId(), precision, scale, isUSLocale));
   }
 
   public static ColumnVector castStringsToIntegers(ColumnView input, DType output_type) {
@@ -260,23 +261,18 @@ public class JSONUtils {
         outputType.getTypeId().getNativeId(), allowNonNumericNumbers));
   }
 
-  public static ColumnVector fromJSONToStructs(ColumnVector input, Schema schema,
-                                               int[] flattenedPrecision, JSONOptions opts,
+  public static ColumnVector fromJSONToStructs(ColumnVector input, Schema schema, JSONOptions opts,
                                                boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    boolean cudfPruneSchema = schema.getColumnNames() != null &&
-        schema.getColumnNames().length != 0 &&
-        opts.shouldCudfPruneSchema();
 
     return new ColumnVector(fromJSONToStructs(input.getNativeView(),
         schema.getFlattenedColumnNames(), schema.getFlattenedNumChildren(),
         schema.getFlattenedTypeIds(), schema.getFlattenedTypeScales(),
-        flattenedPrecision,
+        schema.getFlattenedDecimalPrecisions(),
         opts.isNormalizeSingleQuotes(),
         opts.leadingZerosAllowed(),
         opts.nonNumericNumbersAllowed(),
         opts.unquotedControlChars(),
-        cudfPruneSchema,
         isUSLocale));
   }
 
@@ -305,7 +301,10 @@ public class JSONUtils {
 
   private static native long castStringsToBooleans(long input);
 
-  private static native long castStringsToDecimals(long input, int outputTypeId, boolean isUSLocale);
+  private static native long castStringsToDecimals(long input, int outputTypeId,
+                                                   int precision,
+                                                   int scale,
+                                                   boolean isUSLocale);
 
   private static native long castStringsToIntegers(long input, int outputType);
 
@@ -325,7 +324,6 @@ public class JSONUtils {
                                                boolean leadingZerosAllowed,
                                                boolean nonNumericNumbersAllowed,
                                                boolean unquotedControlChars,
-                                               boolean cudfPruneSchema,
                                                boolean isUSLocale);
 
 }
