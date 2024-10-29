@@ -19,6 +19,7 @@
 #include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/memory_resource.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -28,29 +29,10 @@
 
 namespace spark_rapids_jni {
 
-// TODO: replace rmm::mr::get_current_device_resource() by cudf
-
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
-  cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> make_structs(
-  std::vector<cudf::column_view> const& input,
-  cudf::column_view const& is_null,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-struct json_schema_element {
-  cudf::data_type type;
-
-  std::vector<std::pair<std::string, json_schema_element>> child_types;
-};
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 std::unique_ptr<cudf::column> from_json_to_structs(
   cudf::strings_column_view const& input,
@@ -65,7 +47,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   bool allow_unquoted_control,
   bool is_us_locale,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 //
 //
@@ -113,5 +95,4 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(
   bool allow_nonnumeric_numbers,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
 }  // namespace spark_rapids_jni
