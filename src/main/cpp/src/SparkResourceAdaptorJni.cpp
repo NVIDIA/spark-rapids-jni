@@ -1780,6 +1780,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const thread = threads.find(tid);
     if (thread != threads.end()) {
       log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
+      if (!is_for_cpu) { thread->second.gpu_memory_allocated_bytes -= num_bytes; }
     } else {
       log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
     }
@@ -1802,7 +1803,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (is_for_cpu == t_state.is_cpu_alloc) {
               transition(t_state, thread_state::THREAD_ALLOC_FREE);
             }
-            if (!is_for_cpu) { t_state.gpu_memory_allocated_bytes -= num_bytes; }
             break;
           default: break;
         }
