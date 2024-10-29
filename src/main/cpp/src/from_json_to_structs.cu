@@ -90,6 +90,8 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const default_mr  = rmm::mr::get_current_device_resource();
 
@@ -877,6 +879,8 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
   return nullptr;
 }
 
+// Verify if the output column is matched with the input schema element.
+// We do not check for type matching since we will perform conversion later on.
 void check_schema(cudf::io::column_name_info const& read_info,
                   std::pair<std::string, schema_element_with_precision> const& column_schema)
 {
@@ -896,16 +900,18 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_
   std::vector<int> const& scales,
   std::vector<int> const& precisions)
 {
+  // Get data for the current column.
   auto const d_type    = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
   auto const precision = precisions[index];
   auto const col_num_children = num_children[index];
   index++;
+
   std::map<std::string, cudf::io::schema_element> children;
   std::vector<std::pair<std::string, schema_element_with_precision>> children_with_precisions;
   std::vector<std::string> child_names(col_num_children);
 
   if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
-    for (int i = 0; i < col_num_children; i++) {
+    for (int i = 0; i < col_num_children; ++i) {
       auto const& name = col_names[index];
       auto [child, child_with_precision] =
         parse_schema_element(index, col_names, num_children, types, scales, precisions);
@@ -913,13 +919,26 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_
       children_with_precisions.emplace_back(name, std::move(child_with_precision));
       child_names[i] = name;
     }
-  } else if (col_num_children != 0) {
-    throw std::invalid_argument("Found children for a type that should have none.");
+  } else {
+    CUDF_EXPECTS(col_num_children == 0,
+                 "Found children for a type that should have none.",
+                 std::invalid_argument);
   }
-  return {cudf::io::schema_element{d_type, std::move(children), {std::move(child_names)}},
+
+  // Note that the first schema element always has type STRING, since we intentionally parse
+  // JSON into strings column for later post-processing.
+  return {cudf::io::schema_element{
+            cudf::data_type{cudf::type_id::STRING}, std::move(children), {std::move(child_names)}},
           schema_element_with_precision{d_type, precision, std::move(children_with_precisions)}};
 }
 
+// Travel the schema data by depth-first search order.
+// Two separate schema is generated:
+// - The first one is used as input to `cudf::read_json`, in which the data types of all columns
+//   are specified as STRING type. As such, the table returned by `cudf::read_json` will contain
+//   only strings columns.
+// - The second schema is used for converting from STRING type to the desired types for the final
+//   output.
 std::pair<cudf::io::schema_element, schema_element_with_precision> generate_struct_schema(
   std::vector<std::string> const& col_names,
   std::vector<int> const& num_children,
@@ -931,11 +950,11 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> generate_stru
   std::vector<std::pair<std::string, schema_element_with_precision>> schema_cols_with_precisions;
   std::vector<std::string> name_order;
 
-  std::size_t at = 0;
-  while (at < types.size()) {
-    auto const& name = col_names[at];
+  std::size_t index = 0;
+  while (index < types.size()) {
+    auto const& name = col_names[index];
     auto [child, child_with_precision] =
-      parse_schema_element(at, col_names, num_children, types, scales, precisions);
+      parse_schema_element(index, col_names, num_children, types, scales, precisions);
     schema_cols.emplace(name, std::move(child));
     schema_cols_with_precisions.emplace_back(name, std::move(child_with_precision));
     name_order.push_back(name);
@@ -963,7 +982,8 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  auto const [is_invalid_or_empty, concat_input, delimiter] = concat_json(input, stream, mr);
+  auto const [is_invalid_or_empty, concat_input, delimiter] =
+    concat_json(input, stream, cudf::get_current_device_resource());
   auto const [schema, schema_with_precision] =
     generate_struct_schema(col_names, num_children, types, scales, precisions);
 
@@ -980,7 +1000,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
       .experimental(true)
       .normalize_single_quotes(normalize_single_quotes)
       .strict_validation(true)
-      //
+      // specifying parameters
       .delimiter(delimiter)
       .numeric_leading_zeros(allow_leading_zeros)
       .nonnumeric_numbers(allow_nonnumeric_numbers)
@@ -993,7 +1013,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
   auto parsed_columns               = parsed_table_with_meta.tbl->release();
 
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
-               "Numbers of columns in the input table is different from schema size.");
+               "Numbers of output columns is different from schema size.");
 
   std::vector<std::unique_ptr<cudf::column>> converted_cols(parsed_columns.size());
   for (std::size_t i = 0; i < parsed_columns.size(); ++i) {
@@ -1049,15 +1069,6 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                       is_us_locale,
                                       stream,
                                       mr);
-}
-
-std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
-  cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return detail::concat_json(input, stream, mr);
 }
 
 std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& children,
