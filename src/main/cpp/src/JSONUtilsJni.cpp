@@ -259,6 +259,11 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
                                                              jboolean is_us_locale)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
+  JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
+  JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
+  JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
@@ -269,6 +274,12 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
     auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
     auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
     auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
+
+    CUDF_EXPECTS(col_names.size() > 0, "Invalid schema data.");
+    CUDF_EXPECTS(col_names.size() == num_children.size(), "Invalid schema data.");
+    CUDF_EXPECTS(col_names.size() == types.size(), "Invalid schema data.");
+    CUDF_EXPECTS(col_names.size() == scales.size(), "Invalid schema data.");
+    CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data.");
 
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input},
