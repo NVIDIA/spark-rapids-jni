@@ -803,6 +803,9 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
                                                   rmm::cuda_stream_view stream,
                                                   rmm::device_async_resource_ref mr)
 {
+  // Date/time is not processed for now, but it should be handled later on in spark-rapids.
+  if (cudf::is_chrono(schema.type)) { return std::move(input); }
+
   if (schema.type.id() == cudf::type_id::BOOL8) {
     return ::spark_rapids_jni::cast_strings_to_booleans(input->view(), stream, mr);
   }
@@ -870,19 +873,6 @@ std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>&
   return nullptr;
 }
 
-// Verify if the output column is matched with the input schema element.
-// We do not check for type matching since we will perform conversion later on.
-void check_schema(cudf::io::column_name_info const& read_info,
-                  std::pair<std::string, schema_element_with_precision> const& column_schema)
-{
-  CUDF_EXPECTS(read_info.name == column_schema.first, "Mismatched column name.");
-  CUDF_EXPECTS(read_info.children.size() == column_schema.second.child_types.size(),
-               "Mismatched number of children.");
-  for (std::size_t i = 0; i < read_info.children.size(); ++i) {
-    check_schema(read_info.children[i], column_schema.second.child_types[i]);
-  }
-}
-
 std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_element(
   std::size_t& index,
   std::vector<std::string> const& col_names,
@@ -916,10 +906,13 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_
                  std::invalid_argument);
   }
 
-  // Note that the first schema element always has type STRING, since we intentionally parse
-  // JSON into strings column for later post-processing.
-  return {cudf::io::schema_element{
-            cudf::data_type{cudf::type_id::STRING}, std::move(children), {std::move(child_names)}},
+  // Note that if the first schema element does not has type STRUCT/LIST then it always has type
+  // STRING, since we intentionally parse JSON into strings column for later post-processing.
+  auto const schema_dtype =
+    d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST
+      ? d_type
+      : cudf::data_type{cudf::type_id::STRING};
+  return {cudf::io::schema_element{schema_dtype, std::move(children), {std::move(child_names)}},
           schema_element_with_precision{d_type, precision, std::move(children_with_precisions)}};
 }
 
@@ -1012,13 +1005,11 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
     CUDF_EXPECTS(d_type == cudf::type_id::LIST || d_type == cudf::type_id::STRUCT ||
                    d_type == cudf::type_id::STRING,
                  "Input column should be STRING or nested.");
-    check_schema(parsed_meta.schema_info[i], schema_with_precision.child_types[i]);
-    converted_cols[i] = convert_column_type(parsed_columns[i],
-                                            schema_with_precision.child_types[i].second,
-                                            allow_nonnumeric_numbers,
-                                            is_us_locale,
-                                            stream,
-                                            mr);
+
+    auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
+    CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
+    converted_cols[i] = convert_column_type(
+      parsed_columns[i], col_schema, allow_nonnumeric_numbers, is_us_locale, stream, mr);
   }
 
   auto const valid_it          = is_invalid_or_empty->view().begin<bool>();
