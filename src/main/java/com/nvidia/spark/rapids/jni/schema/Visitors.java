@@ -22,7 +22,6 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.Schema;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -75,33 +74,28 @@ public class Visitors {
      * @param cols the list of host columns to visit
      * @param visitor the visitor to use
      * @param <T> Return type when visiting intermediate nodes. See {@link HostColumnsVisitor}
-     * @param <R> Return type after processing all children values. See {@link HostColumnsVisitor}
-     * @return the result of visiting the host columns
      */
-    public static <T, R> R visitColumns(List<HostColumnVector> cols,
-                                        HostColumnsVisitor<T, R> visitor) {
+    public static <T> void visitColumns(HostColumnVector[] cols,
+                                        HostColumnsVisitor<T> visitor) {
         Objects.requireNonNull(cols, "cols cannot be null");
         Objects.requireNonNull(visitor, "visitor cannot be null");
 
-        List<T> childrenResult = new ArrayList<>(cols.size());
-
         for (HostColumnVector col : cols) {
-            childrenResult.add(visitSchema(col, visitor));
+            visitColumn(col, visitor);
         }
 
-        return visitor.visit(childrenResult);
     }
 
-    private static <T, R> T visitSchema(HostColumnVectorCore col, HostColumnsVisitor<T, R> visitor) {
+    private static <T> T visitColumn(HostColumnVectorCore col, HostColumnsVisitor<T> visitor) {
         switch (col.getType().getTypeId()) {
             case STRUCT:
                 List<T> children = IntStream.range(0, col.getNumChildren())
-                        .mapToObj(childIdx -> visitSchema(col.getChildColumnView(childIdx), visitor))
+                        .mapToObj(childIdx -> visitColumn(col.getChildColumnView(childIdx), visitor))
                         .collect(Collectors.toList());
                 return visitor.visitStruct(col, children);
             case LIST:
                 T preVisitResult = visitor.preVisitList(col);
-                T childResult = visitSchema(col.getChildColumnView(0), visitor);
+                T childResult = visitColumn(col.getChildColumnView(0), visitor);
                 return visitor.visitList(col, preVisitResult, childResult);
             default:
                 return visitor.visit(col);

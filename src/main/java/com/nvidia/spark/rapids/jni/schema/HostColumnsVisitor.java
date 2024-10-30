@@ -44,22 +44,13 @@ import java.util.List;
  *     <li> Visit primitive column b1</li>
  *     <li> Visit list column B</li>
  *     <li> Visit primitive column c1</li>
- *     <li> Visit with results from columns A, B, and C</li>
  * </ol>
  *
  * </p>
  *
  * @param <T> Return type when visiting intermediate nodes.
- * @param <R> Return type after processing all children values.
  */
-public interface HostColumnsVisitor<T, R> {
-    /**
-     * Visit the results of visiting a list of {{@link HostColumnVectorCore}}.
-     * @param children the results of visiting the children
-     * @return the result of visiting the list of children
-     */
-    R visit(List<T> children);
-
+public interface HostColumnsVisitor<T> {
     /**
      * Visit a struct column.
      * @param col the struct column to visit
