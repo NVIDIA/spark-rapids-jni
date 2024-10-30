@@ -18,6 +18,8 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
 
+#include <cudf/io/json.hpp>
+
 #include <rmm/device_uvector.hpp>
 
 #include <json_utils.hpp>
@@ -28,8 +30,87 @@ struct FloatToStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(FloatToStringTests, FromFloats32)
 {
-  auto const input = cudf::test::strings_column_wrapper{R"("26/08/2015")"};
-  auto out         = spark_rapids_jni::remove_quotes(input, true);
+  std::string json_string = R"({"student": [{"name": "abc", "class": "junior"}]})";
 
-  // cudf::test::print(out->view());
+  {
+    cudf::io::json_reader_options in_options =
+      cudf::io::json_reader_options::builder(
+        cudf::io::source_info{json_string.data(), json_string.size()})
+        .prune_columns(true)
+        .mixed_types_as_string(true)
+        .lines(true);
+
+    cudf::io::schema_element dtype_schema{cudf::data_type{cudf::type_id::STRUCT},
+                                          {
+                                            {"student",
+                                             {data_type{cudf::type_id::LIST},
+                                              {{"element",
+                                                {data_type{cudf::type_id::STRUCT},
+                                                 {
+                                                   {"name", {data_type{cudf::type_id::STRING}}},
+                                                   {"abc", {data_type{cudf::type_id::STRING}}},
+                                                   {"class", {data_type{cudf::type_id::STRING}}},
+                                                 },
+                                                 {{"name", "abc", "class"}}}}}}},
+                                          },
+                                          {{"student"}}};
+    in_options.set_dtypes(dtype_schema);
+
+    auto const parsed_table_with_meta = cudf::io::read_json(in_options);
+    // auto const& parsed_meta           = parsed_table_with_meta.metadata;
+    auto parsed_columns = parsed_table_with_meta.tbl->release();
+    for (auto& col : parsed_columns) {
+      cudf::test::print(*col);
+    }
+  }
+
+  {
+    /*
+     * colname:
+student,
+element,
+name,
+abc,
+class,
+num child:
+1,
+3,
+0,
+0,
+0,
+num child:
+1,
+3,
+0,
+0,
+0,
+types:
+24,
+28,
+23,
+23,
+23,
+
+     */
+
+    std::vector<std::string> col_names{"student", "element", "name", "abc", "class"};
+    std::vector<int> num_children{1, 3, 0, 0, 0};
+    std::vector<int> types{24, 28, 23, 23, 23};
+    std::vector<int> scales{0, 0, 0, 0, 0};
+    std::vector<int> precisions{-1, -1, -1, -1, -1};
+
+    auto const input = cudf::test::strings_column_wrapper{json_string};
+    auto out         = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
+                                                      col_names,
+                                                      num_children,
+                                                      types,
+                                                      scales,
+                                                      precisions,
+                                                      true,
+                                                      true,
+                                                      true,
+                                                      true,
+                                                      true);
+    cudf::test::print(*out);
+  }
 }
