@@ -530,7 +530,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
 }
 
 // Compute the offsets for the final lists of Struct<String,String>.
-rmm::device_uvector<cudf::size_type> compute_list_offsets(
+std::unique_ptr<cudf::column> compute_list_offsets(
   cudf::size_type n_lists,
   rmm::device_uvector<NodeIndexT> const& parent_node_ids,
   rmm::device_uvector<int8_t> const& key_or_value,
@@ -594,7 +594,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 #ifdef DEBUG_FROM_JSON
   print_debug(list_offsets, "Output list offsets", ", ", stream);
 #endif
-  return list_offsets;
+  return std::make_unique<cudf::column>(std::move(list_offsets), rmm::device_buffer{}, 0);
 }
 
 }  // namespace
@@ -674,15 +674,17 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
 
-  auto offsets = std::make_unique<cudf::column>(std::move(list_offsets), rmm::device_buffer{}, 0);
-
-  return cudf::make_lists_column(input.size(),
-                                 std::move(offsets),
-                                 std::move(structs_col),
-                                 input.null_count(),
-                                 cudf::detail::copy_bitmask(input.parent(), stream, mr),
-                                 stream,
-                                 mr);
+  // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
+  // on the children columns as they do not have non-empty nulls.
+  std::vector<std::unique_ptr<cudf::column>> list_children;
+  list_children.emplace_back(std::move(list_offsets));
+  list_children.emplace_back(std::move(structs_col));
+  return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                        input.size(),
+                                        rmm::device_buffer{},
+                                        cudf::detail::copy_bitmask(input.parent(), stream, mr),
+                                        input.null_count(),
+                                        std::move(list_children));
 }
 
 }  // namespace spark_rapids_jni
