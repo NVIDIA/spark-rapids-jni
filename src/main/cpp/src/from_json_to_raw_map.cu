@@ -56,81 +56,8 @@ using namespace cudf::io::json;
 
 namespace {
 
-// Unify the input json strings by:
-// 1. Append one comma character (',') to the end of each input string, except the last one.
-// 2. Concatenate all input strings into one string.
-// 3. Add a pair of bracket characters ('[' and ']') to the beginning and the end of the output.
-std::pair<rmm::device_uvector<char>, char> unify_json_strings(
-  cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
-{
-  if (input.is_empty()) {
-    return {cudf::detail::make_device_uvector_async<char>(
-              std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource()),
-            '\n'};
-  }
-
-#if 1
-  auto [is_null_or_empty, concat_buffer, delimiter] =
-    concat_json(input, stream, rmm::mr::get_current_device_resource());
-
-  auto output = rmm::device_uvector<char>(concat_buffer->size(), stream);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(output.begin(),
-                                concat_buffer->data(),
-                                concat_buffer->size(),
-                                cudaMemcpyDefault,
-                                stream.value()));
-#ifdef DEBUG_FROM_JSON
-  print_debug<char, char>(output, "Processed json string", "", stream);
-#endif
-
-  return {std::move(output), delimiter};
-
-#else
-  auto const d_strings  = cudf::column_device_view::create(input.parent(), stream);
-  auto const chars_size = input.chars_size(stream);
-  auto const output_size =
-    2l +  // two extra bracket characters '[' and ']'
-    static_cast<int64_t>(chars_size) +
-    static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
-    static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
-  // TODO: This assertion eventually needs to be removed.
-  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
-  CUDF_EXPECTS(output_size <= static_cast<int64_t>(std::numeric_limits<cudf::size_type>::max()),
-               "The input json column is too large and causes overflow.");
-
-  auto const joined_input = cudf::strings::detail::join_strings(
-    input,
-    cudf::string_scalar(","),   // append `,` character between the input rows
-    cudf::string_scalar("{}"),  // replacement for null rows
-    stream,
-    rmm::mr::get_current_device_resource());
-  auto const joined_input_scv        = cudf::strings_column_view{*joined_input};
-  auto const joined_input_size_bytes = joined_input_scv.chars_size(stream);
-  // TODO: This assertion requires a stream synchronization, may want to remove at some point.
-  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
-  CUDF_EXPECTS(joined_input_size_bytes + 2 == output_size, "Incorrect output size computation.");
-
-  // We want to concatenate 3 strings: "[" + joined_input + "]".
-  // For efficiency, let's use memcpy instead of `cudf::strings::detail::concatenate`.
-  auto output = rmm::device_uvector<char>(joined_input_size_bytes + 2, stream);
-  CUDF_CUDA_TRY(cudaMemsetAsync(output.data(), static_cast<int>('['), 1, stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(output.data() + 1,
-                                joined_input_scv.chars_begin(stream),
-                                joined_input_size_bytes,
-                                cudaMemcpyDefault,
-                                stream.value()));
-  CUDF_CUDA_TRY(cudaMemsetAsync(
-    output.data() + joined_input_size_bytes + 1, static_cast<int>(']'), 1, stream.value()));
-
-#ifdef DEBUG_FROM_JSON
-  print_debug<char, char>(output, "Processed json string", "", stream);
-#endif
-  return {std::move(output), '\n'};
-#endif
-}
-
 // Check and throw exception if there is any parsing error.
-void throw_if_error(rmm::device_uvector<char> const& input_json,
+void throw_if_error(rmm::device_buffer const& input_json,
                     rmm::device_uvector<PdaTokenT> const& tokens,
                     rmm::device_uvector<SymbolOffsetT> const& token_indices,
                     rmm::cuda_stream_view stream)
@@ -159,7 +86,9 @@ void throw_if_error(rmm::device_uvector<char> const& input_json,
       std::min(error_index + extension, static_cast<SymbolOffsetT>(input_json.size()));
     auto const print_size   = end_print_idx - begin_print_idx;
     auto const h_input_json = cudf::detail::make_host_vector_sync(
-      cudf::device_span<char const>{input_json.data() + begin_print_idx, print_size}, stream);
+      cudf::device_span<char const>{static_cast<char const*>(input_json.data()) + begin_print_idx,
+                                    print_size},
+      stream);
 
     std::cerr << "Substring in the range [" + std::to_string(begin_print_idx) + ", " +
                    std::to_string(end_print_idx) + "]" + " of the input (invalid) json:\n";
@@ -555,7 +484,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   int64_t num_nodes,
   rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> const& node_ranges,
   rmm::device_uvector<int8_t> const& key_or_value,
-  rmm::device_uvector<char> const& unified_json_buff,
+  rmm::device_buffer const& unified_json_buff,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -587,7 +516,12 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
   auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
-    substring_fn{unified_json_buff, extract_ranges}, num_extract, stream, mr);
+    substring_fn{cudf::device_span<char const>{static_cast<char const*>(unified_json_buff.data()),
+                                               unified_json_buff.size()},
+                 extract_ranges},
+    num_extract,
+    stream,
+    mr);
   return cudf::make_strings_column(
     num_extract, std::move(offsets), chars.release(), 0, rmm::device_buffer{});
 }
@@ -667,13 +601,15 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   // Firstly, concatenate all the input json strings into one giant input json string.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
-  auto const [unified_json_buff, delimiter] = unify_json_strings(input, stream);
+  auto [is_invalid_or_empty, unified_json_buff, delimiter] =
+    concat_json(input, stream, rmm::mr::get_current_device_resource());
 
   // Tokenize the input json strings.
   static_assert(sizeof(SymbolT) == sizeof(char),
                 "Invalid internal data for nested json tokenizer.");
   auto const [tokens, token_indices] = cudf::io::json::detail::get_token_stream(
-    cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
+    cudf::device_span<char const>{static_cast<char const*>(unified_json_buff->data()),
+                                  unified_json_buff->size()},
     cudf::io::json_reader_options_builder{}
       .lines(true)
       .delimiter(delimiter)
@@ -688,7 +624,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
 #endif
 
   // Make sure there is no error during parsing.
-  throw_if_error(unified_json_buff, tokens, token_indices, stream);
+  throw_if_error(*unified_json_buff, tokens, token_indices, stream);
 
   auto const num_nodes =
     thrust::count_if(rmm::exec_policy(stream), tokens.begin(), tokens.end(), is_node{});
@@ -712,9 +648,9 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   //
 
   auto extracted_keys = extract_keys_or_values(
-    true /*key*/, num_nodes, node_ranges, key_or_value_node, unified_json_buff, stream, mr);
+    true /*key*/, num_nodes, node_ranges, key_or_value_node, *unified_json_buff, stream, mr);
   auto extracted_values = extract_keys_or_values(
-    false /*value*/, num_nodes, node_ranges, key_or_value_node, unified_json_buff, stream, mr);
+    false /*value*/, num_nodes, node_ranges, key_or_value_node, *unified_json_buff, stream, mr);
   CUDF_EXPECTS(extracted_keys->size() == extracted_values->size(),
                "Invalid key-value pair extraction.");
 
