@@ -152,12 +152,17 @@ public class JSONUtils {
    * function will just simply copy the input value strings to the output.
    *
    * @param input The input strings column in which each row specifies a json object
+   * @param opts The options for parsing JSON strings
    * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
    * which the key-value pairs are extracted directly from the input json strings
    */
-  public static ColumnVector extractRawMapFromJsonString(ColumnView input) {
+  public static ColumnVector extractRawMapFromJsonString(ColumnView input, JSONOptions opts) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(extractRawMapFromJsonString(input.getNativeView()));
+    return new ColumnVector(extractRawMapFromJsonString(input.getNativeView(),
+        opts.isNormalizeSingleQuotes(),
+        opts.leadingZerosAllowed(),
+        opts.nonNumericNumbersAllowed(),
+        opts.unquotedControlChars()));
   }
 
   /**
@@ -236,7 +241,11 @@ public class JSONUtils {
                                                           int parallelOverride);
 
 
-  private static native long extractRawMapFromJsonString(long input);
+  private static native long extractRawMapFromJsonString(long input,
+                                                         boolean normalizeSingleQuotes,
+                                                         boolean leadingZerosAllowed,
+                                                         boolean nonNumericNumbersAllowed,
+                                                         boolean unquotedControlChars);
 
   private static native long[] concatenateJsonStrings(long input);
 

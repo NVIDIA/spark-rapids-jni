@@ -601,6 +601,10 @@ std::unique_ptr<cudf::column> compute_list_offsets(
 }  // namespace
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view const& input,
+                                                   bool normalize_single_quotes,
+                                                   bool allow_leading_zeros,
+                                                   bool allow_nonnumeric_numbers,
+                                                   bool allow_unquoted_control,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
@@ -618,8 +622,17 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
                                   unified_json_buff->size()},
     cudf::io::json_reader_options_builder{}
       .lines(true)
-      .delimiter(delimiter)
+      .normalize_whitespace(false)  // don't need it
+      .experimental(true)
+      .mixed_types_as_string(true)
       .recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL)
+      .strict_validation(true)
+      // specifying parameters
+      .delimiter(delimiter)
+      .normalize_single_quotes(normalize_single_quotes)
+      .numeric_leading_zeros(allow_leading_zeros)
+      .nonnumeric_numbers(allow_nonnumeric_numbers)
+      .unquoted_control_chars(allow_unquoted_control)
       .build(),
     stream,
     rmm::mr::get_current_device_resource());

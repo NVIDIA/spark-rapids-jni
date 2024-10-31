@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.BinaryOp;
 
+import ai.rapids.cudf.JSONOptions;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
@@ -36,7 +37,7 @@ public class FromJsonToRawMapTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, JSONOptions.DEFAULT);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
              "State", "category", "index", "author", "title", "price");
@@ -65,7 +66,7 @@ public class FromJsonToRawMapTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, JSONOptions.DEFAULT);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipc\u00f3de", "Z\u00edpCodeTyp" +
                  "\u00e9", "City", "St\u00e2te", "Zipc\u00f3de", "Z\u00edpCodeTyp\u00e9",
@@ -87,7 +88,7 @@ public class FromJsonToRawMapTest {
   void testFromJsonEmptyInput() {
     try (ColumnVector input =
              ColumnVector.fromStrings("{}", "BAD", "{\"A\": 100}");
-         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, JSONOptions.DEFAULT);
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("A");
          ColumnVector expectedValues = ColumnVector.fromStrings("100");
