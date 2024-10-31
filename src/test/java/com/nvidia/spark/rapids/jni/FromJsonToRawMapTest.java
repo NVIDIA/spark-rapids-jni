@@ -82,4 +82,23 @@ public class FromJsonToRawMapTest {
       assertColumnsAreEqual(expectedMap, outputMap);
     }
   }
+
+  @Test
+  void testFromJsonEmptyInput() {
+    try (ColumnVector input =
+             ColumnVector.fromStrings("{}", "BAD", "{\"A\": 100}");
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+
+         ColumnVector expectedKeys = ColumnVector.fromStrings("A");
+         ColumnVector expectedValues = ColumnVector.fromStrings("100");
+         ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 0, 0, 1);
+         ColumnVector tmpMap = expectedStructs.makeListFromOffsets(3, expectedOffsets);
+         ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, null, 1);
+         ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
+             templateBitmask);
+    ) {
+      assertColumnsAreEqual(expectedMap, outputMap);
+    }
+  }
 }
