@@ -607,8 +607,8 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   // Firstly, concatenate all the input json strings into one giant input json string.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
-  auto [is_invalid_or_empty, unified_json_buff, delimiter] =
-    concat_json(input, stream, rmm::mr::get_current_device_resource());
+  auto [unified_json_buff, delimiter, should_be_nullify] = concat_json(
+    input, /*nullify_invalid_rows*/ true, stream, rmm::mr::get_current_device_resource());
 
   // Tokenize the input json strings.
   static_assert(sizeof(SymbolT) == sizeof(char),
@@ -675,16 +675,9 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
 
-  auto const valid_it          = is_invalid_or_empty->view().begin<bool>();
+  auto const valid_it          = should_be_nullify->view().begin<bool>();
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + is_invalid_or_empty->size(), thrust::logical_not{}, stream, mr);
-
-  auto const count_valid = thrust::count_if(rmm::exec_policy(stream),
-                                            valid_it,
-                                            valid_it + is_invalid_or_empty->size(),
-                                            thrust::logical_not{});
-
-  printf("null count: %d, valid: %d\n", null_count, (int)count_valid);
+    valid_it, valid_it + should_be_nullify->size(), thrust::logical_not{}, stream, mr);
 
   // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
   // on the children columns as they do not have non-empty nulls.
