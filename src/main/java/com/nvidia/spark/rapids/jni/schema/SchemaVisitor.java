@@ -44,7 +44,7 @@ import java.util.List;
  *     <li> Visit primitive field b1</li>
  *     <li> Visit list field B with results from b1 and previsit result. </li>
  *     <li> Visit primitive field c1</li>
- *     <li> Visit with results from columns A, B, and C</li>
+ *     <li> Visit top schema with results from fields A, B, and C</li>
  * </ol>
  *
  * </p>
