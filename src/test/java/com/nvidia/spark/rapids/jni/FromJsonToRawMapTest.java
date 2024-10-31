@@ -20,6 +20,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.BinaryOp;
 
 import ai.rapids.cudf.JSONOptions;
+import ai.rapids.cudf.TableDebug;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
@@ -100,6 +101,18 @@ public class FromJsonToRawMapTest {
              templateBitmask);
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
+    }
+  }
+
+  @Test
+  void testFromJsonInputWithSingleQuotes() {
+    try (ColumnVector input =
+             ColumnVector.fromStrings("{'teacher': 'abc', 'student': 'abc'}", "invalid", "null", "", "  ");
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, JSONOptions.DEFAULT);
+
+
+    ) {
+      TableDebug.get().debug("outputMap", outputMap);
     }
   }
 }
