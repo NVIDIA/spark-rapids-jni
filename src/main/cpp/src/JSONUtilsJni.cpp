@@ -163,8 +163,11 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concaten
   try {
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
-    auto [is_valid, joined_strings, delimiter] =
-      spark_rapids_jni::concat_json(cudf::strings_column_view{*input_cv});
+
+    // Currently, set `nullify_invalid_rows = false` as `concatenateJsonStrings` is used only for
+    // `from_json` with struct schema.
+    auto [joined_strings, delimiter, should_be_nullify] = spark_rapids_jni::concat_json(
+      cudf::strings_column_view{*input_cv}, /*nullify_invalid_rows*/ false);
 
     // The output array contains 5 elements:
     // [0]: address of the cudf::column object `is_valid` in host memory
@@ -173,7 +176,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_concaten
     // [3]: address of the rmm::device_buffer object (of the concatenated strings) in host memory
     // [4]: delimiter char
     auto out_handles = cudf::jni::native_jlongArray(env, 5);
-    out_handles[0]   = reinterpret_cast<jlong>(is_valid.release());
+    out_handles[0]   = reinterpret_cast<jlong>(should_be_nullify.release());
     out_handles[1]   = reinterpret_cast<jlong>(joined_strings->data());
     out_handles[2]   = static_cast<jlong>(joined_strings->size());
     out_handles[3]   = reinterpret_cast<jlong>(joined_strings.release());

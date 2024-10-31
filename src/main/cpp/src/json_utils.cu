@@ -67,11 +67,19 @@ constexpr bool can_be_delimiter(char c)
 
 }  // namespace
 
-std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
+std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::column>> concat_json(
   cudf::strings_column_view const& input,
+  bool nullify_invalid_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) {
+    return {std::make_unique<rmm::device_buffer>(0, stream, mr),
+            '\n',
+            std::make_unique<cudf::column>(
+              rmm::device_uvector<bool>{0, stream, mr}, rmm::device_buffer{}, 0)};
+  }
+
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const default_mr  = rmm::mr::get_current_device_resource();
 
@@ -79,17 +87,18 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
   // This will be used for masking out the input when doing string concatenation.
   rmm::device_uvector<bool> is_valid_input(input.size(), stream, default_mr);
 
-  // Check if the input rows are either null or empty.
+  // Check if the input rows are either null or empty, and may also check for invalid JSON.
   // This will be returned to the caller.
-  rmm::device_uvector<bool> is_null_or_empty(input.size(), stream, mr);
+  rmm::device_uvector<bool> should_be_nullify(input.size(), stream, mr);
 
   thrust::for_each(
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0L),
     thrust::make_counting_iterator(input.size() * static_cast<int64_t>(cudf::detail::warp_size)),
-    [input  = *d_input_ptr,
+    [nullify_invalid_rows,
+     input  = *d_input_ptr,
      output = thrust::make_zip_iterator(thrust::make_tuple(
-       is_valid_input.begin(), is_null_or_empty.begin()))] __device__(int64_t tidx) {
+       is_valid_input.begin(), should_be_nullify.begin()))] __device__(int64_t tidx) {
       // Execute one warp per row to minimize thread divergence.
       if ((tidx % cudf::detail::warp_size) != 0) { return; }
       auto const idx = tidx / cudf::detail::warp_size;
@@ -127,7 +136,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
         // The current row contains only `null` string literal and not any other non-whitespace
         // characters. Such rows need to be masked out as null when doing concatenation.
         if (is_null_literal) {
-          output[idx] = thrust::make_tuple(false, false);
+          output[idx] = thrust::make_tuple(false, nullify_invalid_rows);
           return;
         }
       }
@@ -139,7 +148,7 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
       // Note that if we want to support ARRAY schema, we need to check for `[` instead.
       auto constexpr start_character = '{';
       if (not_eol && ch != start_character) {
-        output[idx] = thrust::make_tuple(false, false);
+        output[idx] = thrust::make_tuple(false, nullify_invalid_rows);
         return;
       }
 
@@ -221,9 +230,9 @@ std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, c
     stream,
     mr);
 
-  return {std::make_unique<cudf::column>(std::move(is_null_or_empty), rmm::device_buffer{}, 0),
-          std::move(concat_strings->release().data),
-          delimiter};
+  return {std::move(concat_strings->release().data),
+          delimiter,
+          std::make_unique<cudf::column>(std::move(should_be_nullify), rmm::device_buffer{}, 0)};
 }
 
 std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& children,
@@ -254,13 +263,14 @@ std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const&
 
 }  // namespace detail
 
-std::tuple<std::unique_ptr<cudf::column>, std::unique_ptr<rmm::device_buffer>, char> concat_json(
+std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::column>> concat_json(
   cudf::strings_column_view const& input,
+  bool nullify_invalid_rows,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::concat_json(input, stream, mr);
+  return detail::concat_json(input, nullify_invalid_rows, stream, mr);
 }
 
 std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& children,
