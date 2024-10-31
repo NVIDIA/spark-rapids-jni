@@ -113,6 +113,11 @@ void print_output_spark_map(std::unique_ptr<cudf::column> const& list_offsets,
                             std::unique_ptr<cudf::column> const& extracted_values,
                             rmm::cuda_stream_view stream)
 {
+  if (extracted_keys->size() == 0) {
+    std::cerr << "Extract keys-values are all empty.\n" << std::endl;
+    return;
+  }
+
   auto const keys_sv      = cudf::strings_column_view{extracted_keys->view()};
   auto const values_sv    = cudf::strings_column_view{extracted_values->view()};
   auto const keys_offsets = extracted_keys->child(cudf::strings_column_view::offsets_column_index);
