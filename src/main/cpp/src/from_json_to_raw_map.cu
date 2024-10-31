@@ -22,6 +22,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/tokenize_json.hpp>
 #include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
@@ -674,17 +675,29 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
 
+  auto const valid_it          = is_invalid_or_empty->view().begin<bool>();
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    valid_it, valid_it + is_invalid_or_empty->size(), thrust::logical_not{}, stream, mr);
+
+  auto const count_valid = thrust::count_if(rmm::exec_policy(stream),
+                                            valid_it,
+                                            valid_it + is_invalid_or_empty->size(),
+                                            thrust::logical_not{});
+
+  printf("null count: %d, valid: %d\n", null_count, (int)count_valid);
+
   // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
   // on the children columns as they do not have non-empty nulls.
   std::vector<std::unique_ptr<cudf::column>> list_children;
   list_children.emplace_back(std::move(list_offsets));
   list_children.emplace_back(std::move(structs_col));
-  return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
-                                        input.size(),
-                                        rmm::device_buffer{},
-                                        cudf::detail::copy_bitmask(input.parent(), stream, mr),
-                                        input.null_count(),
-                                        std::move(list_children));
+  return std::make_unique<cudf::column>(
+    cudf::data_type{cudf::type_id::LIST},
+    input.size(),
+    rmm::device_buffer{},
+    null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
+    null_count,
+    std::move(list_children));
 }
 
 }  // namespace spark_rapids_jni
