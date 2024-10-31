@@ -518,6 +518,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
                                                                   is_value,
                                                                   stream);
   auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
+  if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
     substring_fn{cudf::device_span<char const>{static_cast<char const*>(unified_json_buff.data()),
