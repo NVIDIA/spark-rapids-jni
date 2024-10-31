@@ -15,6 +15,7 @@
  */
 
 #include "from_json_to_raw_map_debug.cuh"
+#include "json_utils.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -59,18 +60,36 @@ namespace {
 // 1. Append one comma character (',') to the end of each input string, except the last one.
 // 2. Concatenate all input strings into one string.
 // 3. Add a pair of bracket characters ('[' and ']') to the beginning and the end of the output.
-rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& input,
-                                             rmm::cuda_stream_view stream)
+std::pair<rmm::device_uvector<char>, char> unify_json_strings(
+  cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
 {
   if (input.is_empty()) {
-    return cudf::detail::make_device_uvector_async<char>(
-      std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource());
+    return {cudf::detail::make_device_uvector_async<char>(
+              std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource()),
+            '\n'};
   }
 
+#if 1
+  auto [is_null_or_empty, concat_buffer, delimiter] =
+    concat_json(input, stream, rmm::mr::get_current_device_resource());
+
+  auto output = rmm::device_uvector<char>(concat_buffer->size(), stream);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(output.begin(),
+                                concat_buffer->data(),
+                                concat_buffer->size(),
+                                cudaMemcpyDefault,
+                                stream.value()));
+#ifdef DEBUG_FROM_JSON
+  print_debug<char, char>(output, "Processed json string", "", stream);
+#endif
+
+  return {std::move(output), delimiter};
+
+#else
   auto const d_strings  = cudf::column_device_view::create(input.parent(), stream);
   auto const chars_size = input.chars_size(stream);
   auto const output_size =
-    2l +                                            // two extra bracket characters '[' and ']'
+    2l +  // two extra bracket characters '[' and ']'
     static_cast<int64_t>(chars_size) +
     static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
     static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
@@ -106,7 +125,8 @@ rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& in
 #ifdef DEBUG_FROM_JSON
   print_debug<char, char>(output, "Processed json string", "", stream);
 #endif
-  return output;
+  return {std::move(output), '\n'};
+#endif
 }
 
 // Check and throw exception if there is any parsing error.
@@ -363,11 +383,11 @@ rmm::device_uvector<int8_t> check_key_or_value_nodes(
       [key_sentinel   = key_sentinel,
        value_sentinel = value_sentinel,
        parent_ids     = parent_node_ids.begin()] __device__(auto const node_id) -> int8_t {
-        if (parent_ids[node_id] > 0) {
+        if (parent_ids[node_id] > -1) {
           auto const grand_parent = parent_ids[parent_ids[node_id]];
-          if (grand_parent == 0) {
+          if (grand_parent == -1) {
             return key_sentinel;
-          } else if (parent_ids[grand_parent] == 0) {
+          } else if (parent_ids[grand_parent] == -1) {
             return value_sentinel;
           }
         }
@@ -592,7 +612,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
     parent_node_ids.end(),
     node_child_counts.begin(),
     cuda::proclaim_return_type<NodeIndexT>([] __device__(auto const parent_id) -> NodeIndexT {
-      return parent_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
+      return parent_id == -1 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
     }));
 
   auto const is_key = cuda::proclaim_return_type<bool>(
@@ -647,14 +667,18 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   // Firstly, concatenate all the input json strings into one giant input json string.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
-  auto const unified_json_buff = unify_json_strings(input, stream);
+  auto const [unified_json_buff, delimiter] = unify_json_strings(input, stream);
 
   // Tokenize the input json strings.
   static_assert(sizeof(SymbolT) == sizeof(char),
                 "Invalid internal data for nested json tokenizer.");
   auto const [tokens, token_indices] = cudf::io::json::detail::get_token_stream(
     cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
-    cudf::io::json_reader_options{},
+    cudf::io::json_reader_options_builder{}
+      .lines(true)
+      .delimiter(delimiter)
+      .recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL)
+      .build(),
     stream,
     rmm::mr::get_current_device_resource());
 
