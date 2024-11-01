@@ -52,25 +52,12 @@ public class GpuTimeZoneDB {
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
-  private Map<String, Integer> zoneIdToTable;
+  private static Map<String, Integer> zoneIdToTable;
 
   // use this reference to indicate if time zone cache is initialized.
-  private HostColumnVector fixedTransitions;
+  private static HostColumnVector fixedTransitions;
 
   private static boolean isShutdownCalledEver = false;
-
-  // Guarantee singleton instance
-  private GpuTimeZoneDB() {
-  }
-
-  // singleton instance
-  private static final GpuTimeZoneDB instance = new GpuTimeZoneDB();
-
-  // This method is default visibility for testing purposes only.
-  // The instance will be never be exposed publicly for this class.
-  static GpuTimeZoneDB getInstance() {
-    return instance;
-  }
 
   /**
    * This should be called on startup of an executor.
@@ -87,7 +74,7 @@ public class GpuTimeZoneDB {
     // start a new thread to load
     Runnable runnable = () -> {
       try {
-        instance.cacheDatabaseImpl();
+        cacheDatabaseImpl();
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
       }
@@ -104,7 +91,7 @@ public class GpuTimeZoneDB {
    * If cache is exits, do not load cache again.
    */
   public static void cacheDatabase() {
-    instance.cacheDatabaseImpl();
+    cacheDatabaseImpl();
   }
 
   /**
@@ -112,7 +99,7 @@ public class GpuTimeZoneDB {
    */
   public static synchronized void shutdown() {
     isShutdownCalledEver = true;
-    instance.shutdownImpl();
+    shutdownImpl();
   }
 
   private static synchronized void assertNotShutDown() {
@@ -121,7 +108,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private void cacheDatabaseImpl() {
+  private static void cacheDatabaseImpl() {
     synchronized (GpuTimeZoneDB.class) {
       assertNotShutDown();
       if (fixedTransitions == null) {
@@ -135,11 +122,11 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private void shutdownImpl() {
+  private static void shutdownImpl() {
     closeResources();
   }
 
-  private void closeResources()  {
+  private static void closeResources()  {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
       zoneIdToTable = null;
@@ -158,8 +145,8 @@ public class GpuTimeZoneDB {
           currentTimeZone.toString()));
     }
     cacheDatabase();
-    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    try (Table transitions = instance.getTransitions()) {
+    Integer tzIndex = getZoneIDMap().get(currentTimeZone.normalized().toString());
+    try (Table transitions = getTransitions()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
     }
@@ -173,8 +160,8 @@ public class GpuTimeZoneDB {
           desiredTimeZone.toString()));
     }
     cacheDatabase();
-    Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
-    try (Table transitions = instance.getTransitions()) {
+    Integer tzIndex = getZoneIDMap().get(desiredTimeZone.normalized().toString());
+    try (Table transitions = getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
     }
@@ -207,7 +194,7 @@ public class GpuTimeZoneDB {
   }
 
   @SuppressWarnings("unchecked")
-  private void loadData() {
+  private static void loadData() {
     try {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
       zoneIdToTable = new HashMap<>();
@@ -283,17 +270,17 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private Map<String, Integer> getZoneIDMap() {
+  private static Map<String, Integer> getZoneIDMap() {
     return zoneIdToTable;
   }
 
-  private Table getTransitions() {
+  private static Table getTransitions() {
     try (ColumnVector fixedTransitions = getFixedTransitions()) {
       return new Table(fixedTransitions);
     }
   }
 
-  private ColumnVector getFixedTransitions() {
+  private static ColumnVector getFixedTransitions() {
     return fixedTransitions.copyToDevice();
   }
 
@@ -307,7 +294,7 @@ public class GpuTimeZoneDB {
    * @param zoneId
    * @return list of fixed transitions
    */
-  List getHostFixedTransitions(String zoneId) {
+  static List getHostFixedTransitions(String zoneId) {
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = getZoneIDMap().get(zoneId);
     if (idx == null) {
