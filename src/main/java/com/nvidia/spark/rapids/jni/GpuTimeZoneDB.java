@@ -65,6 +65,9 @@ public class GpuTimeZoneDB {
    * If `shutdown` was called ever, then will not load the cache
    */
   public static void cacheDatabaseAsync() {
+    // This has a race in that we could still launch a thread after
+    // shutting down. This is just to prevent the thread from launching
+    // in some cases.
     synchronized (GpuTimeZoneDB.class) {
       if (isShutdownCalledEver) {
         log.error("cache async called after DB already loaded");
@@ -102,27 +105,21 @@ public class GpuTimeZoneDB {
     closeResources();
   }
 
-  private static synchronized void assertNotShutDown() {
+  private static synchronized void cacheDatabaseImpl() {
     if (isShutdownCalledEver) {
       throw new IllegalStateException("GpuTimeZoneDB has already been shut down");
     }
-  }
-
-  private static void cacheDatabaseImpl() {
-    synchronized (GpuTimeZoneDB.class) {
-      assertNotShutDown();
-      if (fixedTransitions == null) {
-        try {
-          loadData();
-        } catch (Exception e) {
-          closeResources();
-          throw e;
-        }
+    if (fixedTransitions == null) {
+      try {
+        loadData();
+      } catch (Exception e) {
+        closeResources();
+        throw e;
       }
     }
   }
 
-  private static void closeResources()  {
+  private static synchronized void closeResources()  {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
       zoneIdToTable = null;
@@ -140,6 +137,9 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           currentTimeZone.toString()));
     }
+    // there is technically a race condition on shutdown. Shutdown could be called after
+    // the database is cached. This would result in a null pointer exception at some point
+    // in the processing. This should be rare enough that it is not a big deal.
     cacheDatabase();
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
@@ -155,6 +155,9 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           desiredTimeZone.toString()));
     }
+    // there is technically a race condition on shutdown. Shutdown could be called after
+    // the database is cached. This would result in a null pointer exception at some point
+    // in the processing. This should be rare enough that it is not a big deal.
     cacheDatabase();
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
@@ -190,7 +193,7 @@ public class GpuTimeZoneDB {
   }
 
   @SuppressWarnings("unchecked")
-  private static void loadData() {
+  private static synchronized void loadData() {
     try {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
       zoneIdToTable = new HashMap<>();
@@ -266,13 +269,13 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static Table getTransitions() {
+  private static synchronized Table getTransitions() {
     try (ColumnVector fixedTransitions = getFixedTransitions()) {
       return new Table(fixedTransitions);
     }
   }
 
-  private static ColumnVector getFixedTransitions() {
+  private static synchronized ColumnVector getFixedTransitions() {
     return fixedTransitions.copyToDevice();
   }
 
@@ -286,7 +289,7 @@ public class GpuTimeZoneDB {
    * @param zoneId
    * @return list of fixed transitions
    */
-  static List getHostFixedTransitions(String zoneId) {
+  static synchronized List getHostFixedTransitions(String zoneId) {
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = zoneIdToTable.get(zoneId);
     if (idx == null) {
