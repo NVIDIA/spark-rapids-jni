@@ -24,7 +24,6 @@
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/detail/tokenize_json.hpp>
-#include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
@@ -58,7 +57,6 @@ using namespace cudf::io::json;
 namespace {
 
 // Check and throw exception if there is any parsing error.
-// TODO: remove this for https://github.com/NVIDIA/spark-rapids-jni/issues/2553.
 void throw_if_error(rmm::device_buffer const& input_json,
                     rmm::device_uvector<PdaTokenT> const& tokens,
                     rmm::device_uvector<SymbolOffsetT> const& token_indices,
