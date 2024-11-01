@@ -57,6 +57,8 @@ public class GpuTimeZoneDB {
   // use this reference to indicate if time zone cache is initialized.
   private HostColumnVector fixedTransitions;
 
+  private static boolean isShutdownCalledEver = false;
+
   // Guarantee singleton instance
   private GpuTimeZoneDB() {
   }
@@ -70,15 +72,6 @@ public class GpuTimeZoneDB {
     return instance;
   }
 
-  static class LoadingLock {
-    Boolean isLoading = false;
-
-    // record whether a shutdown is called ever.
-    // if `isCloseCalledEver` is true, then the following loading should be skipped.
-    Boolean isShutdownCalledEver = false;
-  }
-
-  private static final LoadingLock lock = new LoadingLock();
 
   /**
    * This should be called on startup of an executor.
@@ -86,33 +79,18 @@ public class GpuTimeZoneDB {
    * If `shutdown` was called ever, then will not load the cache
    */
   public static void cacheDatabaseAsync() {
-    synchronized (lock) {
-      if (lock.isShutdownCalledEver) {
-        // shutdown was called ever, will never load cache again.
+    synchronized (GpuTimeZoneDB.class) {
+      if (isShutdownCalledEver) {
+        log.error("cache async called after DB already loaded");
         return;
-      }
-
-      if (lock.isLoading) {
-        // another thread is loading(), return
-        return;
-      } else {
-        lock.isLoading = true;
       }
     }
-
     // start a new thread to load
     Runnable runnable = () -> {
       try {
         instance.cacheDatabaseImpl();
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
-      } finally {
-        synchronized (lock) {
-          // now loading is done
-          lock.isLoading = false;
-          // `cacheDatabase` and `shutdown` may wait loading is done.
-          lock.notify();
-        }
       }
     };
     Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -127,61 +105,26 @@ public class GpuTimeZoneDB {
    * If cache is exits, do not load cache again.
    */
   public static void cacheDatabase() {
-    synchronized (lock) {
-      if (lock.isLoading) {
-        // another thread is loading(), wait loading is done
-        while (lock.isLoading) {
-          try {
-            lock.wait();
-          } catch (InterruptedException e) {
-            throw new IllegalStateException("cache time zone transitions cache failed", e);
-          }
-        }
-        return;
-      } else {
-        lock.isLoading = true;
-      }
-    }
-
-    try {
-      instance.cacheDatabaseImpl();
-    } finally {
-      // loading is done.
-      synchronized (lock) {
-        lock.isLoading = false;
-        // `cacheDatabase` and/or `shutdown` may wait loading is done.
-        lock.notify();
-      }
-    }
+    instance.cacheDatabaseImpl();
   }
 
   /**
    * close the cache, used when Plugin is closing
    */
-  public static void shutdown() {
-    synchronized (lock) {
-      lock.isShutdownCalledEver = true;
-      while (lock.isLoading) {
-        // wait until loading is done
-        try {
-          lock.wait();
-        } catch (InterruptedException e) {
-          throw new IllegalStateException("shutdown time zone transitions cache failed", e);
-        }
-      }
-      instance.shutdownImpl();
-      // `cacheDatabase` and/or `shutdown` may wait loading is done.
-      lock.notify();
-    }
+  public static synchronized void shutdown() {
+    isShutdownCalledEver = true;
+    instance.shutdownImpl();
   }
 
   private void cacheDatabaseImpl() {
-    if (fixedTransitions == null) {
-      try {
-        loadData();
-      } catch (Exception e) {
-        closeResources();
-        throw e;
+    synchronized (GpuTimeZoneDB.class) {
+      if (fixedTransitions == null) {
+        try {
+          loadData();
+        } catch (Exception e) {
+          closeResources();
+          throw e;
+        }
       }
     }
   }
