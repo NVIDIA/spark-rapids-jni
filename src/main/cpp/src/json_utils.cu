@@ -83,12 +83,14 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
   auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const default_mr  = rmm::mr::get_current_device_resource();
 
-  // Check if the input rows are either null, equal to `null` string literal, or empty.
-  // This will be used for masking out the input when doing string concatenation.
+  // Check if the input rows are null, empty (containing only whitespaces), and invalid JSON.
+  // This will be used for masking out the null/empty/invalid input rows when doing string
+  // concatenation.
   rmm::device_uvector<bool> is_valid_input(input.size(), stream, default_mr);
 
-  // Check if the input rows are either null or empty, and may also check for invalid JSON.
-  // This will be returned to the caller.
+  // Check if the input rows are null, empty (containing only whitespaces), and may also check
+  // for invalid JSON strings.
+  // This will be returned to the caller to create null mask for the final output.
   rmm::device_uvector<bool> should_be_nullify(input.size(), stream, mr);
 
   thrust::for_each(
@@ -117,28 +119,6 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
       for (; i < size; ++i) {
         ch = d_str[i];
         if (not_whitespace(ch)) { break; }
-      }
-
-      if (i + 3 < size &&
-          (d_str[i] == 'n' && d_str[i + 1] == 'u' && d_str[i + 2] == 'l' && d_str[i + 3] == 'l')) {
-        i += 4;
-
-        // Skip the very last whitespace characters.
-        bool is_null_literal{true};
-        for (; i < size; ++i) {
-          ch = d_str[i];
-          if (not_whitespace(ch)) {
-            is_null_literal = false;
-            break;
-          }
-        }
-
-        // The current row contains only `null` string literal and not any other non-whitespace
-        // characters. Such rows need to be masked out as null when doing concatenation.
-        if (is_null_literal) {
-          output[idx] = thrust::make_tuple(false, nullify_invalid_rows);
-          return;
-        }
       }
 
       auto const not_eol = i < size;
