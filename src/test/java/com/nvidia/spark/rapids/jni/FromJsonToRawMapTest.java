@@ -94,7 +94,7 @@ public class FromJsonToRawMapTest {
   }
 
   @Test
-  void testFromJsonEmptyInput() {
+  void testFromJsonEmptyAndInvalidInput() {
     try (ColumnVector input =
              ColumnVector.fromStrings("{}", "BAD", "{\"A\": 100}");
          ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, getOptions());
