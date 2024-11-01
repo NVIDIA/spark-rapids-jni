@@ -72,7 +72,6 @@ public class GpuTimeZoneDB {
     return instance;
   }
 
-
   /**
    * This should be called on startup of an executor.
    * Runs in a thread asynchronously.
@@ -116,8 +115,15 @@ public class GpuTimeZoneDB {
     instance.shutdownImpl();
   }
 
+  private static synchronized void assertNotShutDown() {
+    if (isShutdownCalledEver) {
+      throw new IllegalStateException("GpuTimeZoneDB has already been shut down");
+    }
+  }
+
   private void cacheDatabaseImpl() {
     synchronized (GpuTimeZoneDB.class) {
+      assertNotShutDown();
       if (fixedTransitions == null) {
         try {
           loadData();
@@ -309,7 +315,6 @@ public class GpuTimeZoneDB {
     }
     return fixedTransitions.getList(idx);
   }
-
 
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
