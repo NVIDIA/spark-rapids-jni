@@ -99,7 +99,7 @@ public class GpuTimeZoneDB {
    */
   public static synchronized void shutdown() {
     isShutdownCalledEver = true;
-    shutdownImpl();
+    closeResources();
   }
 
   private static synchronized void assertNotShutDown() {
@@ -122,10 +122,6 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static void shutdownImpl() {
-    closeResources();
-  }
-
   private static void closeResources()  {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
@@ -145,7 +141,7 @@ public class GpuTimeZoneDB {
           currentTimeZone.toString()));
     }
     cacheDatabase();
-    Integer tzIndex = getZoneIDMap().get(currentTimeZone.normalized().toString());
+    Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
@@ -160,7 +156,7 @@ public class GpuTimeZoneDB {
           desiredTimeZone.toString()));
     }
     cacheDatabase();
-    Integer tzIndex = getZoneIDMap().get(desiredTimeZone.normalized().toString());
+    Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
@@ -270,10 +266,6 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static Map<String, Integer> getZoneIDMap() {
-    return zoneIdToTable;
-  }
-
   private static Table getTransitions() {
     try (ColumnVector fixedTransitions = getFixedTransitions()) {
       return new Table(fixedTransitions);
@@ -296,7 +288,7 @@ public class GpuTimeZoneDB {
    */
   static List getHostFixedTransitions(String zoneId) {
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
-    Integer idx = getZoneIDMap().get(zoneId);
+    Integer idx = zoneIdToTable.get(zoneId);
     if (idx == null) {
       return null;
     }
