@@ -16,35 +16,37 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-public class SliceInfo {
-  final long offset;
-  final long rowCount;
-  private final SlicedValidityBufferInfo validityBufferInfo;
+import ai.rapids.cudf.HostMemoryBuffer;
 
-  SliceInfo(long offset, long rowCount) {
-    this.offset = offset;
-    this.rowCount = rowCount;
-    this.validityBufferInfo = SlicedValidityBufferInfo.calc(offset, rowCount);
+public class KudoTable implements AutoCloseable {
+  private final KudoTableHeader header;
+  private final HostMemoryBuffer buffer;
+
+  KudoTable(KudoTableHeader header, HostMemoryBuffer buffer) {
+    this.header = header;
+    this.buffer = buffer;
   }
 
-  SlicedValidityBufferInfo getValidityBufferInfo() {
-    return validityBufferInfo;
+  public KudoTableHeader getHeader() {
+    return header;
   }
 
-  public long getOffset() {
-    return offset;
-  }
-
-  public long getRowCount() {
-    return rowCount;
+  public HostMemoryBuffer getBuffer() {
+    return buffer;
   }
 
   @Override
   public String toString() {
-    return "SliceInfo{" +
-        "offset=" + offset +
-        ", rowCount=" + rowCount +
-        ", validityBufferInfo=" + validityBufferInfo +
+    return "SerializedTable{" +
+        "header=" + header +
+        ", buffer=" + buffer +
         '}';
+  }
+
+  @Override
+  public void close() throws Exception {
+    if (buffer != null) {
+      buffer.close();
+    }
   }
 }

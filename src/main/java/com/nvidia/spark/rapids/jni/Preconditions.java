@@ -21,7 +21,7 @@ import java.util.function.Supplier;
 /**
  * This class contains utility methods for checking preconditions.
  */
-class Preconditions {
+public class Preconditions {
     /**
      * Check if the condition is true, otherwise throw an IllegalStateException with the given message.
      */
