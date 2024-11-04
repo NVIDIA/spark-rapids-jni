@@ -1,5 +1,5 @@
 /*
-* Copyright (c)  2023-2024, NVIDIA CORPORATION.
+* Copyright (c)  2023, NVIDIA CORPORATION.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -44,10 +44,11 @@ public class TimeZoneTest {
   @Test
   void databaseLoadedTest() {
     // Check for a few timezones
-    List transitions = GpuTimeZoneDB.getHostFixedTransitions("UTC+8");
+    GpuTimeZoneDB instance = GpuTimeZoneDB.getInstance();
+    List transitions = instance.getHostFixedTransitions("UTC+8");
     assertNotNull(transitions);
     assertEquals(1, transitions.size());
-    transitions = GpuTimeZoneDB.getHostFixedTransitions("Asia/Shanghai");
+    transitions = instance.getHostFixedTransitions("Asia/Shanghai");
     assertNotNull(transitions);
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
