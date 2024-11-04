@@ -57,23 +57,12 @@ public class GpuTimeZoneDB {
   // use this reference to indicate if time zone cache is initialized.
   private static HostColumnVector fixedTransitions;
 
-  private static boolean isShutdownCalledEver = false;
-
   /**
    * This should be called on startup of an executor.
    * Runs in a thread asynchronously.
    * If `shutdown` was called ever, then will not load the cache
    */
   public static void cacheDatabaseAsync() {
-    // This has a race in that we could still launch a thread after
-    // shutting down. This is just to prevent the thread from launching
-    // in some cases.
-    synchronized (GpuTimeZoneDB.class) {
-      if (isShutdownCalledEver) {
-        log.error("cache async called after DB already loaded");
-        return;
-      }
-    }
     // start a new thread to load
     Runnable runnable = () -> {
       try {
@@ -101,14 +90,10 @@ public class GpuTimeZoneDB {
    * close the cache, used when Plugin is closing
    */
   public static synchronized void shutdown() {
-    isShutdownCalledEver = true;
     closeResources();
   }
 
   private static synchronized void cacheDatabaseImpl() {
-    if (isShutdownCalledEver) {
-      throw new IllegalStateException("GpuTimeZoneDB has already been shut down");
-    }
     if (fixedTransitions == null) {
       try {
         loadData();
