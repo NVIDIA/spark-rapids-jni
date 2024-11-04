@@ -31,9 +31,12 @@ public class HLLPP {
   /**
    * Compute the approximate count distinct value from sketch values.
    * <p>
-   * The input sketch values must be given in the format `LIST<INT8>`.
+   * The input sketch values must be given in the format `Struct<INT64, INT64, ...>`,
+   * The num of children is: num_registers_per_sketch / 10 + 1, here 10 means a INT64 contains
+   * max 10 registers. Register value is 6 bits. The input is columnar data, e.g.: sketch 0
+   * is composed of by all the data of the children at index 0.
    *
-   * @param input         The sketch column which constains `LIST<INT8> values.
+   * @param input         The sketch column which constains Struct<INT64, INT64, ...> values.
    * @param precision     The num of bits for addressing.
    * @return A INT64 column with each value indicates the approximate count distinct value.
    */
