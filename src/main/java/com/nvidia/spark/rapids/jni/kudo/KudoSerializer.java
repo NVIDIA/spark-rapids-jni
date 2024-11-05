@@ -98,7 +98,7 @@ import static java.util.Objects.requireNonNull;
  *     </tr>
  *     <tr>
  *         <td>hasValidityBuffer</td>
- *         <td>(number of columns + 1 + 7) / 8</td>
+ *         <td>(number of columns + 7) / 8</td>
  *         <td>A bit set to indicate whether a column has validity buffer. To test if column
  *         <code>col<sub>i<sub></code> has validity buffer, use the following code:
  *         <br/>
