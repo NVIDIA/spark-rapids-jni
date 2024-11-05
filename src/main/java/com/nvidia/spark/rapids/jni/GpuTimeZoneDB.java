@@ -52,33 +52,10 @@ public class GpuTimeZoneDB {
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
-  private Map<String, Integer> zoneIdToTable;
+  private static Map<String, Integer> zoneIdToTable;
 
   // use this reference to indicate if time zone cache is initialized.
-  private HostColumnVector fixedTransitions;
-
-  // Guarantee singleton instance
-  private GpuTimeZoneDB() {
-  }
-
-  // singleton instance
-  private static final GpuTimeZoneDB instance = new GpuTimeZoneDB();
-
-  // This method is default visibility for testing purposes only.
-  // The instance will be never be exposed publicly for this class.
-  static GpuTimeZoneDB getInstance() {
-    return instance;
-  }
-
-  static class LoadingLock {
-    Boolean isLoading = false;
-
-    // record whether a shutdown is called ever.
-    // if `isCloseCalledEver` is true, then the following loading should be skipped.
-    Boolean isShutdownCalledEver = false;
-  }
-
-  private static final LoadingLock lock = new LoadingLock();
+  private static HostColumnVector fixedTransitions;
 
   /**
    * This should be called on startup of an executor.
@@ -86,33 +63,12 @@ public class GpuTimeZoneDB {
    * If `shutdown` was called ever, then will not load the cache
    */
   public static void cacheDatabaseAsync() {
-    synchronized (lock) {
-      if (lock.isShutdownCalledEver) {
-        // shutdown was called ever, will never load cache again.
-        return;
-      }
-
-      if (lock.isLoading) {
-        // another thread is loading(), return
-        return;
-      } else {
-        lock.isLoading = true;
-      }
-    }
-
     // start a new thread to load
     Runnable runnable = () -> {
       try {
-        instance.cacheDatabaseImpl();
+        cacheDatabaseImpl();
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
-      } finally {
-        synchronized (lock) {
-          // now loading is done
-          lock.isLoading = false;
-          // `cacheDatabase` and `shutdown` may wait loading is done.
-          lock.notify();
-        }
       }
     };
     Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -127,55 +83,17 @@ public class GpuTimeZoneDB {
    * If cache is exits, do not load cache again.
    */
   public static void cacheDatabase() {
-    synchronized (lock) {
-      if (lock.isLoading) {
-        // another thread is loading(), wait loading is done
-        while (lock.isLoading) {
-          try {
-            lock.wait();
-          } catch (InterruptedException e) {
-            throw new IllegalStateException("cache time zone transitions cache failed", e);
-          }
-        }
-        return;
-      } else {
-        lock.isLoading = true;
-      }
-    }
-
-    try {
-      instance.cacheDatabaseImpl();
-    } finally {
-      // loading is done.
-      synchronized (lock) {
-        lock.isLoading = false;
-        // `cacheDatabase` and/or `shutdown` may wait loading is done.
-        lock.notify();
-      }
-    }
+    cacheDatabaseImpl();
   }
 
   /**
    * close the cache, used when Plugin is closing
    */
-  public static void shutdown() {
-    synchronized (lock) {
-      lock.isShutdownCalledEver = true;
-      while (lock.isLoading) {
-        // wait until loading is done
-        try {
-          lock.wait();
-        } catch (InterruptedException e) {
-          throw new IllegalStateException("shutdown time zone transitions cache failed", e);
-        }
-      }
-      instance.shutdownImpl();
-      // `cacheDatabase` and/or `shutdown` may wait loading is done.
-      lock.notify();
-    }
+  public static synchronized void shutdown() {
+    closeResources();
   }
 
-  private void cacheDatabaseImpl() {
+  private static synchronized void cacheDatabaseImpl() {
     if (fixedTransitions == null) {
       try {
         loadData();
@@ -186,11 +104,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private void shutdownImpl() {
-    closeResources();
-  }
-
-  private void closeResources()  {
+  private static synchronized void closeResources()  {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
       zoneIdToTable = null;
@@ -208,9 +122,12 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           currentTimeZone.toString()));
     }
+    // there is technically a race condition on shutdown. Shutdown could be called after
+    // the database is cached. This would result in a null pointer exception at some point
+    // in the processing. This should be rare enough that it is not a big deal.
     cacheDatabase();
-    Integer tzIndex = instance.getZoneIDMap().get(currentTimeZone.normalized().toString());
-    try (Table transitions = instance.getTransitions()) {
+    Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
+    try (Table transitions = getTransitions()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
     }
@@ -223,9 +140,12 @@ public class GpuTimeZoneDB {
       throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
           desiredTimeZone.toString()));
     }
+    // there is technically a race condition on shutdown. Shutdown could be called after
+    // the database is cached. This would result in a null pointer exception at some point
+    // in the processing. This should be rare enough that it is not a big deal.
     cacheDatabase();
-    Integer tzIndex = instance.getZoneIDMap().get(desiredTimeZone.normalized().toString());
-    try (Table transitions = instance.getTransitions()) {
+    Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
+    try (Table transitions = getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
     }
@@ -258,7 +178,7 @@ public class GpuTimeZoneDB {
   }
 
   @SuppressWarnings("unchecked")
-  private void loadData() {
+  private static synchronized void loadData() {
     try {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
       zoneIdToTable = new HashMap<>();
@@ -334,17 +254,13 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private Map<String, Integer> getZoneIDMap() {
-    return zoneIdToTable;
-  }
-
-  private Table getTransitions() {
+  private static synchronized Table getTransitions() {
     try (ColumnVector fixedTransitions = getFixedTransitions()) {
       return new Table(fixedTransitions);
     }
   }
 
-  private ColumnVector getFixedTransitions() {
+  private static synchronized ColumnVector getFixedTransitions() {
     return fixedTransitions.copyToDevice();
   }
 
@@ -358,15 +274,14 @@ public class GpuTimeZoneDB {
    * @param zoneId
    * @return list of fixed transitions
    */
-  List getHostFixedTransitions(String zoneId) {
+  static synchronized List getHostFixedTransitions(String zoneId) {
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
-    Integer idx = getZoneIDMap().get(zoneId);
+    Integer idx = zoneIdToTable.get(zoneId);
     if (idx == null) {
       return null;
     }
     return fixedTransitions.getList(idx);
   }
-
 
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
