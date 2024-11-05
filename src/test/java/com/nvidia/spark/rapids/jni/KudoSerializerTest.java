@@ -84,7 +84,9 @@ public class KudoSerializerTest {
         .column(1, 2, 3, 4)
         .column("1", "12", null, "45")
         .column(new Integer[]{1, null, 3}, new Integer[]{4, 5, 6}, null, new Integer[]{7, 8, 9})
-        .column(st,  new HostColumnVector.StructData(1, 11), new HostColumnVector.StructData (2, null), null, new HostColumnVector.StructData(3, 33))
+        .column(st,  new HostColumnVector.StructData((byte)1, 11L),
+            new HostColumnVector.StructData ((byte)2, null), null,
+            new HostColumnVector.StructData((byte)3, 33L))
         .build();
   }
 }
