@@ -62,17 +62,17 @@ using namespace cudf::io::json;
 
 namespace {
 
-// Unify the input json strings by concatenating all input strings into one string. Each input
-// string is appended by a delimiter character that does not exist in the input column.
+// Concatenating all input strings into one string, for which each input string is appended by a
+// delimiter character that does not exist in the input column.
 std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_strings(
   cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
 {
   auto const default_mr = cudf::get_current_device_resource();
-  auto [concatenated_buff, delimiter, should_be_nullify] =
+  auto [concatenated_buff, delimiter, should_be_nullified] =
     concat_json(input, /*nullify_invalid_rows*/ true, stream, default_mr);
 
   if (concatenated_buff->size() == 0) {
-    return {std::move(*concatenated_buff), delimiter, std::move(should_be_nullify)};
+    return {std::move(*concatenated_buff), delimiter, std::move(should_be_nullified)};
   }
 
   // Append the delimiter to the end of the concatenated buffer.
@@ -89,7 +89,7 @@ std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_s
     cudf::host_span<char const>(&delimiter, 1, false),
     stream);
 
-  return {std::move(unified_buff), delimiter, std::move(should_be_nullify)};
+  return {std::move(unified_buff), delimiter, std::move(should_be_nullified)};
 }
 
 // Check and throw exception if there is any parsing error.
@@ -641,7 +641,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   // Firstly, concatenate all the input json strings into one buffer.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
-  auto [concat_json_buff, delimiter, should_be_nullify] = unify_json_strings(input, stream);
+  auto [concat_json_buff, delimiter, should_be_nullified] = unify_json_strings(input, stream);
   auto concat_buff_wrapper =
     cudf::io::datasource::owning_buffer<rmm::device_buffer>(std::move(concat_json_buff));
   if (normalize_single_quotes) {
@@ -723,9 +723,9 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
 
-  auto const valid_it          = should_be_nullify->view().begin<bool>();
+  auto const valid_it          = should_be_nullified->view().begin<bool>();
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + should_be_nullify->size(), thrust::logical_not{}, stream, mr);
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
 
   // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
   // on the children columns as they do not have non-empty nulls.
