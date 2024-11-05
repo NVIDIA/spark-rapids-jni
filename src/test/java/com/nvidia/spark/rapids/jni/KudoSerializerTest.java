@@ -64,12 +64,12 @@ public class KudoSerializerTest {
 
     builder.addColumn(DType.INT32, "a");
     builder.addColumn(DType.STRING, "b");
-    builder.addColumn(DType.LIST, "c")
-        .addColumn(DType.INT32, "c1");
+    Schema.Builder listBuilder = builder.addColumn(DType.LIST, "c");
+    listBuilder.addColumn(DType.INT32, "c1");
 
-    builder.addColumn(DType.STRUCT, "d")
-        .addColumn(DType.INT8, "d1")
-        .addColumn(DType.INT64, "d2");
+    Schema.Builder structBuilder =  builder.addColumn(DType.STRUCT, "d");
+    structBuilder.addColumn(DType.INT8, "d1");
+    structBuilder.addColumn(DType.INT64, "d2");
 
     return builder.build();
   }

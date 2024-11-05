@@ -92,7 +92,7 @@ import static java.util.Objects.requireNonNull;
  *     <tr>
  *         <td>Number of columns</td>
  *         <td>4</td>
- *         <td>Number of columns in flattened schema, in little endian format. For details of <q>flattened schema</q>,
+ *         <td>Number of columns in flattened schema, in big endian format. For details of <q>flattened schema</q>,
  *         see {@link com.nvidia.spark.rapids.jni.schema.SchemaVisitor}
  *         </td>
  *     </tr>
@@ -162,6 +162,12 @@ public class KudoSerializer {
 
   /**
    * Write partition of a table to a stream.
+   *
+   * <br/>
+   *
+   * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
+   * is undefined.
+   *
    * @param table table to write
    * @param out output stream
    * @param rowOffset row offset in original table
@@ -189,6 +195,12 @@ public class KudoSerializer {
 
   /**
    * Write partition of an array of {@link HostColumnVector} to an output stream.
+   *
+   * <br/>
+   *
+   * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
+   * is undefined.
+   *
    * @param columns columns to write
    * @param out output stream
    * @param rowOffset row offset in original column vector.
@@ -196,7 +208,7 @@ public class KudoSerializer {
    * @return number of bytes written
    */
   public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
-    ensure(numRows > 0, () -> "numRows must be >= 0, but was " + numRows);
+    ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
             "please call writeRowCountToStream");
 
