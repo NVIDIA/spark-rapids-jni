@@ -628,6 +628,21 @@ std::unique_ptr<cudf::column> compute_list_offsets(
   return std::make_unique<cudf::column>(std::move(list_offsets), rmm::device_buffer{}, 0);
 }
 
+std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+{
+  auto keys   = cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
+  auto values = cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
+  std::vector<std::unique_ptr<cudf::column>> out_keys_vals;
+  out_keys_vals.emplace_back(std::move(keys));
+  out_keys_vals.emplace_back(std::move(values));
+  auto child =
+    cudf::make_structs_column(0, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
+  auto offsets = cudf::make_empty_column(cudf::data_type(cudf::type_id::INT32));
+  return cudf::make_lists_column(
+    0, std::move(offsets), std::move(child), 0, rmm::device_buffer{}, stream, mr);
+}
+
 }  // namespace
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view const& input,
@@ -638,6 +653,8 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) { return make_empty_map(stream, mr); }
+
   // Firstly, concatenate all the input json strings into one buffer.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
