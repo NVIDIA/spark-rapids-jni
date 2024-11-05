@@ -49,7 +49,7 @@ public class KudoSerializerTest {
       assertEquals(4, header.getNumRows());
       assertEquals(24, header.getValidityBufferLen());
       assertEquals(40, header.getOffsetBufferLen());
-      assertEquals(199, header.getTotalDataLen());
+      assertEquals(160, header.getTotalDataLen());
 
       // First integer column has no validity buffer
       assertFalse(header.hasValidityBuffer(0));
