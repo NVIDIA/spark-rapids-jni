@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.stream.IntStream;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static java.util.Objects.requireNonNull;
 
 /**
  * This class is used to serialize/deserialize a table using the Kudo format.
@@ -66,27 +67,27 @@ import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
  *     <tr>
  *         <td>Offset</td>
  *         <td>4</td>
- *         <td>Row offset in original table, in little endian format</td>
+ *         <td>Row offset in original table, in big endian format</td>
  *     </tr>
  *     <tr>
  *         <td>Number of rows</td>
  *         <td>4</td>
- *         <td>Number of rows, in little endian format</td>
+ *         <td>Number of rows, in big endian format</td>
  *     </tr>
  *     <tr>
  *         <td>Length of validity buffer</td>
  *         <td>4</td>
- *         <td>Length of validity buffer, in little endian format</td>
+ *         <td>Length of validity buffer, in big endian format</td>
  *     </tr>
  *     <tr>
  *         <td>Length of offset buffer</td>
  *         <td>4</td>
- *         <td>Length of offset buffer, in little endian format</td>
+ *         <td>Length of offset buffer, in big endian format</td>
  *     </tr>
  *     <tr>
  *         <td>Length of total body</td>
  *         <td>4</td>
- *         <td>Length of total body, in little endian format</td>
+ *         <td>Length of total body, in big endian format</td>
  *     </tr>
  *     <tr>
  *         <td>Number of columns</td>
@@ -131,7 +132,8 @@ import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
  * <ol>
  *     <li>For validity buffer, it only copies buffers without calculating an exact validity buffer. For example, when
  *     we want to serialize rows [3, 9) of the original table, instead of calculating the exact validity buffer, it
- *     just copies first two bytes of the validity buffer.
+ *     just copies first two bytes of the validity buffer. At read time, the deserializer will know that the true
+ *     validity buffer starts from the forth bit, since we have recorded the row offset in the header.
  *     </li>
  *     <li>For offset buffer, it only copies buffers without calculating an exact offset buffer. For example, when we want
  *  *  to serialize rows [3, 9) of the original table, instead of calculating the exact offset values by subtracting
@@ -149,8 +151,24 @@ public class KudoSerializer {
     Arrays.fill(PADDING, (byte) 0);
   }
 
-  public long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
+  private final Schema schema;
+  private final int flattenChildCount;
 
+  public KudoSerializer(Schema schema) {
+    requireNonNull(schema, "schema is null");
+    this.schema = schema;
+    this.flattenChildCount = schema.getFlattenedColumnNames().length;
+  }
+
+  /**
+   * Write partition of a table to a stream.
+   * @param table table to write
+   * @param out output stream
+   * @param rowOffset row offset in original table
+   * @param numRows number of rows to write
+   * @return number of bytes written
+   */
+  public long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
     HostColumnVector[] columns = null;
     try {
       columns = IntStream.range(0, table.getNumberOfColumns())
@@ -169,14 +187,18 @@ public class KudoSerializer {
     }
   }
 
+  /**
+   * Write partition of an array of {@link HostColumnVector} to an output stream.
+   * @param columns columns to write
+   * @param out output stream
+   * @param rowOffset row offset in original column vector.
+   * @param numRows number of rows to write
+   * @return number of bytes written
+   */
   public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
-    ensure(numRows >= 0, () -> "numRows must be >= 0, but was " + numRows);
+    ensure(numRows > 0, () -> "numRows must be >= 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
             "please call writeRowCountToStream");
-
-    if (numRows == 0) {
-      return 0;
-    }
 
     try {
       return writeSliced(columns, writerFrom(out), rowOffset, numRows);
@@ -185,13 +207,19 @@ public class KudoSerializer {
     }
   }
 
-  public long writeRowCountToStream(OutputStream out, int numRows) {
+  /**
+   * Write a row count only record to an output stream.
+   * @param out output stream
+   * @param numRows number of rows to write
+   * @return number of bytes written
+   */
+  public static long writeRowCountToStream(OutputStream out, int numRows) {
     if (numRows <= 0) {
       throw new IllegalArgumentException("Number of rows must be > 0, but was " + numRows);
     }
     try {
       DataWriter writer = writerFrom(out);
-      KudoTableHeader header = new KudoTableHeader(0, safeLongToInt(numRows), 0, 0, 0
+      KudoTableHeader header = new KudoTableHeader(0, numRows, 0, 0, 0
           , 0, new byte[0]);
       header.writeTo(writer);
       writer.flush();
@@ -201,8 +229,8 @@ public class KudoSerializer {
     }
   }
 
-  private static long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows) throws Exception {
-    KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, columns.length);
+  private long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows) throws Exception {
+    KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenChildCount);
     Visitors.visitColumns(columns, headerCalc);
     KudoTableHeader header = headerCalc.getHeader();
     header.writeTo(out);
@@ -223,13 +251,6 @@ public class KudoSerializer {
     out.flush();
 
     return header.getSerializedSize() + bytesWritten;
-  }
-
-  private static DataInputStream readerFrom(InputStream in) {
-    if (in instanceof DataInputStream) {
-      return (DataInputStream) in;
-    }
-    return new DataInputStream(in);
   }
 
   private static DataWriter writerFrom(OutputStream out) {
@@ -256,10 +277,9 @@ public class KudoSerializer {
     return ((orig + 63) / 64) * 64;
   }
 
-  static int safeLongToInt(long value) {
-    assert value >= Integer.MIN_VALUE  : "Value is too small to fit in an int";
-    assert value <= Integer.MAX_VALUE : "Value is too large to fit in an int";
+  static int safeLongToNonNegativeInt(long value) {
+    ensure(value >= 0, () -> "Expected non negative value, but was " + value);
+    ensure(value <= Integer.MAX_VALUE, () -> "Value is too large to fit in an int");
     return (int) value;
   }
-
 }

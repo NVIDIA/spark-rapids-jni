@@ -21,7 +21,9 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
 
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToInt;
+import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToNonNegativeInt;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Holds the metadata about a serialized table. If this is being read from a stream
@@ -33,37 +35,61 @@ public final class KudoTableHeader {
   /**
    * Magic number "KUD0" in ASCII.
    */
-  private static final int SER_FORMAT_MAGIC_NUMBER = 0x4B554400;
+  private static final int SER_FORMAT_MAGIC_NUMBER = 0x4B554430;
 
   // The offset in the original table where row starts. For example, if we want to serialize rows [3, 9) of the
   // original table, offset would be 3, and numRows would be 6.
-  private int offset;
-  private int numRows;
-  private int validityBufferLen;
-  private int offsetBufferLen;
-  private int totalDataLen;
-  private int numColumns;
+  private final int offset;
+  private final int numRows;
+  private final int validityBufferLen;
+  private final int offsetBufferLen;
+  private final int totalDataLen;
+  private final int numColumns;
   // A bit set to indicate if a column has a validity buffer or not. Each column is represented by a single bit.
-  private byte[] hasValidityBuffer;
+  private final byte[] hasValidityBuffer;
 
-  private boolean initialized = false;
+  /**
+   * Reads the table header from the given input stream.
+   * @param din input stream
+   * @return the table header
+   * @throws IOException if an I/O error occurs
+   */
+  public static KudoTableHeader readFrom(DataInputStream din) throws IOException {
+    int num = din.readInt();
+    if (num != SER_FORMAT_MAGIC_NUMBER) {
+      throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
+          " found " + num);
+    }
 
+    int offset = din.readInt();
+    int numRows = din.readInt();
 
-  public KudoTableHeader(DataInputStream din) throws IOException {
-    readFrom(din);
+    int validityBufferLen = din.readInt();
+    int offsetBufferLen = din.readInt();
+    int totalDataLen = din.readInt();
+    int numColumns = din.readInt();
+    int validityBufferLength = lengthOfHasValidityBuffer(numColumns);
+    byte[] hasValidityBuffer = new byte[validityBufferLength];
+    din.readFully(hasValidityBuffer);
+
+    return new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
+        hasValidityBuffer);
   }
 
   KudoTableHeader(long offset, long numRows, long validityBufferLen, long offsetBufferLen,
                   long totalDataLen, int numColumns, byte[] hasValidityBuffer) {
-    this.offset = safeLongToInt(offset);
-    this.numRows = safeLongToInt(numRows);
-    this.validityBufferLen = safeLongToInt(validityBufferLen);
-    this.offsetBufferLen = safeLongToInt(offsetBufferLen);
-    this.totalDataLen = safeLongToInt(totalDataLen);
-    this.numColumns = safeLongToInt(numColumns);
-    this.hasValidityBuffer = hasValidityBuffer;
+    this.offset = safeLongToNonNegativeInt(offset);
+    this.numRows = safeLongToNonNegativeInt(numRows);
+    this.validityBufferLen = safeLongToNonNegativeInt(validityBufferLen);
+    this.offsetBufferLen = safeLongToNonNegativeInt(offsetBufferLen);
+    this.totalDataLen = safeLongToNonNegativeInt(totalDataLen);
+    this.numColumns = safeLongToNonNegativeInt(numColumns);
 
-    this.initialized = true;
+    requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
+    ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),
+        () -> numColumns + " columns expects hasValidityBuffer with length " + lengthOfHasValidityBuffer(numColumns) +
+            ", but found " + hasValidityBuffer.length);
+    this.hasValidityBuffer = hasValidityBuffer;
   }
 
   /**
@@ -82,14 +108,6 @@ public final class KudoTableHeader {
 
   public int getOffset() {
     return offset;
-  }
-
-  /**
-   * Returns true if the metadata for this table was read, else false indicating an EOF was
-   * encountered.
-   */
-  public boolean wasInitialized() {
-    return initialized;
   }
 
   public boolean hasValidityBuffer(int columnIndex) {
@@ -113,7 +131,7 @@ public final class KudoTableHeader {
    *   <li>Number of columns</li>
    *   <li>hasValidityBuffer</li>
    * </ol>
-   *
+   * <p>
    * For more details of each field, please refer to {@link KudoSerializer}.
    * <p/>
    *
@@ -133,37 +151,6 @@ public final class KudoTableHeader {
 
   public int getOffsetBufferLen() {
     return offsetBufferLen;
-  }
-
-  public boolean isInitialized() {
-    return initialized;
-  }
-
-  private void readFrom(DataInputStream din) throws IOException {
-    try {
-      int num = din.readInt();
-      if (num != SER_FORMAT_MAGIC_NUMBER) {
-        throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
-            " found " + num);
-      }
-    } catch (EOFException e) {
-      // If we get an EOF at the very beginning don't treat it as an error because we may
-      // have finished reading everything...
-      return;
-    }
-
-    offset = din.readInt();
-    numRows = din.readInt();
-
-    validityBufferLen = din.readInt();
-    offsetBufferLen = din.readInt();
-    totalDataLen = din.readInt();
-    numColumns = din.readInt();
-    int validityBufferLength = lengthOfHasValidityBuffer(numColumns);
-    hasValidityBuffer = new byte[validityBufferLength];
-    din.readFully(hasValidityBuffer);
-
-    initialized = true;
   }
 
   public void writeTo(DataWriter dout) throws IOException {
@@ -189,11 +176,10 @@ public final class KudoTableHeader {
         ", totalDataLen=" + totalDataLen +
         ", numColumns=" + numColumns +
         ", hasValidityBuffer=" + Arrays.toString(hasValidityBuffer) +
-        ", initialized=" + initialized +
         '}';
   }
 
   private static int lengthOfHasValidityBuffer(int numColumns) {
-    return (numColumns + 1 + 7) / 8;
+    return (numColumns + 7) / 8;
   }
 }

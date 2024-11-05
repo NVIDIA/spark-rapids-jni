@@ -25,15 +25,7 @@ import java.io.IOException;
  */
 abstract class DataWriter {
 
-  public abstract void writeByte(byte b) throws IOException;
-
-  public abstract void writeShort(short s) throws IOException;
-
   public abstract void writeInt(int i) throws IOException;
-
-  public abstract void writeIntNativeOrder(int i) throws IOException;
-
-  public abstract void writeLong(long val) throws IOException;
 
   /**
    * Copy data from src starting at srcOffset and going for len bytes.

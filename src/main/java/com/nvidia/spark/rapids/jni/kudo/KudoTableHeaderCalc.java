@@ -37,7 +37,8 @@ import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignmen
  */
 class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
   private final SliceInfo root;
-  private final BitSet bitset;
+  private final int numFlattenedCols;
+  private final byte[] bitset;
   private long validityBufferLen;
   private long offsetBufferLen;
   private long totalDataLen;
@@ -45,21 +46,19 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
   private Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
 
-  KudoTableHeaderCalc(long rowOffset, long numRows, int numCols) {
+  KudoTableHeaderCalc(long rowOffset, long numRows, int numFlattenedCols) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.totalDataLen = 0;
     sliceInfos.addLast(this.root);
-    this.bitset = new BitSet(numCols);
+    this.bitset = new byte[(numFlattenedCols + 7) / 8];
+    this.numFlattenedCols = numFlattenedCols;
     this.nextColIdx = 0;
   }
 
   public KudoTableHeader getHeader() {
-    // Bitset calculates length based on the highest set bit, so we need to add 1 to ensure
-    // that the length is correct.
-    this.setHasValidity(true);
     return new KudoTableHeader(root.offset, root.rowCount,
         validityBufferLen, offsetBufferLen,
-        totalDataLen, nextColIdx, bitset.toByteArray());
+        totalDataLen, numFlattenedCols, bitset);
   }
 
   @Override
@@ -139,7 +138,11 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
   }
 
   private void setHasValidity(boolean hasValidityBuffer) {
-    bitset.set(nextColIdx, hasValidityBuffer);
+    if (hasValidityBuffer) {
+      int bytePos = nextColIdx / 8;
+      int bitPos = nextColIdx % 8;
+      bitset[bytePos] = (byte) (bitset[bytePos] | (1 << bitPos));
+    }
     nextColIdx++;
   }
 
