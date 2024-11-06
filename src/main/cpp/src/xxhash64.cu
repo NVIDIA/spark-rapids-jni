@@ -334,13 +334,10 @@ class device_row_hasher {
      private:
       Nullate const _check_nulls;
       hash_value_type const _seed;
-      hash_value_type const _null_hash;
 
      public:
-      __device__ element_hasher(Nullate check_nulls,
-                                hash_value_type seed,
-                                hash_value_type null_hash)
-        : _check_nulls(check_nulls), _seed(seed), _null_hash(null_hash)
+      __device__ element_hasher(Nullate check_nulls, hash_value_type seed)
+        : _check_nulls(check_nulls), _seed(seed)
       {
       }
 
@@ -348,7 +345,7 @@ class device_row_hasher {
       __device__ hash_value_type operator()(cudf::column_device_view const& col,
                                             cudf::size_type row_index) const noexcept
       {
-        if (_check_nulls && col.is_null(row_index)) { return _null_hash; }
+        if (_check_nulls && col.is_null(row_index)) { return _seed; }
         return XXHash_64<T>{_seed}(col.element<T>(row_index));
       }
 
@@ -366,7 +363,7 @@ class device_row_hasher {
                                           Nullate const _check_nulls,
                                           hash_value_type const _seed) const noexcept
     {
-      auto const hasher = element_hasher{_check_nulls, _seed, _seed};
+      auto const hasher = element_hasher{_check_nulls, _seed};
       return hasher.template operator()<T>(col, row_index);
     }
 
@@ -381,11 +378,11 @@ class device_row_hasher {
 
       __device__ col_stack_element(cudf::column_device_view col) : column(col), child_idx(0) {}
 
-      __device__ int get_and_inc_child_idx() { return this->child_idx++; }
+      __device__ int get_and_inc_child_idx() { return child_idx++; }
 
-      __device__ int cur_child_idx() { return this->child_idx; }
+      __device__ int cur_child_idx() { return child_idx; }
 
-      __device__ cudf::column_device_view get_column() { return this->column; }
+      __device__ cudf::column_device_view get_column() { return column; }
     };
 
     typedef col_stack_element* col_stack_element_ptr;
@@ -407,7 +404,7 @@ class device_row_hasher {
      * - If the current column is a primitive column, it computes the hash value.
      *
      * For example, consider the following nested column: `List<Struct<int, float>>`.
-     * list_of_struct_column = {[1, 2.0], [3, 4.0]}
+     * list_of_struct_column = [(1, 2.0), (3, 4.0)]
      *
      *            L1            List<Struct<int, float>>
      *            |
@@ -420,15 +417,15 @@ class device_row_hasher {
      * List level L1:
      * |Index|List<Struct<int, float>> |
      * |-----|-------------------------|
-     * |0    |  {[1, 2.0], [3, 4.0]}   |
+     * |0    |  [(1, 2.0), (3, 4.0)]   |
      * length: 1
      * Offsets: 0, 2
      *
      * Struct level S1:
      * |Index|Struct<int, float>|
      * |-----|------------------|
-     * |0    |  [1, 2.0]        |
-     * |1    |  [3, 4.0]        |
+     * |0    |  (1, 2.0)        |
+     * |1    |  (3, 4.0)        |
      * length: 2
      *
      * @tparam T Type of the column.
@@ -478,14 +475,14 @@ class device_row_hasher {
               // Push the next child column into the stack
               col_stack[stack_size++] = col_stack_element(
                 cudf::detail::structs_column_device_view(curr_col).get_sliced_child(
-                  element.child_idx_inc_one()));
+                  element.get_and_inc_child_idx()));
             }
           } else {  // struct column
             if (element.cur_child_idx() == curr_col.size()) {
               --stack_size;
             } else {
               col_stack[stack_size++] =
-                col_stack_element(curr_col.slice(element.child_idx_inc_one(), 1));
+                col_stack_element(curr_col.slice(element.get_and_inc_child_idx(), 1));
             }
           }
         } else {  // Primitive column
@@ -495,7 +492,7 @@ class device_row_hasher {
             ret,
             [curr_col, _check_nulls] __device__(auto hash, auto element_index) {
               return cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                curr_col.type(), element_hasher{_check_nulls, hash, hash}, curr_col, element_index);
+                curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
             });
           --stack_size;
         }
