@@ -401,7 +401,7 @@ class device_row_hasher {
      *   non-list child since null values can be ignored in the xxhash64 computation.
      * - If the current column is a struct column, there are two cases:
      *    a. If the struct column has only one row, it would be treated as a struct element. The
-     *      childs of the struct element would be pushed into the stack.
+     *      children of the struct element would be pushed into the stack.
      *    b. If the struct column has multiple rows, it would be treated as a struct column. The
      *      next struct element would be pushed into the stack.
      * - If the current column is a primitive column, it computes the hash value.
