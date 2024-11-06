@@ -92,49 +92,6 @@ std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_s
   return {std::move(unified_buff), delimiter, std::move(should_be_nullified)};
 }
 
-// Check and throw exception if there is any parsing error.
-void throw_if_error(cudf::device_span<char const> input_json,
-                    rmm::device_uvector<PdaTokenT> const& tokens,
-                    rmm::device_uvector<SymbolOffsetT> const& token_indices,
-                    rmm::cuda_stream_view stream)
-{
-  auto const error_count = thrust::count(
-    rmm::exec_policy_nosync(stream), tokens.begin(), tokens.end(), token_t::ErrorBegin);
-
-  if (error_count > 0) {
-    auto const error_location = thrust::find(
-      rmm::exec_policy_nosync(stream), tokens.begin(), tokens.end(), token_t::ErrorBegin);
-    SymbolOffsetT error_index;
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(&error_index,
-                      token_indices.data() + thrust::distance(tokens.begin(), error_location),
-                      sizeof(SymbolOffsetT),
-                      cudaMemcpyDeviceToHost,
-                      stream.value()));
-    stream.synchronize();
-
-    constexpr SymbolOffsetT extension = 10u;
-
-    // Warning: SymbolOffsetT is unsigned type thus we need to be careful with subtractions.
-    auto const begin_print_idx =
-      error_index > extension ? error_index - extension : SymbolOffsetT{0};
-    auto const end_print_idx =
-      std::min(error_index + extension, static_cast<SymbolOffsetT>(input_json.size()));
-    auto const print_size   = end_print_idx - begin_print_idx;
-    auto const h_input_json = cudf::detail::make_host_vector_sync(
-      cudf::device_span<char const>{static_cast<char const*>(input_json.data()) + begin_print_idx,
-                                    print_size},
-      stream);
-
-    std::cerr << "Substring in the range [" + std::to_string(begin_print_idx) + ", " +
-                   std::to_string(end_print_idx) + "]" + " of the input (invalid) json:\n";
-    std::cerr << std::string(h_input_json.data(), h_input_json.size()) << std::endl;
-
-    CUDF_FAIL("JSON Parser encountered an invalid format at location " +
-              std::to_string(error_index));
-  }
-}
-
 // Check if a token is a json node.
 struct is_node {
   __host__ __device__ bool operator()(PdaTokenT const token) const
@@ -800,9 +757,6 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   print_debug(tokens, "Tokens", ", ", stream);
   print_debug(token_indices, "Token indices", ", ", stream);
 #endif
-
-  // Make sure there is no error during parsing.
-  throw_if_error(preprocessed_input, tokens, token_indices, stream);
 
   auto const num_nodes =
     thrust::count_if(rmm::exec_policy_nosync(stream), tokens.begin(), tokens.end(), is_node{});
