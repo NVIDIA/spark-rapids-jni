@@ -404,7 +404,8 @@ class device_row_hasher {
      * - If the current column is a primitive column, it computes the hash value.
      *
      * For example, consider the following nested column: `List<Struct<int, float>>`.
-     * list_of_struct_column = [ [(1, 2.0), (3, 4.0)], ], which has only one item [(1, 2.0), (3, 4.0)]
+     * list_of_struct_column = [ [(1, 2.0), (3, 4.0)] ], which has only one item
+     * [(1, 2.0), (3, 4.0)].
      *
      *            L1            List<Struct<int, float>>
      *            |
