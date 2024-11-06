@@ -16,12 +16,10 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
 
-#include <cudf/io/datasource.hpp>
-#include <cudf/io/parquet.hpp>
+#include <rmm/device_uvector.hpp>
 
-#include <json_utils.hpp>
+#include <cast_string.hpp>
 
 #include <limits>
 
@@ -31,29 +29,55 @@ constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_leve
 
 struct FloatToStringTests : public cudf::test::BaseFixture {};
 
-TEST_F(FloatToStringTests, T1)
+TEST_F(FloatToStringTests, FromFloats32)
 {
-  auto const strs =
-    cudf::test::strings_column_wrapper{"{\"a\": \"x\"}\"a\": \"y\"}", "   {\"b\": \"y", "{}"};
-  auto out =
-    spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{strs}, true, true, true, true);
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<float>{100.0f,
+                                                  654321.25f,
+                                                  -12761.125f,
+                                                  0.f,
+                                                  5.0f,
+                                                  -4.0f,
+                                                  std::numeric_limits<float>::quiet_NaN(),
+                                                  123456789012.34f,
+                                                  -0.0f};
 
-  cudf::test::print(*out);
-  printf("null count: %d\n", out->null_count());
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
+
+  auto const expected = cudf::test::strings_column_wrapper{
+    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "1.2345679E11", "-0.0"};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }
 
-TEST_F(FloatToStringTests, T2)
+TEST_F(FloatToStringTests, FromFloats64)
 {
-  auto const source = cudf::io::source_info("/home/nghiat/TMP/df.parquet/1.parquet");
-  auto const opts   = cudf::io::parquet_reader_options::builder(source).build();
-  auto const& table = cudf::io::read_parquet(opts).tbl;
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<double>{100.0d,
+                                                   654321.25d,
+                                                   -12761.125d,
+                                                   1.123456789123456789d,
+                                                   0.000000000000000000123456789123456789d,
+                                                   0.0d,
+                                                   5.0d,
+                                                   -4.0d,
+                                                   std::numeric_limits<double>::quiet_NaN(),
+                                                   839542223232.794248339d,
+                                                   -0.0d};
 
-  auto const a = table->get_column(0);
-  cudf::test::print(a.view());
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
 
-  auto out = spark_rapids_jni::from_json_to_raw_map(
-    cudf::strings_column_view{a.view()}, true, true, true, true);
+  auto const expected = cudf::test::strings_column_wrapper{"100.0",
+                                                           "654321.25",
+                                                           "-12761.125",
+                                                           "1.1234567891234568",
+                                                           "1.234567891234568E-19",
+                                                           "0.0",
+                                                           "5.0",
+                                                           "-4.0",
+                                                           "NaN",
+                                                           "8.395422232327942E11",
+                                                           "-0.0"};
 
-  cudf::test::print(*out);
-  printf("null count: %d\n", out->null_count());
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }
