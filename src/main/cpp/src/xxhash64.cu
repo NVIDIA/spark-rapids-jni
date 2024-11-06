@@ -381,7 +381,7 @@ class device_row_hasher {
 
       __device__ col_stack_element(cudf::column_device_view col) : column(col), child_idx(0) {}
 
-      __device__ int child_idx_inc_one() { return this->child_idx++; }
+      __device__ int get_and_inc_child_idx() { return this->child_idx++; }
 
       __device__ int cur_child_idx() { return this->child_idx; }
 
