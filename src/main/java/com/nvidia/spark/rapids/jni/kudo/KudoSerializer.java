@@ -133,7 +133,7 @@ import static java.util.Objects.requireNonNull;
  *     <li>For validity buffer, it only copies buffers without calculating an exact validity buffer. For example, when
  *     we want to serialize rows [3, 9) of the original table, instead of calculating the exact validity buffer, it
  *     just copies first two bytes of the validity buffer. At read time, the deserializer will know that the true
- *     validity buffer starts from the forth bit, since we have recorded the row offset in the header.
+ *     validity buffer starts from the fourth bit, since we have recorded the row offset in the header.
  *     </li>
  *     <li>For offset buffer, it only copies buffers without calculating an exact offset buffer. For example, when we want
  *  *  to serialize rows [3, 9) of the original table, instead of calculating the exact offset values by subtracting
@@ -151,18 +151,15 @@ public class KudoSerializer {
     Arrays.fill(PADDING, (byte) 0);
   }
 
-  private final Schema schema;
-  private final int flattenChildCount;
+  private final int flattenedColumnCount;
 
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
-    this.schema = schema;
-    this.flattenChildCount = schema.getFlattenedColumnNames().length;
+    this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
   }
 
   /**
    * Write partition of a table to a stream.
-   *
    * <br/>
    *
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
@@ -195,7 +192,6 @@ public class KudoSerializer {
 
   /**
    * Write partition of an array of {@link HostColumnVector} to an output stream.
-   *
    * <br/>
    *
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
@@ -242,7 +238,7 @@ public class KudoSerializer {
   }
 
   private long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows) throws Exception {
-    KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenChildCount);
+    KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     Visitors.visitColumns(columns, headerCalc);
     KudoTableHeader header = headerCalc.getHeader();
     header.writeTo(out);

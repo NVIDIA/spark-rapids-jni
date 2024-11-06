@@ -17,8 +17,10 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Optional;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToNonNegativeInt;
@@ -50,14 +52,21 @@ public final class KudoTableHeader {
   /**
    * Reads the table header from the given input stream.
    * @param din input stream
-   * @return the table header
+   * @return the table header. If an EOF is encountered at the beginning, returns empty result.
    * @throws IOException if an I/O error occurs
    */
-  public static KudoTableHeader readFrom(DataInputStream din) throws IOException {
-    int num = din.readInt();
-    if (num != SER_FORMAT_MAGIC_NUMBER) {
-      throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
-          " found " + num);
+  public static Optional<KudoTableHeader> readFrom(DataInputStream din) throws IOException {
+    int num;
+    try {
+      num= din.readInt();
+      if (num != SER_FORMAT_MAGIC_NUMBER) {
+        throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
+            " found " + num);
+      }
+    } catch (EOFException e) {
+      // If we get an EOF at the very beginning don't treat it as an error because we may
+      // have finished reading everything...
+      return Optional.empty();
     }
 
     int offset = din.readInt();
@@ -71,8 +80,8 @@ public final class KudoTableHeader {
     byte[] hasValidityBuffer = new byte[validityBufferLength];
     din.readFully(hasValidityBuffer);
 
-    return new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
-        hasValidityBuffer);
+    return Optional.of(new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
+        hasValidityBuffer));
   }
 
   KudoTableHeader(long offset, long numRows, long validityBufferLen, long offsetBufferLen,
