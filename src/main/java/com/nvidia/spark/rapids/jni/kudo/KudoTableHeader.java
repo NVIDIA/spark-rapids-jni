@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToNonNegativeInt;
 import static java.util.Objects.requireNonNull;
 
@@ -84,14 +85,14 @@ public final class KudoTableHeader {
         hasValidityBuffer));
   }
 
-  KudoTableHeader(long offset, long numRows, long validityBufferLen, long offsetBufferLen,
-                  long totalDataLen, int numColumns, byte[] hasValidityBuffer) {
-    this.offset = safeLongToNonNegativeInt(offset);
-    this.numRows = safeLongToNonNegativeInt(numRows);
-    this.validityBufferLen = safeLongToNonNegativeInt(validityBufferLen);
-    this.offsetBufferLen = safeLongToNonNegativeInt(offsetBufferLen);
-    this.totalDataLen = safeLongToNonNegativeInt(totalDataLen);
-    this.numColumns = safeLongToNonNegativeInt(numColumns);
+  KudoTableHeader(int offset, int numRows, int validityBufferLen, int offsetBufferLen,
+                  int totalDataLen, int numColumns, byte[] hasValidityBuffer) {
+    this.offset = ensureNonNegative(offset, "offset");
+    this.numRows = ensureNonNegative(numRows, "numRows");
+    this.validityBufferLen = ensureNonNegative(validityBufferLen, "validityBufferLen");
+    this.offsetBufferLen = ensureNonNegative(offsetBufferLen, "offsetBufferLen");
+    this.totalDataLen = ensureNonNegative(totalDataLen, "totalDataLen");
+    this.numColumns = ensureNonNegative(numColumns, "numColumns");
 
     requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
     ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),

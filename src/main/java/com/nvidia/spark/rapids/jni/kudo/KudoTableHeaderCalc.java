@@ -21,11 +21,11 @@ import ai.rapids.cudf.HostColumnVectorCore;
 import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
 
 import java.util.ArrayDeque;
-import java.util.BitSet;
 import java.util.Deque;
 import java.util.List;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
+import static java.lang.Math.toIntExact;
 
 /**
  * This class visits a list of columns and calculates the serialized table header.
@@ -56,9 +56,13 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
   }
 
   public KudoTableHeader getHeader() {
-    return new KudoTableHeader(root.offset, root.rowCount,
-        validityBufferLen, offsetBufferLen,
-        totalDataLen, numFlattenedCols, bitset);
+    return new KudoTableHeader(toIntExact(root.offset),
+        toIntExact(root.rowCount),
+        toIntExact(validityBufferLen),
+        toIntExact(offsetBufferLen),
+        toIntExact(totalDataLen),
+        numFlattenedCols,
+        bitset);
   }
 
   @Override
