@@ -155,7 +155,7 @@ struct is_node {
 // The top json node (top json object level) has level 0.
 // Each row in the input column should have levels starting from 1.
 // This is copied from cudf's `json_tree.cu`.
-rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
+rmm::device_uvector<TreeDepthT> compute_node_levels(std::size_t num_nodes,
                                                     rmm::device_uvector<PdaTokenT> const& tokens,
                                                     rmm::cuda_stream_view stream)
 {
@@ -212,7 +212,7 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
 
 // Compute the map from nodes to their indices in the list of all tokens.
 rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
-  int64_t num_nodes, rmm::device_uvector<PdaTokenT> const& tokens, rmm::cuda_stream_view stream)
+  std::size_t num_nodes, rmm::device_uvector<PdaTokenT> const& tokens, rmm::cuda_stream_view stream)
 {
   auto node_token_ids   = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
@@ -286,7 +286,6 @@ void propagate_parent_to_siblings(rmm::device_uvector<TreeDepthT> const& node_le
 
 // This is copied from cudf's `json_tree.cu`.
 rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
-  int64_t num_nodes,
   rmm::device_uvector<PdaTokenT> const& tokens,
   rmm::device_uvector<NodeIndexT> const& node_token_ids,
   rmm::cuda_stream_view stream)
@@ -306,6 +305,7 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
       }
     });
 
+  auto const num_nodes = node_token_ids.size();
   auto parent_node_ids = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   thrust::transform(
     rmm::exec_policy_nosync(stream),
@@ -519,7 +519,6 @@ struct substring_fn {
 // Extract key-value string pairs from the input json string.
 std::unique_ptr<cudf::column> extract_keys_or_values(
   bool extract_key,
-  int64_t num_nodes,
   rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> const& node_ranges,
   rmm::device_uvector<int8_t> const& key_or_value,
   cudf::device_span<char const> input_json,
@@ -537,7 +536,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
     });
 
   auto extract_ranges =
-    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream, mr);
+    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
   auto const stencil_it  = thrust::make_counting_iterator(0);
   auto const range_end   = extract_key ? cudf::detail::copy_if_safe(node_ranges.begin(),
                                                                   node_ranges.end(),
@@ -643,6 +642,114 @@ std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
     0, std::move(offsets), std::move(child), 0, rmm::device_buffer{}, stream, mr);
 }
 
+// If a JSON line is invalid, the tokens corresponding to that line are output as
+// [StructBegin, StructEnd] but their indices (in the unified JSON string) are all 0.
+struct is_invalid_struct_begin {
+  cudf::device_span<PdaTokenT const> tokens;
+  cudf::device_span<SymbolOffsetT const> token_indices;
+  cudf::device_span<NodeIndexT const> node_token_ids;
+
+  __device__ bool operator()(int node_idx) const
+  {
+    // Index of the node token in the token stream.
+    auto const node_token_id = node_token_ids[node_idx];
+
+    auto const node_token = tokens[node_token_id];
+    if (node_token != token_t::StructBegin) { return false; }
+
+    // The next token in the token stream after node_token.
+    // Because the current node_token is StructBegin, it should not be the last token since
+    // the token stream has been post process.
+    auto const next_token = tokens[node_token_id + 1];
+    if (next_token != token_t::StructEnd) { return false; }
+
+    return token_indices[node_token_id] == 0 && token_indices[node_token_id + 1] == 0;
+  }
+};
+
+struct is_line_begin {
+  cudf::device_span<PdaTokenT const> tokens;
+  cudf::device_span<NodeIndexT const> node_token_ids;
+  cudf::device_span<NodeIndexT const> parent_node_ids;
+
+  __device__ bool operator()(int node_idx) const
+  {
+    // Index of the node token in the token stream.
+    auto const node_token_id = node_token_ids[node_idx];
+    return tokens[node_token_id] == token_t::StructBegin && parent_node_ids[node_idx] < 0;
+  }
+};
+
+std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
+  cudf::size_type num_rows,
+  std::unique_ptr<cudf::column> const& should_be_nullified,
+  cudf::device_span<PdaTokenT const> tokens,
+  cudf::device_span<SymbolOffsetT const> token_indices,
+  cudf::device_span<NodeIndexT const> node_token_ids,
+  cudf::device_span<NodeIndexT const> parent_node_ids,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_nodes = node_token_ids.size();
+
+  // To store indices of the StructBegin nodes that are detected as invalid.
+  rmm::device_uvector<NodeIndexT> invalid_indices(num_nodes, stream);
+
+  auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
+  auto const invalid_copy_end =
+    cudf::detail::copy_if_safe(node_id_it,
+                               node_id_it + node_token_ids.size(),
+                               invalid_indices.begin(),
+                               is_invalid_struct_begin{tokens, token_indices, node_token_ids},
+                               stream);
+  auto const num_invalid = thrust::distance(invalid_indices.begin(), invalid_copy_end);
+#ifdef DEBUG_FROM_JSON
+  print_debug(invalid_indices,
+              "Invalid StructBegin nodes' indices (size = " + std::to_string(num_invalid) + ")",
+              ", ",
+              stream);
+#endif
+
+  if (num_invalid > 0) {
+    // Build a list of StructBegin tokens that start a line.
+    // We must have such list having size equal to the number of original input JSON strings.
+    rmm::device_uvector<NodeIndexT> line_begin_indices(num_nodes, stream);
+    auto const line_begin_copy_end =
+      cudf::detail::copy_if_safe(node_id_it,
+                                 node_id_it + node_token_ids.size(),
+                                 line_begin_indices.begin(),
+                                 is_line_begin{tokens, node_token_ids, parent_node_ids},
+                                 stream);
+    auto const num_line_begin = thrust::distance(line_begin_indices.begin(), line_begin_copy_end);
+    CUDF_EXPECTS(num_line_begin == num_rows, "Line count mismatch");
+#ifdef DEBUG_FROM_JSON
+    print_debug(line_begin_indices,
+                "Line begin StructBegin indices (size = " + std::to_string(num_line_begin) + ")",
+                ", ",
+                stream);
+#endif
+
+    // Scatter the indices of the invalid StructBegin nodes into `should_be_nullified`.
+    thrust::for_each(rmm::exec_policy_nosync(stream),
+                     invalid_indices.begin(),
+                     invalid_indices.begin() + num_invalid,
+                     [should_be_nullified = should_be_nullified->mutable_view().begin<bool>(),
+                      line_begin_indices  = line_begin_indices.begin(),
+                      num_rows] __device__(auto node_idx) {
+                       auto const row_idx = thrust::lower_bound(thrust::seq,
+                                                                line_begin_indices,
+                                                                line_begin_indices + num_rows,
+                                                                node_idx) -
+                                            line_begin_indices;
+                       should_be_nullified[row_idx] = true;
+                     });
+  }
+
+  auto const valid_it = should_be_nullified->view().begin<bool>();
+  return cudf::detail::valid_if(
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
+}
+
 }  // namespace
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view const& input,
@@ -704,7 +811,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto const node_token_ids = compute_node_to_token_index_map(num_nodes, tokens, stream);
 
   // A map from each node to the index of its parent node.
-  auto const parent_node_ids = compute_parent_node_ids(num_nodes, tokens, node_token_ids, stream);
+  auto const parent_node_ids = compute_parent_node_ids(tokens, node_token_ids, stream);
 
   // Check for each node if it is a map key or a map value to extract.
   auto const key_or_value_node = check_key_or_value_nodes(parent_node_ids, stream);
@@ -719,15 +826,25 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   //
 
   auto extracted_keys = extract_keys_or_values(
-    true /*key*/, num_nodes, node_ranges, key_or_value_node, preprocessed_input, stream, mr);
+    true /*key*/, node_ranges, key_or_value_node, preprocessed_input, stream, mr);
   auto extracted_values = extract_keys_or_values(
-    false /*value*/, num_nodes, node_ranges, key_or_value_node, preprocessed_input, stream, mr);
+    false /*value*/, node_ranges, key_or_value_node, preprocessed_input, stream, mr);
   CUDF_EXPECTS(extracted_keys->size() == extracted_values->size(),
                "Invalid key-value pair extraction.");
 
   // Compute the offsets of the final output lists column.
   auto list_offsets =
     compute_list_offsets(input.size(), parent_node_ids, key_or_value_node, stream, mr);
+
+  // Null mask and null count for the final output.
+  auto [null_mask, null_count] = create_null_mask(input.size(),
+                                                  should_be_nullified,
+                                                  tokens,
+                                                  token_indices,
+                                                  node_token_ids,
+                                                  parent_node_ids,
+                                                  stream,
+                                                  mr);
 
 #ifdef DEBUG_FROM_JSON
   print_output_spark_map(list_offsets, extracted_keys, extracted_values, stream);
@@ -739,10 +856,6 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   out_keys_vals.emplace_back(std::move(extracted_values));
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
-
-  auto const valid_it          = should_be_nullified->view().begin<bool>();
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
 
   // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
   // on the children columns as they do not have non-empty nulls.
