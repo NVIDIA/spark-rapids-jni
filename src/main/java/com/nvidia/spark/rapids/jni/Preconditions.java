@@ -41,7 +41,7 @@ public class Preconditions {
     }
 
     /**
-     * Check if the value is non-negative, otherwise throw an IllegalStateException with the given message.
+     * Check if the value is non-negative, otherwise throw an IllegalArgumentException with the given message.
      * @param value the value to check
      * @param name the name of the value
      * @return the value if it is non-negative

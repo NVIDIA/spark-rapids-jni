@@ -53,7 +53,7 @@ public final class KudoTableHeader {
   /**
    * Reads the table header from the given input stream.
    * @param din input stream
-   * @return the table header. If an EOF is encountered at the beginning, returns empty result.
+   * @return the table header. If an EOFException is encountered at the beginning, returns empty result.
    * @throws IOException if an I/O error occurs
    */
   public static Optional<KudoTableHeader> readFrom(DataInputStream din) throws IOException {
