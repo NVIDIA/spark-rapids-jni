@@ -21,7 +21,7 @@ import java.util.function.Supplier;
 /**
  * This class contains utility methods for checking preconditions.
  */
-class Preconditions {
+public class Preconditions {
     /**
      * Check if the condition is true, otherwise throw an IllegalStateException with the given message.
      */
@@ -38,5 +38,19 @@ class Preconditions {
         if (!condition) {
             throw new IllegalStateException(messageSupplier.get());
         }
+    }
+
+    /**
+     * Check if the value is non-negative, otherwise throw an IllegalArgumentException with the given message.
+     * @param value the value to check
+     * @param name the name of the value
+     * @return the value if it is non-negative
+     * @throws IllegalArgumentException if the value is negative
+     */
+    public static int ensureNonNegative(int value, String name) {
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " must be non-negative, but was " + value);
+        }
+        return value;
     }
 }

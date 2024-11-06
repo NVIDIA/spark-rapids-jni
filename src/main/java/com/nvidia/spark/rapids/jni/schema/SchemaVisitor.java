@@ -25,14 +25,39 @@ import java.util.List;
 /**
  * A post order visitor for schemas.
  *
- * <p>
+ * <h1>Flattened Schema</h1>
  *
- * For example, if our schema consists of three fields A, B, and C with following types:
+ * A flattened schema is a schema where all fields with nested types are flattened into an array of fields. For example,
+ * for a schema with following fields:
  *
  * <ul>
  *    <li> A: <code>struct { int a1; long a2} </code> </li>
  *    <li> B: <code>list { int b1} </code> </li>
- *    <li> C: <code>string c1 </code> </li>
+ *    <li> C: <code>string </code> </li>
+ *    <li> D: <code>long </code> </li>
+ * </ul>
+ *
+ * The flattened schema will be:
+ *
+ * <ul>
+ *   <li> A: <code>struct</code> </li>
+ *   <li> A.a1: <code>int</code> </li>
+ *   <li> A.a2: <code>long</code> </li>
+ *   <li> B: <code>list</code> </li>
+ *   <li> B.b1: <code>int</code> </li>
+ *   <li> C: <code>string</code> </li>
+ *   <li> D: <code>long</code> </li>
+ * </ul>
+ *
+ * <h1>Example</h1>
+ *
+ * <p>
+ * This visitor visits each filed in the flattened schema in post order. For example, if our schema consists of three
+ * fields A, B, and C with following fields:
+ * <ul>
+ *    <li> A: <code>struct { int a1; long a2} </code> </li>
+ *    <li> B: <code>list { int b1} </code> </li>
+ *    <li> C: <code>string </code> </li>
  * </ul>
  *
  * The order of visiting will be:
@@ -43,7 +68,7 @@ import java.util.List;
  *     <li> Previsit list field B</li>
  *     <li> Visit primitive field b1</li>
  *     <li> Visit list field B with results from b1 and previsit result. </li>
- *     <li> Visit primitive field c1</li>
+ *     <li> Visit primitive field C</li>
  *     <li> Visit top schema with results from fields A, B, and C</li>
  * </ol>
  *
