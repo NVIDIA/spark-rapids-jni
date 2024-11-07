@@ -36,8 +36,8 @@ import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
- * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult}, which
- * could be easily converted to a {@link ai.rapids.cudf.ContiguousTable}.
+ * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult},
+ * which could be easily converted to a {@link ai.rapids.cudf.ContiguousTable}.
  */
 class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   // Number of 1s in a byte

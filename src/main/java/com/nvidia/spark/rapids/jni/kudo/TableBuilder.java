@@ -17,8 +17,10 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
+import com.nvidia.spark.rapids.jni.Arms;
 import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
@@ -27,11 +29,12 @@ import static java.util.Objects.requireNonNull;
 /**
  * This class is used to build a cudf table from a list of column view info, and a device buffer.
  */
-class TableBuilder implements SchemaVisitor<Object, Table> {
+class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
     // Current column index
     private int curIdx;
     private final DeviceMemoryBuffer buffer;
     private final List<ColumnViewInfo> colViewInfoList;
+    private final List<ColumnView> columnViewList;
 
     public TableBuilder(List<ColumnViewInfo> colViewInfoList, DeviceMemoryBuffer buffer) {
         requireNonNull(colViewInfoList, "colViewInfoList cannot be null");
@@ -41,14 +44,15 @@ class TableBuilder implements SchemaVisitor<Object, Table> {
         this.curIdx = 0;
         this.buffer = buffer;
         this.colViewInfoList = colViewInfoList;
+        this.columnViewList = new ArrayList<>(colViewInfoList.size());
     }
 
     @Override
     public Table visitTopSchema(Schema schema, List<Object> children) {
         try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(new ColumnVector[children.size()])) {
             for (int i = 0; i < children.size(); i++) {
-                long colView = (long) children.get(i);
-                arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView, buffer));
+                ColumnView colView = (ColumnView) children.get(i);
+                arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
             }
 
             return new Table(arr.getArray());
@@ -56,12 +60,13 @@ class TableBuilder implements SchemaVisitor<Object, Table> {
     }
 
     @Override
-    public Long visitStruct(Schema structType, List<Object> children) {
+    public ColumnView visitStruct(Schema structType, List<Object> children) {
         ColumnViewInfo colViewInfo = getCurrentColumnViewInfo();
 
-        long[] childrenView = children.stream().mapToLong(o -> (long) o).toArray();
-        long columnView = colViewInfo.buildColumnView(buffer, childrenView);
+        ColumnView[] childrenView = children.stream().map(o -> (ColumnView) o).toArray(ColumnView[]::new);
+        ColumnView columnView = colViewInfo.buildColumnView(buffer, childrenView);
         curIdx += 1;
+        columnViewList.add(columnView);
         return columnView;
     }
 
@@ -74,24 +79,32 @@ class TableBuilder implements SchemaVisitor<Object, Table> {
     }
 
     @Override
-    public Long visitList(Schema listType, Object preVisitResult, Object childResult) {
+    public ColumnView visitList(Schema listType, Object preVisitResult, Object childResult) {
         ColumnViewInfo colViewInfo = (ColumnViewInfo) preVisitResult;
 
-        long[] children = new long[] { (long) childResult };
+        ColumnView[] children = new ColumnView[] { (ColumnView) childResult };
 
-        return colViewInfo.buildColumnView(buffer, children);
+        ColumnView view = colViewInfo.buildColumnView(buffer, children);
+        columnViewList.add(view);
+        return view;
     }
 
     @Override
-    public Long visit(Schema primitiveType) {
+    public ColumnView visit(Schema primitiveType) {
         ColumnViewInfo colViewInfo = getCurrentColumnViewInfo();
 
-        long columnView = colViewInfo.buildColumnView(buffer, null);
+        ColumnView columnView = colViewInfo.buildColumnView(buffer, null);
         curIdx += 1;
+        columnViewList.add(columnView);
         return columnView;
     }
 
     private ColumnViewInfo getCurrentColumnViewInfo() {
         return colViewInfoList.get(curIdx);
+    }
+
+    @Override
+    public void close() throws Exception {
+        Arms.closeAll(columnViewList);
     }
 }

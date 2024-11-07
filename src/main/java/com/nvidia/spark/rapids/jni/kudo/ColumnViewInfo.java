@@ -16,9 +16,9 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.ColumnView;
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.*;
+
+import java.util.Optional;
 
 import static java.lang.Math.toIntExact;
 
@@ -36,30 +36,20 @@ class ColumnViewInfo {
         this.rowCount = rowCount;
     }
 
-    public long buildColumnView(DeviceMemoryBuffer buffer, long[] childrenView) {
-        long bufferAddress = buffer.getAddress();
+    ColumnView buildColumnView(DeviceMemoryBuffer buffer, ColumnView[] childrenView) {
+        long baseAddress = buffer.getAddress();
 
-        long dataAddress = 0;
-        if (offsetInfo.getData().isPresent()) {
-            dataAddress = buffer.getAddress() + offsetInfo.getData().getAsLong();
-        }
-
-        long validityAddress = 0;
-        if (offsetInfo.getValidity().isPresent()) {
-            validityAddress = offsetInfo.getValidity().getAsLong() + bufferAddress;
-        }
-
-        long offsetsAddress = 0;
-        if (offsetInfo.getOffset().isPresent()) {
-            offsetsAddress = offsetInfo.getOffset().getAsLong() + bufferAddress;
-        }
-
-        return ColumnView.makeCudfColumnView(
-                dtype.getTypeId().getNativeId(), dtype.getScale(),
-                dataAddress, offsetInfo.getDataLen(),
-                offsetsAddress, validityAddress,
-                toIntExact(nullCount), toIntExact(rowCount),
+        if (dtype.isNestedType()) {
+            return new ColumnView(dtype, rowCount, Optional.of(nullCount),
+                offsetInfo.getValidityBuffer(baseAddress),
+                offsetInfo.getOffsetBuffer(baseAddress),
                 childrenView);
+        } else {
+            return new ColumnView(dtype, rowCount, Optional.of(nullCount),
+                offsetInfo.getDataBuffer(baseAddress),
+                offsetInfo.getValidityBuffer(baseAddress),
+                offsetInfo.getOffsetBuffer(baseAddress));
+        }
     }
 
     @Override

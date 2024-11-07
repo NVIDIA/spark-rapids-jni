@@ -312,7 +312,7 @@ public class KudoSerializer {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
     try (KudoHostMergeResult children = result.getLeft()) {
-      ContiguousTable table = withTime(() -> children.toContiguousTable(schema),
+      ContiguousTable table = withTime(children::toContiguousTable,
           builder::convertIntoContiguousTableTime);
 
       return Pair.of(table, builder.build());

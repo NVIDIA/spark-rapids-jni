@@ -58,10 +58,13 @@ public class KudoHostMergeResult implements AutoCloseable {
                 deviceMemBuf.copyFromHostBuffer(hostBuf);
             }
 
-            TableBuilder builder = new TableBuilder(columnInfoList, deviceMemBuf);
-            Table t = Visitors.visitSchema(schema, builder);
+            try (TableBuilder builder = new TableBuilder(columnInfoList, deviceMemBuf)) {
+                Table t = Visitors.visitSchema(schema, builder);
 
-            return new ContiguousTable(t, deviceMemBuf);
+                return new ContiguousTable(t, deviceMemBuf);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         });
     }
 

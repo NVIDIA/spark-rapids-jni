@@ -18,10 +18,8 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.HostMemoryBuffer;
 import ai.rapids.cudf.Schema;
-import ai.rapids.cudf.Table;
 import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
 
-import java.io.OutputStream;
 import java.util.*;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
