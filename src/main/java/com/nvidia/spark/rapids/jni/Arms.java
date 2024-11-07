@@ -81,4 +81,18 @@ public class Arms {
     public static <R extends AutoCloseable> void closeAll(Collection<R> resources) {
         closeAll(resources.iterator());
     }
+
+    /**
+     * This method safely closes the resources after applying the function.
+     * <br/>
+     * See {@link #closeAll(Iterator)} for more details.
+     */
+    public static <R extends AutoCloseable, C extends Collection<R>, V> V withResource(
+        C resource, Function<C, V> function) {
+        try {
+            return function.apply(resource);
+        } finally {
+            closeAll(resource);
+        }
+    }
 }
