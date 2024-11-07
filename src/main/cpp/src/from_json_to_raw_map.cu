@@ -727,7 +727,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
     cudf::io::datasource::owning_buffer<rmm::device_buffer>(std::move(concat_json_buff));
   if (normalize_single_quotes) {
     cudf::io::json::detail::normalize_single_quotes(
-      concat_buff_wrapper, stream, cudf::get_current_device_resource_ref());
+      concat_buff_wrapper, delimiter, stream, cudf::get_current_device_resource_ref());
   }
   auto const preprocessed_input = cudf::device_span<char const>(
     reinterpret_cast<char const*>(concat_buff_wrapper.data()), concat_buff_wrapper.size());
@@ -756,6 +756,10 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
 #ifdef DEBUG_FROM_JSON
   print_debug(tokens, "Tokens", ", ", stream);
   print_debug(token_indices, "Token indices", ", ", stream);
+  std::cerr << "normalize_single_quotes: " << normalize_single_quotes << std::endl;
+  std::cerr << "allow_leading_zeros: " << allow_leading_zeros << std::endl;
+  std::cerr << "allow_nonnumeric_numbers: " << allow_nonnumeric_numbers << std::endl;
+  std::cerr << "allow_unquoted_control: " << allow_unquoted_control << std::endl;
 #endif
 
   auto const num_nodes =
