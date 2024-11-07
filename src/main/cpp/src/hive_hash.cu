@@ -240,16 +240,16 @@ class hive_device_row_hasher {
 
       __device__ void update_cur_hash(hive_hash_value_t child_hash)
       {
-        this->cur_hash = this->cur_hash * HIVE_HASH_FACTOR + child_hash;
+        cur_hash = cur_hash * HIVE_HASH_FACTOR + child_hash;
       }
 
-      __device__ hive_hash_value_t get_hash() { return this->cur_hash; }
+      __device__ hive_hash_value_t get_hash() { return cur_hash; }
 
-      __device__ int child_idx_inc_one() { return this->child_idx++; }
+      __device__ int get_and_inc_child_idx() { return child_idx++; }
 
-      __device__ int cur_child_idx() { return this->child_idx; }
+      __device__ int cur_child_idx() { return child_idx; }
 
-      __device__ cudf::column_device_view get_column() { return this->column; }
+      __device__ cudf::column_device_view get_column() { return column; }
     };
 
     typedef col_stack_element* col_stack_element_ptr;
@@ -306,7 +306,8 @@ class hive_device_row_hasher {
      * separately.
      *
      * For example, consider the following nested column: `List<List<int>>`
-     * lists_column = {{1, 0}, null, {2, null}}
+     * lists_column = [ [[1, 0], null, [2, null]] ], which has only one item
+     * [[1, 0], null, [2, null]
      *
      *     L1
      *     |
@@ -317,16 +318,16 @@ class hive_device_row_hasher {
      * List level L1:
      * |Index|      List<list<int>>    |
      * |-----|-------------------------|
-     * |0    |{{1, 0}, null, {2, null}}|
+     * |0    |[[1, 0], null, [2, null]]|
      * length: 1
      * Offsets: 0, 3
      *
      * List level L2:
      * |Index|List<int>|
      * |-----|---------|
-     * |0    |{1, 0}   |
+     * |0    |[1, 0]   |
      * |1    |null     |
-     * |2    |{2, null}|
+     * |2    |[2, null]|
      * length: 3
      * Offsets: 0, 2, 2, 4
      * null_mask: 101
@@ -344,9 +345,8 @@ class hive_device_row_hasher {
      * It will produce different results than Spark to compute the hash value using the
      * underlying data merely.
      *
-     * For example, `List<List<int>>` column {{1, 0}, {2, null}} has the same underlying data as the
-     * above `List<List<int>>` column {{1, 0}, null, {2, null}}. However, they have different hive
-     * hash values.
+     * For example, [[1, 0], [2, null]] has the same underlying data as [[1, 0], null, [2, null]].
+     * However, they have different hive hash values.
      *
      * The computation process for lists columns in this solution is as follows:
      *            L1              List<list<int>>
@@ -410,7 +410,7 @@ class hive_device_row_hasher {
             // Push the next child column into the stack
             col_stack[stack_size++] =
               col_stack_element(cudf::detail::structs_column_device_view(curr_col).get_sliced_child(
-                element.child_idx_inc_one()));
+                element.get_and_inc_child_idx()));
           }
         } else if (curr_col.type().id() == cudf::type_id::LIST) {
           // lists_column_device_view has a different interface from structs_column_device_view
@@ -419,7 +419,7 @@ class hive_device_row_hasher {
             if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(element.get_hash()); }
           } else {
             col_stack[stack_size++] =
-              col_stack_element(curr_col.slice(element.child_idx_inc_one(), 1));
+              col_stack_element(curr_col.slice(element.get_and_inc_child_idx(), 1));
           }
         } else {
           // There is only one element in the column for primitive types
