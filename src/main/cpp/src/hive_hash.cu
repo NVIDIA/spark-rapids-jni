@@ -214,9 +214,9 @@ class hive_device_row_hasher {
      * This structure is used to keep track of the current column being processed, the index of the
      * next child column to process, and current hash value for the column.
      *
-     * @param column The current column being processed.
-     * @param child_idx The index of the next child column to process.
-     * @param cur_hash The current hash value for the column.
+     * @param _column The current column being processed.
+     * @param _child_idx The index of the next child column to process.
+     * @param _cur_hash The current hash value for the column.
      *
      * @note The default constructor is deleted to prevent uninitialized usage.
      *
@@ -225,31 +225,31 @@ class hive_device_row_hasher {
      */
     class col_stack_element {
      private:
-      cudf::column_device_view column;  // current column
-      hive_hash_value_t cur_hash;       // current hash value of the column
-      int child_idx;  // index of the child column to process next, initialized as 0
+      cudf::column_device_view _column;  // current column
+      hive_hash_value_t _cur_hash;       // current hash value of the column
+      int _child_idx;  // index of the child column to process next, initialized as 0
 
      public:
       __device__ col_stack_element() =
         delete;  // Because the default constructor of `cudf::column_device_view` is deleted
 
       __device__ col_stack_element(cudf::column_device_view col)
-        : column(col), child_idx(0), cur_hash(HIVE_INIT_HASH)
+        : _column(col), _child_idx(0), _cur_hash(HIVE_INIT_HASH)
       {
       }
 
       __device__ void update_cur_hash(hive_hash_value_t child_hash)
       {
-        cur_hash = cur_hash * HIVE_HASH_FACTOR + child_hash;
+        _cur_hash = _cur_hash * HIVE_HASH_FACTOR + child_hash;
       }
 
-      __device__ hive_hash_value_t get_hash() { return cur_hash; }
+      __device__ hive_hash_value_t get_hash() { return _cur_hash; }
 
-      __device__ int get_and_inc_child_idx() { return child_idx++; }
+      __device__ int get_and_inc_child_idx() { return _child_idx++; }
 
-      __device__ int cur_child_idx() { return child_idx; }
+      __device__ int cur_child_idx() { return _child_idx; }
 
-      __device__ cudf::column_device_view get_column() { return column; }
+      __device__ cudf::column_device_view get_column() { return _column; }
     };
 
     typedef col_stack_element* col_stack_element_ptr;
