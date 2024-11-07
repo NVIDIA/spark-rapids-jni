@@ -57,7 +57,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
             totalDataLen += validityBufferLen;
         }
 
-        columnOffsets.add(new ColumnOffsetInfo(validityOffset, -1, -1, 0));
+        columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, -1, 0, -1, 0));
         return null;
     }
 
@@ -80,7 +80,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
         }
 
 
-        columnOffsets.add(new ColumnOffsetInfo(validityOffset, offsetBufferOffset, -1, 0));
+        columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, -1, 0));
         return null;
     }
 
@@ -117,7 +117,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
                 totalDataLen += dataBufferLen;
             }
 
-            columnOffsets.add(new ColumnOffsetInfo(validityOffset, offsetBufferOffset, dataBufferOffset, dataBufferLen));
+            columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, dataBufferOffset, dataBufferLen));
         } else {
             long totalRowCount = getTotalRowCount();
             long validityBufferLen = 0;
@@ -128,8 +128,6 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
                 totalDataLen += validityBufferLen;
             }
 
-            long offsetBufferOffset = -1;
-
             long dataBufferLen = 0;
             long dataBufferOffset = -1;
             if (totalRowCount > 0) {
@@ -138,7 +136,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
                 totalDataLen += dataBufferLen;
             }
 
-            columnOffsets.add(new ColumnOffsetInfo(validityOffset, offsetBufferOffset, dataBufferOffset, dataBufferLen));
+            columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, -1, 0, dataBufferOffset, dataBufferLen));
         }
 
         return null;
