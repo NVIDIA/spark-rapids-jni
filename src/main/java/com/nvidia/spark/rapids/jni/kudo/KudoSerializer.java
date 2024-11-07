@@ -17,10 +17,17 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
+import com.nvidia.spark.rapids.jni.Arms;
+import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.io.*;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.LongConsumer;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
@@ -151,10 +158,12 @@ public class KudoSerializer {
     Arrays.fill(PADDING, (byte) 0);
   }
 
+  private final Schema schema;
   private final int flattenedColumnCount;
 
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
+    this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
   }
 
@@ -237,6 +246,81 @@ public class KudoSerializer {
     }
   }
 
+  /**
+   * Read a kudo table from an input stream.
+   * @param in input stream
+   * @return the kudo table, or empty if the input stream is empty.
+   * @throws IOException if an I/O error occurs
+   */
+  public Optional<KudoTable> readOneTable(InputStream in) throws IOException {
+    Objects.requireNonNull(in, "Input stream must not be null");
+
+      DataInputStream din = readerFrom(in);
+      return KudoTableHeader.readFrom(din).map(header -> {
+        if (header.getNumRows() <= 0) {
+          throw new IllegalArgumentException("Number of rows must be > 0, but was " + header.getNumRows());
+        }
+
+        // Header only
+        if (header.getNumColumns() == 0) {
+          return new KudoTable(header, null);
+        }
+
+        return Arms.closeIfException(HostMemoryBuffer.allocate(header.getTotalDataLen(), false), buffer -> {
+          try {
+            buffer.copyFromStream(0, din, header.getTotalDataLen());
+            return new KudoTable(header, buffer);
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+        });
+      });
+  }
+
+  /**
+   * Merge a list of kudo tables into a table on host memory.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table, and metrics during merge.
+   */
+  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
+    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
+
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
+        metricsBuilder::calcHeaderTime);
+    KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
+        metricsBuilder::mergeIntoHostBufferTime);
+    return Pair.of(result, metricsBuilder.build());
+
+  }
+
+  /**
+   * Merge a list of kudo tables into a contiguous table.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table, and metrics during merge.
+   */
+  public Pair<ContiguousTable, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) {
+    Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
+    MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
+    try (KudoHostMergeResult children = result.getLeft()) {
+      ContiguousTable table = withTime(() -> children.toContiguousTable(schema),
+          builder::convertIntoContiguousTableTime);
+
+      return Pair.of(table, builder.build());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows) throws Exception {
     KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     Visitors.visitColumns(columns, headerCalc);
@@ -285,9 +369,27 @@ public class KudoSerializer {
     return ((orig + 63) / 64) * 64;
   }
 
-  static int safeLongToNonNegativeInt(long value) {
-    ensure(value >= 0, () -> "Expected non negative value, but was " + value);
-    ensure(value <= Integer.MAX_VALUE, () -> "Value is too large to fit in an int");
-    return (int) value;
+  private static DataInputStream readerFrom(InputStream in) {
+    if (in instanceof DataInputStream) {
+      return (DataInputStream)in;
+    }
+    return new DataInputStream(in);
+  }
+
+  static <T> T withTime(Supplier<T> task, LongConsumer timeConsumer) {
+    long now = System.nanoTime();
+    T ret = task.get();
+    timeConsumer.accept(System.nanoTime() - now);
+    return ret;
+  }
+
+  /**
+   * This method returns the length in bytes needed to represent X number of rows
+   * e.g. getValidityLengthInBytes(5) => 1 byte
+   * getValidityLengthInBytes(7) => 1 byte
+   * getValidityLengthInBytes(14) => 2 bytes
+   */
+  static long getValidityLengthInBytes(long rows) {
+    return (rows + 7) / 8;
   }
 }

@@ -24,7 +24,6 @@ import java.util.Optional;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.safeLongToNonNegativeInt;
 import static java.util.Objects.requireNonNull;
 
 /**

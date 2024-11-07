@@ -24,7 +24,7 @@ import java.util.function.Function;
 /**
  * This class contains utility methods for automatic resource management.
  */
-class Arms {
+public class Arms {
     /**
      * This method close the resource if an exception is thrown while executing the function.
      */
