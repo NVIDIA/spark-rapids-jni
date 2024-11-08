@@ -95,4 +95,37 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(
   bool allow_nonnumeric_numbers,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> make_structs(
+  std::vector<cudf::column_view> const& input,
+  cudf::column_view const& is_null,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Concatenate the JSON objects given by a strings column into one single character buffer,
+ * in which each JSON objects is delimited by a special character that does not exist in the input.
+ *
+ * Beyond returning the concatenated buffer with delimiter, the function also returns a BOOL8
+ * column indicating which rows should be nullified after parsing the concatenated buffer. Each
+ * row of this column is a `true` value if the corresponding input row is either empty, containing
+ * only whitespaces, or invalid JSON object depending on the `nullify_invalid_rows` parameter.
+ *
+ * Note that an invalid JSON object in this context is a string that does not start with the `{`
+ * character after whitespaces.
+ *
+ * @param input The strings column containing input JSON objects
+ * @param nullify_invalid_rows Whether to nullify rows containing invalid JSON objects
+ * @param stream The CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate device memory of the table in the returned
+ * @return A tuple containing the concatenated JSON objects as a single buffer, the delimiter
+ *         character, and a BOOL8 column indicating which rows should be nullified after parsing
+ *         the concatenated buffer
+ */
+std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::column>> concat_json(
+  cudf::strings_column_view const& input,
+  bool nullify_invalid_rows         = false,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni
