@@ -214,14 +214,6 @@ class hive_device_row_hasher {
      * This structure is used to keep track of the current column being processed, the index of the
      * next child column to process, and current hash value for the column.
      *
-     * @param _column The current column being processed.
-     * @param _child_idx The index of the next child column to process.
-     * @param _cur_hash The current hash value for the column.
-     *
-     * @note The default constructor is deleted to prevent uninitialized usage.
-     *
-     * @constructor
-     * @param col The column device view to be processed.
      */
     class col_stack_element {
      private:
