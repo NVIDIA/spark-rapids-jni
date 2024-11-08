@@ -105,7 +105,7 @@ std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_s
 
 // Check if a token is a json node.
 struct is_node {
-  __host__ __device__ bool operator()(PdaTokenT const token) const
+  __host__ __device__ bool operator()(PdaTokenT token) const
   {
     switch (token) {
       case token_t::StructBegin:
@@ -465,14 +465,14 @@ rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ran
 // This both calculates the output size and executes the substring.
 // No bound check is performed, assuming that the substring bounds are all valid.
 struct substring_fn {
-  cudf::device_span<char const> const d_string;
-  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
+  cudf::device_span<char const> d_string;
+  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> d_ranges;
 
   cudf::size_type* d_sizes;
   char* d_chars;
   cudf::detail::input_offsetalator d_offsets;
 
-  __device__ void operator()(cudf::size_type const idx)
+  __device__ void operator()(cudf::size_type idx)
   {
     auto const range = d_ranges[idx];
     auto const size  = range.second - range.first;
@@ -503,26 +503,26 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
       return key_or_value[node_id] == value_sentinel;
     });
 
-  auto extract_ranges =
+  auto extracted_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
   auto const stencil_it  = thrust::make_counting_iterator(0);
   auto const range_end   = extract_key ? cudf::detail::copy_if_safe(node_ranges.begin(),
                                                                   node_ranges.end(),
                                                                   stencil_it,
-                                                                  extract_ranges.begin(),
+                                                                  extracted_ranges.begin(),
                                                                   is_key,
                                                                   stream)
                                        : cudf::detail::copy_if_safe(node_ranges.begin(),
                                                                   node_ranges.end(),
                                                                   stencil_it,
-                                                                  extract_ranges.begin(),
+                                                                  extracted_ranges.begin(),
                                                                   is_value,
                                                                   stream);
-  auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
+  auto const num_extract = thrust::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
-    substring_fn{input_json, extract_ranges}, num_extract, stream, mr);
+    substring_fn{input_json, extracted_ranges}, num_extract, stream, mr);
   return cudf::make_strings_column(
     num_extract, std::move(offsets), chars.release(), 0, rmm::device_buffer{});
 }
