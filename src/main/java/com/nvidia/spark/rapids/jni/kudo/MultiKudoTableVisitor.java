@@ -157,7 +157,7 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
       SliceInfo sliceInfo = sliceInfoOf(tableIdx);
       if (sliceInfo.getRowCount() > 0) {
         int offset = offsetOf(tableIdx, 0);
-        int endOffset = offsetOf(tableIdx, toIntExact(sliceInfo.getRowCount()));
+        int endOffset = offsetOf(tableIdx, sliceInfo.getRowCount());
 
         strDataLen[tableIdx] = endOffset - offset;
         totalStrDataLen += strDataLen[tableIdx];
@@ -174,7 +174,7 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
       if (sliceInfo.getRowCount() > 0) {
         if (updateSliceInfo) {
           int startOffset = offsetOf(tableIdx, 0);
-          int endOffset = offsetOf(tableIdx, toIntExact(sliceInfo.getRowCount()));
+          int endOffset = offsetOf(tableIdx, sliceInfo.getRowCount());
           int rowCount = endOffset - startOffset;
           totalRowCount += rowCount;
 

@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.OptionalInt;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignment;
 import static java.lang.Math.min;
@@ -129,7 +130,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
         for (int tableIdx = 0; tableIdx < getTableSize(); tableIdx += 1) {
           SliceInfo sliceInfo = sliceInfoOf(tableIdx);
           long validityOffset = validifyBufferOffset(tableIdx);
-          if (validityOffset != -1) {
+          if (validityOffset != INVALID_OFFSET) {
             nullCountTotal += copyValidityBuffer(validityBuffer, startRow,
                 memoryBufferOf(tableIdx), toIntExact(validityOffset),
                 sliceInfo);
@@ -137,7 +138,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
             appendAllValid(validityBuffer, startRow, sliceInfo.getRowCount());
           }
 
-          startRow += toIntExact(sliceInfo.getRowCount());
+          startRow += sliceInfo.getRowCount();
         }
         return nullCountTotal;
       }
@@ -155,10 +156,10 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
                                         HostMemoryBuffer src, int srcOffset,
                                         SliceInfo sliceInfo) {
     int nullCount = 0;
-    int totalRowCount = toIntExact(sliceInfo.getRowCount());
+    int totalRowCount = sliceInfo.getRowCount();
     int curIdx = 0;
     int curSrcByteIdx = srcOffset;
-    int curSrcBitIdx = toIntExact(sliceInfo.getValidityBufferInfo().getBeginBit());
+    int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
     int curDestByteIdx = startBit / 8;
     int curDestBitIdx = startBit % 8;
 
@@ -232,7 +233,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
     return nullCount;
   }
 
-  private static void appendAllValid(HostMemoryBuffer dest, int startBit, long numRowsLong) {
+  private static void appendAllValid(HostMemoryBuffer dest, int startBit, int numRowsLong) {
     int numRows = toIntExact(numRowsLong);
     int curDestByteIdx = startBit / 8;
     int curDestBitIdx = startBit % 8;
@@ -267,7 +268,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
         SliceInfo sliceInfo = sliceInfoOf(tableIdx);
 
         if (sliceInfo.getRowCount() > 0) {
-          int rowCnt = toIntExact(sliceInfo.getRowCount());
+          int rowCnt = sliceInfo.getRowCount();
 
           int firstOffset = offsetOf(tableIdx, 0);
           int lastOffset = offsetOf(tableIdx, rowCnt);
