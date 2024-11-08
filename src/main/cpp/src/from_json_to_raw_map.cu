@@ -300,6 +300,7 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
   return parent_node_ids;
 }
 
+// Special values to denote if a node is a key or value to extract for the output.
 constexpr int8_t key_sentinel{1};
 constexpr int8_t value_sentinel{2};
 
@@ -486,38 +487,26 @@ struct substring_fn {
 
 // Extract key-value string pairs from the input json string.
 std::unique_ptr<cudf::column> extract_keys_or_values(
-  bool extract_key,
+  int8_t key_value_sentinel,
   cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> node_ranges,
   cudf::device_span<int8_t const> key_or_value,
   cudf::device_span<char const> input_json,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const is_key =
-    cuda::proclaim_return_type<bool>([key_or_value] __device__(auto const node_id) {
-      return key_or_value[node_id] == key_sentinel;
-    });
-
-  auto const is_value =
-    cuda::proclaim_return_type<bool>([key_or_value] __device__(auto const node_id) {
-      return key_or_value[node_id] == value_sentinel;
+  auto const is_key_or_value = cuda::proclaim_return_type<bool>(
+    [key_or_value, key_value_sentinel] __device__(auto const node_id) {
+      return key_or_value[node_id] == key_value_sentinel;
     });
 
   auto extracted_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
-  auto const stencil_it  = thrust::make_counting_iterator(0);
-  auto const range_end   = extract_key ? cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                                  node_ranges.end(),
-                                                                  stencil_it,
-                                                                  extracted_ranges.begin(),
-                                                                  is_key,
-                                                                  stream)
-                                       : cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                                  node_ranges.end(),
-                                                                  stencil_it,
-                                                                  extracted_ranges.begin(),
-                                                                  is_value,
-                                                                  stream);
+  auto const range_end   = cudf::detail::copy_if_safe(node_ranges.begin(),
+                                                    node_ranges.end(),
+                                                    thrust::make_counting_iterator(0),
+                                                    extracted_ranges.begin(),
+                                                    is_key_or_value,
+                                                    stream);
   auto const num_extract = thrust::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
@@ -776,9 +765,9 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
     tokens, token_positions, node_token_ids, parent_node_ids, is_key_or_value_node, stream);
 
   auto extracted_keys = extract_keys_or_values(
-    /*extract_key*/ true, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
+    key_sentinel, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
   auto extracted_values = extract_keys_or_values(
-    /*extract_key*/ false, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
+    value_sentinel, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
   CUDF_EXPECTS(extracted_keys->size() == extracted_values->size(),
                "Invalid key-value pair extraction.");
 
