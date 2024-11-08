@@ -375,16 +375,15 @@ public class KudoSerializerTest {
       Arms.withResource(new ArrayList<KudoTable>(tableSlices.size()), kudoTables -> {
         try {
           for (int i = 0; i < tableSlices.size(); i++) {
-            kudoTables.add(serializer.readOneTable(bin).get());
+            kudoTables.add(KudoTable.from(bin).get());
           }
 
           long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumColumns()).sum();
           assertEquals(expected.getRowCount(), toIntExact(rows));
 
-          try (ContiguousTable merged = serializer.mergeToTable(kudoTables).getLeft()) {
+          try (Table merged = serializer.mergeToTable(kudoTables).getLeft()) {
             assertEquals(expected.getRowCount(), merged.getRowCount());
-            Table mergedTable = merged.getTable();
-            AssertUtils.assertTablesAreEqual(expected, mergedTable);
+            AssertUtils.assertTablesAreEqual(expected, merged);
           }
         } catch (Exception e) {
           throw new RuntimeException(e);

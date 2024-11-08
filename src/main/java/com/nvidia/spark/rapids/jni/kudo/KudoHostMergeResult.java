@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.util.List;
@@ -29,50 +28,50 @@ import static java.util.Objects.requireNonNull;
  * The result of merging several kudo tables into one contiguous table on the host.
  */
 public class KudoHostMergeResult implements AutoCloseable {
-    private final Schema schema;
-    private final List<ColumnViewInfo> columnInfoList;
-    private final HostMemoryBuffer hostBuf;
+  private final Schema schema;
+  private final List<ColumnViewInfo> columnInfoList;
+  private final HostMemoryBuffer hostBuf;
 
-    KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
-        requireNonNull(schema, "schema is null");
-        requireNonNull(columnInfoList, "columnOffsets is null");
-        ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
-            "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
-                    ", flattened schema size: " + schema.getFlattenedColumnNames().length);
-        this.schema =  schema;
-        this.columnInfoList = columnInfoList;
-        this.hostBuf = requireNonNull(hostBuf, "hostBuf is null") ;
+  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
+    requireNonNull(schema, "schema is null");
+    requireNonNull(columnInfoList, "columnOffsets is null");
+    ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
+        "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
+            ", flattened schema size: " + schema.getFlattenedColumnNames().length);
+    this.schema = schema;
+    this.columnInfoList = columnInfoList;
+    this.hostBuf = requireNonNull(hostBuf, "hostBuf is null");
+  }
+
+  @Override
+  public void close() throws Exception {
+    if (hostBuf != null) {
+      hostBuf.close();
     }
+  }
 
-    @Override
-    public void close() throws Exception {
-        if (hostBuf != null) {
-            hostBuf.close();
-        }
+  public Table toTable() {
+    try (DeviceMemoryBuffer deviceMemBuf = DeviceMemoryBuffer.allocate(hostBuf.getLength())) {
+      if (hostBuf.getLength() > 0) {
+        deviceMemBuf.copyFromHostBufferAsync(hostBuf, Cuda.DEFAULT_STREAM);
+      }
+
+      try (TableBuilder builder = new TableBuilder(columnInfoList, deviceMemBuf)) {
+        Table t = Visitors.visitSchema(schema, builder);
+
+        Cuda.DEFAULT_STREAM.sync();
+        return t;
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     }
+  }
 
-    public ContiguousTable toContiguousTable() {
-        return Arms.closeIfException(DeviceMemoryBuffer.allocate(hostBuf.getLength()),
-            deviceMemBuf -> {
-            if (hostBuf.getLength() > 0) {
-                deviceMemBuf.copyFromHostBuffer(hostBuf);
-            }
-
-            try (TableBuilder builder = new TableBuilder(columnInfoList, deviceMemBuf)) {
-                Table t = Visitors.visitSchema(schema, builder);
-
-                return new ContiguousTable(t, deviceMemBuf);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    @Override
-    public String toString() {
-        return "HostMergeResult{" +
-                "columnOffsets=" + columnInfoList +
-                ", hostBuf length =" + hostBuf.getLength() +
-                '}';
-    }
+  @Override
+  public String toString() {
+    return "HostMergeResult{" +
+        "columnOffsets=" + columnInfoList +
+        ", hostBuf length =" + hostBuf.getLength() +
+        '}';
+  }
 }

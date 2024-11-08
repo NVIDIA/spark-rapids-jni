@@ -51,6 +51,7 @@ public final class KudoTableHeader {
 
   /**
    * Reads the table header from the given input stream.
+   *
    * @param din input stream
    * @return the table header. If an EOFException is encountered at the beginning, returns empty result.
    * @throws IOException if an I/O error occurs
@@ -58,7 +59,7 @@ public final class KudoTableHeader {
   public static Optional<KudoTableHeader> readFrom(DataInputStream din) throws IOException {
     int num;
     try {
-      num= din.readInt();
+      num = din.readInt();
       if (num != SER_FORMAT_MAGIC_NUMBER) {
         throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
             " found " + num);

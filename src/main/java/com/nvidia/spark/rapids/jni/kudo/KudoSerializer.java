@@ -37,7 +37,7 @@ import static java.util.Objects.requireNonNull;
  * This class is used to serialize/deserialize a table using the Kudo format.
  *
  * <h1>Background</h1>
- *
+ * <p>
  * The Kudo format is a binary format that is optimized for serializing/deserializing a table partition during Spark
  * shuffle. The optimizations are based on two key observations:
  *
@@ -53,11 +53,11 @@ import static java.util.Objects.requireNonNull;
  * </ol>
  *
  * <h1>Format</h1>
- *
+ * <p>
  * Similar to {@link JCudfSerialization}, it still consists of two parts: header and body.
  *
  * <h2>Header</h2>
- *
+ * <p>
  * Header consists of following fields:
  *
  * <table>
@@ -119,7 +119,7 @@ import static java.util.Objects.requireNonNull;
  * </table>
  *
  * <h2>Body</h2>
- *
+ * <p>
  * The body consists of three part:
  * <ol>
  *     <li>Validity buffers for every column with validity in depth-first ordering of schema columns. Each buffer of
@@ -132,7 +132,7 @@ import static java.util.Objects.requireNonNull;
  * </ol>
  *
  * <h1>Serialization</h1>
- *
+ * <p>
  * The serialization process writes the header first, then writes the body. There are two optimizations when writing
  * validity buffer and offset buffer:
  *
@@ -151,7 +151,7 @@ import static java.util.Objects.requireNonNull;
 public class KudoSerializer {
 
   private static final byte[] PADDING = new byte[64];
-  private static final BufferType[] ALL_BUFFER_TYPES = new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
+  private static final BufferType[] ALL_BUFFER_TYPES = new BufferType[]{BufferType.VALIDITY, BufferType.OFFSET,
       BufferType.DATA};
 
   static {
@@ -170,14 +170,14 @@ public class KudoSerializer {
   /**
    * Write partition of a table to a stream.
    * <br/>
-   *
+   * <p>
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
    * is undefined.
    *
-   * @param table table to write
-   * @param out output stream
+   * @param table     table to write
+   * @param out       output stream
    * @param rowOffset row offset in original table
-   * @param numRows number of rows to write
+   * @param numRows   number of rows to write
    * @return number of bytes written
    */
   public long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
@@ -202,20 +202,20 @@ public class KudoSerializer {
   /**
    * Write partition of an array of {@link HostColumnVector} to an output stream.
    * <br/>
-   *
+   * <p>
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
    * is undefined.
    *
-   * @param columns columns to write
-   * @param out output stream
+   * @param columns   columns to write
+   * @param out       output stream
    * @param rowOffset row offset in original column vector.
-   * @param numRows number of rows to write
+   * @param numRows   number of rows to write
    * @return number of bytes written
    */
   public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
     ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
-            "please call writeRowCountToStream");
+        "please call writeRowCountToStream");
 
     try {
       return writeSliced(columns, writerFrom(out), rowOffset, numRows);
@@ -226,7 +226,8 @@ public class KudoSerializer {
 
   /**
    * Write a row count only record to an output stream.
-   * @param out output stream
+   *
+   * @param out     output stream
    * @param numRows number of rows to write
    * @return number of bytes written
    */
@@ -244,37 +245,6 @@ public class KudoSerializer {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
-  }
-
-  /**
-   * Read a kudo table from an input stream.
-   * @param in input stream
-   * @return the kudo table, or empty if the input stream is empty.
-   * @throws IOException if an I/O error occurs
-   */
-  public Optional<KudoTable> readOneTable(InputStream in) throws IOException {
-    Objects.requireNonNull(in, "Input stream must not be null");
-
-      DataInputStream din = readerFrom(in);
-      return KudoTableHeader.readFrom(din).map(header -> {
-        if (header.getNumRows() <= 0) {
-          throw new IllegalArgumentException("Number of rows must be > 0, but was " + header.getNumRows());
-        }
-
-        // Header only
-        if (header.getNumColumns() == 0) {
-          return new KudoTable(header, null);
-        }
-
-        return Arms.closeIfException(HostMemoryBuffer.allocate(header.getTotalDataLen(), false), buffer -> {
-          try {
-            buffer.copyFromStream(0, din, header.getTotalDataLen());
-            return new KudoTable(header, buffer);
-          } catch (IOException e) {
-            throw new RuntimeException(e);
-          }
-        });
-      });
   }
 
   /**
@@ -308,12 +278,12 @@ public class KudoSerializer {
    *                   take care of closing them after calling this method.
    * @return the merged table, and metrics during merge.
    */
-  public Pair<ContiguousTable, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) {
+  public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
     try (KudoHostMergeResult children = result.getLeft()) {
-      ContiguousTable table = withTime(children::toContiguousTable,
-          builder::convertIntoContiguousTableTime);
+      Table table = withTime(children::toTable,
+          builder::convertToTableTime);
 
       return Pair.of(table, builder.build());
     } catch (Exception e) {
@@ -369,9 +339,9 @@ public class KudoSerializer {
     return ((orig + 63) / 64) * 64;
   }
 
-  private static DataInputStream readerFrom(InputStream in) {
+  static DataInputStream readerFrom(InputStream in) {
     if (in instanceof DataInputStream) {
-      return (DataInputStream)in;
+      return (DataInputStream) in;
     }
     return new DataInputStream(in);
   }

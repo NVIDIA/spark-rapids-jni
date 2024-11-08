@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.DeviceMemoryBufferView;
 
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
@@ -26,65 +27,69 @@ import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
  * This class is used to store the offsets of the buffer of a column in the serialized data.
  */
 class ColumnOffsetInfo {
-    private static final long INVALID_OFFSET = -1L;
-    private final long validity;
-    private final long validityBufferLen;
-    private final long offset;
-    private final long offsetBufferLen;
-    private final long data;
-    private final long dataBufferLen;
+  static final long INVALID_OFFSET = -1L;
+  private final long validity;
+  private final long validityBufferLen;
+  private final long offset;
+  private final long offsetBufferLen;
+  private final long data;
+  private final long dataBufferLen;
 
-    public ColumnOffsetInfo(long validity, long validityBufferLen, long offset, long offsetBufferLen, long data,
-                            long dataBufferLen) {
-        ensure(dataBufferLen >= 0, () -> "dataLen must be non-negative, but was " + dataBufferLen);
-        this.validity = validity;
-        this.validityBufferLen = validityBufferLen;
-        this.offset = offset;
-        this.offsetBufferLen = offsetBufferLen;
-        this.data = data;
-        this.dataBufferLen = dataBufferLen;
-    }
+  public ColumnOffsetInfo(long validity, long validityBufferLen, long offset, long offsetBufferLen, long data,
+                          long dataBufferLen) {
+    ensure(dataBufferLen >= 0, () -> "dataLen must be non-negative, but was " + dataBufferLen);
+    this.validity = validity;
+    this.validityBufferLen = validityBufferLen;
+    this.offset = offset;
+    this.offsetBufferLen = offsetBufferLen;
+    this.data = data;
+    this.dataBufferLen = dataBufferLen;
+  }
 
-    public OptionalLong getValidity() {
-        return (validity == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(validity);
-    }
+  public OptionalLong getValidity() {
+    return (validity == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(validity);
+  }
 
-    public DeviceMemoryBufferView getValidityBuffer(long baseAddress) {
-        if (validity == INVALID_OFFSET) {
-            return null;
-        }
-        return new DeviceMemoryBufferView(validity + baseAddress, validityBufferLen);
+  public Optional<DeviceMemoryBufferView> getValidityBuffer(long baseAddress) {
+    if (validity == INVALID_OFFSET) {
+      return Optional.empty();
     }
+    return Optional.of(new DeviceMemoryBufferView(validity + baseAddress, validityBufferLen));
+  }
 
-    public OptionalLong getOffset() {
-        return (offset == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(offset);
-    }
+  public OptionalLong getOffset() {
+    return (offset == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(offset);
+  }
 
-    public DeviceMemoryBufferView getOffsetBuffer(long baseAddress) {
-        if (offset == INVALID_OFFSET) {
-            return null;
-        }
-        return new DeviceMemoryBufferView(offset + baseAddress, offsetBufferLen);
+  public Optional<DeviceMemoryBufferView> getOffsetBuffer(long baseAddress) {
+    if (offset == INVALID_OFFSET) {
+      return Optional.empty();
     }
+    return Optional.of(new DeviceMemoryBufferView(offset + baseAddress, offsetBufferLen));
+  }
 
-    public OptionalLong getData() {
-        return (data == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(data);
-    }
+  public OptionalLong getData() {
+    return (data == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(data);
+  }
 
-    public DeviceMemoryBufferView getDataBuffer(long baseAddress) {
-        if (data == INVALID_OFFSET) {
-            return null;
-        }
-        return new DeviceMemoryBufferView(data + baseAddress, dataBufferLen);
+  public Optional<DeviceMemoryBufferView> getDataBuffer(long baseAddress) {
+    if (data == INVALID_OFFSET) {
+      return Optional.empty();
     }
+    return Optional.of(new DeviceMemoryBufferView(data + baseAddress, dataBufferLen));
+  }
 
-    @Override
-    public String toString() {
-        return "ColumnOffsets{" +
-                "validity=" + validity +
-                ", offset=" + offset +
-                ", data=" + data +
-                ", dataLen=" + dataBufferLen +
-                '}';
-    }
+  public long getDataBufferLen() {
+    return dataBufferLen;
+  }
+
+  @Override
+  public String toString() {
+    return "ColumnOffsets{" +
+        "validity=" + validity +
+        ", offset=" + offset +
+        ", data=" + data +
+        ", dataLen=" + dataBufferLen +
+        '}';
+  }
 }

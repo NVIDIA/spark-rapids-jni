@@ -20,45 +20,43 @@ import ai.rapids.cudf.*;
 
 import java.util.Optional;
 
-import static java.lang.Math.toIntExact;
-
 class ColumnViewInfo {
-    private final DType dtype;
-    private final ColumnOffsetInfo offsetInfo;
-    private final long nullCount;
-    private final long rowCount;
+  private final DType dtype;
+  private final ColumnOffsetInfo offsetInfo;
+  private final long nullCount;
+  private final long rowCount;
 
-    public ColumnViewInfo(DType dtype, ColumnOffsetInfo offsetInfo,
-                          long nullCount, long rowCount) {
-        this.dtype = dtype;
-        this.offsetInfo = offsetInfo;
-        this.nullCount = nullCount;
-        this.rowCount = rowCount;
+  public ColumnViewInfo(DType dtype, ColumnOffsetInfo offsetInfo,
+                        long nullCount, long rowCount) {
+    this.dtype = dtype;
+    this.offsetInfo = offsetInfo;
+    this.nullCount = nullCount;
+    this.rowCount = rowCount;
+  }
+
+  ColumnView buildColumnView(DeviceMemoryBuffer buffer, ColumnView[] childrenView) {
+    long baseAddress = buffer.getAddress();
+
+    if (dtype.isNestedType()) {
+      return new ColumnView(dtype, rowCount, Optional.of(nullCount),
+          offsetInfo.getValidityBuffer(baseAddress).orElse(null),
+          offsetInfo.getOffsetBuffer(baseAddress).orElse(null),
+          childrenView);
+    } else {
+      return new ColumnView(dtype, rowCount, Optional.of(nullCount),
+          offsetInfo.getDataBuffer(baseAddress).orElse(null),
+          offsetInfo.getValidityBuffer(baseAddress).orElse(null),
+          offsetInfo.getOffsetBuffer(baseAddress).orElse(null));
     }
+  }
 
-    ColumnView buildColumnView(DeviceMemoryBuffer buffer, ColumnView[] childrenView) {
-        long baseAddress = buffer.getAddress();
-
-        if (dtype.isNestedType()) {
-            return new ColumnView(dtype, rowCount, Optional.of(nullCount),
-                offsetInfo.getValidityBuffer(baseAddress),
-                offsetInfo.getOffsetBuffer(baseAddress),
-                childrenView);
-        } else {
-            return new ColumnView(dtype, rowCount, Optional.of(nullCount),
-                offsetInfo.getDataBuffer(baseAddress),
-                offsetInfo.getValidityBuffer(baseAddress),
-                offsetInfo.getOffsetBuffer(baseAddress));
-        }
-    }
-
-    @Override
-    public String toString() {
-        return "ColumnViewInfo{" +
-                "dtype=" + dtype +
-                ", offsetInfo=" + offsetInfo +
-                ", nullCount=" + nullCount +
-                ", rowCount=" + rowCount +
-                '}';
-    }
+  @Override
+  public String toString() {
+    return "ColumnViewInfo{" +
+        "dtype=" + dtype +
+        ", offsetInfo=" + offsetInfo +
+        ", nullCount=" + nullCount +
+        ", rowCount=" + rowCount +
+        '}';
+  }
 }

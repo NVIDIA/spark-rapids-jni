@@ -22,13 +22,13 @@ public class MergeMetrics {
   // The time it took to merge the buffers into the host buffer in nanoseconds
   private final long mergeIntoHostBufferTime;
   // The time it took to convert the host buffer into a contiguous table in nanoseconds
-  private final long convertIntoContiguousTableTime;
+  private final long convertToTableTime;
 
   public MergeMetrics(long calcHeaderTime, long mergeIntoHostBufferTime,
-      long convertIntoContiguousTableTime) {
+                      long convertToTableTime) {
     this.calcHeaderTime = calcHeaderTime;
     this.mergeIntoHostBufferTime = mergeIntoHostBufferTime;
-    this.convertIntoContiguousTableTime = convertIntoContiguousTableTime;
+    this.convertToTableTime = convertToTableTime;
   }
 
   public long getCalcHeaderTime() {
@@ -39,8 +39,8 @@ public class MergeMetrics {
     return mergeIntoHostBufferTime;
   }
 
-  public long getConvertIntoContiguousTableTime() {
-    return convertIntoContiguousTableTime;
+  public long getConvertToTableTime() {
+    return convertToTableTime;
   }
 
   public static Builder builder() {
@@ -51,14 +51,14 @@ public class MergeMetrics {
     return new Builder()
         .calcHeaderTime(metrics.calcHeaderTime)
         .mergeIntoHostBufferTime(metrics.mergeIntoHostBufferTime)
-        .convertIntoContiguousTableTime(metrics.convertIntoContiguousTableTime);
+        .convertToTableTime(metrics.convertToTableTime);
   }
 
 
   public static class Builder {
     private long calcHeaderTime;
     private long mergeIntoHostBufferTime;
-    private long convertIntoContiguousTableTime;
+    private long convertToTableTime;
 
     public Builder calcHeaderTime(long calcHeaderTime) {
       this.calcHeaderTime = calcHeaderTime;
@@ -70,13 +70,13 @@ public class MergeMetrics {
       return this;
     }
 
-    public Builder convertIntoContiguousTableTime(long convertIntoContiguousTableTime) {
-      this.convertIntoContiguousTableTime = convertIntoContiguousTableTime;
+    public Builder convertToTableTime(long convertToTableTime) {
+      this.convertToTableTime = convertToTableTime;
       return this;
     }
 
     public MergeMetrics build() {
-      return new MergeMetrics(calcHeaderTime, mergeIntoHostBufferTime, convertIntoContiguousTableTime);
+      return new MergeMetrics(calcHeaderTime, mergeIntoHostBufferTime, convertToTableTime);
     }
   }
 }

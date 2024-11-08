@@ -42,7 +42,6 @@ import static java.util.Objects.requireNonNull;
 class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   // Number of 1s in a byte
   private static final int[] NUMBER_OF_ONES = new int[256];
-  private static final byte[] ZEROS = new byte[1024];
 
   static {
     for (int i = 0; i < NUMBER_OF_ONES.length; i += 1) {
@@ -54,8 +53,6 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
       }
       NUMBER_OF_ONES[i] = count;
     }
-
-    Arrays.fill(ZEROS, (byte) 0);
   }
 
   private final List<ColumnOffsetInfo> columnOffsets;
@@ -80,7 +77,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doVisitStruct(Schema structType, List<Void> children) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer();
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     long totalRowCount = getTotalRowCount();
     colViewInfoList.add(new ColumnViewInfo(structType.getType(),
         offsetInfo, nullCount, totalRowCount));
@@ -90,9 +87,9 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doPreVisitList(Schema listType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer();
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     long totalRowCount = getTotalRowCount();
-    deserializeOffsetBuffer();
+    deserializeOffsetBuffer(offsetInfo);
 
     colViewInfoList.add(new ColumnViewInfo(listType.getType(),
         offsetInfo, nullCount, totalRowCount));
@@ -107,13 +104,13 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doVisit(Schema primitiveType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer();
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     long totalRowCount = getTotalRowCount();
     if (primitiveType.getType().hasOffsets()) {
-      deserializeOffsetBuffer();
-      deserializeDataBuffer(OptionalInt.empty());
+      deserializeOffsetBuffer(offsetInfo);
+      deserializeDataBuffer(offsetInfo, OptionalInt.empty());
     } else {
-      deserializeDataBuffer(OptionalInt.of(primitiveType.getType().getSizeInBytes()));
+      deserializeDataBuffer(offsetInfo, OptionalInt.of(primitiveType.getType().getSizeInBytes()));
     }
 
     colViewInfoList.add(new ColumnViewInfo(primitiveType.getType(),
@@ -122,10 +119,9 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
     return null;
   }
 
-  private long deserializeValidityBuffer() {
-    ColumnOffsetInfo colOffset = getCurColumnOffsets();
-    if (colOffset.getValidity().isPresent()) {
-      long offset = colOffset.getValidity().getAsLong();
+  private long deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
+    if (curColOffset.getValidity().isPresent()) {
+      long offset = curColOffset.getValidity().getAsLong();
       long validityBufferSize = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
       try (HostMemoryBuffer validityBuffer = buffer.slice(offset, validityBufferSize)) {
         int nullCountTotal = 0;
@@ -156,8 +152,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
    * @return Number of nulls in the validity buffer.
    */
   private static int copyValidityBuffer(HostMemoryBuffer dest, int startBit,
-      HostMemoryBuffer src, int srcOffset,
-      SliceInfo sliceInfo) {
+                                        HostMemoryBuffer src, int srcOffset,
+                                        SliceInfo sliceInfo) {
     int nullCount = 0;
     int totalRowCount = toIntExact(sliceInfo.getRowCount());
     int curIdx = 0;
@@ -240,34 +236,24 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
     int numRows = toIntExact(numRowsLong);
     int curDestByteIdx = startBit / 8;
     int curDestBitIdx = startBit % 8;
-    int curIdx = 0;
-    while (curIdx < numRows) {
-      int leftRowCount = numRows - curIdx;
-      int appendCount;
-      if (curDestBitIdx == 0) {
-        dest.setByte(curDestByteIdx, (byte) 0xFF);
-        appendCount = min(8, leftRowCount);
-      } else {
-        appendCount = min(8 - curDestBitIdx, leftRowCount);
-        byte mask = (byte) (((1 << appendCount) - 1) << curDestBitIdx);
-        byte destByte = dest.getByte(curDestByteIdx);
-        dest.setByte(curDestByteIdx, (byte) (destByte | mask));
-      }
 
-      curDestBitIdx += appendCount;
-      if (curDestBitIdx == 8) {
-        curDestBitIdx = 0;
-        curDestByteIdx += 1;
-      }
+    if (curDestBitIdx > 0) {
+      int numBits = 8 - curDestBitIdx;
+      int mask = ((1 << numBits) - 1) << curDestBitIdx;
+      dest.setByte(curDestByteIdx, (byte) (dest.getByte(curDestByteIdx) | mask));
+      curDestByteIdx += 1;
+      numRows -= numBits;
+    }
 
-      curIdx += appendCount;
+    if (numRows > 0) {
+      int numBytes = (numRows + 7) / 8;
+      dest.setMemory(curDestByteIdx, numBytes, (byte) 0xFF);
     }
   }
 
-  private void deserializeOffsetBuffer() {
-    ColumnOffsetInfo colOffset = getCurColumnOffsets();
-    if (colOffset.getOffset().isPresent()) {
-      long offset = colOffset.getOffset().getAsLong();
+  private void deserializeOffsetBuffer(ColumnOffsetInfo curColOffset) {
+    if (curColOffset.getOffset().isPresent()) {
+      long offset = curColOffset.getOffset().getAsLong();
       long bufferSize = Integer.BYTES * (getTotalRowCount() + 1);
 
       IntBuffer buf = buffer
@@ -298,12 +284,10 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
     }
   }
 
-  private void deserializeDataBuffer(OptionalInt sizeInBytes) {
-    ColumnOffsetInfo colOffset = getCurColumnOffsets();
-
-    if (colOffset.getData().isPresent() && colOffset.getDataLen() > 0) {
-      long offset = colOffset.getData().getAsLong();
-      long dataLen = colOffset.getDataLen();
+  private void deserializeDataBuffer(ColumnOffsetInfo curColOffset, OptionalInt sizeInBytes) {
+    if (curColOffset.getData().isPresent() && curColOffset.getDataBufferLen() > 0) {
+      long offset = curColOffset.getData().getAsLong();
+      long dataLen = curColOffset.getDataBufferLen();
 
       try (HostMemoryBuffer buf = buffer.slice(offset, dataLen)) {
         if (sizeInBytes.isPresent()) {

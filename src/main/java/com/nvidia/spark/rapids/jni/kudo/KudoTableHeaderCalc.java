@@ -46,7 +46,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
   private Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
 
-  KudoTableHeaderCalc(long rowOffset, long numRows, int numFlattenedCols) {
+  KudoTableHeaderCalc(int rowOffset, int numRows, int numFlattenedCols) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.totalDataLen = 0;
     sliceInfos.addLast(this.root);
@@ -105,9 +105,9 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
     SliceInfo current;
 
     if (col.getOffsets() != null) {
-      long start = col.getOffsets().getInt(parent.offset * Integer.BYTES);
-      long end = col.getOffsets().getInt((parent.offset + parent.rowCount) * Integer.BYTES);
-      long rowCount = end - start;
+      int start = col.getOffsets().getInt(parent.offset * Integer.BYTES);
+      int end = col.getOffsets().getInt((parent.offset + parent.rowCount) * Integer.BYTES);
+      int rowCount = end - start;
       current = new SliceInfo(start, rowCount);
     } else {
       current = new SliceInfo(0, 0);
