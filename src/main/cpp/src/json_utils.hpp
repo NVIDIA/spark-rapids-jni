@@ -16,24 +16,30 @@
 
 #pragma once
 
-#include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <memory>
 
 namespace spark_rapids_jni {
 
+/**
+ * @brief Extract a map column from the JSON strings given by an input strings column.
+ */
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
+/**
+ * @brief Parse JSON strings into a struct column followed by a given data schema.
+ *
+ * The data schema is specified as data arrays flattened by depth-first-search order.
+ */
 std::unique_ptr<cudf::column> from_json_to_structs(
   cudf::strings_column_view const& input,
   std::vector<std::string> const& col_names,
@@ -49,58 +55,25 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
-//
-//
-//
-//
-//
-//
-//
-std::unique_ptr<cudf::column> cast_strings_to_booleans(
+/**
+ * @brief Convert the input column into a desired type given by a schema.
+ *
+ * The input column can be a nested column thus the given schema is specified as data arrays
+ * flattened by depth-first-search order.
+ */
+std::unique_ptr<cudf::column> convert_data_type(
   cudf::column_view const& input,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> cast_strings_to_decimals(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  int precision,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions,
+  bool normalize_single_quotes,
+  bool allow_leading_zeros,
+  bool allow_nonnumeric_numbers,
+  bool allow_unquoted_control,
   bool is_us_locale,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> cast_strings_to_integers(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> cast_strings_to_dates(
-  cudf::column_view const& input,
-  std::string const& date_regex,
-  std::string const& date_format,
-  bool error_if_invalid,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> remove_quotes(
-  cudf::column_view const& input,
-  bool nullify_if_not_quoted,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> cast_strings_to_floats(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  bool allow_nonnumeric_numbers,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-std::unique_ptr<cudf::column> make_structs(
-  std::vector<cudf::column_view> const& input,
-  cudf::column_view const& is_null,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
  * @brief Concatenate the JSON objects given by a strings column into one single character buffer,
