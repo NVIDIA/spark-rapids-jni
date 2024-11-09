@@ -157,93 +157,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToBooleans(JNIEnv* env, jclass, jlong j_input)
-{
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_booleans(input).release());
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToDecimals(JNIEnv* env,
-                                                                 jclass,
-                                                                 jlong j_input,
-                                                                 jint j_output_type_id,
-                                                                 jint precision,
-                                                                 jint scale,
-                                                                 jboolean is_us_locale)
-{
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
-
-    return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::cast_strings_to_decimals(
-        input,
-        cudf::data_type{static_cast<cudf::type_id>(j_output_type_id), scale},
-        precision,
-        is_us_locale)
-        .release());
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToIntegers(
-  JNIEnv* env, jclass, jlong j_input, jint output_type_id)
-{
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
-
-    return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::cast_strings_to_integers(
-        input, cudf::data_type{static_cast<cudf::type_id>(output_type_id)})
-        .release());
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
-  JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
-{
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
-    return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::remove_quotes(input, nullify_if_not_quoted).release());
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_castStringsToFloats(
-  JNIEnv* env, jclass, jlong j_input, jint j_output_type_id, jboolean allow_nonnumeric_numbers)
-{
-  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
-    auto const input = *reinterpret_cast<cudf::column_view const*>(j_input);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::cast_strings_to_floats(
-                                     input,
-                                     cudf::data_type{static_cast<cudf::type_id>(j_output_type_id)},
-                                     allow_nonnumeric_numbers)
-                                     .release());
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
                                                              jclass,
                                                              jlong j_input,
@@ -275,11 +188,11 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
     auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
     auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
 
-    CUDF_EXPECTS(col_names.size() > 0, "Invalid schema data.");
-    CUDF_EXPECTS(col_names.size() == num_children.size(), "Invalid schema data.");
-    CUDF_EXPECTS(col_names.size() == types.size(), "Invalid schema data.");
-    CUDF_EXPECTS(col_names.size() == scales.size(), "Invalid schema data.");
-    CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data.");
+    CUDF_EXPECTS(col_names.size() > 0, "Invalid schema data: col_names.");
+    CUDF_EXPECTS(col_names.size() == num_children.size(), "Invalid schema data: num_children.");
+    CUDF_EXPECTS(col_names.size() == types.size(), "Invalid schema data: types.");
+    CUDF_EXPECTS(col_names.size() == scales.size(), "Invalid schema data: scales.");
+    CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data: precisions.");
 
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input},
@@ -298,4 +211,52 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
+                                                           jclass,
+                                                           jlong j_input,
+                                                           jintArray j_num_children,
+                                                           jintArray j_types,
+                                                           jintArray j_scales,
+                                                           jintArray j_precisions,
+                                                           jboolean normalize_single_quotes,
+                                                           jboolean allow_leading_zeros,
+                                                           jboolean allow_nonnumeric_numbers,
+                                                           jboolean allow_unquoted_control,
+                                                           jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
+  JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
+  JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
+  JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const input        = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
+    auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
+    auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
+    auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
+
+    CUDF_EXPECTS(num_children.size() > 0, "Invalid schema data: num_children.");
+    CUDF_EXPECTS(num_children.size() == types.size(), "Invalid schema data: types.");
+    CUDF_EXPECTS(num_children.size() == scales.size(), "Invalid schema data: scales.");
+    CUDF_EXPECTS(num_children.size() == precisions.size(), "Invalid schema data: precisions.");
+
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::convert_data_type(*input,
+                                                                       num_children,
+                                                                       types,
+                                                                       scales,
+                                                                       precisions,
+                                                                       normalize_single_quotes,
+                                                                       allow_leading_zeros,
+                                                                       allow_nonnumeric_numbers,
+                                                                       allow_unquoted_control,
+                                                                       is_us_locale)
+                                     .release());
+  }
+  CATCH_STD(env, 0);
+}
 }  // extern "C"
