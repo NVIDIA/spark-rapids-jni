@@ -33,7 +33,7 @@ import static java.lang.Math.toIntExact;
  * <br/>
  * The schema used when visiting these kudo tables must be same as the schema used when creating these kudo tables.
  */
-abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
+abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> {
   private final List<KudoTable> tables;
   private final long[] currentValidityOffsets;
   private final long[] currentOffsetOffsets;
@@ -96,18 +96,18 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
   protected abstract T doVisitStruct(Schema structType, List<T> children);
 
   @Override
-  public T preVisitList(Schema listType) {
+  public P preVisitList(Schema listType) {
     updateHasNull();
-    T t = doPreVisitList(listType);
+    P t = doPreVisitList(listType);
     updateOffsets(true, false, true, Integer.BYTES);
     currentIdx += 1;
     return t;
   }
 
-  protected abstract T doPreVisitList(Schema listType);
+  protected abstract P doPreVisitList(Schema listType);
 
   @Override
-  public T visitList(Schema listType, T preVisitResult, T childResult) {
+  public T visitList(Schema listType, P preVisitResult, T childResult) {
     T t = doVisitList(listType, preVisitResult, childResult);
     for (int tableIdx = 0; tableIdx < tables.size(); tableIdx++) {
       sliceInfoStack[tableIdx].removeLast();
@@ -116,7 +116,7 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
     return t;
   }
 
-  protected abstract T doVisitList(Schema listType, T preVisitResult, T childResult);
+  protected abstract T doVisitList(Schema listType, P preVisitResult, T childResult);
 
   @Override
   public T visit(Schema primitiveType) {

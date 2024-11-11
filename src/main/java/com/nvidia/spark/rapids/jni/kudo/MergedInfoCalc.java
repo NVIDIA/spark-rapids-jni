@@ -31,7 +31,7 @@ import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignm
 /**
  * This class is used to calculate column offsets of merged buffer.
  */
-class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
+class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
   // Total data len in gpu, which accounts for 64 byte alignment
   private long totalDataLen;
   // Column offset in gpu device buffer, it has one field for each flattened column

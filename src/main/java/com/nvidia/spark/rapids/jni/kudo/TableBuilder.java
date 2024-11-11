@@ -29,7 +29,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * This class is used to build a cudf table from a list of column view info, and a device buffer.
  */
-class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
+class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, AutoCloseable {
   private int curColumnIdx;
   private final DeviceMemoryBuffer buffer;
   private final List<ColumnViewInfo> colViewInfoList;
@@ -47,10 +47,10 @@ class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
   }
 
   @Override
-  public Table visitTopSchema(Schema schema, List<Object> children) {
+  public Table visitTopSchema(Schema schema, List<ColumnView> children) {
     try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(new ColumnVector[children.size()])) {
       for (int i = 0; i < children.size(); i++) {
-        ColumnView colView = (ColumnView) children.get(i);
+        ColumnView colView = children.get(i);
         arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
       }
 
@@ -59,10 +59,10 @@ class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
   }
 
   @Override
-  public ColumnView visitStruct(Schema structType, List<Object> children) {
+  public ColumnView visitStruct(Schema structType, List<ColumnView> children) {
     ColumnViewInfo colViewInfo = getCurrentColumnViewInfo();
 
-    ColumnView[] childrenView = children.stream().map(o -> (ColumnView) o).toArray(ColumnView[]::new);
+    ColumnView[] childrenView = children.toArray(new ColumnView[0]);
     ColumnView columnView = colViewInfo.buildColumnView(buffer, childrenView);
     curColumnIdx += 1;
     columnViewList.add(columnView);
@@ -78,10 +78,9 @@ class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
   }
 
   @Override
-  public ColumnView visitList(Schema listType, Object preVisitResult, Object childResult) {
-    ColumnViewInfo colViewInfo = (ColumnViewInfo) preVisitResult;
+  public ColumnView visitList(Schema listType, ColumnViewInfo colViewInfo, ColumnView childResult) {
 
-    ColumnView[] children = new ColumnView[]{(ColumnView) childResult};
+    ColumnView[] children = new ColumnView[]{childResult};
 
     ColumnView view = colViewInfo.buildColumnView(buffer, children);
     columnViewList.add(view);

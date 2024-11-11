@@ -24,7 +24,6 @@ import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalInt;
 
@@ -40,7 +39,7 @@ import static java.util.Objects.requireNonNull;
  * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult},
  * which could be easily converted to a {@link ai.rapids.cudf.ContiguousTable}.
  */
-class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
+class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeResult> {
   // Number of 1s in a byte
   private static final int[] NUMBER_OF_ONES = new int[256];
 
