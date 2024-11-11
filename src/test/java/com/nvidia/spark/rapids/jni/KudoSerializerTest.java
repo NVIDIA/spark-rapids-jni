@@ -378,7 +378,7 @@ public class KudoSerializerTest {
             kudoTables.add(KudoTable.from(bin).get());
           }
 
-          long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumColumns()).sum();
+          long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
           assertEquals(expected.getRowCount(), toIntExact(rows));
 
           try (Table merged = serializer.mergeToTable(kudoTables).getLeft()) {

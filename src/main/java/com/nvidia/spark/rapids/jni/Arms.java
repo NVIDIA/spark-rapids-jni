@@ -54,7 +54,10 @@ public class Arms {
         Throwable t = null;
         while (resources.hasNext()) {
             try {
-                resources.next().close();
+                R resource = resources.next();
+                if (resource != null) {
+                    resource.close();
+                }
             } catch (Exception e) {
                 if (t == null) {
                     t = e;

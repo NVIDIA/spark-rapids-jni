@@ -48,13 +48,20 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
 
   @Override
   public Table visitTopSchema(Schema schema, List<ColumnView> children) {
-    try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(new ColumnVector[children.size()])) {
-      for (int i = 0; i < children.size(); i++) {
-        ColumnView colView = children.get(i);
-        arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
-      }
+    // When this method is called, the ownership of the column views in `columnViewList` has been transferred to
+    // `children`, so we need to clear `columnViewList`.
+    this.columnViewList.clear();
+    try {
+      try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(new ColumnVector[children.size()])) {
+        for (int i = 0; i < children.size(); i++) {
+          ColumnView colView = children.set(i, null);
+          arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
+        }
 
-      return new Table(arr.getArray());
+        return new Table(arr.getArray());
+      }
+    } finally {
+      Arms.closeAll(columnViewList);
     }
   }
 
