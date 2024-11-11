@@ -78,8 +78,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doVisitStruct(Schema structType, List<Void> children) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer(offsetInfo);
-    long totalRowCount = getTotalRowCount();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
     colViewInfoList.add(new ColumnViewInfo(structType.getType(),
         offsetInfo, nullCount, totalRowCount));
     return null;
@@ -88,8 +88,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doPreVisitList(Schema listType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer(offsetInfo);
-    long totalRowCount = getTotalRowCount();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
     deserializeOffsetBuffer(offsetInfo);
 
     colViewInfoList.add(new ColumnViewInfo(listType.getType(),
@@ -105,8 +105,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   @Override
   protected Void doVisit(Schema primitiveType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    long nullCount = deserializeValidityBuffer(offsetInfo);
-    long totalRowCount = getTotalRowCount();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
     if (primitiveType.getType().hasOffsets()) {
       deserializeOffsetBuffer(offsetInfo);
       deserializeDataBuffer(offsetInfo, OptionalInt.empty());
@@ -120,9 +120,9 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
     return null;
   }
 
-  private long deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
-    if (curColOffset.getValidity().isPresent()) {
-      long offset = curColOffset.getValidity().getAsLong();
+  private int deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
+    if (curColOffset.getValidity() != INVALID_OFFSET) {
+      long offset = curColOffset.getValidity();
       long validityBufferSize = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
       try (HostMemoryBuffer validityBuffer = buffer.slice(offset, validityBufferSize)) {
         int nullCountTotal = 0;
@@ -140,7 +140,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
 
           startRow += sliceInfo.getRowCount();
         }
-        return nullCountTotal;
+        return toIntExact(nullCountTotal);
       }
     } else {
       return 0;
@@ -253,8 +253,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   }
 
   private void deserializeOffsetBuffer(ColumnOffsetInfo curColOffset) {
-    if (curColOffset.getOffset().isPresent()) {
-      long offset = curColOffset.getOffset().getAsLong();
+    if (curColOffset.getOffset() != INVALID_OFFSET) {
+      long offset = curColOffset.getOffset();
       long bufferSize = Integer.BYTES * (getTotalRowCount() + 1);
 
       IntBuffer buf = buffer
@@ -286,8 +286,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, KudoHostMergeResult> {
   }
 
   private void deserializeDataBuffer(ColumnOffsetInfo curColOffset, OptionalInt sizeInBytes) {
-    if (curColOffset.getData().isPresent() && curColOffset.getDataBufferLen() > 0) {
-      long offset = curColOffset.getData().getAsLong();
+    if (curColOffset.getData() != INVALID_OFFSET && curColOffset.getDataBufferLen() > 0) {
+      long offset = curColOffset.getData();
       long dataLen = curColOffset.getDataBufferLen();
 
       try (HostMemoryBuffer buf = buffer.slice(offset, dataLen)) {

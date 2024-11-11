@@ -18,10 +18,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.DeviceMemoryBufferView;
 
-import java.util.Optional;
-import java.util.OptionalLong;
-
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
 
 /**
  * This class is used to store the offsets of the buffer of a column in the serialized data.
@@ -37,7 +34,9 @@ class ColumnOffsetInfo {
 
   public ColumnOffsetInfo(long validity, long validityBufferLen, long offset, long offsetBufferLen, long data,
                           long dataBufferLen) {
-    ensure(dataBufferLen >= 0, () -> "dataLen must be non-negative, but was " + dataBufferLen);
+    ensureNonNegative(validityBufferLen, "validityBuffeLen");
+    ensureNonNegative(offsetBufferLen, "offsetBufferLen");
+    ensureNonNegative(dataBufferLen, "dataBufferLen");
     this.validity = validity;
     this.validityBufferLen = validityBufferLen;
     this.offset = offset;
@@ -46,40 +45,67 @@ class ColumnOffsetInfo {
     this.dataBufferLen = dataBufferLen;
   }
 
-  public OptionalLong getValidity() {
-    return (validity == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(validity);
+  /**
+   * Get the validity buffer offset.
+   * @return {@value #INVALID_OFFSET} if the validity buffer is not present, otherwise the offset.
+   */
+  long getValidity() {
+    return validity;
   }
 
-  public Optional<DeviceMemoryBufferView> getValidityBuffer(long baseAddress) {
+  /**
+   * Get a view of the validity buffer from underlying buffer.
+   * @param baseAddress the base address of underlying buffer.
+   * @return null if the validity buffer is not present, otherwise a view of the buffer.
+   */
+  DeviceMemoryBufferView getValidityBuffer(long baseAddress) {
     if (validity == INVALID_OFFSET) {
-      return Optional.empty();
+      return null;
     }
-    return Optional.of(new DeviceMemoryBufferView(validity + baseAddress, validityBufferLen));
+    return new DeviceMemoryBufferView(validity + baseAddress, validityBufferLen);
   }
 
-  public OptionalLong getOffset() {
-    return (offset == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(offset);
+  /**
+   * Get the offset buffer offset.
+   * @return {@value #INVALID_OFFSET} if the offset buffer is not present, otherwise the offset.
+   */
+  long getOffset() {
+    return offset;
   }
 
-  public Optional<DeviceMemoryBufferView> getOffsetBuffer(long baseAddress) {
+  /**
+   * Get a view of the offset buffer from underlying buffer.
+   * @param baseAddress the base address of underlying buffer.
+   * @return null if the offset buffer is not present, otherwise a view of the buffer.
+   */
+  DeviceMemoryBufferView getOffsetBuffer(long baseAddress) {
     if (offset == INVALID_OFFSET) {
-      return Optional.empty();
+      return null;
     }
-    return Optional.of(new DeviceMemoryBufferView(offset + baseAddress, offsetBufferLen));
+    return new DeviceMemoryBufferView(offset + baseAddress, offsetBufferLen);
   }
 
-  public OptionalLong getData() {
-    return (data == INVALID_OFFSET) ? OptionalLong.empty() : OptionalLong.of(data);
+  /**
+   * Get the data buffer offset.
+   * @return {@value #INVALID_OFFSET} if the data buffer is not present, otherwise the offset.
+   */
+  long getData() {
+    return data;
   }
 
-  public Optional<DeviceMemoryBufferView> getDataBuffer(long baseAddress) {
+  /**
+   * Get a view of the data buffer from underlying buffer.
+   * @param baseAddress the base address of underlying buffer.
+   * @return null if the data buffer is not present, otherwise a view of the buffer.
+   */
+  DeviceMemoryBufferView getDataBuffer(long baseAddress) {
     if (data == INVALID_OFFSET) {
-      return Optional.empty();
+      return null;
     }
-    return Optional.of(new DeviceMemoryBufferView(data + baseAddress, dataBufferLen));
+    return new DeviceMemoryBufferView(data + baseAddress, dataBufferLen);
   }
 
-  public long getDataBufferLen() {
+  long getDataBufferLen() {
     return dataBufferLen;
   }
 

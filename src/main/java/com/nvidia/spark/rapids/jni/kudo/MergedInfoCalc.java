@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignment;
 
@@ -50,21 +51,21 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
   @Override
   protected Void doVisitStruct(Schema structType, List<Void> children) {
     long validityBufferLen = 0;
-    long validityOffset = -1;
+    long validityOffset = INVALID_OFFSET;
     if (hasNull()) {
       validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
       validityOffset = totalDataLen;
       totalDataLen += validityBufferLen;
     }
 
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, -1, 0, -1, 0));
+    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, INVALID_OFFSET, 0));
     return null;
   }
 
   @Override
   protected Void doPreVisitList(Schema listType) {
     long validityBufferLen = 0;
-    long validityOffset = -1;
+    long validityOffset = INVALID_OFFSET;
     if (hasNull()) {
       validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
       validityOffset = totalDataLen;
@@ -72,7 +73,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
     }
 
     long offsetBufferLen = 0;
-    long offsetBufferOffset = -1;
+    long offsetBufferOffset = INVALID_OFFSET;
     if (getTotalRowCount() > 0) {
       offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
       offsetBufferOffset = totalDataLen;
@@ -80,7 +81,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
     }
 
 
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, -1, 0));
+    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, INVALID_OFFSET, 0));
     return null;
   }
 
@@ -94,7 +95,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
     // String type
     if (primitiveType.getType().hasOffsets()) {
       long validityBufferLen = 0;
-      long validityOffset = -1;
+      long validityOffset = INVALID_OFFSET;
       if (hasNull()) {
         validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
         validityOffset = totalDataLen;
@@ -102,7 +103,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
       }
 
       long offsetBufferLen = 0;
-      long offsetBufferOffset = -1;
+      long offsetBufferOffset = INVALID_OFFSET;
       if (getTotalRowCount() > 0) {
         offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
         offsetBufferOffset = totalDataLen;
@@ -110,7 +111,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
       }
 
       long dataBufferLen = 0;
-      long dataBufferOffset = -1;
+      long dataBufferOffset = INVALID_OFFSET;
       if (getTotalStrDataLen() > 0) {
         dataBufferLen = padFor64byteAlignment(getTotalStrDataLen());
         dataBufferOffset = totalDataLen;
@@ -121,7 +122,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
     } else {
       long totalRowCount = getTotalRowCount();
       long validityBufferLen = 0;
-      long validityOffset = -1;
+      long validityOffset = INVALID_OFFSET;
       if (hasNull()) {
         validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(totalRowCount));
         validityOffset = totalDataLen;
@@ -129,14 +130,14 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void> {
       }
 
       long dataBufferLen = 0;
-      long dataBufferOffset = -1;
+      long dataBufferOffset = INVALID_OFFSET;
       if (totalRowCount > 0) {
         dataBufferLen = padFor64byteAlignment(totalRowCount * primitiveType.getType().getSizeInBytes());
         dataBufferOffset = totalDataLen;
         totalDataLen += dataBufferLen;
       }
 
-      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, -1, 0, dataBufferOffset, dataBufferLen));
+      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, dataBufferOffset, dataBufferLen));
     }
 
     return null;

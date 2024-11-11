@@ -30,7 +30,6 @@ import static java.util.Objects.requireNonNull;
  * This class is used to build a cudf table from a list of column view info, and a device buffer.
  */
 class TableBuilder implements SchemaVisitor<Object, Table>, AutoCloseable {
-  // Current column index
   private int curColumnIdx;
   private final DeviceMemoryBuffer buffer;
   private final List<ColumnViewInfo> colViewInfoList;

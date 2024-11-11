@@ -39,7 +39,7 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
   private final long[] currentOffsetOffsets;
   private final long[] currentDataOffset;
   private final Deque<SliceInfo>[] sliceInfoStack;
-  private final Deque<Long> totalRowCountStack;
+  private final Deque<Integer> totalRowCountStack;
   // A temporary variable to keep if current column has null
   private boolean hasNull;
   private int currentIdx;
@@ -65,9 +65,8 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
       this.sliceInfoStack[i].add(new SliceInfo(header.getOffset(), header.getNumRows()));
     }
     long totalRowCount = tables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
-    ensure(totalRowCount <= Integer.MAX_VALUE, "total row count is too large to fit in an int");
     this.totalRowCountStack = new ArrayDeque<>(16);
-    totalRowCountStack.addLast(totalRowCount);
+    totalRowCountStack.addLast(toIntExact(totalRowCount));
     this.hasNull = true;
     this.currentIdx = 0;
     this.strDataLen = new int[tables.size()];
@@ -207,13 +206,13 @@ abstract class MultiKudoTableVisitor<T, R> implements SchemaVisitor<T, R> {
     }
 
     if (updateSliceInfo) {
-      totalRowCountStack.addLast(totalRowCount);
+      totalRowCountStack.addLast(toIntExact(totalRowCount));
     }
   }
 
   // Below parts are information about current column
 
-  protected long getTotalRowCount() {
+  protected int getTotalRowCount() {
     return totalRowCountStack.getLast();
   }
 

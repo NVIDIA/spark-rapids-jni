@@ -20,14 +20,18 @@ import ai.rapids.cudf.*;
 
 import java.util.Optional;
 
+import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
+
 class ColumnViewInfo {
   private final DType dtype;
   private final ColumnOffsetInfo offsetInfo;
-  private final long nullCount;
-  private final long rowCount;
+  private final int nullCount;
+  private final int rowCount;
 
   public ColumnViewInfo(DType dtype, ColumnOffsetInfo offsetInfo,
-                        long nullCount, long rowCount) {
+                        int nullCount, int rowCount) {
+    ensureNonNegative(nullCount, "nullCount");
+    ensureNonNegative(rowCount, "rowCount");
     this.dtype = dtype;
     this.offsetInfo = offsetInfo;
     this.nullCount = nullCount;
@@ -38,15 +42,15 @@ class ColumnViewInfo {
     long baseAddress = buffer.getAddress();
 
     if (dtype.isNestedType()) {
-      return new ColumnView(dtype, rowCount, Optional.of(nullCount),
-          offsetInfo.getValidityBuffer(baseAddress).orElse(null),
-          offsetInfo.getOffsetBuffer(baseAddress).orElse(null),
+      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+          offsetInfo.getValidityBuffer(baseAddress),
+          offsetInfo.getOffsetBuffer(baseAddress),
           childrenView);
     } else {
-      return new ColumnView(dtype, rowCount, Optional.of(nullCount),
-          offsetInfo.getDataBuffer(baseAddress).orElse(null),
-          offsetInfo.getValidityBuffer(baseAddress).orElse(null),
-          offsetInfo.getOffsetBuffer(baseAddress).orElse(null));
+      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+          offsetInfo.getDataBuffer(baseAddress),
+          offsetInfo.getValidityBuffer(baseAddress),
+          offsetInfo.getOffsetBuffer(baseAddress));
     }
   }
 
