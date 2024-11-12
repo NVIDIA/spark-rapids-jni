@@ -740,33 +740,16 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                 rmm::cuda_stream_view stream,
                                                 rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   using DecayInputT                  = std::decay_t<InputType>;
   auto constexpr input_is_const_cv   = std::is_same_v<DecayInputT, cudf::column_view>;
   auto constexpr input_is_column_ptr = std::is_same_v<DecayInputT, std::unique_ptr<cudf::column>>;
   static_assert(input_is_const_cv ^ input_is_column_ptr);
 
-  auto const d_type = [&] {
-    if constexpr (input_is_column_ptr) {
-      return input->type().id();
-    } else {
-      return input.type().id();
-    }
-  };
-
-  // if (d_type == cudf::type_id::LIST || d_type == cudf::type_id::STRUCT ||
-  //     d_type == cudf::type_id::STRING) {
-  //   //
-  // }
-  // std::unique_ptr<cudf::column> convert_column_type(std::unique_ptr<cudf::column>& input,
-  //                                                   schema_element_with_precision const& schema,
-  //                                                   bool allow_nonnumeric_numbers,
-  //                                                   bool is_us_locale,
-  //                                                   rmm::cuda_stream_view stream,
-  //                                                   rmm::device_async_resource_ref mr)
-
   if (cudf::is_chrono(schema.type)) {
+    // Date/time is not processed here - it should be handled separately in spark-rapids.
     if constexpr (input_is_column_ptr) {
-      // Date/time is not processed for now, but it should be handled later on in spark-rapids.
       return std::move(input);
     } else {
       CUDF_FAIL("Cannot convert data type to a chrono (date/time) type.");
@@ -774,66 +757,138 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
   }
 
   if (schema.type.id() == cudf::type_id::BOOL8) {
-    return ::spark_rapids_jni::cast_strings_to_booleans(input->view(), stream, mr);
+    if constexpr (input_is_column_ptr) {
+      return cast_strings_to_booleans(input->view(), stream, mr);
+    } else {
+      return cast_strings_to_booleans(input, stream, mr);
+    }
   }
+
+  // if constexpr (input_is_column_ptr) {
+  // } else {
+  // }
   if (cudf::is_integral(schema.type)) {
-    return ::spark_rapids_jni::cast_strings_to_integers(input->view(), schema.type, stream, mr);
+    if constexpr (input_is_column_ptr) {
+      return cast_strings_to_integers(input->view(), schema.type, stream, mr);
+    } else {
+      return cast_strings_to_integers(input, schema.type, stream, mr);
+    }
   }
+
   if (cudf::is_floating_point(schema.type)) {
-    return ::spark_rapids_jni::cast_strings_to_floats(
-      input->view(), schema.type, allow_nonnumeric_numbers, stream, mr);
+    if constexpr (input_is_column_ptr) {
+      return cast_strings_to_floats(
+        input->view(), schema.type, allow_nonnumeric_numbers, stream, mr);
+    } else {
+      return cast_strings_to_floats(input, schema.type, allow_nonnumeric_numbers, stream, mr);
+    }
   }
   if (cudf::is_fixed_point(schema.type)) {
-    return ::spark_rapids_jni::cast_strings_to_decimals(
-      input->view(), schema.type, schema.precision, is_us_locale, stream, mr);
+    if constexpr (input_is_column_ptr) {
+      return cast_strings_to_decimals(
+        input->view(), schema.type, schema.precision, is_us_locale, stream, mr);
+    } else {
+      return cast_strings_to_decimals(
+        input, schema.type, schema.precision, is_us_locale, stream, mr);
+    }
   }
   if (schema.type.id() == cudf::type_id::STRING) {
-    return ::spark_rapids_jni::remove_quotes(
-      input->view(), /*nullify_if_not_quoted*/ false, stream, mr);
+    if constexpr (input_is_column_ptr) {
+      return remove_quotes(input->view(), /*nullify_if_not_quoted*/ false, stream, mr);
+    } else {
+      return remove_quotes(input, /*nullify_if_not_quoted*/ false, stream, mr);
+    }
   }
 
-  auto const num_rows     = input->size();
-  auto const null_count   = input->null_count();
-  auto const d_type       = input->type().id();
-  auto const num_children = input->num_children();
-  auto input_content      = input->release();
+  if constexpr (input_is_column_ptr) {
+    auto const d_type       = input->type().id();
+    auto const num_rows     = input->size();
+    auto const null_count   = input->null_count();
+    auto const num_children = input->num_children();
+    auto input_content      = input->release();
 
-  if (schema.type.id() == cudf::type_id::LIST) {
-    CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
-    auto new_child =
-      convert_column_type(input_content.children[cudf::lists_column_view::child_column_index],
+    if (schema.type.id() == cudf::type_id::LIST) {
+      CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
+      std::vector<std::unique_ptr<cudf::column>> new_children;
+      new_children.emplace_back(
+        std::move(input_content.children[cudf::lists_column_view::offsets_column_index]));
+      new_children.emplace_back(
+        convert_data_type(input_content.children[cudf::lists_column_view::child_column_index],
                           schema.child_types.front().second,
                           allow_nonnumeric_numbers,
                           is_us_locale,
                           stream,
-                          mr);
-    return cudf::make_lists_column(
-      num_rows,
-      std::move(input_content.children[cudf::lists_column_view::offsets_column_index]),
-      std::move(new_child),
-      null_count,
-      std::move(*input_content.null_mask),
-      stream,
-      mr);
-  }
+                          mr));
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            std::move(*input_content.null_mask),
+                                            null_count,
+                                            std::move(new_children));
+    }
 
-  if (schema.type.id() == cudf::type_id::STRUCT) {
-    CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
-    std::vector<std::unique_ptr<cudf::column>> new_children(num_children);
-    for (cudf::size_type i = 0; i < num_children; ++i) {
-      new_children[i] = convert_column_type(input_content.children[i],
+    if (schema.type.id() == cudf::type_id::STRUCT) {
+      CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
+      std::vector<std::unique_ptr<cudf::column>> new_children(num_children);
+      for (cudf::size_type i = 0; i < num_children; ++i) {
+        new_children[i] = convert_data_type(input_content.children[i],
                                             schema.child_types[i].second,
                                             allow_nonnumeric_numbers,
                                             is_us_locale,
                                             stream,
                                             mr);
+      }
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            std::move(*input_content.null_mask),
+                                            null_count,
+                                            std::move(new_children));
     }
-    return cudf::make_structs_column(num_rows,
-                                     std::move(new_children),
-                                     null_count,
-                                     std::move(*input_content.null_mask),
-                                     stream,
-                                     mr);
+  } else {
+    auto const d_type       = input.type().id();
+    auto const num_rows     = input.size();
+    auto const null_count   = input.null_count();
+    auto const num_children = input.num_children();
+
+    if (schema.type.id() == cudf::type_id::LIST) {
+      CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
+      std::vector<std::unique_ptr<cudf::column>> new_children;
+      new_children.emplace_back(std::make_unique<cudf::column>(
+        input.children[cudf::lists_column_view::offsets_column_index]));
+      new_children.emplace_back(
+        convert_data_type(input.child(cudf::lists_column_view::child_column_index),
+                          schema.child_types.front().second,
+                          allow_nonnumeric_numbers,
+                          is_us_locale,
+                          stream,
+                          mr));
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            null_count,
+                                            std::move(new_children));
+    }
+
+    if (schema.type.id() == cudf::type_id::STRUCT) {
+      CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
+      std::vector<std::unique_ptr<cudf::column>> new_children(num_children);
+      for (cudf::size_type i = 0; i < num_children; ++i) {
+        new_children[i] = convert_data_type(input.child(i),
+                                            schema.child_types[i].second,
+                                            allow_nonnumeric_numbers,
+                                            is_us_locale,
+                                            stream,
+                                            mr);
+      }
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            null_count,
+                                            std::move(new_children));
+    }
   }
 
   CUDF_FAIL("Unexpected column type for conversion.");
