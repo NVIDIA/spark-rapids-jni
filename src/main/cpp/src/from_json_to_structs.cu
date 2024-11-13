@@ -987,4 +987,15 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::column_view const& input,
     mr);
 }
 
+std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
+                                            bool nullify_if_not_quoted,
+                                            rmm::cuda_stream_view stream,
+                                            rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  return detail::make_column_from_pair(
+    detail::remove_quotes(input, nullify_if_not_quoted, stream, mr), stream, mr);
+}
+
 }  // namespace spark_rapids_jni
