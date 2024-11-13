@@ -161,12 +161,13 @@ public class JSONUtils {
   }
 
   /**
+   * Parse a JSON string into a struct column following by the given data schema.
    *
-   * @param input
-   * @param schema
-   * @param opts
-   * @param isUSLocale
-   * @return
+   * @param input The input strings column in which each row specifies a json object
+   * @param schema The schema of the output struct column
+   * @param opts The options for parsing JSON strings
+   * @param isUSLocale Whether the current local is US locale
+   * @return A struct column in which each row is parsed from the corresponding json string
    */
   public static ColumnVector fromJSONToStructs(ColumnView input, Schema schema, JSONOptions opts,
                                                boolean isUSLocale) {
@@ -185,14 +186,16 @@ public class JSONUtils {
   }
 
   /**
+   * Convert the data type of a strings column to the desired type given by a data schema.
    *
-   * @param input
-   * @param schema
-   * @param opts
-   * @param isUSLocale
-   * @return
+   * @param input The input strings column
+   * @param schema The schema of the output column
+   * @param allowedNonNumericNumbers Whether non-numeric numbers are allowed
+   * @param isUSLocale Whether the current local is US locale
+   * @return A column with the desired data type
    */
-  public static ColumnVector convertDataType(ColumnView input, Schema schema, JSONOptions opts,
+  public static ColumnVector convertDataType(ColumnView input, Schema schema,
+                                             boolean allowedNonNumericNumbers,
                                              boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(convertDataType(input.getNativeView(),
@@ -200,24 +203,20 @@ public class JSONUtils {
         schema.getFlattenedTypeIds(),
         schema.getFlattenedTypeScales(),
         schema.getFlattenedDecimalPrecisions(),
-        opts.nonNumericNumbersAllowed(),
+        allowedNonNumericNumbers,
         isUSLocale));
   }
 
   /**
+   * Remove quotes from each string in the given strings column.
    *
-   * @param input
-   * @param nullifyIfNotQuoted
-   * @return
+   * @param input The input strings column
+   * @param nullifyIfNotQuoted Whether to nullify the output if the input string is not quoted
+   * @return A strings column in which quotes are removed from all strings
    */
   public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
-  }
-
-  public static ColumnVector removeQuotes(ColumnView input) {
-    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(removeQuotes(input.getNativeView(), true));
   }
 
   private static native int getMaxJSONPathDepth();
