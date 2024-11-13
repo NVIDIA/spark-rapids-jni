@@ -213,9 +213,8 @@ class hive_device_row_hasher {
      *
      * This structure is used to keep track of the current column being processed, the index of the
      * next child column to process, and current hash value for the column.
-     *
      */
-    class col_stack_element {
+    struct col_stack_element {
      private:
       cudf::column_device_view _column;  // current column
       hive_hash_value_t _cur_hash;       // current hash value of the column
@@ -382,7 +381,7 @@ class hive_device_row_hasher {
       // The default constructor of `col_stack_element` is deleted, so it can not allocate an array
       // of `col_stack_element` directly.
       // Instead leverage the byte array to create the col_stack_element array.
-      uint8_t stack_wrapper[MAX_NESTED_DEPTH * sizeof(col_stack_element)];
+      alignas(col_stack_element) char stack_wrapper[sizeof(col_stack_element) * MAX_NESTED_DEPTH];
       col_stack_element_ptr col_stack = reinterpret_cast<col_stack_element_ptr>(stack_wrapper);
       int stack_size                  = 0;
 
