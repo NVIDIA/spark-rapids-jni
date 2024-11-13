@@ -219,10 +219,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
                                                            jintArray j_types,
                                                            jintArray j_scales,
                                                            jintArray j_precisions,
-                                                           jboolean normalize_single_quotes,
-                                                           jboolean allow_leading_zeros,
                                                            jboolean allow_nonnumeric_numbers,
-                                                           jboolean allow_unquoted_control,
                                                            jboolean is_us_locale)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
@@ -245,17 +242,10 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
     CUDF_EXPECTS(num_children.size() == scales.size(), "Invalid schema data: scales.");
     CUDF_EXPECTS(num_children.size() == precisions.size(), "Invalid schema data: precisions.");
 
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::convert_data_type(*input,
-                                                                       num_children,
-                                                                       types,
-                                                                       scales,
-                                                                       precisions,
-                                                                       normalize_single_quotes,
-                                                                       allow_leading_zeros,
-                                                                       allow_nonnumeric_numbers,
-                                                                       allow_unquoted_control,
-                                                                       is_us_locale)
-                                     .release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::convert_data_type(
+        *input, num_children, types, scales, precisions, allow_nonnumeric_numbers, is_us_locale)
+        .release());
   }
   CATCH_STD(env, 0);
 }

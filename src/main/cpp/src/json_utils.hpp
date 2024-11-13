@@ -67,10 +67,7 @@ std::unique_ptr<cudf::column> convert_data_type(
   std::vector<int> const& types,
   std::vector<int> const& scales,
   std::vector<int> const& precisions,
-  bool normalize_single_quotes,
-  bool allow_leading_zeros,
   bool allow_nonnumeric_numbers,
-  bool allow_unquoted_control,
   bool is_us_locale,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
