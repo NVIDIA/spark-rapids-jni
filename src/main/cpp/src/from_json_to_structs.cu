@@ -63,6 +63,8 @@ using string_index_pair = thrust::pair<char const*, cudf::size_type>;
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const string_count = input.size();
   if (string_count == 0) {
     return {cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}),
@@ -117,6 +119,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const string_count = input.size();
   if (string_count == 0) {
     return {cudf::make_empty_column(output_type), rmm::device_uvector<bool>(0, stream)};
@@ -180,6 +184,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
 std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes_for_floats(
   cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const string_count = input.size();
   if (string_count == 0) {
     return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
@@ -266,6 +272,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+
   if (allow_nonnumeric_numbers) {
     auto [removed_quotes, validity] = remove_quotes_for_floats(input, stream, mr);
     return {::spark_rapids_jni::string_to_float(
@@ -286,6 +293,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const string_count = input.size();
   if (string_count == 0) {
     return {cudf::make_empty_column(output_type), rmm::device_uvector<bool>{0, stream, mr}};
@@ -425,6 +434,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const string_count = input.size();
   if (string_count == 0) {
     return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
