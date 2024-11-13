@@ -939,6 +939,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+
   return detail::from_json_to_structs(input,
                                       col_names,
                                       num_children,
@@ -965,15 +966,23 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::column_view const& input,
                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+
   [[maybe_unused]] auto const [schema, schema_with_precision] = detail::generate_struct_schema(
     /*dummy col_names*/ std::vector<std::string>(num_children.size(), std::string{}),
     num_children,
     types,
     scales,
     precisions);
+  CUDF_EXPECTS(schema_with_precision.child_types.size() == 1,
+               "The input schema must have exactly one column.");
+
   return detail::make_column_from_pair(
-    detail::convert_data_type(
-      input, schema_with_precision, allow_nonnumeric_numbers, is_us_locale, stream, mr),
+    detail::convert_data_type(input,
+                              schema_with_precision.child_types.front().second,
+                              allow_nonnumeric_numbers,
+                              is_us_locale,
+                              stream,
+                              mr),
     stream,
     mr);
 }
