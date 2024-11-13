@@ -462,7 +462,7 @@
                   <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
                   <arg value="-DCUDF_LARGE_STRINGS_DISABLED=ON"/>
-                  <arg value="-DKvikIO_REMOTE_SUPPORT=OFF"/>
+                  <arg value="-DCUDF_KVIKIO_REMOTE_IO=OFF"/>
                   <arg value="-DLIBCUDF_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
                   <arg value="-DUSE_GDS=${USE_GDS}" />
