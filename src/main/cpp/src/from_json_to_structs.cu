@@ -626,8 +626,9 @@ std::vector<std::unique_ptr<cudf::column>> make_column_array_from_pairs(
     rmm::exec_policy_nosync(stream), d_valid_counts.begin(), d_valid_counts.end(), 0);
 
   for (std::size_t idx = 0; idx < num_columns; ++idx) {
-    auto const col_size = input[idx].first->size();
-    if (col_size == 0) {
+    auto const col_size      = input[idx].first->size();
+    auto const validity_size = input[idx].second.size();
+    if (col_size == 0 || validity_size == 0) {
       null_masks.emplace_back(rmm::device_buffer{});  // placeholder
       continue;
     }
@@ -650,10 +651,14 @@ std::vector<std::unique_ptr<cudf::column>> make_column_array_from_pairs(
   std::vector<std::unique_ptr<cudf::column>> output(num_columns);
 
   for (std::size_t idx = 0; idx < num_columns; ++idx) {
-    auto const col_size    = input[idx].first->size();
+    auto const col_size = input[idx].first->size();
+    output[idx]         = std::move(input[idx].first);
+
+    auto const validity_size = input[idx].second.size();
+    if (col_size == 0 || validity_size == 0) { continue; }
+
     auto const valid_count = valid_counts[idx];
     auto const null_count  = col_size - valid_count;
-    output[idx]            = std::move(input[idx].first);
     if (null_count > 0) { output[idx]->set_null_mask(std::move(null_masks[idx]), null_count); }
   }
 
