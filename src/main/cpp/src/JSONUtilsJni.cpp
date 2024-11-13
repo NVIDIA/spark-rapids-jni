@@ -231,7 +231,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
   try {
     cudf::jni::auto_set_device(env);
 
-    auto const input        = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
     auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
     auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
     auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
@@ -243,8 +243,13 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
     CUDF_EXPECTS(num_children.size() == precisions.size(), "Invalid schema data: precisions.");
 
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::convert_data_type(
-        *input, num_children, types, scales, precisions, allow_nonnumeric_numbers, is_us_locale)
+      spark_rapids_jni::convert_data_type(cudf::strings_column_view{*input_cv},
+                                          num_children,
+                                          types,
+                                          scales,
+                                          precisions,
+                                          allow_nonnumeric_numbers,
+                                          is_us_locale)
         .release());
   }
   CATCH_STD(env, 0);
@@ -257,9 +262,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::remove_quotes(*input, nullify_if_not_quoted).release());
+      spark_rapids_jni::remove_quotes(cudf::strings_column_view{*input_cv}, nullify_if_not_quoted)
+        .release());
   }
   CATCH_STD(env, 0);
 }

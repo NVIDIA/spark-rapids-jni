@@ -960,7 +960,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                       mr);
 }
 
-std::unique_ptr<cudf::column> convert_data_type(cudf::column_view const& input,
+std::unique_ptr<cudf::column> convert_data_type(cudf::strings_column_view const& input,
                                                 std::vector<int> const& num_children,
                                                 std::vector<int> const& types,
                                                 std::vector<int> const& scales,
@@ -981,8 +981,9 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::column_view const& input,
   CUDF_EXPECTS(schema_with_precision.child_types.size() == 1,
                "The input schema must have exactly one column.");
 
+  auto const input_cv = input.parent();
   return detail::make_column_from_pair(
-    detail::convert_data_type(input,
+    detail::convert_data_type(input_cv,
                               schema_with_precision.child_types.front().second,
                               allow_nonnumeric_numbers,
                               is_us_locale,
@@ -992,15 +993,16 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::column_view const& input,
     mr);
 }
 
-std::unique_ptr<cudf::column> remove_quotes(cudf::column_view const& input,
+std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& input,
                                             bool nullify_if_not_quoted,
                                             rmm::cuda_stream_view stream,
                                             rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
+  auto const input_cv = input.parent();
   return detail::make_column_from_pair(
-    detail::remove_quotes(input, nullify_if_not_quoted, stream, mr), stream, mr);
+    detail::remove_quotes(input_cv, nullify_if_not_quoted, stream, mr), stream, mr);
 }
 
 }  // namespace spark_rapids_jni

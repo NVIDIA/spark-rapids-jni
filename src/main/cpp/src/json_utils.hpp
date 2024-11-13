@@ -56,13 +56,13 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief Convert the input column into a desired type given by a schema.
+ * @brief Convert the input column into a desired type given by a data schema.
  *
  * The input column can be a nested column thus the given schema is specified as data arrays
  * flattened by depth-first-search order.
  */
 std::unique_ptr<cudf::column> convert_data_type(
-  cudf::column_view const& input,
+  cudf::strings_column_view const& input,
   std::vector<int> const& num_children,
   std::vector<int> const& types,
   std::vector<int> const& scales,
@@ -73,17 +73,16 @@ std::unique_ptr<cudf::column> convert_data_type(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief remove_quotes
- * @param input
- * @param stream
- * @param mr
- * @return
+ * @brief Remove quotes from each string in the given strings column.
+ *
+ * If the input string is not quoted, the corresponding row can be a null depending on the value of
+ * `nullify_if_not_quoted`.
  */
 std::unique_ptr<cudf::column> remove_quotes(
-  cudf::column_view const& input,
+  cudf::strings_column_view const& input,
   bool nullify_if_not_quoted,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
  * @brief Concatenate the JSON objects given by a strings column into one single character buffer,
@@ -109,6 +108,6 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
   cudf::strings_column_view const& input,
   bool nullify_invalid_rows         = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 }  // namespace spark_rapids_jni
