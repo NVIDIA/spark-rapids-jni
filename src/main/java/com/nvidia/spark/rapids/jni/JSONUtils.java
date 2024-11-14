@@ -166,23 +166,6 @@ public class JSONUtils {
   }
 
   /**
-   * Extract key-value pairs for each output map from the given json strings. This method is
-   * similar to {@link #extractRawMapFromJsonString(ColumnView, JSONOptions)} but is deprecated.
-   *
-   * @deprecated This method is deprecated since it does not have parameters to control various
-   * JSON reader behaviors.
-   *
-   * @param input The input strings column in which each row specifies a json object
-   * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
-   *         which the key-value pairs are extracted directly from the input json strings
-   */
-  public static ColumnVector extractRawMapFromJsonString(ColumnView input) {
-    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(extractRawMapFromJsonString(input.getNativeView(),
-        true, true, true, true));
-  }
-
-  /**
    * Parse a JSON string into a struct column following by the given data schema.
    *
    * @param input The input strings column in which each row specifies a json object
