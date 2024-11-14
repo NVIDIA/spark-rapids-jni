@@ -60,10 +60,9 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief Convert the input column into a desired type given by a data schema.
+ * @brief Convert the input strings column into a desired type given by a data schema.
  *
- * The input column can be a nested column thus the given schema is specified as data arrays
- * flattened by depth-first-search order.
+ * The given column schema is specified as data arrays flattened by depth-first-search order.
  */
 std::unique_ptr<cudf::column> convert_data_type(
   cudf::strings_column_view const& input,
@@ -79,8 +78,8 @@ std::unique_ptr<cudf::column> convert_data_type(
 /**
  * @brief Remove quotes from each string in the given strings column.
  *
- * If the input string is not quoted, the corresponding row can be a null depending on the value of
- * `nullify_if_not_quoted`.
+ * If `nullify_if_not_quoted` is true, an input string that is not quoted will result in a null.
+ * Otherwise, the output will be the same as the unquoted input.
  */
 std::unique_ptr<cudf::column> remove_quotes(
   cudf::strings_column_view const& input,
