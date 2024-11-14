@@ -125,7 +125,12 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   auto const d_input_ptr = cudf::column_device_view::create(input, stream);
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
 
+  // We need to nullify the invalid string rows.
+  // Technically, we should just mask out these rows as invalid and ignore them.
+  // However, spark_rapids_jni::string_to_integer cannot handle these non-empty null rows,
+  // thus we have to materialzie the valid strings into a new strings column.
   auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
+
   // Since the strings store integer numbers, they should be very short.
   // As such, using one thread per string should be good.
   thrust::tabulate(rmm::exec_policy_nosync(stream),
@@ -162,12 +167,16 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  // Don't care about the null mask, as nulls imply empty strings, and will be nullified.
+  // Don't care about the null mask, as nulls imply empty strings, which will also result in nulls.
   auto const sanitized_input =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
-  auto output = string_to_integer(
-    output_type, cudf::strings_column_view{sanitized_input->view()}, false, false, stream, mr);
+  auto output = string_to_integer(output_type,
+                                  cudf::strings_column_view{sanitized_input->view()},
+                                  /*ansi_mode*/ false,
+                                  /*strip*/ false,
+                                  stream,
+                                  mr);
 
   return {std::move(output), rmm::device_uvector<bool>(0, stream)};
 }
@@ -543,7 +552,7 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_
     }
   } else {
     CUDF_EXPECTS(col_num_children == 0,
-                 "Found children for a type that should have none.",
+                 "Found children for a non-nested type that should have none.",
                  std::invalid_argument);
   }
 
@@ -561,9 +570,10 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_
 // Two separate schema is generated:
 // - The first one is used as input to `cudf::read_json`, in which the data types of all columns
 //   are specified as STRING type. As such, the table returned by `cudf::read_json` will contain
-//   only strings columns.
-// - The second schema is used for converting from STRING type to the desired types for the final
-//   output.
+//   only strings columns or nested (LIST/STRUCT) columns.
+// - The second schema contains decimal precision (if available) and preserves schema column types
+//   as well as the column order, used for converting from STRING type to the desired types for the
+//   final output.
 std::pair<cudf::io::schema_element, schema_element_with_precision> generate_struct_schema(
   std::vector<std::string> const& col_names,
   std::vector<int> const& num_children,
@@ -591,6 +601,7 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> generate_stru
       cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
 }
 
+// For the input pair of column-validity, create null mask for the column.
 std::unique_ptr<cudf::column> make_column_from_pair(
   std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>&& input,
   rmm::cuda_stream_view stream,
@@ -605,6 +616,8 @@ std::unique_ptr<cudf::column> make_column_from_pair(
   return std::move(output);
 }
 
+// For each pair of column-validity, create null mask for the column.
+// This is done asynchronously for all columns with only one stream sync at the end.
 std::vector<std::unique_ptr<cudf::column>> make_column_array_from_pairs(
   std::vector<std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>>& input,
   rmm::cuda_stream_view stream,
@@ -640,6 +653,7 @@ std::vector<std::unique_ptr<cudf::column>> make_column_array_from_pairs(
         d_valid_counts.data() + idx);
   }
 
+  // This is the only stream sync for all columns.
   auto const valid_counts = cudf::detail::make_std_vector_sync(d_valid_counts, stream);
   std::vector<std::unique_ptr<cudf::column>> output(num_columns);
 
@@ -672,7 +686,9 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
   using DecayInputT                  = std::decay_t<InputType>;
   auto constexpr input_is_const_cv   = std::is_same_v<DecayInputT, cudf::column_view>;
   auto constexpr input_is_column_ptr = std::is_same_v<DecayInputT, std::unique_ptr<cudf::column>>;
-  static_assert(input_is_const_cv ^ input_is_column_ptr);
+  static_assert(input_is_const_cv ^ input_is_column_ptr,
+                "Input to `convert_data_type` must either be `cudf::column_view const&` or "
+                "`std::unique_ptr<cudf::column>`");
 
   if (cudf::is_chrono(schema.type)) {
     // Date/time is not processed here - it should be handled separately in spark-rapids.
@@ -749,6 +765,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
           mr),
         stream,
         mr));
+      // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
+      // on the child column as it does not have non-empty nulls.
       return {std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
                                              num_rows,
                                              rmm::device_buffer{},
@@ -773,6 +791,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
                             mr));
       }
 
+      // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
+      // on the children columns.
       return {std::make_unique<cudf::column>(
                 cudf::data_type{cudf::type_id::STRUCT},
                 num_rows,
@@ -802,6 +822,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
                           mr),
         stream,
         mr));
+      // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
+      // on the child column as it does not have non-empty nulls.
       return {std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
                                              num_rows,
                                              rmm::device_buffer{},
@@ -824,6 +846,8 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
                                                                   stream,
                                                                   mr));
       }
+      // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
+      // on the children columns.
       return {std::make_unique<cudf::column>(
                 cudf::data_type{cudf::type_id::STRUCT},
                 num_rows,
@@ -839,8 +863,6 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
   return {nullptr, rmm::device_uvector<bool>{0, stream, mr}};
 }
 
-}  // namespace
-
 std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view const& input,
                                                    std::vector<std::string> const& col_names,
                                                    std::vector<int> const& num_children,
@@ -855,7 +877,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  auto const [concat_input, delimiter, is_invalid_or_empty] =
+  auto const [concat_input, delimiter, should_be_nullified] =
     concat_json(input, false, stream, cudf::get_current_device_resource());
   auto const [schema, schema_with_precision] =
     generate_struct_schema(col_names, num_children, types, scales, precisions);
@@ -895,7 +917,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
     auto const d_type = parsed_columns[i]->type().id();
     CUDF_EXPECTS(d_type == cudf::type_id::LIST || d_type == cudf::type_id::STRUCT ||
                    d_type == cudf::type_id::STRING,
-                 "Input column should be STRING or nested.");
+                 "Parsed JSON columns should be STRING or nested.");
 
     auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
     CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
@@ -907,9 +929,9 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                                 mr));
   }
 
-  auto const valid_it          = is_invalid_or_empty->view().begin<bool>();
+  auto const valid_it          = should_be_nullified->view().begin<bool>();
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    valid_it, valid_it + is_invalid_or_empty->size(), thrust::logical_not{}, stream, mr);
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
 
   return cudf::make_structs_column(
     input.size(),
@@ -919,6 +941,8 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
     stream,
     mr);
 }
+
+}  // namespace
 
 }  // namespace detail
 
@@ -972,7 +996,7 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::strings_column_view const&
     scales,
     precisions);
   CUDF_EXPECTS(schema_with_precision.child_types.size() == 1,
-               "The input schema must have exactly one column.");
+               "The input schema to convert must have exactly one column.");
 
   auto const input_cv = input.parent();
   return detail::make_column_from_pair(
