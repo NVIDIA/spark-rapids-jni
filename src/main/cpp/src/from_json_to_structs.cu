@@ -51,6 +51,94 @@ namespace detail {
 
 namespace {
 
+/**
+ * @brief The struct similar to `cudf::io::schema_element` with adding decimal precision and
+ * preserving column order.
+ */
+struct schema_element_with_precision {
+  cudf::data_type type;
+  int precision;
+  std::vector<std::pair<std::string, schema_element_with_precision>> child_types;
+};
+
+std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_element(
+  std::size_t& index,
+  std::vector<std::string> const& col_names,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions)
+{
+  // Get data for the current column.
+  auto const d_type    = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
+  auto const precision = precisions[index];
+  auto const col_num_children = num_children[index];
+  index++;
+
+  std::map<std::string, cudf::io::schema_element> children;
+  std::vector<std::pair<std::string, schema_element_with_precision>> children_with_precisions;
+  std::vector<std::string> child_names(col_num_children);
+
+  if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
+    for (int i = 0; i < col_num_children; ++i) {
+      auto const& name = col_names[index];
+      auto [child, child_with_precision] =
+        parse_schema_element(index, col_names, num_children, types, scales, precisions);
+      children.emplace(name, std::move(child));
+      children_with_precisions.emplace_back(name, std::move(child_with_precision));
+      child_names[i] = name;
+    }
+  } else {
+    CUDF_EXPECTS(col_num_children == 0,
+                 "Found children for a non-nested type that should have none.",
+                 std::invalid_argument);
+  }
+
+  // Note that if the first schema element does not has type STRUCT/LIST then it always has type
+  // STRING, since we intentionally parse JSON into strings column for later post-processing.
+  auto const schema_dtype =
+    d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST
+      ? d_type
+      : cudf::data_type{cudf::type_id::STRING};
+  return {cudf::io::schema_element{schema_dtype, std::move(children), {std::move(child_names)}},
+          schema_element_with_precision{d_type, precision, std::move(children_with_precisions)}};
+}
+
+// Generate struct type schemas by traveling the schema data by depth-first search order.
+// Two separate schemas is generated:
+// - The first one is used as input to `cudf::read_json`, in which the data types of all columns
+//   are specified as STRING type. As such, the table returned by `cudf::read_json` will contain
+//   only strings columns or nested (LIST/STRUCT) columns.
+// - The second schema contains decimal precision (if available) and preserves schema column types
+//   as well as the column order, used for converting from STRING type to the desired types for the
+//   final output.
+std::pair<cudf::io::schema_element, schema_element_with_precision> generate_struct_schema(
+  std::vector<std::string> const& col_names,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions)
+{
+  std::map<std::string, cudf::io::schema_element> schema_cols;
+  std::vector<std::pair<std::string, schema_element_with_precision>> schema_cols_with_precisions;
+  std::vector<std::string> name_order;
+
+  std::size_t index = 0;
+  while (index < types.size()) {
+    auto const& name = col_names[index];
+    auto [child, child_with_precision] =
+      parse_schema_element(index, col_names, num_children, types, scales, precisions);
+    schema_cols.emplace(name, std::move(child));
+    schema_cols_with_precisions.emplace_back(name, std::move(child_with_precision));
+    name_order.push_back(name);
+  }
+  return {
+    cudf::io::schema_element{
+      cudf::data_type{cudf::type_id::STRUCT}, std::move(schema_cols), {std::move(name_order)}},
+    schema_element_with_precision{
+      cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
+}
+
 using string_index_pair = thrust::pair<char const*, cudf::size_type>;
 
 std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& input,
@@ -482,94 +570,6 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
                                    chars_data.release(),
                                    input.null_count(),
                                    cudf::detail::copy_bitmask(input.parent(), stream, mr));
-}
-
-/**
- * @brief The struct similar to `cudf::io::schema_element` with adding decimal precision and
- * preserving column order.
- */
-struct schema_element_with_precision {
-  cudf::data_type type;
-  int precision;
-  std::vector<std::pair<std::string, schema_element_with_precision>> child_types;
-};
-
-std::pair<cudf::io::schema_element, schema_element_with_precision> parse_schema_element(
-  std::size_t& index,
-  std::vector<std::string> const& col_names,
-  std::vector<int> const& num_children,
-  std::vector<int> const& types,
-  std::vector<int> const& scales,
-  std::vector<int> const& precisions)
-{
-  // Get data for the current column.
-  auto const d_type    = cudf::data_type{static_cast<cudf::type_id>(types[index]), scales[index]};
-  auto const precision = precisions[index];
-  auto const col_num_children = num_children[index];
-  index++;
-
-  std::map<std::string, cudf::io::schema_element> children;
-  std::vector<std::pair<std::string, schema_element_with_precision>> children_with_precisions;
-  std::vector<std::string> child_names(col_num_children);
-
-  if (d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST) {
-    for (int i = 0; i < col_num_children; ++i) {
-      auto const& name = col_names[index];
-      auto [child, child_with_precision] =
-        parse_schema_element(index, col_names, num_children, types, scales, precisions);
-      children.emplace(name, std::move(child));
-      children_with_precisions.emplace_back(name, std::move(child_with_precision));
-      child_names[i] = name;
-    }
-  } else {
-    CUDF_EXPECTS(col_num_children == 0,
-                 "Found children for a non-nested type that should have none.",
-                 std::invalid_argument);
-  }
-
-  // Note that if the first schema element does not has type STRUCT/LIST then it always has type
-  // STRING, since we intentionally parse JSON into strings column for later post-processing.
-  auto const schema_dtype =
-    d_type.id() == cudf::type_id::STRUCT || d_type.id() == cudf::type_id::LIST
-      ? d_type
-      : cudf::data_type{cudf::type_id::STRING};
-  return {cudf::io::schema_element{schema_dtype, std::move(children), {std::move(child_names)}},
-          schema_element_with_precision{d_type, precision, std::move(children_with_precisions)}};
-}
-
-// Travel the schema data by depth-first search order.
-// Two separate schema is generated:
-// - The first one is used as input to `cudf::read_json`, in which the data types of all columns
-//   are specified as STRING type. As such, the table returned by `cudf::read_json` will contain
-//   only strings columns or nested (LIST/STRUCT) columns.
-// - The second schema contains decimal precision (if available) and preserves schema column types
-//   as well as the column order, used for converting from STRING type to the desired types for the
-//   final output.
-std::pair<cudf::io::schema_element, schema_element_with_precision> generate_struct_schema(
-  std::vector<std::string> const& col_names,
-  std::vector<int> const& num_children,
-  std::vector<int> const& types,
-  std::vector<int> const& scales,
-  std::vector<int> const& precisions)
-{
-  std::map<std::string, cudf::io::schema_element> schema_cols;
-  std::vector<std::pair<std::string, schema_element_with_precision>> schema_cols_with_precisions;
-  std::vector<std::string> name_order;
-
-  std::size_t index = 0;
-  while (index < types.size()) {
-    auto const& name = col_names[index];
-    auto [child, child_with_precision] =
-      parse_schema_element(index, col_names, num_children, types, scales, precisions);
-    schema_cols.emplace(name, std::move(child));
-    schema_cols_with_precisions.emplace_back(name, std::move(child_with_precision));
-    name_order.push_back(name);
-  }
-  return {
-    cudf::io::schema_element{
-      cudf::data_type{cudf::type_id::STRUCT}, std::move(schema_cols), {std::move(name_order)}},
-    schema_element_with_precision{
-      cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
 }
 
 template <typename InputType>
