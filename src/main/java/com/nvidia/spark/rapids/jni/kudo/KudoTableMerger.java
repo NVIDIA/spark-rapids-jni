@@ -139,7 +139,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
 
           startRow += sliceInfo.getRowCount();
         }
-        return toIntExact(nullCountTotal);
+        return nullCountTotal;
       }
     } else {
       return 0;

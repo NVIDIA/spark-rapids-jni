@@ -56,6 +56,7 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
     this.currentOffsetOffsets = new long[tables.size()];
     this.currentDataOffset = new long[tables.size()];
     this.sliceInfoStack = new Deque[tables.size()];
+    long totalRowCount = 0L;
     for (int i = 0; i < tables.size(); i++) {
       this.currentValidityOffsets[i] = 0;
       KudoTableHeader header = tables.get(i).getHeader();
@@ -63,8 +64,8 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
       this.currentDataOffset[i] = header.getValidityBufferLen() + header.getOffsetBufferLen();
       this.sliceInfoStack[i] = new ArrayDeque<>(16);
       this.sliceInfoStack[i].add(new SliceInfo(header.getOffset(), header.getNumRows()));
+      totalRowCount += header.getNumRows();
     }
-    long totalRowCount = tables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
     this.totalRowCountStack = new ArrayDeque<>(16);
     totalRowCountStack.addLast(toIntExact(totalRowCount));
     this.hasNull = true;
@@ -88,7 +89,12 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
   public T visitStruct(Schema structType, List<T> children) {
     updateHasNull();
     T t = doVisitStruct(structType, children);
-    updateOffsets(false, false, false, -1);
+    updateOffsets(
+        false, // Update offset buffer offset
+        false, // Update data buffer offset
+        false, // Update slice info
+        -1 // element size in bytes, not used for struct
+    );
     currentIdx += 1;
     return t;
   }
@@ -99,7 +105,12 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
   public P preVisitList(Schema listType) {
     updateHasNull();
     P t = doPreVisitList(listType);
-    updateOffsets(true, false, true, Integer.BYTES);
+    updateOffsets(
+        true, // update offset buffer offset
+        false, // update data buffer offset
+        true, // update slice info
+        Integer.BYTES // element size in bytes
+    );
     currentIdx += 1;
     return t;
   }
@@ -128,9 +139,19 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
 
     T t = doVisit(primitiveType);
     if (primitiveType.getType().hasOffsets()) {
-      updateOffsets(true, true, false, -1);
+      updateOffsets(
+          true, // update offset buffer offset
+          true,  // update data buffer offset
+          false, // update slice info
+          -1 // element size in bytes, not used for string
+      );
     } else {
-      updateOffsets(false, true, false, primitiveType.getType().getSizeInBytes());
+      updateOffsets(
+          false, //update offset buffer offset
+          true,  // update data buffer offset
+          false,  // update slice info
+          primitiveType.getType().getSizeInBytes() // element size in bytes
+      );
     }
     currentIdx += 1;
     return t;

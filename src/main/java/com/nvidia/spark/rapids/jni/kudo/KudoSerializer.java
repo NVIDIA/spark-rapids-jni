@@ -277,8 +277,9 @@ public class KudoSerializer {
    * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
    * @return the merged table, and metrics during merge.
+   * @throws Exception if any error occurs during merge.
    */
-  public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) {
+  public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) throws Exception {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
     try (KudoHostMergeResult children = result.getLeft()) {
@@ -286,8 +287,6 @@ public class KudoSerializer {
           builder::convertToTableTime);
 
       return Pair.of(table, builder.build());
-    } catch (Exception e) {
-      throw new RuntimeException(e);
     }
   }
 

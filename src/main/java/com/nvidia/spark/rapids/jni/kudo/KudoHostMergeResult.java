@@ -31,11 +31,11 @@ import static java.util.Objects.requireNonNull;
 public class KudoHostMergeResult implements AutoCloseable {
   private final Schema schema;
   private final List<ColumnViewInfo> columnInfoList;
-  private final HostMemoryBuffer hostBuf;
+  private HostMemoryBuffer hostBuf;
 
   KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
     requireNonNull(schema, "schema is null");
-    requireNonNull(columnInfoList, "columnOffsets is null");
+    requireNonNull(columnInfoList, "columnInfoList is null");
     ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
         "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
             ", flattened schema size: " + schema.getFlattenedColumnNames().length);
@@ -46,11 +46,14 @@ public class KudoHostMergeResult implements AutoCloseable {
 
   @Override
   public void close() throws Exception {
-    if (hostBuf != null) {
-      hostBuf.close();
-    }
+    hostBuf.close();
+    hostBuf = null;
   }
 
+  /**
+   * Convert the host buffer into a cudf table.
+   * @return the cudf table
+   */
   public Table toTable() {
     try (DeviceMemoryBuffer deviceMemBuf = DeviceMemoryBuffer.allocate(hostBuf.getLength())) {
       if (hostBuf.getLength() > 0) {
