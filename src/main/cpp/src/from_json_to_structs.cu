@@ -188,7 +188,8 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
 
   auto [null_mask, null_count] =
     cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
-  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+  output->set_null_mask(null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
+                        null_count);
 
   return output;
 }
@@ -211,7 +212,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
 
   // We need to nullify the invalid string rows.
   // Technically, we should just mask out these rows as invalid and ignore them.
-  // However, spark_rapids_jni::string_to_integer cannot handle these non-empty null rows,
+  // However, `spark_rapids_jni::string_to_integer` cannot handle these non-empty null rows,
   // thus we have to materialzie the valid strings into a new strings column.
   auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
 
@@ -263,7 +264,6 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
                            mr);
 }
 
-// TODO: extract commond code for this and `remove_quotes`.
 std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
@@ -350,6 +350,9 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
                                                      rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+
+  auto const string_count = input.size();
+  if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   if (allow_nonnumeric_numbers) {
     auto const removed_quotes = remove_quotes_for_floats(input, stream, mr);
@@ -445,7 +448,13 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   // If the output strings column does not change in its total bytes, we know that it does not have
   // any '"' or ',' characters.
   if (bytes == input_sv.chars_size(stream)) {
-    return string_to_decimal(precision, output_type.scale(), input_sv, false, false, stream, mr);
+    return string_to_decimal(precision,
+                             output_type.scale(),
+                             input_sv,
+                             /*ansi_mode*/ false,
+                             /*strip*/ false,
+                             stream,
+                             mr);
   }
 
   auto const out_offsets =
@@ -491,8 +500,8 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   return string_to_decimal(precision,
                            output_type.scale(),
                            cudf::strings_column_view{unquoted_strings->view()},
-                           false,
-                           false,
+                           /*ansi_mode*/ false,
+                           /*strip*/ false,
                            stream,
                            mr);
 }
@@ -532,8 +541,8 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
                      auto const is_quoted = size > 1 && str[0] == '"' && str[size - 1] == '"';
                      if (nullify_if_not_quoted && !is_quoted) { return {nullptr, 0}; }
 
-                     auto const output_size = is_quoted ? size - 2 : size;
-                     return {chars + start_offset + (is_quoted ? 1 : 0), output_size};
+                     if (is_quoted) { return {chars + start_offset + 1, size - 2}; }
+                     return {chars + start_offset, size};
                    });
 
   auto const size_it = cudf::detail::make_counting_transform_iterator(
@@ -651,6 +660,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
     if (schema.type.id() == cudf::type_id::LIST) {
       CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
+
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::move(input_content.children[cudf::lists_column_view::offsets_column_index]));
@@ -661,6 +671,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
         is_us_locale,
         stream,
         mr));
+
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
@@ -673,6 +684,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
     if (schema.type.id() == cudf::type_id::STRUCT) {
       CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
+
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.reserve(num_children);
       for (cudf::size_type i = 0; i < num_children; ++i) {
@@ -701,6 +713,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
     if (schema.type.id() == cudf::type_id::LIST) {
       CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
+
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::make_unique<cudf::column>(input.child(cudf::lists_column_view::offsets_column_index)));
@@ -711,6 +724,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                           is_us_locale,
                           stream,
                           mr));
+
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
@@ -723,6 +737,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
     if (schema.type.id() == cudf::type_id::STRUCT) {
       CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
+
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.reserve(num_children);
       for (cudf::size_type i = 0; i < num_children; ++i) {
@@ -733,6 +748,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                     stream,
                                                     mr));
       }
+
       // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
       // on the children columns.
       return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
