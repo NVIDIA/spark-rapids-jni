@@ -24,24 +24,19 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/valid_if.cuh>
 #include <cudf/io/json.hpp>
-#include <cudf/strings/contains.hpp>
-#include <cudf/strings/convert/convert_datetime.hpp>
-#include <cudf/strings/detail/combine.hpp>
+#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/regex/regex_program.hpp>
-#include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/traits.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
-#include <cub/device/device_histogram.cuh>
-#include <cub/device/device_memcpy.cuh>
 #include <cub/device/device_segmented_reduce.cuh>
 #include <cuda/functional>
-#include <thrust/find.h>
+#include <thrust/for_each.h>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
@@ -49,8 +44,6 @@
 #include <thrust/transform.h>
 #include <thrust/tuple.h>
 #include <thrust/uninitialized_fill.h>
-
-#include <limits>
 
 namespace spark_rapids_jni {
 
