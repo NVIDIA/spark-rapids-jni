@@ -16,101 +16,68 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
-
-#include <cudf/io/json.hpp>
 
 #include <rmm/device_uvector.hpp>
 
-#include <json_utils.hpp>
+#include <cast_string.hpp>
+
+#include <limits>
 
 using namespace cudf;
+
+constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::FIRST_ERROR};
 
 struct FloatToStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(FloatToStringTests, FromFloats32)
 {
-  std::string json_string = R"({"student": [{"name": "abc", "class": "junior"}]})";
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<float>{100.0f,
+                                                  654321.25f,
+                                                  -12761.125f,
+                                                  0.f,
+                                                  5.0f,
+                                                  -4.0f,
+                                                  std::numeric_limits<float>::quiet_NaN(),
+                                                  123456789012.34f,
+                                                  -0.0f};
 
-  {
-    cudf::io::json_reader_options in_options =
-      cudf::io::json_reader_options::builder(
-        cudf::io::source_info{json_string.data(), json_string.size()})
-        .prune_columns(true)
-        .mixed_types_as_string(true)
-        .lines(true);
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
 
-    cudf::io::schema_element dtype_schema{cudf::data_type{cudf::type_id::STRUCT},
-                                          {
-                                            {"student",
-                                             {data_type{cudf::type_id::LIST},
-                                              {{"element",
-                                                {data_type{cudf::type_id::STRUCT},
-                                                 {
-                                                   {"name", {data_type{cudf::type_id::STRING}}},
-                                                   {"abc", {data_type{cudf::type_id::STRING}}},
-                                                   {"class", {data_type{cudf::type_id::STRING}}},
-                                                 },
-                                                 {{"name", "abc", "class"}}}}}}},
-                                          },
-                                          {{"student"}}};
-    in_options.set_dtypes(dtype_schema);
+  auto const expected = cudf::test::strings_column_wrapper{
+    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "1.2345679E11", "-0.0"};
 
-    auto const parsed_table_with_meta = cudf::io::read_json(in_options);
-    // auto const& parsed_meta           = parsed_table_with_meta.metadata;
-    auto parsed_columns = parsed_table_with_meta.tbl->release();
-    for (auto& col : parsed_columns) {
-      cudf::test::print(*col);
-    }
-  }
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
+}
 
-  {
-    /*
-     * colname:
-student,
-element,
-name,
-abc,
-class,
-num child:
-1,
-3,
-0,
-0,
-0,
-num child:
-1,
-3,
-0,
-0,
-0,
-types:
-24,
-28,
-23,
-23,
-23,
+TEST_F(FloatToStringTests, FromFloats64)
+{
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<double>{100.0d,
+                                                   654321.25d,
+                                                   -12761.125d,
+                                                   1.123456789123456789d,
+                                                   0.000000000000000000123456789123456789d,
+                                                   0.0d,
+                                                   5.0d,
+                                                   -4.0d,
+                                                   std::numeric_limits<double>::quiet_NaN(),
+                                                   839542223232.794248339d,
+                                                   -0.0d};
 
-     */
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
 
-    std::vector<std::string> col_names{"student", "element", "name", "abc", "class"};
-    std::vector<int> num_children{1, 3, 0, 0, 0};
-    std::vector<int> types{24, 28, 23, 23, 23};
-    std::vector<int> scales{0, 0, 0, 0, 0};
-    std::vector<int> precisions{-1, -1, -1, -1, -1};
+  auto const expected = cudf::test::strings_column_wrapper{"100.0",
+                                                           "654321.25",
+                                                           "-12761.125",
+                                                           "1.1234567891234568",
+                                                           "1.234567891234568E-19",
+                                                           "0.0",
+                                                           "5.0",
+                                                           "-4.0",
+                                                           "NaN",
+                                                           "8.395422232327942E11",
+                                                           "-0.0"};
 
-    auto const input = cudf::test::strings_column_wrapper{json_string};
-    auto out         = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
-                                                      col_names,
-                                                      num_children,
-                                                      types,
-                                                      scales,
-                                                      precisions,
-                                                      true,
-                                                      true,
-                                                      true,
-                                                      true,
-                                                      true);
-    cudf::test::print(*out);
-  }
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }
