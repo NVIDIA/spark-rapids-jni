@@ -214,9 +214,12 @@ public class JSONUtils {
 
   /**
    * Remove quotes from each string in the given strings column.
+   * <p/>
+   * If `nullifyIfNotQuoted` is true, an input string that is not quoted will result in a null.
+   * Otherwise, the output will be the same as the unquoted input.
    *
    * @param input The input strings column
-   * @param nullifyIfNotQuoted Whether to nullify the output if the input string is not quoted
+   * @param nullifyIfNotQuoted Whether to output a null row if the input string is not quoted
    * @return A strings column in which quotes are removed from all strings
    */
   public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
