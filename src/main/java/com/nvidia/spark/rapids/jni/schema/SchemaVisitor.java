@@ -75,9 +75,10 @@ import java.util.List;
  * </p>
  *
  * @param <T> Return type when visiting intermediate nodes.
+ * @param <P> Return type after visiting a list schema before visiting its child.
  * @param <R> Return type after processing all children values.
  */
-public interface SchemaVisitor<T, R> {
+public interface SchemaVisitor<T, P, R> {
     /**
      * Visit the top level schema.
      * @param schema the top level schema to visit
@@ -99,7 +100,7 @@ public interface SchemaVisitor<T, R> {
      * @param listType the list schema to visit
      * @return the result of visiting the list schema
      */
-    T preVisitList(Schema listType);
+    P preVisitList(Schema listType);
 
     /**
      * Visit a list schema after visiting its child.
@@ -108,7 +109,7 @@ public interface SchemaVisitor<T, R> {
      * @param childResult the result of visiting the child
      * @return the result of visiting the list schema
      */
-    T visitList(Schema listType, T preVisitResult, T childResult);
+    T visitList(Schema listType, P preVisitResult, T childResult);
 
     /**
      * Visit a primitive type.
