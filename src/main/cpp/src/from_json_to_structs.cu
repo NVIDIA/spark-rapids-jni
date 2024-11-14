@@ -53,16 +53,14 @@ namespace {
 
 using string_index_pair = thrust::pair<char const*, cudf::size_type>;
 
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_booleans(
-  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& input,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) {
-    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}),
-            rmm::device_uvector<bool>(0, stream)};
-  }
+  if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::BOOL8}); }
 
   auto output = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::BOOL8}, string_count, cudf::mask_state::UNALLOCATED, stream, mr);
@@ -100,24 +98,22 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
       return {false, false};
     });
 
-  // Reset null count, as it is invalidated after calling to `mutable_view()`.
-  output->set_null_mask(rmm::device_buffer{0, stream, mr}, 0);
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
-  return {std::move(output), std::move(validity)};
+  return output;
 }
 
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_integers(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& input,
+                                                       cudf::data_type output_type,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) {
-    return {cudf::make_empty_column(output_type), rmm::device_uvector<bool>(0, stream)};
-  }
+  if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   auto const input_sv = cudf::strings_column_view{input};
   auto const input_offsets_it =
@@ -171,28 +167,23 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   auto const sanitized_input =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
-  auto output = string_to_integer(output_type,
-                                  cudf::strings_column_view{sanitized_input->view()},
-                                  /*ansi_mode*/ false,
-                                  /*strip*/ false,
-                                  stream,
-                                  mr);
-
-  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+  return string_to_integer(output_type,
+                           cudf::strings_column_view{sanitized_input->view()},
+                           /*ansi_mode*/ false,
+                           /*strip*/ false,
+                           stream,
+                           mr);
 }
 
 // TODO: extract commond code for this and `remove_quotes`.
-// This function always return zero size validity array.
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes_for_floats(
-  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& input,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) {
-    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
-            rmm::device_uvector<bool>(0, stream)};
-  }
+  if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   auto const input_sv = cudf::strings_column_view{input};
   auto const input_offsets_it =
@@ -257,50 +248,41 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  auto output = cudf::make_strings_column(string_count,
-                                          std::move(offsets_column),
-                                          chars_data.release(),
-                                          input.null_count(),
-                                          cudf::detail::copy_bitmask(input, stream, mr));
-
-  return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+  return cudf::make_strings_column(string_count,
+                                   std::move(offsets_column),
+                                   chars_data.release(),
+                                   input.null_count(),
+                                   cudf::detail::copy_bitmask(input, stream, mr));
 }
 
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_floats(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  bool allow_nonnumeric_numbers,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& input,
+                                                     cudf::data_type output_type,
+                                                     bool allow_nonnumeric_numbers,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   if (allow_nonnumeric_numbers) {
-    auto [removed_quotes, validity] = remove_quotes_for_floats(input, stream, mr);
-    return {::spark_rapids_jni::string_to_float(
-              output_type, cudf::strings_column_view{removed_quotes->view()}, false, stream, mr),
-            rmm::device_uvector<bool>{0, stream, mr}};
+    auto const removed_quotes = remove_quotes_for_floats(input, stream, mr);
+    return string_to_float(
+      output_type, cudf::strings_column_view{removed_quotes->view()}, false, stream, mr);
   }
-  return {::spark_rapids_jni::string_to_float(
-            output_type, cudf::strings_column_view{input}, false, stream, mr),
-          rmm::device_uvector<bool>{0, stream, mr}};
+  return string_to_float(output_type, cudf::strings_column_view{input}, false, stream, mr);
 }
 
 // TODO there is a bug here around 0 https://github.com/NVIDIA/spark-rapids/issues/10898
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings_to_decimals(
-  cudf::column_view const& input,
-  cudf::data_type output_type,
-  int precision,
-  bool is_us_locale,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& input,
+                                                       cudf::data_type output_type,
+                                                       int precision,
+                                                       bool is_us_locale,
+                                                       rmm::cuda_stream_view stream,
+                                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) {
-    return {cudf::make_empty_column(output_type), rmm::device_uvector<bool>{0, stream, mr}};
-  }
+  if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   CUDF_EXPECTS(is_us_locale, "String to decimal conversion is only supported in US locale.");
 
@@ -375,8 +357,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
   // If the output strings column does not change in its total bytes, we know that it does not have
   // any '"' or ',' characters.
   if (bytes == input_sv.chars_size(stream)) {
-    return {string_to_decimal(precision, output_type.scale(), input_sv, false, false, stream, mr),
-            rmm::device_uvector<bool>{0, stream, mr}};
+    return string_to_decimal(precision, output_type.scale(), input_sv, false, false, stream, mr);
   }
 
   auto const out_offsets =
@@ -415,39 +396,32 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> cast_strings
                      }
                    });
 
-  auto const unquoted_strings = cudf::make_strings_column(string_count,
-                                                          std::move(offsets_column),
-                                                          chars_data.release(),
-                                                          0,
-                                                          rmm::device_buffer{0, stream, mr});
-  return {string_to_decimal(precision,
-                            output_type.scale(),
-                            cudf::strings_column_view{unquoted_strings->view()},
-                            false,
-                            false,
-                            stream,
-                            mr),
-          rmm::device_uvector<bool>{0, stream, mr}};
+  // Don't care about the null mask, as nulls imply empty strings, which will also result in nulls.
+  auto const unquoted_strings =
+    cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
+
+  return string_to_decimal(precision,
+                           output_type.scale(),
+                           cudf::strings_column_view{unquoted_strings->view()},
+                           false,
+                           false,
+                           stream,
+                           mr);
 }
 
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quotes(
-  cudf::column_view const& input,
-  bool nullify_if_not_quoted,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& input,
+                                            bool nullify_if_not_quoted,
+                                            rmm::cuda_stream_view stream,
+                                            rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) {
-    return {cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}),
-            rmm::device_uvector<bool>(0, stream)};
-  }
+  if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
-  auto const input_sv = cudf::strings_column_view{input};
   auto const input_offsets_it =
-    cudf::detail::offsetalator_factory::make_input_iterator(input_sv.offsets());
-  auto const d_input_ptr = cudf::column_device_view::create(input, stream);
+    cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
+  auto const d_input_ptr = cudf::column_device_view::create(input.parent(), stream);
   auto const is_valid_it = cudf::detail::make_validity_iterator<true>(*d_input_ptr);
 
   auto string_pairs = rmm::device_uvector<string_index_pair>(string_count, stream);
@@ -455,7 +429,7 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
                    string_pairs.begin(),
                    string_pairs.end(),
                    [nullify_if_not_quoted,
-                    chars    = input_sv.chars_begin(stream),
+                    chars    = input.chars_begin(stream),
                     offsets  = input_offsets_it,
                     is_valid = is_valid_it] __device__(cudf::size_type idx) -> string_index_pair {
                      if (!is_valid[idx]) { return {nullptr, 0}; }
@@ -486,31 +460,28 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> remove_quote
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
   if (nullify_if_not_quoted) {
-    auto validity = rmm::device_uvector<bool>(string_count, stream);
-    thrust::transform(
-      rmm::exec_policy_nosync(stream),
-      string_pairs.begin(),
-      string_pairs.end(),
-      validity.begin(),
-      [] __device__(string_index_pair const& pair) { return pair.first != nullptr; });
-
-    // Null mask and null count will be updated later from the validity vector.
     auto output = cudf::make_strings_column(string_count,
                                             std::move(offsets_column),
                                             chars_data.release(),
                                             0,
                                             rmm::device_buffer{0, stream, mr});
 
-    return {std::move(output), std::move(validity)};
-  } else {
-    auto output = cudf::make_strings_column(string_count,
-                                            std::move(offsets_column),
-                                            chars_data.release(),
-                                            input.null_count(),
-                                            cudf::detail::copy_bitmask(input, stream, mr));
+    auto [null_mask, null_count] = cudf::detail::valid_if(
+      string_pairs.begin(),
+      string_pairs.end(),
+      [] __device__(string_index_pair const& pair) { return pair.first != nullptr; },
+      stream,
+      mr);
+    if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
-    return {std::move(output), rmm::device_uvector<bool>(0, stream)};
+    return output;
   }
+
+  return cudf::make_strings_column(string_count,
+                                   std::move(offsets_column),
+                                   chars_data.release(),
+                                   input.null_count(),
+                                   cudf::detail::copy_bitmask(input.parent(), stream, mr));
 }
 
 /**
@@ -601,85 +572,13 @@ std::pair<cudf::io::schema_element, schema_element_with_precision> generate_stru
       cudf::data_type{cudf::type_id::STRUCT}, -1, std::move(schema_cols_with_precisions)}};
 }
 
-// For the input pair of column-validity, create null mask for the column.
-std::unique_ptr<cudf::column> make_column_from_pair(
-  std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>&& input,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  auto& [output, validity] = input;
-  if (validity.size() > 0) {
-    auto [null_mask, null_count] =
-      cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
-    if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
-  }
-  return std::move(output);
-}
-
-// For each pair of column-validity, create null mask for the column.
-// This is done asynchronously for all columns with only one stream sync at the end.
-std::vector<std::unique_ptr<cudf::column>> make_column_array_from_pairs(
-  std::vector<std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>>& input,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
-{
-  auto const num_columns = input.size();
-  std::vector<rmm::device_buffer> null_masks;
-  null_masks.reserve(num_columns);
-
-  rmm::device_uvector<cudf::size_type> d_valid_counts(num_columns, stream, mr);
-  thrust::uninitialized_fill(
-    rmm::exec_policy_nosync(stream), d_valid_counts.begin(), d_valid_counts.end(), 0);
-
-  for (std::size_t idx = 0; idx < num_columns; ++idx) {
-    auto const col_size      = input[idx].first->size();
-    auto const validity_size = input[idx].second.size();
-    if (col_size == 0 || validity_size == 0) {
-      null_masks.emplace_back(rmm::device_buffer{});  // placeholder
-      continue;
-    }
-
-    null_masks.emplace_back(
-      cudf::create_null_mask(col_size, cudf::mask_state::UNINITIALIZED, stream, mr));
-    constexpr cudf::size_type block_size{256};
-    auto const grid =
-      cudf::detail::grid_1d{static_cast<cudf::thread_index_type>(col_size), block_size};
-    cudf::detail::valid_if_kernel<block_size>
-      <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
-        reinterpret_cast<cudf::bitmask_type*>(null_masks.back().data()),
-        input[idx].second.data(),
-        col_size,
-        thrust::identity{},
-        d_valid_counts.data() + idx);
-  }
-
-  // This is the only stream sync for all columns.
-  auto const valid_counts = cudf::detail::make_std_vector_sync(d_valid_counts, stream);
-  std::vector<std::unique_ptr<cudf::column>> output(num_columns);
-
-  for (std::size_t idx = 0; idx < num_columns; ++idx) {
-    auto const col_size = input[idx].first->size();
-    output[idx]         = std::move(input[idx].first);
-
-    auto const validity_size = input[idx].second.size();
-    if (col_size == 0 || validity_size == 0) { continue; }
-
-    auto const valid_count = valid_counts[idx];
-    auto const null_count  = col_size - valid_count;
-    if (null_count > 0) { output[idx]->set_null_mask(std::move(null_masks[idx]), null_count); }
-  }
-
-  return output;
-}
-
 template <typename InputType>
-std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data_type(
-  InputType&& input,
-  schema_element_with_precision const& schema,
-  bool allow_nonnumeric_numbers,
-  bool is_us_locale,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
+                                                schema_element_with_precision const& schema,
+                                                bool allow_nonnumeric_numbers,
+                                                bool is_us_locale,
+                                                rmm::cuda_stream_view stream,
+                                                rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -693,10 +592,10 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
   if (cudf::is_chrono(schema.type)) {
     // Date/time is not processed here - it should be handled separately in spark-rapids.
     if constexpr (input_is_column_ptr) {
-      return {std::move(input), rmm::device_uvector<bool>{0, stream, mr}};
+      return std::move(input);
     } else {
       CUDF_FAIL("Cannot convert data type to a chrono (date/time) type.");
-      return {nullptr, rmm::device_uvector<bool>{0, stream, mr}};
+      return nullptr;
     }
   }
 
@@ -755,52 +654,44 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::move(input_content.children[cudf::lists_column_view::offsets_column_index]));
-      new_children.emplace_back(make_column_from_pair(
-        convert_data_type(
-          std::move(input_content.children[cudf::lists_column_view::child_column_index]),
-          schema.child_types.front().second,
-          allow_nonnumeric_numbers,
-          is_us_locale,
-          stream,
-          mr),
+      new_children.emplace_back(convert_data_type(
+        std::move(input_content.children[cudf::lists_column_view::child_column_index]),
+        schema.child_types.front().second,
+        allow_nonnumeric_numbers,
+        is_us_locale,
         stream,
         mr));
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
-      return {std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
-                                             num_rows,
-                                             rmm::device_buffer{},
-                                             std::move(*input_content.null_mask),
-                                             null_count,
-                                             std::move(new_children)),
-              rmm::device_uvector<bool>{0, stream, mr}};
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            std::move(*input_content.null_mask),
+                                            null_count,
+                                            std::move(new_children));
     }
 
     if (schema.type.id() == cudf::type_id::STRUCT) {
       CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
-      std::vector<std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>>
-        new_children_with_validity;
-      new_children_with_validity.reserve(num_children);
+      std::vector<std::unique_ptr<cudf::column>> new_children;
+      new_children.reserve(num_children);
       for (cudf::size_type i = 0; i < num_children; ++i) {
-        new_children_with_validity.emplace_back(
-          convert_data_type(std::move(input_content.children[i]),
-                            schema.child_types[i].second,
-                            allow_nonnumeric_numbers,
-                            is_us_locale,
-                            stream,
-                            mr));
+        new_children.emplace_back(convert_data_type(std::move(input_content.children[i]),
+                                                    schema.child_types[i].second,
+                                                    allow_nonnumeric_numbers,
+                                                    is_us_locale,
+                                                    stream,
+                                                    mr));
       }
 
       // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
       // on the children columns.
-      return {std::make_unique<cudf::column>(
-                cudf::data_type{cudf::type_id::STRUCT},
-                num_rows,
-                rmm::device_buffer{},
-                std::move(*input_content.null_mask),
-                null_count,
-                make_column_array_from_pairs(new_children_with_validity, stream, mr)),
-              rmm::device_uvector<bool>{0, stream, mr}};
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            std::move(*input_content.null_mask),
+                                            null_count,
+                                            std::move(new_children));
     }
   } else {  // input_is_const_cv
     auto const d_type       = input.type().id();
@@ -813,54 +704,48 @@ std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>> convert_data
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::make_unique<cudf::column>(input.child(cudf::lists_column_view::offsets_column_index)));
-      new_children.emplace_back(make_column_from_pair(
+      new_children.emplace_back(
         convert_data_type(input.child(cudf::lists_column_view::child_column_index),
                           schema.child_types.front().second,
                           allow_nonnumeric_numbers,
                           is_us_locale,
                           stream,
-                          mr),
-        stream,
-        mr));
+                          mr));
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
-      return {std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
-                                             num_rows,
-                                             rmm::device_buffer{},
-                                             cudf::detail::copy_bitmask(input, stream, mr),
-                                             null_count,
-                                             std::move(new_children)),
-              rmm::device_uvector<bool>{0, stream, mr}};
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            null_count,
+                                            std::move(new_children));
     }
 
     if (schema.type.id() == cudf::type_id::STRUCT) {
       CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
-      std::vector<std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>>
-        new_children_with_validity;
-      new_children_with_validity.reserve(num_children);
+      std::vector<std::unique_ptr<cudf::column>> new_children;
+      new_children.reserve(num_children);
       for (cudf::size_type i = 0; i < num_children; ++i) {
-        new_children_with_validity.emplace_back(convert_data_type(input.child(i),
-                                                                  schema.child_types[i].second,
-                                                                  allow_nonnumeric_numbers,
-                                                                  is_us_locale,
-                                                                  stream,
-                                                                  mr));
+        new_children.emplace_back(convert_data_type(input.child(i),
+                                                    schema.child_types[i].second,
+                                                    allow_nonnumeric_numbers,
+                                                    is_us_locale,
+                                                    stream,
+                                                    mr));
       }
       // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
       // on the children columns.
-      return {std::make_unique<cudf::column>(
-                cudf::data_type{cudf::type_id::STRUCT},
-                num_rows,
-                rmm::device_buffer{},
-                cudf::detail::copy_bitmask(input, stream, mr),
-                null_count,
-                make_column_array_from_pairs(new_children_with_validity, stream, mr)),
-              rmm::device_uvector<bool>{0, stream, mr}};
+      return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
+                                            num_rows,
+                                            rmm::device_buffer{},
+                                            cudf::detail::copy_bitmask(input, stream, mr),
+                                            null_count,
+                                            std::move(new_children));
     }
   }
 
   CUDF_FAIL("Unexpected column type for conversion.");
-  return {nullptr, rmm::device_uvector<bool>{0, stream, mr}};
+  return nullptr;
 }
 
 std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view const& input,
@@ -910,9 +795,8 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
   CUDF_EXPECTS(parsed_columns.size() == schema.child_types.size(),
                "Numbers of output columns is different from schema size.");
 
-  std::vector<std::pair<std::unique_ptr<cudf::column>, rmm::device_uvector<bool>>>
-    converted_cols_with_validity;
-  converted_cols_with_validity.reserve(parsed_columns.size());
+  std::vector<std::unique_ptr<cudf::column>> converted_cols;
+  converted_cols.reserve(parsed_columns.size());
   for (std::size_t i = 0; i < parsed_columns.size(); ++i) {
     auto const d_type = parsed_columns[i]->type().id();
     CUDF_EXPECTS(d_type == cudf::type_id::LIST || d_type == cudf::type_id::STRUCT ||
@@ -921,12 +805,12 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
     auto const& [col_name, col_schema] = schema_with_precision.child_types[i];
     CUDF_EXPECTS(parsed_meta.schema_info[i].name == col_name, "Mismatched column name.");
-    converted_cols_with_validity.emplace_back(convert_data_type(std::move(parsed_columns[i]),
-                                                                col_schema,
-                                                                allow_nonnumeric_numbers,
-                                                                is_us_locale,
-                                                                stream,
-                                                                mr));
+    converted_cols.emplace_back(convert_data_type(std::move(parsed_columns[i]),
+                                                  col_schema,
+                                                  allow_nonnumeric_numbers,
+                                                  is_us_locale,
+                                                  stream,
+                                                  mr));
   }
 
   auto const valid_it          = should_be_nullified->view().begin<bool>();
@@ -935,7 +819,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
 
   return cudf::make_structs_column(
     input.size(),
-    make_column_array_from_pairs(converted_cols_with_validity, stream, mr),
+    std::move(converted_cols),
     null_count,
     null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
     stream,
@@ -999,15 +883,12 @@ std::unique_ptr<cudf::column> convert_data_type(cudf::strings_column_view const&
                "The input schema to convert must have exactly one column.");
 
   auto const input_cv = input.parent();
-  return detail::make_column_from_pair(
-    detail::convert_data_type(input_cv,
-                              schema_with_precision.child_types.front().second,
-                              allow_nonnumeric_numbers,
-                              is_us_locale,
-                              stream,
-                              mr),
-    stream,
-    mr);
+  return detail::convert_data_type(input_cv,
+                                   schema_with_precision.child_types.front().second,
+                                   allow_nonnumeric_numbers,
+                                   is_us_locale,
+                                   stream,
+                                   mr);
 }
 
 std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& input,
@@ -1017,9 +898,7 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
 {
   CUDF_FUNC_RANGE();
 
-  auto const input_cv = input.parent();
-  return detail::make_column_from_pair(
-    detail::remove_quotes(input_cv, nullify_if_not_quoted, stream, mr), stream, mr);
+  return detail::remove_quotes(input, nullify_if_not_quoted, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
