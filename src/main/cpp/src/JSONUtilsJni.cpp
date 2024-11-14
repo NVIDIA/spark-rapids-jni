@@ -191,7 +191,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
   try {
     cudf::jni::auto_set_device(env);
 
-    auto const input        = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
     auto const col_names    = cudf::jni::native_jstringArray(env, j_col_names).as_cpp_vector();
     auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
     auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
@@ -205,7 +205,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
     CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data: precisions.");
 
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input},
+      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
                                              col_names,
                                              num_children,
                                              types,
