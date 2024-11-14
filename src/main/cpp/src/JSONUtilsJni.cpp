@@ -18,7 +18,6 @@
 #include "get_json_object.hpp"
 #include "json_utils.hpp"
 
-#include <cudf/io/json.hpp>
 #include <cudf/strings/strings_column_view.hpp>
 
 #include <vector>
