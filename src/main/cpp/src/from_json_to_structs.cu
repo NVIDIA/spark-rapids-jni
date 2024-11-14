@@ -817,13 +817,15 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
   auto [null_mask, null_count] = cudf::detail::valid_if(
     valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
 
-  return cudf::make_structs_column(
+  // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
+  // on the children columns.
+  return std::make_unique<cudf::column>(
+    cudf::data_type{cudf::type_id::STRUCT},
     input.size(),
-    std::move(converted_cols),
-    null_count,
+    rmm::device_buffer{},
     null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
-    stream,
-    mr);
+    null_count,
+    std::move(converted_cols));
 }
 
 }  // namespace
