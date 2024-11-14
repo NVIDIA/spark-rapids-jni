@@ -24,7 +24,7 @@ import java.util.function.Function;
 /**
  * This class contains utility methods for automatic resource management.
  */
-class Arms {
+public class Arms {
     /**
      * This method close the resource if an exception is thrown while executing the function.
      */
@@ -54,7 +54,10 @@ class Arms {
         Throwable t = null;
         while (resources.hasNext()) {
             try {
-                resources.next().close();
+                R resource = resources.next();
+                if (resource != null) {
+                    resource.close();
+                }
             } catch (Exception e) {
                 if (t == null) {
                     t = e;
@@ -80,5 +83,19 @@ class Arms {
      */
     public static <R extends AutoCloseable> void closeAll(Collection<R> resources) {
         closeAll(resources.iterator());
+    }
+
+    /**
+     * This method safely closes the resources after applying the function.
+     * <br/>
+     * See {@link #closeAll(Iterator)} for more details.
+     */
+    public static <R extends AutoCloseable, C extends Collection<R>, V> V withResource(
+        C resource, Function<C, V> function) {
+        try {
+            return function.apply(resource);
+        } finally {
+            closeAll(resource);
+        }
     }
 }

@@ -19,7 +19,7 @@ package com.nvidia.spark.rapids.jni;
 /**
  * A utility class for holding a pair of values.
  */
-class Pair<K, V> {
+public class Pair<K, V> {
     private final K left;
     private final V right;
 
