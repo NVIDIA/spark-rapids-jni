@@ -60,11 +60,11 @@ std::unique_ptr<cudf::column> from_json_to_structs(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief Convert the input strings column into a desired type given by a data schema.
+ * @brief Convert from a strings column to a column with the desired type given by a data schema.
  *
  * The given column schema is specified as data arrays flattened by depth-first-search order.
  */
-std::unique_ptr<cudf::column> convert_data_type(
+std::unique_ptr<cudf::column> convert_from_strings(
   cudf::strings_column_view const& input,
   std::vector<int> const& num_children,
   std::vector<int> const& types,

@@ -167,11 +167,22 @@ public class JSONUtils {
 
   /**
    * Parse a JSON string into a struct column following by the given data schema.
+   * <p/>
+   * Many JSON options in the given {@code opts} parameter are ignored from passing down to the
+   * native code. That is because these options are hard-coded with the same values in both the
+   * plugin code and native code. Specifically:<br>
+   * - {@code RecoverWithNull: true}<br>
+   * - {@code MixedTypesAsStrings: true}<br>
+   * - {@code NormalizeWhitespace: true}<br>
+   * - {@code KeepQuotes: true}<br>
+   * - {@code StrictValidation: true}<br>
+   * - {@code Experimental: true}
    *
    * @param input The input strings column in which each row specifies a json object
    * @param schema The schema of the output struct column
    * @param opts The options for parsing JSON strings
-   * @param isUSLocale Whether the current local is US locale
+   * @param isUSLocale Whether the current local is US locale, used when converting strings to
+   *        decimal types
    * @return A struct column in which each row is parsed from the corresponding json string
    */
   public static ColumnVector fromJSONToStructs(ColumnView input, Schema schema, JSONOptions opts,
@@ -191,19 +202,21 @@ public class JSONUtils {
   }
 
   /**
-   * Convert the data type of a strings column to the desired type given by a data schema.
+   * Convert from a strings column to a column with the desired type given by a data schema.
    *
    * @param input The input strings column
    * @param schema The schema of the output column
-   * @param allowedNonNumericNumbers Whether non-numeric numbers are allowed
-   * @param isUSLocale Whether the current local is US locale
+   * @param allowedNonNumericNumbers Whether non-numeric numbers are allowed, used when converting
+   *        strings to float types
+   * @param isUSLocale Whether the current local is US locale, used when converting strings to
+   *        decimal types
    * @return A column with the desired data type
    */
-  public static ColumnVector convertDataType(ColumnView input, Schema schema,
-                                             boolean allowedNonNumericNumbers,
-                                             boolean isUSLocale) {
+  public static ColumnVector convertFromStrings(ColumnView input, Schema schema,
+                                                boolean allowedNonNumericNumbers,
+                                                boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(convertDataType(input.getNativeView(),
+    return new ColumnVector(convertFromStrings(input.getNativeView(),
         schema.getFlattenedNumChildren(),
         schema.getFlattenedTypeIds(),
         schema.getFlattenedTypeScales(),
@@ -242,7 +255,6 @@ public class JSONUtils {
                                                           long memoryBudgetBytes,
                                                           int parallelOverride);
 
-
   private static native long extractRawMapFromJsonString(long input,
                                                          boolean normalizeSingleQuotes,
                                                          boolean leadingZerosAllowed,
@@ -261,13 +273,13 @@ public class JSONUtils {
                                                boolean unquotedControlChars,
                                                boolean isUSLocale);
 
-  private static native long convertDataType(long input,
-                                             int[] numChildren,
-                                             int[] typeIds,
-                                             int[] typeScales,
-                                             int[] typePrecision,
-                                             boolean nonNumericNumbersAllowed,
-                                             boolean isUSLocale);
+  private static native long convertFromStrings(long input,
+                                                int[] numChildren,
+                                                int[] typeIds,
+                                                int[] typeScales,
+                                                int[] typePrecision,
+                                                boolean nonNumericNumbersAllowed,
+                                                boolean isUSLocale);
 
   private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 }

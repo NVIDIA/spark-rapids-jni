@@ -260,11 +260,11 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
                              mr);
   }
 
+  // Build a new strings column, removing the invalid rows.
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  // Don't care about the null mask, as nulls imply empty strings, which will also result in
-  // nulls.
+  // Don't care about the null mask, as nulls imply empty strings, which will also result in nulls.
   auto const sanitized_input =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
@@ -345,8 +345,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
 
-  // If the output has the same total bytes, the input should not be changed.
-  // That is because when removing quotes, we always reduce the number of characters.
+  // If the output has the same total bytes, the output should be the same as the input.
   if (bytes == input_sv.chars_size(stream)) { return {nullptr, false}; }
 
   auto chars_data = cudf::strings::detail::make_chars_buffer(
@@ -372,14 +371,16 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   if (allow_nonnumeric_numbers) {
+    // Non-numeric numbers are always quoted.
     auto const [removed_quotes, success] = try_remove_quotes_for_floats(input, stream, mr);
     return string_to_float(output_type,
                            cudf::strings_column_view{success ? removed_quotes->view() : input},
-                           false,
+                           /*ansi_mode*/ false,
                            stream,
                            mr);
   }
-  return string_to_float(output_type, cudf::strings_column_view{input}, false, stream, mr);
+  return string_to_float(
+    output_type, cudf::strings_column_view{input}, /*ansi_mode*/ false, stream, mr);
 }
 
 // TODO there is a bug here around 0 https://github.com/NVIDIA/spark-rapids/issues/10898
@@ -480,7 +481,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
     cudf::detail::offsetalator_factory::make_input_iterator(offsets_column->view());
   auto chars_data = rmm::device_uvector<char>(bytes, stream, mr);
 
-  // Since the strings store decimal numbers, they should be very short.
+  // Since the strings store decimal numbers, they should not be very long.
   // As such, using one thread per string should be good.
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    thrust::make_counting_iterator(0),
@@ -574,8 +575,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
 
-  // If the output has the same total bytes, the input should not be changed.
-  // That is because when removing quotes, we always reduce the number of characters.
+  // If the output has the same total bytes, the output should be the same as the input.
   if (bytes == input.chars_size(stream)) { return {nullptr, false}; }
 
   auto chars_data = cudf::strings::detail::make_chars_buffer(
@@ -910,15 +910,15 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                       mr);
 }
 
-std::unique_ptr<cudf::column> convert_data_type(cudf::strings_column_view const& input,
-                                                std::vector<int> const& num_children,
-                                                std::vector<int> const& types,
-                                                std::vector<int> const& scales,
-                                                std::vector<int> const& precisions,
-                                                bool allow_nonnumeric_numbers,
-                                                bool is_us_locale,
-                                                rmm::cuda_stream_view stream,
-                                                rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> convert_from_strings(cudf::strings_column_view const& input,
+                                                   std::vector<int> const& num_children,
+                                                   std::vector<int> const& types,
+                                                   std::vector<int> const& scales,
+                                                   std::vector<int> const& precisions,
+                                                   bool allow_nonnumeric_numbers,
+                                                   bool is_us_locale,
+                                                   rmm::cuda_stream_view stream,
+                                                   rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 

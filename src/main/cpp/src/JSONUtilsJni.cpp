@@ -222,15 +222,15 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
-                                                           jclass,
-                                                           jlong j_input,
-                                                           jintArray j_num_children,
-                                                           jintArray j_types,
-                                                           jintArray j_scales,
-                                                           jintArray j_precisions,
-                                                           jboolean allow_nonnumeric_numbers,
-                                                           jboolean is_us_locale)
+Java_com_nvidia_spark_rapids_jni_JSONUtils_convertFromStrings(JNIEnv* env,
+                                                              jclass,
+                                                              jlong j_input,
+                                                              jintArray j_num_children,
+                                                              jintArray j_types,
+                                                              jintArray j_scales,
+                                                              jintArray j_precisions,
+                                                              jboolean allow_nonnumeric_numbers,
+                                                              jboolean is_us_locale)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
   JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
@@ -253,13 +253,13 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertDataType(JNIEnv* env,
     CUDF_EXPECTS(num_children.size() == precisions.size(), "Invalid schema data: precisions.");
 
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::convert_data_type(cudf::strings_column_view{*input_cv},
-                                          num_children,
-                                          types,
-                                          scales,
-                                          precisions,
-                                          allow_nonnumeric_numbers,
-                                          is_us_locale)
+      spark_rapids_jni::convert_from_strings(cudf::strings_column_view{*input_cv},
+                                             num_children,
+                                             types,
+                                             scales,
+                                             precisions,
+                                             allow_nonnumeric_numbers,
+                                             is_us_locale)
         .release());
   }
   CATCH_STD(env, 0);
