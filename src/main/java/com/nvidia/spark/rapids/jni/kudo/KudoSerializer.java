@@ -17,10 +17,17 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
+import com.nvidia.spark.rapids.jni.Arms;
+import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.io.*;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.LongConsumer;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
@@ -30,7 +37,7 @@ import static java.util.Objects.requireNonNull;
  * This class is used to serialize/deserialize a table using the Kudo format.
  *
  * <h1>Background</h1>
- *
+ * <p>
  * The Kudo format is a binary format that is optimized for serializing/deserializing a table partition during Spark
  * shuffle. The optimizations are based on two key observations:
  *
@@ -46,11 +53,11 @@ import static java.util.Objects.requireNonNull;
  * </ol>
  *
  * <h1>Format</h1>
- *
+ * <p>
  * Similar to {@link JCudfSerialization}, it still consists of two parts: header and body.
  *
  * <h2>Header</h2>
- *
+ * <p>
  * Header consists of following fields:
  *
  * <table>
@@ -112,7 +119,7 @@ import static java.util.Objects.requireNonNull;
  * </table>
  *
  * <h2>Body</h2>
- *
+ * <p>
  * The body consists of three part:
  * <ol>
  *     <li>Validity buffers for every column with validity in depth-first ordering of schema columns. Each buffer of
@@ -125,7 +132,7 @@ import static java.util.Objects.requireNonNull;
  * </ol>
  *
  * <h1>Serialization</h1>
- *
+ * <p>
  * The serialization process writes the header first, then writes the body. There are two optimizations when writing
  * validity buffer and offset buffer:
  *
@@ -144,31 +151,33 @@ import static java.util.Objects.requireNonNull;
 public class KudoSerializer {
 
   private static final byte[] PADDING = new byte[64];
-  private static final BufferType[] ALL_BUFFER_TYPES = new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
+  private static final BufferType[] ALL_BUFFER_TYPES = new BufferType[]{BufferType.VALIDITY, BufferType.OFFSET,
       BufferType.DATA};
 
   static {
     Arrays.fill(PADDING, (byte) 0);
   }
 
+  private final Schema schema;
   private final int flattenedColumnCount;
 
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
+    this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
   }
 
   /**
    * Write partition of a table to a stream.
    * <br/>
-   *
+   * <p>
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
    * is undefined.
    *
-   * @param table table to write
-   * @param out output stream
+   * @param table     table to write
+   * @param out       output stream
    * @param rowOffset row offset in original table
-   * @param numRows number of rows to write
+   * @param numRows   number of rows to write
    * @return number of bytes written
    */
   public long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
@@ -193,20 +202,20 @@ public class KudoSerializer {
   /**
    * Write partition of an array of {@link HostColumnVector} to an output stream.
    * <br/>
-   *
+   * <p>
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
    * is undefined.
    *
-   * @param columns columns to write
-   * @param out output stream
+   * @param columns   columns to write
+   * @param out       output stream
    * @param rowOffset row offset in original column vector.
-   * @param numRows number of rows to write
+   * @param numRows   number of rows to write
    * @return number of bytes written
    */
   public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
     ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
-            "please call writeRowCountToStream");
+        "please call writeRowCountToStream");
 
     try {
       return writeSliced(columns, writerFrom(out), rowOffset, numRows);
@@ -217,7 +226,8 @@ public class KudoSerializer {
 
   /**
    * Write a row count only record to an output stream.
-   * @param out output stream
+   *
+   * @param out     output stream
    * @param numRows number of rows to write
    * @return number of bytes written
    */
@@ -234,6 +244,49 @@ public class KudoSerializer {
       return header.getSerializedSize();
     } catch (Exception e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Merge a list of kudo tables into a table on host memory.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table, and metrics during merge.
+   */
+  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
+    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
+
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
+        metricsBuilder::calcHeaderTime);
+    KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
+        metricsBuilder::mergeIntoHostBufferTime);
+    return Pair.of(result, metricsBuilder.build());
+
+  }
+
+  /**
+   * Merge a list of kudo tables into a contiguous table.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table, and metrics during merge.
+   * @throws Exception if any error occurs during merge.
+   */
+  public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) throws Exception {
+    Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
+    MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
+    try (KudoHostMergeResult children = result.getLeft()) {
+      Table table = withTime(children::toTable,
+          builder::convertToTableTime);
+
+      return Pair.of(table, builder.build());
     }
   }
 
@@ -285,9 +338,27 @@ public class KudoSerializer {
     return ((orig + 63) / 64) * 64;
   }
 
-  static int safeLongToNonNegativeInt(long value) {
-    ensure(value >= 0, () -> "Expected non negative value, but was " + value);
-    ensure(value <= Integer.MAX_VALUE, () -> "Value is too large to fit in an int");
-    return (int) value;
+  static DataInputStream readerFrom(InputStream in) {
+    if (in instanceof DataInputStream) {
+      return (DataInputStream) in;
+    }
+    return new DataInputStream(in);
+  }
+
+  static <T> T withTime(Supplier<T> task, LongConsumer timeConsumer) {
+    long now = System.nanoTime();
+    T ret = task.get();
+    timeConsumer.accept(System.nanoTime() - now);
+    return ret;
+  }
+
+  /**
+   * This method returns the length in bytes needed to represent X number of rows
+   * e.g. getValidityLengthInBytes(5) => 1 byte
+   * getValidityLengthInBytes(7) => 1 byte
+   * getValidityLengthInBytes(14) => 2 bytes
+   */
+  static long getValidityLengthInBytes(long rows) {
+    return (rows + 7) / 8;
   }
 }
