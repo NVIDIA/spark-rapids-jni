@@ -51,6 +51,14 @@ public class KudoHostMergeResult implements AutoCloseable {
   }
 
   /**
+   * Get the length of the data in the host buffer.
+   * @return the length of the data in the host buffer
+   */
+  public long getDataLength() {
+    return hostBuf.getLength();
+  }
+
+  /**
    * Convert the host buffer into a cudf table.
    * @return the cudf table
    */
