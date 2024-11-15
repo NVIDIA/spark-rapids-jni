@@ -249,10 +249,22 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+
+  // If the output strings column does not change in its total bytes, we can use the input directly.
+  if (bytes == input_sv.chars_size(stream)) {
+    return string_to_integer(output_type,
+                             input_sv,
+                             /*ansi_mode*/ false,
+                             /*strip*/ false,
+                             stream,
+                             mr);
+  }
+
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  // Don't care about the null mask, as nulls imply empty strings, which will also result in nulls.
+  // Don't care about the null mask, as nulls imply empty strings, which will also result in
+  // nulls.
   auto const sanitized_input =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
@@ -264,14 +276,13 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
                            mr);
 }
 
-std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& input,
-                                                       rmm::cuda_stream_view stream,
-                                                       rmm::device_async_resource_ref mr)
+std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
+  cudf::column_view const& input, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
+  if (string_count == 0) { return {nullptr, false}; }
 
   auto const input_sv = cudf::strings_column_view{input};
   auto const input_offsets_it =
@@ -333,14 +344,20 @@ std::unique_ptr<cudf::column> remove_quotes_for_floats(cudf::column_view const& 
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+
+  // If the output has the same total bytes, the input should not be changed.
+  // That is because when removing quotes, we always reduce the number of characters.
+  if (bytes == input_sv.chars_size(stream)) { return {nullptr, false}; }
+
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
-  return cudf::make_strings_column(string_count,
-                                   std::move(offsets_column),
-                                   chars_data.release(),
-                                   input.null_count(),
-                                   cudf::detail::copy_bitmask(input, stream, mr));
+  return {cudf::make_strings_column(string_count,
+                                    std::move(offsets_column),
+                                    chars_data.release(),
+                                    input.null_count(),
+                                    cudf::detail::copy_bitmask(input, stream, mr)),
+          true};
 }
 
 std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& input,
@@ -355,9 +372,12 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
   if (string_count == 0) { return cudf::make_empty_column(output_type); }
 
   if (allow_nonnumeric_numbers) {
-    auto const removed_quotes = remove_quotes_for_floats(input, stream, mr);
-    return string_to_float(
-      output_type, cudf::strings_column_view{removed_quotes->view()}, false, stream, mr);
+    auto const [removed_quotes, success] = try_remove_quotes_for_floats(input, stream, mr);
+    return string_to_float(output_type,
+                           cudf::strings_column_view{success ? removed_quotes->view() : input},
+                           false,
+                           stream,
+                           mr);
   }
   return string_to_float(output_type, cudf::strings_column_view{input}, false, stream, mr);
 }
@@ -445,8 +465,7 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   auto [offsets_column, bytes] = cudf::strings::detail::make_offsets_child_column(
     out_size_it, out_size_it + string_count, stream, mr);
 
-  // If the output strings column does not change in its total bytes, we know that it does not have
-  // any '"' or ',' characters.
+  // If the output strings column does not change in its total bytes, we can use the input directly.
   if (bytes == input_sv.chars_size(stream)) {
     return string_to_decimal(precision,
                              output_type.scale(),
@@ -506,15 +525,16 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
                            mr);
 }
 
-std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& input,
-                                            bool nullify_if_not_quoted,
-                                            rmm::cuda_stream_view stream,
-                                            rmm::device_async_resource_ref mr)
+std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
+  cudf::strings_column_view const& input,
+  bool nullify_if_not_quoted,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
   auto const string_count = input.size();
-  if (string_count == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
+  if (string_count == 0) { return {nullptr, false}; }
 
   auto const input_offsets_it =
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets());
@@ -553,6 +573,11 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
       }));
   auto [offsets_column, bytes] =
     cudf::strings::detail::make_offsets_child_column(size_it, size_it + string_count, stream, mr);
+
+  // If the output has the same total bytes, the input should not be changed.
+  // That is because when removing quotes, we always reduce the number of characters.
+  if (bytes == input.chars_size(stream)) { return {nullptr, false}; }
+
   auto chars_data = cudf::strings::detail::make_chars_buffer(
     offsets_column->view(), bytes, string_pairs.begin(), string_count, stream, mr);
 
@@ -571,14 +596,15 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
       mr);
     if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
-    return output;
+    return {std::move(output), true};
   }
 
-  return cudf::make_strings_column(string_count,
-                                   std::move(offsets_column),
-                                   chars_data.release(),
-                                   input.null_count(),
-                                   cudf::detail::copy_bitmask(input.parent(), stream, mr));
+  return {cudf::make_strings_column(string_count,
+                                    std::move(offsets_column),
+                                    chars_data.release(),
+                                    input.null_count(),
+                                    cudf::detail::copy_bitmask(input.parent(), stream, mr)),
+          true};
 }
 
 template <typename InputType>
@@ -645,9 +671,14 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
   if (schema.type.id() == cudf::type_id::STRING) {
     if constexpr (input_is_column_ptr) {
-      return remove_quotes(input->view(), /*nullify_if_not_quoted*/ false, stream, mr);
+      auto [removed_quotes, success] =
+        try_remove_quotes(input->view(), /*nullify_if_not_quoted*/ false, stream, mr);
+      return std::move(success ? removed_quotes : input);
     } else {
-      return remove_quotes(input, /*nullify_if_not_quoted*/ false, stream, mr);
+      auto [removed_quotes, success] =
+        try_remove_quotes(input, /*nullify_if_not_quoted*/ false, stream, mr);
+      return success ? std::move(removed_quotes)
+                     : std::make_unique<cudf::column>(input, stream, mr);
     }
   }
 
@@ -916,7 +947,10 @@ std::unique_ptr<cudf::column> remove_quotes(cudf::strings_column_view const& inp
 {
   CUDF_FUNC_RANGE();
 
-  return detail::remove_quotes(input, nullify_if_not_quoted, stream, mr);
+  auto const input_cv = input.parent();
+  auto [removed_quotes, success] =
+    detail::try_remove_quotes(input_cv, nullify_if_not_quoted, stream, mr);
+  return success ? std::move(removed_quotes) : std::make_unique<cudf::column>(input_cv, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
