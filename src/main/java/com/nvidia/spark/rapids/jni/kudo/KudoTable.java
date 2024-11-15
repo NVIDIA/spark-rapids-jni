@@ -17,6 +17,15 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.HostMemoryBuffer;
+import com.nvidia.spark.rapids.jni.Arms;
+
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Objects;
+import java.util.Optional;
+
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.readerFrom;
 
 public class KudoTable implements AutoCloseable {
   private final KudoTableHeader header;
@@ -25,6 +34,34 @@ public class KudoTable implements AutoCloseable {
   KudoTable(KudoTableHeader header, HostMemoryBuffer buffer) {
     this.header = header;
     this.buffer = buffer;
+  }
+
+  /**
+   * Read a kudo table from an input stream.
+   *
+   * @param in input stream
+   * @return the kudo table, or empty if the input stream is empty.
+   * @throws IOException if an I/O error occurs
+   */
+  public static Optional<KudoTable> from(InputStream in) throws IOException {
+    Objects.requireNonNull(in, "Input stream must not be null");
+
+    DataInputStream din = readerFrom(in);
+    return KudoTableHeader.readFrom(din).map(header -> {
+      // Header only
+      if (header.getNumColumns() == 0) {
+        return new KudoTable(header, null);
+      }
+
+      return Arms.closeIfException(HostMemoryBuffer.allocate(header.getTotalDataLen(), false), buffer -> {
+        try {
+          buffer.copyFromStream(0, din, header.getTotalDataLen());
+          return new KudoTable(header, buffer);
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      });
+    });
   }
 
   public KudoTableHeader getHeader() {
