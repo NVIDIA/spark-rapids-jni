@@ -825,9 +825,9 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
       .mixed_types_as_string(true)
       .keep_quotes(true)
       .experimental(true)
-      .normalize_single_quotes(normalize_single_quotes)
       .strict_validation(true)
       // specifying parameters
+      .normalize_single_quotes(normalize_single_quotes)
       .delimiter(delimiter)
       .numeric_leading_zeros(allow_leading_zeros)
       .nonnumeric_numbers(allow_nonnumeric_numbers)
