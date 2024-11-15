@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.28.6 FATAL_ERROR)
 
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
