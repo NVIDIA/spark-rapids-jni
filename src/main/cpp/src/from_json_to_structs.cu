@@ -253,12 +253,12 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
 
   // If the output strings column does not change in its total bytes, we can use the input directly.
   if (bytes == input_sv.chars_size(stream)) {
-    return string_to_integer(output_type,
-                             input_sv,
-                             /*ansi_mode*/ false,
-                             /*strip*/ false,
-                             stream,
-                             mr);
+    return spark_rapids_jni::string_to_integer(output_type,
+                                               input_sv,
+                                               /*ansi_mode*/ false,
+                                               /*strip*/ false,
+                                               stream,
+                                               mr);
   }
 
   // Build a new strings column, removing the invalid rows.
@@ -269,12 +269,12 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
   auto const sanitized_input =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
-  return string_to_integer(output_type,
-                           cudf::strings_column_view{sanitized_input->view()},
-                           /*ansi_mode*/ false,
-                           /*strip*/ false,
-                           stream,
-                           mr);
+  return spark_rapids_jni::string_to_integer(output_type,
+                                             cudf::strings_column_view{sanitized_input->view()},
+                                             /*ansi_mode*/ false,
+                                             /*strip*/ false,
+                                             stream,
+                                             mr);
 }
 
 std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes_for_floats(
@@ -374,13 +374,14 @@ std::unique_ptr<cudf::column> cast_strings_to_floats(cudf::column_view const& in
   if (allow_nonnumeric_numbers) {
     // Non-numeric numbers are always quoted.
     auto const [removed_quotes, success] = try_remove_quotes_for_floats(input, stream, mr);
-    return string_to_float(output_type,
-                           cudf::strings_column_view{success ? removed_quotes->view() : input},
-                           /*ansi_mode*/ false,
-                           stream,
-                           mr);
+    return spark_rapids_jni::string_to_float(
+      output_type,
+      cudf::strings_column_view{success ? removed_quotes->view() : input},
+      /*ansi_mode*/ false,
+      stream,
+      mr);
   }
-  return string_to_float(
+  return spark_rapids_jni::string_to_float(
     output_type, cudf::strings_column_view{input}, /*ansi_mode*/ false, stream, mr);
 }
 
@@ -469,13 +470,13 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
 
   // If the output strings column does not change in its total bytes, we can use the input directly.
   if (bytes == input_sv.chars_size(stream)) {
-    return string_to_decimal(precision,
-                             output_type.scale(),
-                             input_sv,
-                             /*ansi_mode*/ false,
-                             /*strip*/ false,
-                             stream,
-                             mr);
+    return spark_rapids_jni::string_to_decimal(precision,
+                                               output_type.scale(),
+                                               input_sv,
+                                               /*ansi_mode*/ false,
+                                               /*strip*/ false,
+                                               stream,
+                                               mr);
   }
 
   auto const out_offsets =
@@ -518,13 +519,13 @@ std::unique_ptr<cudf::column> cast_strings_to_decimals(cudf::column_view const& 
   auto const unquoted_strings =
     cudf::make_strings_column(string_count, std::move(offsets_column), chars_data.release(), 0, {});
 
-  return string_to_decimal(precision,
-                           output_type.scale(),
-                           cudf::strings_column_view{unquoted_strings->view()},
-                           /*ansi_mode*/ false,
-                           /*strip*/ false,
-                           stream,
-                           mr);
+  return spark_rapids_jni::string_to_decimal(precision,
+                                             output_type.scale(),
+                                             cudf::strings_column_view{unquoted_strings->view()},
+                                             /*ansi_mode*/ false,
+                                             /*strip*/ false,
+                                             stream,
+                                             mr);
 }
 
 std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
