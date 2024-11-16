@@ -648,6 +648,7 @@ struct allnull_column_functor {
  private:
   auto make_zeroed_offsets(cudf::size_type size) const
   {
+    printf("line %d\n", __LINE__);
     auto offsets_buff =
       cudf::detail::make_zeroed_device_uvector_async<cudf::size_type>(size + 1, stream, mr);
     return std::make_unique<cudf::column>(std::move(offsets_buff), rmm::device_buffer{}, 0);
@@ -668,6 +669,7 @@ struct allnull_column_functor {
   std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
                                            cudf::size_type size) const
   {
+    printf("line %d\n", __LINE__);
     return cudf::make_fixed_width_column(schema.type, size, cudf::mask_state::ALL_NULL, stream, mr);
   }
 
@@ -675,6 +677,7 @@ struct allnull_column_functor {
   std::unique_ptr<cudf::column> operator()(schema_element_with_precision const&,
                                            cudf::size_type size) const
   {
+    printf("line %d\n", __LINE__);
     auto offsets   = make_zeroed_offsets(size);
     auto null_mask = cudf::detail::create_null_mask(size, cudf::mask_state::ALL_NULL, stream, mr);
     return cudf::make_strings_column(
@@ -685,6 +688,7 @@ struct allnull_column_functor {
   std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
                                            cudf::size_type size) const
   {
+    printf("line %d\n", __LINE__);
     CUDF_EXPECTS(schema.child_types.size() == 1, "Lists column should have only one child");
     std::vector<std::unique_ptr<cudf::column>> children;
     children.emplace_back(make_zeroed_offsets(size));
@@ -706,6 +710,7 @@ struct allnull_column_functor {
   std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
                                            cudf::size_type size) const
   {
+    printf("line %d\n", __LINE__);
     std::vector<std::unique_ptr<cudf::column>> children;
     for (auto const& [child_name, child_schema] : schema.child_types) {
       children.emplace_back(cudf::type_dispatcher(child_schema.type, *this, child_schema, size));
@@ -729,6 +734,7 @@ std::unique_ptr<cudf::column> make_all_nulls_column(schema_element_with_precisio
                                                     rmm::cuda_stream_view stream,
                                                     rmm::device_async_resource_ref mr)
 {
+  printf("make all null\n");
   return cudf::type_dispatcher(schema.type, allnull_column_functor{stream, mr}, schema, num_rows);
 }
 
@@ -741,6 +747,8 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+
+  printf("schema type: %d\n", (int)schema.type.id());
 
   using DecayInputT                  = std::decay_t<InputType>;
   auto constexpr input_is_const_cv   = std::is_same_v<DecayInputT, cudf::column_view>;
@@ -831,16 +839,26 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
     auto input_content      = input->release();
 
     if (schema.type.id() == cudf::type_id::LIST) {
+      auto const& child_schema = schema.child_types.front().second;
+      auto& child = input_content.children[cudf::lists_column_view::child_column_index];
+
+      // Handle mismatched child schema.
+      if (cudf::is_nested(child_schema.type) && (child_schema.type.id() != child->type().id())) {
+        printf("child schema : %d, col: %d\n",
+               static_cast<int>(child_schema.type.id()),
+               static_cast<int>(child->type().id()));
+        return make_all_nulls_column(schema, num_rows, stream, mr);
+      }
+
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::move(input_content.children[cudf::lists_column_view::offsets_column_index]));
-      new_children.emplace_back(convert_data_type(
-        std::move(input_content.children[cudf::lists_column_view::child_column_index]),
-        schema.child_types.front().second,
-        allow_nonnumeric_numbers,
-        is_us_locale,
-        stream,
-        mr));
+      new_children.emplace_back(convert_data_type(std::move(child),
+                                                  schema.child_types.front().second,
+                                                  allow_nonnumeric_numbers,
+                                                  is_us_locale,
+                                                  stream,
+                                                  mr));
 
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
@@ -944,6 +962,28 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
+  printf("\nnames: (size = %zu) \n", col_names.size());
+  for (auto& name : col_names) {
+    printf("\"%s\", ", name.c_str());
+  }
+  printf("\n num children: \n");
+  for (auto nc : num_children) {
+    printf("%d, ", nc);
+  }
+  printf("\n types: \n");
+  for (auto t : types) {
+    printf("%d, ", t);
+  }
+  printf("\n scales: \n");
+  for (auto nc : scales) {
+    printf("%d, ", nc);
+  }
+  printf("\n  precisions: \n");
+  for (auto nc : precisions) {
+    printf("%d, ", nc);
+  }
+  printf("\n\n");
+
   auto const [concat_input, delimiter, should_be_nullified] =
     concat_json(input, false, stream, cudf::get_current_device_resource());
   auto const [schema, schema_with_precision] =
