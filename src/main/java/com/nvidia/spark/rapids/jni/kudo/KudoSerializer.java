@@ -17,15 +17,12 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.io.*;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -168,9 +165,8 @@ public class KudoSerializer {
   }
 
   /**
-   * Write partition of a table to a stream.
+   * Write partition of a table to a stream. This method is used for test only.
    * <br/>
-   * <p>
    * The caller should ensure that table's schema matches the schema used to create this serializer, otherwise behavior
    * is undefined.
    *
@@ -180,7 +176,7 @@ public class KudoSerializer {
    * @param numRows   number of rows to write
    * @return number of bytes written
    */
-  public long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
+  long writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
     HostColumnVector[] columns = null;
     try {
       columns = IntStream.range(0, table.getNumberOfColumns())

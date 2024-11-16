@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-package com.nvidia.spark.rapids.jni;
+package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.kudo.KudoSerializer;
-import com.nvidia.spark.rapids.jni.kudo.KudoTable;
-import com.nvidia.spark.rapids.jni.kudo.KudoTableHeader;
+import com.nvidia.spark.rapids.jni.Arms;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
