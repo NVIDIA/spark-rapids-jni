@@ -16,51 +16,68 @@
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
-#include <cudf_test/debug_utilities.hpp>
-
-#include <cudf/io/json.hpp>
 
 #include <rmm/device_uvector.hpp>
 
-#include <json_utils.hpp>
+#include <cast_string.hpp>
+
+#include <limits>
 
 using namespace cudf;
+
+constexpr cudf::test::debug_output_level verbosity{cudf::test::debug_output_level::FIRST_ERROR};
 
 struct FloatToStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(FloatToStringTests, FromFloats32)
 {
-  cudf::test::strings_column_wrapper input{R"({"c2": [19]})"};
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<float>{100.0f,
+                                                  654321.25f,
+                                                  -12761.125f,
+                                                  0.f,
+                                                  5.0f,
+                                                  -4.0f,
+                                                  std::numeric_limits<float>::quiet_NaN(),
+                                                  123456789012.34f,
+                                                  -0.0f};
 
-  {
-    /*
-     * names: (size = 4)
-"c2", "element", "c3", "c4",
-num children:
-1, 2, 0, 0,
-types:
-24, 28, 4, 23,
-list, struct, int64, string
-scales:
-0, 0, 0, 0,
-     */
-    std::vector<std::string> col_names{"c2", "element", "c3", "c4"};
-    std::vector<int> num_children{1, 2, 0, 0};
-    std::vector<int> types{24, 28, 4, 23};
-    std::vector<int> scales{0, 0, 0, 0};
-    std::vector<int> precisions{-1, -1, -1, -1};
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
 
-    auto out = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
-                                                      col_names,
-                                                      num_children,
-                                                      types,
-                                                      scales,
-                                                      precisions,
-                                                      true,
-                                                      true,
-                                                      true,
-                                                      true,
-                                                      true);
-    cudf::test::print(*out);
-  }
+  auto const expected = cudf::test::strings_column_wrapper{
+    "100.0", "654321.25", "-12761.125", "0.0", "5.0", "-4.0", "NaN", "1.2345679E11", "-0.0"};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
+}
+
+TEST_F(FloatToStringTests, FromFloats64)
+{
+  auto const floats =
+    cudf::test::fixed_width_column_wrapper<double>{100.0d,
+                                                   654321.25d,
+                                                   -12761.125d,
+                                                   1.123456789123456789d,
+                                                   0.000000000000000000123456789123456789d,
+                                                   0.0d,
+                                                   5.0d,
+                                                   -4.0d,
+                                                   std::numeric_limits<double>::quiet_NaN(),
+                                                   839542223232.794248339d,
+                                                   -0.0d};
+
+  auto results = spark_rapids_jni::float_to_string(floats, cudf::get_default_stream());
+
+  auto const expected = cudf::test::strings_column_wrapper{"100.0",
+                                                           "654321.25",
+                                                           "-12761.125",
+                                                           "1.1234567891234568",
+                                                           "1.234567891234568E-19",
+                                                           "0.0",
+                                                           "5.0",
+                                                           "-4.0",
+                                                           "NaN",
+                                                           "8.395422232327942E11",
+                                                           "-0.0"};
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }

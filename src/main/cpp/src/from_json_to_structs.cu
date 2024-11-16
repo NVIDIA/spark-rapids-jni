@@ -707,6 +707,7 @@ struct allnull_column_functor {
                                            cudf::size_type size) const
   {
     std::vector<std::unique_ptr<cudf::column>> children;
+    children.reserve(schema.child_types.size());
     for (auto const& [child_name, child_schema] : schema.child_types) {
       children.emplace_back(cudf::type_dispatcher(child_schema.type, *this, child_schema, size));
     }
