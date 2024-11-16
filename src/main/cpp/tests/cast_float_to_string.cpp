@@ -30,7 +30,7 @@ struct FloatToStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(FloatToStringTests, FromFloats32)
 {
-  cudf::test::strings_column_wrapper input{R"({"c2": [1, 2]})"};
+  cudf::test::strings_column_wrapper input{R"({"c2": [19]})"};
 
   {
     /*
@@ -44,11 +44,11 @@ list, struct, int64, string
 scales:
 0, 0, 0, 0,
      */
-    std::vector<std::string> col_names{"c2", "element"};
-    std::vector<int> num_children{1, 0};
-    std::vector<int> types{24, 3};
-    std::vector<int> scales{0, 0};
-    std::vector<int> precisions{-1, -1};
+    std::vector<std::string> col_names{"c2", "element", "c3", "c4"};
+    std::vector<int> num_children{1, 2, 0, 0};
+    std::vector<int> types{24, 28, 4, 23};
+    std::vector<int> scales{0, 0, 0, 0};
+    std::vector<int> precisions{-1, -1, -1, -1};
 
     auto out = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
                                                       col_names,
