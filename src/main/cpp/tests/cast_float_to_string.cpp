@@ -30,42 +30,37 @@ struct FloatToStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(FloatToStringTests, FromFloats32)
 {
-  std::string json_string = R"({"c2": [19]})";
+  cudf::test::strings_column_wrapper input{R"({"c2": [19]})"};
 
   {
-    cudf::io::json_reader_options in_options =
-      cudf::io::json_reader_options::builder(
-        cudf::io::source_info{json_string.data(), json_string.size()})
-        .lines(true)
-        .recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL)
-        .normalize_whitespace(true)
-        .mixed_types_as_string(true)
-        .keep_quotes(true)
-        .experimental(true)
-        .strict_validation(true)
-        .prune_columns(true);
+    /*
+     * names: (size = 4)
+"c2", "element", "c3", "c4",
+num children:
+1, 2, 0, 0,
+types:
+24, 28, 4, 23,
+list, struct, int64, string
+scales:
+0, 0, 0, 0,
+     */
+    std::vector<std::string> col_names{"c2", "element", "c3", "c4"};
+    std::vector<int> num_children{1, 2, 0, 0};
+    std::vector<int> types{24, 28, 4, 23};
+    std::vector<int> scales{0, 0, 0, 0};
+    std::vector<int> precisions{-1, -1, -1, -1};
 
-    cudf::io::schema_element dtype_schema{cudf::data_type{cudf::type_id::STRUCT},
-                                          {
-                                            {"c2",
-                                             {data_type{cudf::type_id::LIST},
-                                              {{"element",
-                                                {data_type{cudf::type_id::STRUCT},
-                                                 {
-                                                   {"name", {data_type{cudf::type_id::STRING}}},
-                                                   {"abc", {data_type{cudf::type_id::STRING}}},
-                                                   {"class", {data_type{cudf::type_id::STRING}}},
-                                                 },
-                                                 {{"name", "abc", "class"}}}}}}},
-                                          },
-                                          {{"c2"}}};
-    in_options.set_dtypes(dtype_schema);
-
-    auto const parsed_table_with_meta = cudf::io::read_json(in_options);
-    // auto const& parsed_meta           = parsed_table_with_meta.metadata;
-    auto parsed_columns = parsed_table_with_meta.tbl->release();
-    for (auto& col : parsed_columns) {
-      cudf::test::print(*col);
-    }
+    auto out = spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{input},
+                                                      col_names,
+                                                      num_children,
+                                                      types,
+                                                      scales,
+                                                      precisions,
+                                                      true,
+                                                      true,
+                                                      true,
+                                                      true,
+                                                      true);
+    cudf::test::print(*out);
   }
 }
