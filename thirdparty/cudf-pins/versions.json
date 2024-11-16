@@ -10,22 +10,22 @@
       "patches" : 
       [
         {
-          "file" : "${current_json_dir}/cccl_symbol_visibility.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/cccl_symbol_visibility.diff",
           "fixed_in" : "2.6",
           "issue" : "Correct symbol visibility issues in libcudacxx [https://github.com/NVIDIA/cccl/pull/1832/]"
         },
         {
-          "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
           "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
         },
         {
-          "file" : "${current_json_dir}/thrust_faster_sort_compile_times.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
         },
         {
-          "file" : "${current_json_dir}/thrust_faster_scan_compile_times.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_scan_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
@@ -99,7 +99,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2e5996f2281c312f6a4cbf12f698abc1e0c45a64",
+      "git_tag" : "75a69cc477a4197107d418c4d560839df3616a94",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "24.12"
     },
@@ -112,7 +112,7 @@
       "patches" : 
       [
         {
-          "file" : "${current_json_dir}/nanoarrow_clang_tidy_compliance.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/nanoarrow_clang_tidy_compliance.diff",
           "fixed_in" : "",
           "issue" : "https://github.com/apache/arrow-nanoarrow/issues/537"
         }
@@ -149,7 +149,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "771ccdc3a1aa142f4be03518d868595b0f81a8c3",
+      "git_tag" : "c7fc01794a78ccb6b4dc173d4ed20db156ebb39a",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.12"
     },
