@@ -37,9 +37,8 @@ jobs:
             *.scala,
             *.py,
             *.sh,
-            */Dockerfile*,
-            */Jenkinsfile*,
+            *Dockerfile*,
+            *Jenkinsfile*,
             *.yml
           excluded_file_patterns: |
-            *target/*
-            *patches/*
+            patches/*
