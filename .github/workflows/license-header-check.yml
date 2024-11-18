@@ -42,3 +42,4 @@ jobs:
             *.yml
           excluded_file_patterns: |
             */target/*
+            */patches/*
