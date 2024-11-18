@@ -22,16 +22,28 @@ import com.nvidia.spark.rapids.jni.Arms;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Objects;
 import java.util.Optional;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.readerFrom;
+import static java.util.Objects.requireNonNull;
 
+/**
+ * Serialized table in kudo format, including a {{@link KudoTableHeader}} and a {@link HostMemoryBuffer} for serialized
+ * data.
+ */
 public class KudoTable implements AutoCloseable {
   private final KudoTableHeader header;
   private final HostMemoryBuffer buffer;
 
-  KudoTable(KudoTableHeader header, HostMemoryBuffer buffer) {
+  /**
+   * Create a kudo table.
+   *
+   * @param header kudo table header
+   * @param buffer host memory buffer for the table data. KudoTable will take ownership of this buffer, so don't close
+   *               it after passing it to this constructor.
+   */
+  public KudoTable(KudoTableHeader header, HostMemoryBuffer buffer) {
+    requireNonNull(header, "Header must not be null");
     this.header = header;
     this.buffer = buffer;
   }
@@ -44,7 +56,7 @@ public class KudoTable implements AutoCloseable {
    * @throws IOException if an I/O error occurs
    */
   public static Optional<KudoTable> from(InputStream in) throws IOException {
-    Objects.requireNonNull(in, "Input stream must not be null");
+    requireNonNull(in, "Input stream must not be null");
 
     DataInputStream din = readerFrom(in);
     return KudoTableHeader.readFrom(din).map(header -> {
