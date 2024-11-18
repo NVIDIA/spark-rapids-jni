@@ -28,7 +28,6 @@
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/traits.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -609,131 +608,6 @@ std::pair<std::unique_ptr<cudf::column>, bool> try_remove_quotes(
           true};
 }
 
-// Copied and modified from `cudf/cpp/src/io/json/parser_features.cpp`.
-struct empty_column_functor {
-  rmm::cuda_stream_view stream;
-  rmm::device_async_resource_ref mr;
-
-  template <typename T, CUDF_ENABLE_IF(!cudf::is_nested<T>())>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema) const
-  {
-    return cudf::make_empty_column(schema.type);
-  }
-
-  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema) const
-  {
-    CUDF_EXPECTS(schema.child_types.size() == 1, "Lists column should have only one child");
-    auto offsets = cudf::make_empty_column(cudf::data_type(cudf::type_to_id<cudf::size_type>()));
-    auto child   = cudf::type_dispatcher(
-      schema.child_types.front().second.type, *this, schema.child_types.front().second);
-    return cudf::make_lists_column(0, std::move(offsets), std::move(child), 0, {}, stream, mr);
-  }
-
-  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema) const
-  {
-    std::vector<std::unique_ptr<cudf::column>> children;
-    for (auto const& [child_name, child_schema] : schema.child_types) {
-      children.emplace_back(cudf::type_dispatcher(child_schema.type, *this, child_schema));
-    }
-    return cudf::make_structs_column(0, std::move(children), 0, {}, stream, mr);
-  }
-};
-
-// Copied and modified from `cudf/cpp/src/io/json/parser_features.cpp`.
-struct allnull_column_functor {
-  rmm::cuda_stream_view stream;
-  rmm::device_async_resource_ref mr;
-
- private:
-  auto make_zeroed_offsets(cudf::size_type size) const
-  {
-    auto offsets_buff =
-      cudf::detail::make_zeroed_device_uvector_async<cudf::size_type>(size + 1, stream, mr);
-    return std::make_unique<cudf::column>(std::move(offsets_buff), rmm::device_buffer{}, 0);
-  }
-
- public:
-  template <typename T,
-            typename... Args,
-            CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() && !std::is_same_v<T, cudf::string_view> &&
-                           !std::is_same_v<T, cudf::list_view> &&
-                           !std::is_same_v<T, cudf::struct_view>)>
-  std::unique_ptr<cudf::column> operator()(Args...) const
-  {
-    CUDF_FAIL("Invalid type.");
-  }
-
-  template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
-                                           cudf::size_type size) const
-  {
-    return cudf::make_fixed_width_column(schema.type, size, cudf::mask_state::ALL_NULL, stream, mr);
-  }
-
-  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const&,
-                                           cudf::size_type size) const
-  {
-    auto offsets   = make_zeroed_offsets(size);
-    auto null_mask = cudf::detail::create_null_mask(size, cudf::mask_state::ALL_NULL, stream, mr);
-    return cudf::make_strings_column(
-      size, std::move(offsets), rmm::device_buffer{}, size, std::move(null_mask));
-  }
-
-  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
-                                           cudf::size_type size) const
-  {
-    CUDF_EXPECTS(schema.child_types.size() == 1, "Lists column should have only one child");
-    std::vector<std::unique_ptr<cudf::column>> children;
-    children.emplace_back(make_zeroed_offsets(size));
-    children.emplace_back(cudf::type_dispatcher(schema.child_types.front().second.type,
-                                                empty_column_functor{stream, mr},
-                                                schema.child_types.front().second));
-    auto null_mask = cudf::detail::create_null_mask(size, cudf::mask_state::ALL_NULL, stream, mr);
-    // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
-    // on the child column as it does not have non-empty nulls.
-    return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
-                                          size,
-                                          rmm::device_buffer{},
-                                          std::move(null_mask),
-                                          size,
-                                          std::move(children));
-  }
-
-  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  std::unique_ptr<cudf::column> operator()(schema_element_with_precision const& schema,
-                                           cudf::size_type size) const
-  {
-    std::vector<std::unique_ptr<cudf::column>> children;
-    children.reserve(schema.child_types.size());
-    for (auto const& [child_name, child_schema] : schema.child_types) {
-      children.emplace_back(cudf::type_dispatcher(child_schema.type, *this, child_schema, size));
-    }
-    auto null_mask = cudf::detail::create_null_mask(size, cudf::mask_state::ALL_NULL, stream, mr);
-    // Do not use `cudf::make_structs_column` since we do not need to call `superimpose_nulls`
-    // on the children columns.
-    return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::STRUCT},
-                                          size,
-                                          rmm::device_buffer{},
-                                          std::move(null_mask),
-                                          size,
-                                          std::move(children));
-  }
-};
-
-// This is a workaround for https://github.com/rapidsai/cudf/issues/17167.
-// When the issue is fixed, we should remove this utility and adopt it.
-std::unique_ptr<cudf::column> make_all_nulls_column(schema_element_with_precision const& schema,
-                                                    cudf::size_type num_rows,
-                                                    rmm::cuda_stream_view stream,
-                                                    rmm::device_async_resource_ref mr)
-{
-  return cudf::type_dispatcher(schema.type, allnull_column_functor{stream, mr}, schema, num_rows);
-}
-
 template <typename InputType>
 std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
                                                 schema_element_with_precision const& schema,
@@ -824,8 +698,7 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
 
   // From here, the input column should have type either LIST or STRUCT.
 
-  // Handle mismatched schema.
-  if (schema.type.id() != d_type) { return make_all_nulls_column(schema, num_rows, stream, mr); }
+  CUDF_EXPECTS(schema.type.id() == d_type, "Mismatched data type for nested columns.");
 
   if constexpr (input_is_column_ptr) {
     auto const null_count   = input->null_count();
@@ -836,9 +709,9 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       auto const& child_schema = schema.child_types.front().second;
       auto& child = input_content.children[cudf::lists_column_view::child_column_index];
 
-      // Handle mismatched child schema.
-      if (cudf::is_nested(child_schema.type) && (child_schema.type.id() != child->type().id())) {
-        return make_all_nulls_column(schema, num_rows, stream, mr);
+      if (cudf::is_nested(child_schema.type)) {
+        CUDF_EXPECTS(child_schema.type.id() == child->type().id(),
+                     "Mismatched data type for nested child column of a lists column.");
       }
 
       std::vector<std::unique_ptr<cudf::column>> new_children;
