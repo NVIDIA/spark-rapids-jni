@@ -27,6 +27,10 @@ import java.util.Optional;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.readerFrom;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Serialized table in kudo format, including a {{@link KudoTableHeader}} and a {@link HostMemoryBuffer} for serialized
+ * data.
+ */
 public class KudoTable implements AutoCloseable {
   private final KudoTableHeader header;
   private final HostMemoryBuffer buffer;
