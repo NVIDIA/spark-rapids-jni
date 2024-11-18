@@ -41,5 +41,5 @@ jobs:
             */Jenkinsfile*,
             *.yml
           excluded_file_patterns: |
-            */target/*
-            */patches/*
+            *target/*
+            *patches/*
