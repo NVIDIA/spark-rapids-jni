@@ -33,12 +33,13 @@ jobs:
         with:
           included_file_patterns: |
             *.cpp,
+            *.hpp,
+            *.cu,
+            *.cuh,
             *.java,
-            *.scala,
-            *.py,
             *.sh,
             *Dockerfile*,
             *Jenkinsfile*,
-            *.yml
-          excluded_file_patterns: |
-            patches/*
+            *.yml,
+            *.yaml,
+            *.txt
