@@ -190,8 +190,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
-  // If the null count doesn't change, that mean we do not have any rows containing `null` string
-  // literal or empty rows. In such cases, just use the input column for concatenation.
+  // If the null count doesn't change, just use the input column for concatenation.
   auto const input_applied_null =
     null_count == input.null_count()
       ? cudf::column_view{}
@@ -200,7 +199,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
                           input.chars_begin(stream),
                           reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
                           null_count,
-                          0,
+                          input.offset(),
                           std::vector<cudf::column_view>{input.offsets()}};
 
   auto concat_strings = cudf::strings::detail::join_strings(
