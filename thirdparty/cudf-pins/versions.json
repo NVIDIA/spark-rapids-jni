@@ -149,7 +149,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c7fc01794a78ccb6b4dc173d4ed20db156ebb39a",
+      "git_tag" : "929a595e639b61b583cc584b1c291f9559cef673",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "24.12"
     },
