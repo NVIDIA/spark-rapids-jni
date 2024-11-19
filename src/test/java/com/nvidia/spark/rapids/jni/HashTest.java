@@ -693,7 +693,8 @@ public class HashTest {
          ColumnView structs3 = ColumnView.makeStructView(structs2, bools);
          ColumnView structs4 = ColumnView.makeStructView(structs3);
          ColumnView structs5 = ColumnView.makeStructView(structs4, floats);
-         ColumnView nestedResult = ColumnView.makeStructView(structs5);) {
+         ColumnView structs6 = ColumnView.makeStructView(structs5);
+         ColumnView nestedResult = ColumnView.makeStructView(structs6);) {
       assertThrows(CudfException.class, () -> Hash.hiveHash(new ColumnView[]{nestedResult}));
     }
   }
