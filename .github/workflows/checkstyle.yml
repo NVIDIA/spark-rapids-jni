@@ -40,4 +40,4 @@ jobs:
     - name: Run checkstyle
       run: |
         echo $(pwd)
-        bash ./dev/checkstyle.sh
+        bash dev/checkstyle.sh
