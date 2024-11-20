@@ -23,19 +23,21 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v4.5.0
+      with:
+        java-version: '8'
+        distribution: 'adopt'
+
     - uses: actions/checkout@v4
       with:
         submodules: true
         fetch-depth: 0
 
     - name: Fetch branches and tags
-      run: git fetch --all
-
-    - name: Set up JDK
-      uses: actions/setup-java@v4.5.0
-      with:
-        java-version: '8'
-        distribution: 'adopt'
+      run: |
+        git fetch --all
+        git --no-pager branch -a
 
     - name: Run checkstyle
       run: bash ./dev/checkstyle.sh
