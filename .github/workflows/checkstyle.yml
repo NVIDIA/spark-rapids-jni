@@ -35,9 +35,7 @@ jobs:
         fetch-depth: 0
 
     - name: Fetch branches and tags
-      run: |
-        git fetch --all
-        git --no-pager branch -a
+      run: git fetch --all
 
     - name: Run checkstyle
       run: bash ./dev/checkstyle.sh
