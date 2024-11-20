@@ -34,11 +34,5 @@ jobs:
         java-version: '8'
         distribution: 'adopt'
 
-    - name: Checkout base branch
-      run: git checkout ${{ github.base_ref }}
-
     - name: Run checkstyle
-      run: |
-        echo $(pwd)
-        ls -alh $(pwd)
-        bash dev/checkstyle.sh
+      run: bash ./dev/checkstyle.sh
