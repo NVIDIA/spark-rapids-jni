@@ -28,6 +28,9 @@ jobs:
         submodules: true
         fetch-depth: 0
 
+    - name: Fetch branches and tags
+      run: git fetch --all
+
     - name: Set up JDK
       uses: actions/setup-java@v4.5.0
       with:
