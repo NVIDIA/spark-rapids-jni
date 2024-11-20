@@ -40,4 +40,5 @@ jobs:
     - name: Run checkstyle
       run: |
         echo $(pwd)
+        ls -alh $(pwd)
         bash dev/checkstyle.sh
