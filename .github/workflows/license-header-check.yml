@@ -42,4 +42,7 @@ jobs:
             *Jenkinsfile*,
             *.yml,
             *.yaml,
-            *.txt
+            *.txt,
+            *.xml,
+            *.fbs,
+            build/*
