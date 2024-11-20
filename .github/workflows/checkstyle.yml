@@ -38,4 +38,6 @@ jobs:
       run: git checkout ${{ github.base_ref }}
 
     - name: Run checkstyle
-      run: bash ./dev/checkstyle.sh
+      run: |
+        echo $(pwd)
+        bash ./dev/checkstyle.sh
