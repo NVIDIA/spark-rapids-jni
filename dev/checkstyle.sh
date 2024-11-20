@@ -20,7 +20,7 @@
 set -ex
 
 # Assuming you are in the root of your git repository
-MODIFIED_FILES=$(git diff --name-only HEAD~1)
+MODIFIED_FILES=$(git diff --name-only "${GITHUB_BASE_REF}")
 
 SRC_DIR="src/main/java/"
 TEST_SRC_DIR="src/test/java/"
