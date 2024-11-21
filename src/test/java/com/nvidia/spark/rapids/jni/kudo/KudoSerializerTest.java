@@ -75,7 +75,7 @@ public class KudoSerializerTest {
 
     try (Table t = buildSimpleTable()) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
-      long bytesWritten = serializer.writeToStream(t, out, 0, 4);
+      long bytesWritten = serializer.writeToStream(t, out, 0, 4).getWrittenBytes();
       assertEquals(189, bytesWritten);
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
