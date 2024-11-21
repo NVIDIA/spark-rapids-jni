@@ -30,8 +30,6 @@ jobs:
         distribution: 'adopt'
 
     - uses: actions/checkout@v4
-      with:
-        submodules: true
 
     - name: Run checkstyle
       run: mvn checkstyle:check
