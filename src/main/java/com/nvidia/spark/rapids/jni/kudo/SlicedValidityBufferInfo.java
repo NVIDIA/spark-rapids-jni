@@ -31,24 +31,6 @@ class SlicedValidityBufferInfo {
     this.beginBit = beginBit;
   }
 
-  @Override
-  public String toString() {
-    return "SlicedValidityBufferInfo{" + "bufferOffset=" + bufferOffset + ", bufferLength=" + bufferLength +
-        ", beginBit=" + beginBit + '}';
-  }
-
-  public int getBufferOffset() {
-    return bufferOffset;
-  }
-
-  public int getBufferLength() {
-    return bufferLength;
-  }
-
-  public int getBeginBit() {
-    return beginBit;
-  }
-
   static SlicedValidityBufferInfo calc(int rowOffset, int numRows) {
     if (rowOffset < 0) {
       throw new IllegalArgumentException("rowOffset must be >= 0, but was " + rowOffset);
@@ -63,5 +45,24 @@ class SlicedValidityBufferInfo {
       bufferLength = (rowOffset + numRows - 1) / 8 - bufferOffset + 1;
     }
     return new SlicedValidityBufferInfo(bufferOffset, bufferLength, beginBit);
+  }
+
+  @Override
+  public String toString() {
+    return "SlicedValidityBufferInfo{" + "bufferOffset=" + bufferOffset + ", bufferLength=" +
+        bufferLength +
+        ", beginBit=" + beginBit + '}';
+  }
+
+  public int getBufferOffset() {
+    return bufferOffset;
+  }
+
+  public int getBufferLength() {
+    return bufferLength;
+  }
+
+  public int getBeginBit() {
+    return beginBit;
   }
 }

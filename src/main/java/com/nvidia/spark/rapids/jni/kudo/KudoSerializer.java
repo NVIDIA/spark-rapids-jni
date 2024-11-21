@@ -16,19 +16,28 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.*;
+import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static java.util.Objects.requireNonNull;
+
+import ai.rapids.cudf.BufferType;
+import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.JCudfSerialization;
+import ai.rapids.cudf.Schema;
+import ai.rapids.cudf.Table;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
-
-import java.io.*;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
-
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
-import static java.util.Objects.requireNonNull;
 
 /**
  * This class is used to serialize/deserialize a table using the Kudo format.
@@ -148,8 +157,9 @@ import static java.util.Objects.requireNonNull;
 public class KudoSerializer {
 
   private static final byte[] PADDING = new byte[64];
-  private static final BufferType[] ALL_BUFFER_TYPES = new BufferType[]{BufferType.VALIDITY, BufferType.OFFSET,
-      BufferType.DATA};
+  private static final BufferType[] ALL_BUFFER_TYPES =
+      new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
+          BufferType.DATA};
 
   static {
     Arrays.fill(PADDING, (byte) 0);
@@ -162,6 +172,75 @@ public class KudoSerializer {
     requireNonNull(schema, "schema is null");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
+  }
+
+  /**
+   * Write a row count only record to an output stream.
+   *
+   * @param out     output stream
+   * @param numRows number of rows to write
+   * @return number of bytes written
+   */
+  public static long writeRowCountToStream(OutputStream out, int numRows) {
+    if (numRows <= 0) {
+      throw new IllegalArgumentException("Number of rows must be > 0, but was " + numRows);
+    }
+    try {
+      DataWriter writer = writerFrom(out);
+      KudoTableHeader header = new KudoTableHeader(0, numRows, 0, 0, 0, 0, new byte[0]);
+      header.writeTo(writer);
+      writer.flush();
+      return header.getSerializedSize();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static DataWriter writerFrom(OutputStream out) {
+    if (!(out instanceof DataOutputStream)) {
+      out = new DataOutputStream(new BufferedOutputStream(out));
+    }
+    return new DataOutputStreamWriter((DataOutputStream) out);
+  }
+
+  static long padForHostAlignment(long orig) {
+    return ((orig + 3) / 4) * 4;
+  }
+
+  static long padForHostAlignment(DataWriter out, long bytes) throws IOException {
+    final long paddedBytes = padForHostAlignment(bytes);
+    if (paddedBytes > bytes) {
+      out.write(PADDING, 0, (int) (paddedBytes - bytes));
+    }
+    return paddedBytes;
+  }
+
+  static long padFor64byteAlignment(long orig) {
+    return ((orig + 63) / 64) * 64;
+  }
+
+  static DataInputStream readerFrom(InputStream in) {
+    if (in instanceof DataInputStream) {
+      return (DataInputStream) in;
+    }
+    return new DataInputStream(in);
+  }
+
+  static <T> T withTime(Supplier<T> task, LongConsumer timeConsumer) {
+    long now = System.nanoTime();
+    T ret = task.get();
+    timeConsumer.accept(System.nanoTime() - now);
+    return ret;
+  }
+
+  /**
+   * This method returns the length in bytes needed to represent X number of rows
+   * e.g. getValidityLengthInBytes(5) => 1 byte
+   * getValidityLengthInBytes(7) => 1 byte
+   * getValidityLengthInBytes(14) => 2 bytes
+   */
+  static long getValidityLengthInBytes(long rows) {
+    return (rows + 7) / 8;
   }
 
   /**
@@ -208,36 +287,14 @@ public class KudoSerializer {
    * @param numRows   number of rows to write
    * @return number of bytes written
    */
-  public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
+  public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset,
+                            int numRows) {
     ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
         "please call writeRowCountToStream");
 
     try {
       return writeSliced(columns, writerFrom(out), rowOffset, numRows);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  /**
-   * Write a row count only record to an output stream.
-   *
-   * @param out     output stream
-   * @param numRows number of rows to write
-   * @return number of bytes written
-   */
-  public static long writeRowCountToStream(OutputStream out, int numRows) {
-    if (numRows <= 0) {
-      throw new IllegalArgumentException("Number of rows must be > 0, but was " + numRows);
-    }
-    try {
-      DataWriter writer = writerFrom(out);
-      KudoTableHeader header = new KudoTableHeader(0, numRows, 0, 0, 0
-          , 0, new byte[0]);
-      header.writeTo(writer);
-      writer.flush();
-      return header.getSerializedSize();
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -286,15 +343,18 @@ public class KudoSerializer {
     }
   }
 
-  private long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows) throws Exception {
-    KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
+  private long writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset, int numRows)
+      throws Exception {
+    KudoTableHeaderCalc headerCalc =
+        new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     Visitors.visitColumns(columns, headerCalc);
     KudoTableHeader header = headerCalc.getHeader();
     header.writeTo(out);
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
-      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType, out);
+      SlicedBufferSerializer serializer =
+          new SlicedBufferSerializer(rowOffset, numRows, bufferType, out);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
     }
@@ -308,53 +368,5 @@ public class KudoSerializer {
     out.flush();
 
     return header.getSerializedSize() + bytesWritten;
-  }
-
-  private static DataWriter writerFrom(OutputStream out) {
-    if (!(out instanceof DataOutputStream)) {
-      out = new DataOutputStream(new BufferedOutputStream(out));
-    }
-    return new DataOutputStreamWriter((DataOutputStream) out);
-  }
-
-
-  static long padForHostAlignment(long orig) {
-    return ((orig + 3) / 4) * 4;
-  }
-
-  static long padForHostAlignment(DataWriter out, long bytes) throws IOException {
-    final long paddedBytes = padForHostAlignment(bytes);
-    if (paddedBytes > bytes) {
-      out.write(PADDING, 0, (int) (paddedBytes - bytes));
-    }
-    return paddedBytes;
-  }
-
-  static long padFor64byteAlignment(long orig) {
-    return ((orig + 63) / 64) * 64;
-  }
-
-  static DataInputStream readerFrom(InputStream in) {
-    if (in instanceof DataInputStream) {
-      return (DataInputStream) in;
-    }
-    return new DataInputStream(in);
-  }
-
-  static <T> T withTime(Supplier<T> task, LongConsumer timeConsumer) {
-    long now = System.nanoTime();
-    T ret = task.get();
-    timeConsumer.accept(System.nanoTime() - now);
-    return ret;
-  }
-
-  /**
-   * This method returns the length in bytes needed to represent X number of rows
-   * e.g. getValidityLengthInBytes(5) => 1 byte
-   * getValidityLengthInBytes(7) => 1 byte
-   * getValidityLengthInBytes(14) => 2 bytes
-   */
-  static long getValidityLengthInBytes(long rows) {
-    return (rows + 7) / 8;
   }
 }

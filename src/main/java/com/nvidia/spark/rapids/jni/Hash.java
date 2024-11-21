@@ -33,68 +33,71 @@ public class Hash {
    * Create a new vector containing spark's 32-bit murmur3 hash of each row in the table.
    * Spark's murmur3 hash uses a different tail processing algorithm.
    *
-   * @param seed integer seed for the murmur3 hash function
+   * @param seed    integer seed for the murmur3 hash function
    * @param columns array of columns to hash, must have identical number of rows.
    * @return the new ColumnVector of 32-bit values representing each row's hash value.
    */
-  public static ColumnVector murmurHash32(int seed, ColumnView columns[]) {
+  public static ColumnVector murmurHash32(int seed, ColumnView[] columns) {
     if (columns.length < 1) {
       throw new IllegalArgumentException("Murmur3 hashing requires at least 1 column of input");
     }
     long[] columnViews = new long[columns.length];
     long size = columns[0].getRowCount();
 
-    for(int i = 0; i < columns.length; i++) {
+    for (int i = 0; i < columns.length; i++) {
       assert columns[i] != null : "Column vectors passed may not be null";
-      assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
+      assert columns[i].getRowCount() == size :
+          "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
-      columnViews[i] = columns[i].getNativeView(); 
+      columnViews[i] = columns[i].getNativeView();
     }
     return new ColumnVector(murmurHash32(seed, columnViews));
   }
 
-  public static ColumnVector murmurHash32(ColumnView columns[]) {
+  public static ColumnVector murmurHash32(ColumnView[] columns) {
     return murmurHash32(0, columns);
   }
 
   /**
    * Create a new vector containing the xxhash64 hash of each row in the table.
    *
-   * @param seed integer seed for the xxhash64 hash function
+   * @param seed    integer seed for the xxhash64 hash function
    * @param columns array of columns to hash, must have identical number of rows.
    * @return the new ColumnVector of 64-bit values representing each row's hash value.
    */
-  public static ColumnVector xxhash64(long seed, ColumnView columns[]) {
+  public static ColumnVector xxhash64(long seed, ColumnView[] columns) {
     if (columns.length < 1) {
       throw new IllegalArgumentException("xxhash64 hashing requires at least 1 column of input");
     }
     long[] columnViews = new long[columns.length];
     long size = columns[0].getRowCount();
 
-    for(int i = 0; i < columns.length; i++) {
+    for (int i = 0; i < columns.length; i++) {
       assert columns[i] != null : "Column vectors passed may not be null";
-      assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
+      assert columns[i].getRowCount() == size :
+          "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
       assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
-      columnViews[i] = columns[i].getNativeView(); 
+      columnViews[i] = columns[i].getNativeView();
     }
     return new ColumnVector(xxhash64(seed, columnViews));
   }
 
-  public static ColumnVector xxhash64(ColumnView columns[]) {
+  public static ColumnVector xxhash64(ColumnView[] columns) {
     return xxhash64(DEFAULT_XXHASH64_SEED, columns);
   }
 
-  public static ColumnVector hiveHash(ColumnView columns[]) {
+  public static ColumnVector hiveHash(ColumnView[] columns) {
     if (columns.length < 1) {
       throw new IllegalArgumentException("Hive hashing requires at least 1 column of input");
     }
     long[] columnViews = new long[columns.length];
     long size = columns[0].getRowCount();
 
-    for(int i = 0; i < columns.length; i++) {
+    for (int i = 0; i < columns.length; i++) {
       assert columns[i] != null : "Column vectors passed may not be null";
-      assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
+      assert columns[i].getRowCount() == size :
+          "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
       assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
       columnViews[i] = columns[i].getNativeView();
@@ -103,7 +106,7 @@ public class Hash {
   }
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
-  
+
   private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
 
   private static native long hiveHash(long[] viewHandles) throws CudfException;

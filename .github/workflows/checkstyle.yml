@@ -38,4 +38,4 @@ jobs:
       run: git fetch --all
 
     - name: Run checkstyle
-      run: bash ./dev/checkstyle.sh
+      run: mvn checkstyle:check

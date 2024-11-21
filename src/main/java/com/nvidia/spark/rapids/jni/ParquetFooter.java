@@ -16,8 +16,11 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
-
+import ai.rapids.cudf.CudfException;
+import ai.rapids.cudf.DefaultHostMemoryAllocator;
+import ai.rapids.cudf.HostMemoryAllocator;
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.NativeDepsLoader;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -29,69 +32,6 @@ public class ParquetFooter implements AutoCloseable {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  /**
-   * Base element for all types in a parquet schema.
-   */
-  public static abstract class SchemaElement {}
-
-  private static class ElementWithName {
-    final String name;
-    final SchemaElement element;
-
-    public ElementWithName(String name, SchemaElement element) {
-      this.name = name;
-      this.element = element;
-    }
-  }
-
-  public static class StructElement extends SchemaElement {
-    public static StructBuilder builder() {
-      return new StructBuilder();
-    }
-
-    private final ElementWithName[] children;
-    private StructElement(ElementWithName[] children) {
-      this.children = children;
-    }
-  }
-
-  public static class StructBuilder {
-    ArrayList<ElementWithName> children = new ArrayList<>();
-
-    StructBuilder() {
-      // Empty
-    }
-
-    public StructBuilder addChild(String name, SchemaElement child) {
-      children.add(new ElementWithName(name, child));
-      return this;
-    }
-
-    public StructElement build() {
-      return new StructElement(children.toArray(new ElementWithName[0]));
-    }
-  }
-
-  public static class ValueElement extends SchemaElement {
-    public ValueElement() {}
-  }
-
-  public static class ListElement extends SchemaElement {
-    private final SchemaElement item;
-    public ListElement(SchemaElement item) {
-      this.item = item;
-    }
-  }
-
-  public static class MapElement extends SchemaElement {
-    private final SchemaElement key;
-    private final SchemaElement value;
-    public MapElement(SchemaElement key, SchemaElement value) {
-      this.key = key;
-      this.value = value;
-    }
-  }
-
   private long nativeHandle;
 
   private ParquetFooter(long handle) {
@@ -99,46 +39,12 @@ public class ParquetFooter implements AutoCloseable {
   }
 
   /**
-   * Write the filtered footer back out in a format that is compatible with a parquet
-   * footer file. This will include the MAGIC PAR1 at the beginning and end and also the
-   * length of the footer just before the PAR1 at the end.
-   */
-  public HostMemoryBuffer serializeThriftFile(HostMemoryAllocator hostMemoryAllocator) {
-    return serializeThriftFile(nativeHandle, hostMemoryAllocator);
-  }
-
-  public HostMemoryBuffer serializeThriftFile() {
-    return serializeThriftFile(DefaultHostMemoryAllocator.get());
-  }
-
-  /**
-   * Get the number of rows in the footer after filtering.
-   */
-  public long getNumRows() {
-    return getNumRows(nativeHandle);
-  }
-
-  /**
-   * Get the number of top level columns in the footer after filtering.
-   */
-  public int getNumColumns() {
-    return getNumColumns(nativeHandle);
-  }
-
-  @Override
-  public void close() throws Exception {
-    if (nativeHandle != 0) {
-      close(nativeHandle);
-      nativeHandle = 0;
-    }
-  }
-
-  /**
    * Recursive helper function to flatten a SchemaElement, so it can more efficiently be passed
    * through JNI.
    */
   private static void depthFirstNamesHelper(SchemaElement se, String name, boolean makeLowerCase,
-      ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
+                                            ArrayList<String> names, ArrayList<Integer> numChildren,
+                                            ArrayList<Integer> tags) {
     if (makeLowerCase) {
       name = name.toLowerCase(Locale.ROOT);
     }
@@ -181,28 +87,31 @@ public class ParquetFooter implements AutoCloseable {
    * Flatten a SchemaElement, so it can more efficiently be passed through JNI.
    */
   private static void depthFirstNames(StructElement schema, boolean makeLowerCase,
-      ArrayList<String> names, ArrayList<Integer> numChildren, ArrayList<Integer> tags) {
+                                      ArrayList<String> names, ArrayList<Integer> numChildren,
+                                      ArrayList<Integer> tags) {
     // Initialize them with a quick length for non-nested values
-    for (ElementWithName se: schema.children) {
+    for (ElementWithName se : schema.children) {
       depthFirstNamesHelper(se.element, se.name, makeLowerCase, names, numChildren, tags);
     }
   }
 
   /**
-     * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
+   * Read a parquet thrift footer from a buffer and filter it like the java code would. The buffer
    * should only include the thrift footer itself. This includes filtering out row groups that do
    * not fall within the partition and pruning columns that are not needed.
-   * @param buffer the buffer to parse the footer out from.
+   *
+   * @param buffer     the buffer to parse the footer out from.
    * @param partOffset for a split the start of the split
    * @param partLength the length of the split
-   * @param schema a stripped down schema so the code can verify that the types match what is
-   *               expected. The java code does this too.
+   * @param schema     a stripped down schema so the code can verify that the types match what is
+   *                   expected. The java code does this too.
    * @param ignoreCase should case be ignored when matching column names. If this is true then
    *                   names should be converted to lower case before being passed to this.
    * @return a reference to the parsed footer.
    */
   public static ParquetFooter readAndFilter(HostMemoryBuffer buffer,
-      long partOffset, long partLength, StructElement schema, boolean ignoreCase) {
+                                            long partOffset, long partLength, StructElement schema,
+                                            boolean ignoreCase) {
     int parentNumChildren = schema.children.length;
     ArrayList<String> names = new ArrayList<>();
     ArrayList<Integer> numChildren = new ArrayList<>();
@@ -210,8 +119,7 @@ public class ParquetFooter implements AutoCloseable {
 
     depthFirstNames(schema, ignoreCase, names, numChildren, tags);
     return new ParquetFooter(
-        readAndFilter
-            (buffer.getAddress(), buffer.getLength(),
+        readAndFilter(buffer.getAddress(), buffer.getLength(),
                 partOffset, partLength,
                 names.toArray(new String[0]),
                 numChildren.stream().mapToInt(i -> i).toArray(),
@@ -220,15 +128,13 @@ public class ParquetFooter implements AutoCloseable {
                 ignoreCase));
   }
 
-  // Native APIS
-
   private static native long readAndFilter(long address, long length,
-      long partOffset, long partLength,
-      String[] names,
-      int[] numChildren,
-      int[] tags,
-      int parentNumChildren,
-      boolean ignoreCase) throws CudfException;
+                                           long partOffset, long partLength,
+                                           String[] names,
+                                           int[] numChildren,
+                                           int[] tags,
+                                           int parentNumChildren,
+                                           boolean ignoreCase) throws CudfException;
 
   private static native void close(long nativeHandle);
 
@@ -237,5 +143,110 @@ public class ParquetFooter implements AutoCloseable {
   private static native int getNumColumns(long nativeHandle);
 
   private static native HostMemoryBuffer serializeThriftFile(long nativeHandle,
-    HostMemoryAllocator hostMemoryAllocator);
+                                                             HostMemoryAllocator hostMemoryAllocator);
+
+  /**
+   * Write the filtered footer back out in a format that is compatible with a parquet
+   * footer file. This will include the MAGIC PAR1 at the beginning and end and also the
+   * length of the footer just before the PAR1 at the end.
+   */
+  public HostMemoryBuffer serializeThriftFile(HostMemoryAllocator hostMemoryAllocator) {
+    return serializeThriftFile(nativeHandle, hostMemoryAllocator);
+  }
+
+  public HostMemoryBuffer serializeThriftFile() {
+    return serializeThriftFile(DefaultHostMemoryAllocator.get());
+  }
+
+  /**
+   * Get the number of rows in the footer after filtering.
+   */
+  public long getNumRows() {
+    return getNumRows(nativeHandle);
+  }
+
+  /**
+   * Get the number of top level columns in the footer after filtering.
+   */
+  public int getNumColumns() {
+    return getNumColumns(nativeHandle);
+  }
+
+  @Override
+  public void close() throws Exception {
+    if (nativeHandle != 0) {
+      close(nativeHandle);
+      nativeHandle = 0;
+    }
+  }
+
+  /**
+   * Base element for all types in a parquet schema.
+   */
+  public static abstract class SchemaElement {
+  }
+
+  private static class ElementWithName {
+    final String name;
+    final SchemaElement element;
+
+    public ElementWithName(String name, SchemaElement element) {
+      this.name = name;
+      this.element = element;
+    }
+  }
+
+  // Native APIS
+
+  public static class StructElement extends SchemaElement {
+    private final ElementWithName[] children;
+
+    private StructElement(ElementWithName[] children) {
+      this.children = children;
+    }
+
+    public static StructBuilder builder() {
+      return new StructBuilder();
+    }
+  }
+
+  public static class StructBuilder {
+    ArrayList<ElementWithName> children = new ArrayList<>();
+
+    StructBuilder() {
+      // Empty
+    }
+
+    public StructBuilder addChild(String name, SchemaElement child) {
+      children.add(new ElementWithName(name, child));
+      return this;
+    }
+
+    public StructElement build() {
+      return new StructElement(children.toArray(new ElementWithName[0]));
+    }
+  }
+
+  public static class ValueElement extends SchemaElement {
+    public ValueElement() {
+    }
+  }
+
+  public static class ListElement extends SchemaElement {
+    private final SchemaElement item;
+
+    public ListElement(SchemaElement item) {
+      this.item = item;
+    }
+  }
+
+  public static class MapElement extends SchemaElement {
+    private final SchemaElement key;
+    private final SchemaElement value;
+
+    public MapElement(SchemaElement key, SchemaElement value) {
+      this.key = key;
+      this.value = value;
+    }
+  }
 }

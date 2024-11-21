@@ -19,14 +19,13 @@
 package com.nvidia.spark.rapids.jni.schema;
 
 import ai.rapids.cudf.Schema;
-
 import java.util.List;
 
 /**
  * A post order visitor for schemas.
  *
  * <h1>Flattened Schema</h1>
- *
+ * <p>
  * A flattened schema is a schema where all fields with nested types are flattened into an array of fields. For example,
  * for a schema with following fields:
  *
@@ -36,7 +35,7 @@ import java.util.List;
  *    <li> C: <code>string </code> </li>
  *    <li> D: <code>long </code> </li>
  * </ul>
- *
+ * <p>
  * The flattened schema will be:
  *
  * <ul>
@@ -59,7 +58,7 @@ import java.util.List;
  *    <li> B: <code>list { int b1} </code> </li>
  *    <li> C: <code>string </code> </li>
  * </ul>
- *
+ * <p>
  * The order of visiting will be:
  * <ol>
  *     <li> Visit primitive field a1 </li>
@@ -79,42 +78,47 @@ import java.util.List;
  * @param <R> Return type after processing all children values.
  */
 public interface SchemaVisitor<T, P, R> {
-    /**
-     * Visit the top level schema.
-     * @param schema the top level schema to visit
-     * @param children the results of visiting the children
-     * @return the result of visiting the top level schema
-     */
-    R visitTopSchema(Schema schema, List<T> children);
+  /**
+   * Visit the top level schema.
+   *
+   * @param schema   the top level schema to visit
+   * @param children the results of visiting the children
+   * @return the result of visiting the top level schema
+   */
+  R visitTopSchema(Schema schema, List<T> children);
 
-    /**
-     * Visit a struct schema.
-     * @param structType the struct schema to visit
-     * @param children the results of visiting the children
-     * @return the result of visiting the struct schema
-     */
-    T visitStruct(Schema structType, List<T> children);
+  /**
+   * Visit a struct schema.
+   *
+   * @param structType the struct schema to visit
+   * @param children   the results of visiting the children
+   * @return the result of visiting the struct schema
+   */
+  T visitStruct(Schema structType, List<T> children);
 
-    /**
-     * Visit a list schema before actually visiting its child.
-     * @param listType the list schema to visit
-     * @return the result of visiting the list schema
-     */
-    P preVisitList(Schema listType);
+  /**
+   * Visit a list schema before actually visiting its child.
+   *
+   * @param listType the list schema to visit
+   * @return the result of visiting the list schema
+   */
+  P preVisitList(Schema listType);
 
-    /**
-     * Visit a list schema after visiting its child.
-     * @param listType the list schema to visit
-     * @param preVisitResult the result of visiting the list schema before visiting its child
-     * @param childResult the result of visiting the child
-     * @return the result of visiting the list schema
-     */
-    T visitList(Schema listType, P preVisitResult, T childResult);
+  /**
+   * Visit a list schema after visiting its child.
+   *
+   * @param listType       the list schema to visit
+   * @param preVisitResult the result of visiting the list schema before visiting its child
+   * @param childResult    the result of visiting the child
+   * @return the result of visiting the list schema
+   */
+  T visitList(Schema listType, P preVisitResult, T childResult);
 
-    /**
-     * Visit a primitive type.
-     * @param primitiveType the primitive type to visit
-     * @return the result of visiting the primitive type
-     */
-    T visit(Schema primitiveType);
+  /**
+   * Visit a primitive type.
+   *
+   * @param primitiveType the primitive type to visit
+   * @return the result of visiting the primitive type
+   */
+  T visit(Schema primitiveType);
 }

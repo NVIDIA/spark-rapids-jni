@@ -16,9 +16,14 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.NativeDepsLoader;
 
-/** Utility class for casting between string columns and native type columns */
+/**
+ * Utility class for casting between string columns and native type columns
+ */
 public class CastStrings {
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -28,9 +33,9 @@ public class CastStrings {
    * Convert a string column to an integer column of a specified type stripping away leading and
    * trailing spaces.
    *
-   * @param cv the column data to process.
+   * @param cv       the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
-   * @param type the type of the return column.
+   * @param type     the type of the return column.
    * @return the converted column.
    */
   public static ColumnVector toInteger(ColumnView cv, boolean ansiMode, DType type) {
@@ -40,10 +45,10 @@ public class CastStrings {
   /**
    * Convert a string column to an integer column of a specified type.
    *
-   * @param cv the column data to process.
+   * @param cv       the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
-   * @param strip true if leading and trailing spaces should be ignored when parsing.
-   * @param type the type of the return column.
+   * @param strip    true if leading and trailing spaces should be ignored when parsing.
+   * @param type     the type of the return column.
    * @return the converted column.
    */
   public static ColumnVector toInteger(ColumnView cv, boolean ansiMode, boolean strip, DType type) {
@@ -55,10 +60,10 @@ public class CastStrings {
    * Convert a string column to an integer column of a specified type stripping away leading and
    * trailing whitespace.
    *
-   * @param cv the column data to process.
-   * @param ansiMode true if invalid data are errors, false if they should be nulls.
+   * @param cv        the column data to process.
+   * @param ansiMode  true if invalid data are errors, false if they should be nulls.
    * @param precision the output precision.
-   * @param scale the output scale.
+   * @param scale     the output scale.
    * @return the converted column.
    */
   public static ColumnVector toDecimal(ColumnView cv, boolean ansiMode, int precision, int scale) {
@@ -68,22 +73,22 @@ public class CastStrings {
   /**
    * Convert a string column to an integer column of a specified type.
    *
-   * @param cv the column data to process.
-   * @param ansiMode true if invalid data are errors, false if they should be nulls.
-   * @param strip true if leading and trailing white space should be stripped.
+   * @param cv        the column data to process.
+   * @param ansiMode  true if invalid data are errors, false if they should be nulls.
+   * @param strip     true if leading and trailing white space should be stripped.
    * @param precision the output precision.
-   * @param scale the output scale.
+   * @param scale     the output scale.
    * @return the converted column.
    */
   public static ColumnVector toDecimal(ColumnView cv, boolean ansiMode, boolean strip,
-      int precision, int scale) {
+                                       int precision, int scale) {
     return new ColumnVector(toDecimal(cv.getNativeView(), ansiMode, strip, precision, scale));
   }
 
   /**
    * Convert a float column to a formatted string column.
    *
-   * @param cv the column data to process
+   * @param cv     the column data to process
    * @param digits the number of digits to display after the decimal point
    * @return the converted column
    */
@@ -114,9 +119,9 @@ public class CastStrings {
   /**
    * Convert a string column to a given floating-point type column.
    *
-   * @param cv the column data to process.
+   * @param cv       the column data to process.
    * @param ansiMode true if invalid data are errors, false if they should be nulls.
-   * @param type the type of the return column.
+   * @param type     the type of the return column.
    * @return the converted column.
    */
   public static ColumnVector toFloat(ColumnView cv, boolean ansiMode, DType type) {
@@ -125,18 +130,18 @@ public class CastStrings {
 
 
   public static ColumnVector toIntegersWithBase(ColumnView cv, int base,
-    boolean ansiEnabled, DType type) {
+                                                boolean ansiEnabled, DType type) {
     return new ColumnVector(toIntegersWithBase(cv.getNativeView(), base, ansiEnabled,
-      type.getTypeId().getNativeId()));
+        type.getTypeId().getNativeId()));
   }
 
   /**
    * Converts an integer column to a string column by converting the underlying integers to the
    * specified base.
-   *
+   * <p>
    * Note: Right now we only support base 10 and 16. The hexadecimal values will be
    * returned without leading zeros or padding at the end
-   * 
+   * <p>
    * Example:
    * input = [123, -1, 0, 27, 342718233]
    * s = fromIntegersWithBase(input, 16)
@@ -144,7 +149,7 @@ public class CastStrings {
    * s = fromIntegersWithBase(input, 10)
    * s is ['123', '-1', '0', '27', '342718233']
    *
-   * @param cv The input integer column to be converted.
+   * @param cv   The input integer column to be converted.
    * @param base base that we want to convert to (currently only 10/16)
    * @return a new String ColumnVector
    */
@@ -153,14 +158,21 @@ public class CastStrings {
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
-      int dtype);
+                                       int dtype);
+
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
-      int precision, int scale);
+                                       int precision, int scale);
+
   private static native long toFloat(long nativeColumnView, boolean ansi_enabled, int dtype);
+
   private static native long fromDecimal(long nativeColumnView);
+
   private static native long fromFloatWithFormat(long nativeColumnView, int digits);
+
   private static native long fromFloat(long nativeColumnView);
+
   private static native long toIntegersWithBase(long nativeColumnView, int base,
-    boolean ansiEnabled, int dtype);
+                                                boolean ansiEnabled, int dtype);
+
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
 }

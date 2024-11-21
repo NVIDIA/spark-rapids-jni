@@ -16,8 +16,16 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
-
+import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.Rmm;
+import ai.rapids.cudf.RmmAllocationMode;
+import ai.rapids.cudf.RmmCudaMemoryResource;
+import ai.rapids.cudf.RmmDeviceMemoryResource;
+import ai.rapids.cudf.RmmEventHandler;
+import ai.rapids.cudf.RmmLimitingResourceAdaptor;
+import ai.rapids.cudf.RmmLoggingResourceAdaptor;
+import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -53,7 +61,7 @@ public class RmmSparkMonteCarlo {
     return value;
   }
 
-  public static void main(String [] args) throws InterruptedException {
+  public static void main(String[] args) throws InterruptedException {
     // Run a simple monte carlo simulation to try and see the performance impact of retry
     // on random situations.
     boolean useSparkRmm = true;
@@ -75,7 +83,7 @@ public class RmmSparkMonteCarlo {
     int shuffleThreads = 0;
     boolean debugOoms = false;
 
-    for (String arg: args) {
+    for (String arg : args) {
       if (arg.equals("--baseline")) {
         useSparkRmm = false;
       } else if (arg.equals("--debugOOMs")) {
@@ -133,17 +141,24 @@ public class RmmSparkMonteCarlo {
         System.out.println("--parallel=<NUM>\tnumber of tasks that can run in parallel on the GPU");
         System.out.println("--seed=<NUM>\tthe random seed to use for the test");
         System.out.println("--gpuMiB=<NUM>\tlimit on the GPUs memory to use for testing");
-        System.out.println("--taskMaxMiB=<NUM>\tmaximum amount of memory a regular task may have allocated");
-        System.out.println("--allocMode=<MODE>\tthe RMM allocation mode to use POOL, ASYNC, ARENA, CUDA");
-        System.out.println("--taskRetry=<NUM>\tmaximum number of times to retry a task before failing the situation");
+        System.out.println(
+            "--taskMaxMiB=<NUM>\tmaximum amount of memory a regular task may have allocated");
+        System.out.println(
+            "--allocMode=<MODE>\tthe RMM allocation mode to use POOL, ASYNC, ARENA, CUDA");
+        System.out.println(
+            "--taskRetry=<NUM>\tmaximum number of times to retry a task before failing the situation");
         System.out.println("--maxTaskAllocs=<NUM>\tmaximum number of allocations a task can make");
-        System.out.println("--maxTaskSleep=<NUM>\tmaximum amount of time a task can sleep for (sim processing)");
+        System.out.println(
+            "--maxTaskSleep=<NUM>\tmaximum amount of time a task can sleep for (sim processing)");
         System.out.println("--noLog\tdisable logging");
         System.out.println("--skewed\tgenerate templated tasks and skew one of them by skewAmount");
         System.out.println("--skewAmount=<NUM>\tthe amount to multiply the skewed allocations by");
-        System.out.println("--useTemplate\tif all of the tasks should be the same, but change by +/- templateChangeAmount as a multiplier");
-        System.out.println("--templateChangeAmount=<NUM>\tA multiplication factor to change the template task by when making new tasks (as a multiplier)");
-        System.out.println("--shuffleThreads=<NUM>\tThe number of threads to use to simulate UCX shuffle");
+        System.out.println(
+            "--useTemplate\tif all of the tasks should be the same, but change by +/- templateChangeAmount as a multiplier");
+        System.out.println(
+            "--templateChangeAmount=<NUM>\tA multiplication factor to change the template task by when making new tasks (as a multiplier)");
+        System.out.println(
+            "--shuffleThreads=<NUM>\tThe number of threads to use to simulate UCX shuffle");
         System.exit(0);
       } else {
         throw new IllegalArgumentException("Unexpected argument " + arg +
@@ -181,11 +196,11 @@ public class RmmSparkMonteCarlo {
   }
 
   public static void setupRmm(int allocationMode, long limitMiB, boolean useSparkRmm,
-      boolean enableLogging) {
+                              boolean enableLogging) {
     long limitBytes = limitMiB * 1024 * 1024;
     Rmm.LogConf rmmLog = null;
     if (enableLogging) {
-     rmmLog = Rmm.logTo(new File("./monte.rmm.log"));
+      rmmLog = Rmm.logTo(new File("./monte.rmm.log"));
     }
     if (allocationMode == RmmAllocationMode.CUDA_DEFAULT) {
       // We want to limit the total size, but Rmm will not do that by default...
@@ -209,7 +224,8 @@ public class RmmSparkMonteCarlo {
     } else {
       Rmm.initialize(allocationMode, rmmLog, limitBytes);
     }
-    boolean needsSync = (allocationMode & RmmAllocationMode.CUDA_ASYNC) == RmmAllocationMode.CUDA_ASYNC;
+    boolean needsSync =
+        (allocationMode & RmmAllocationMode.CUDA_ASYNC) == RmmAllocationMode.CUDA_ASYNC;
     if (useSparkRmm) {
       if (enableLogging) {
         RmmSpark.setEventHandler(new TestRmmEventHandler(needsSync), "./monte.state.log");
@@ -223,12 +239,76 @@ public class RmmSparkMonteCarlo {
     }
   }
 
+  private static List<Situation> generateSituations(long seed, int numIterations, long numTasks,
+                                                    long taskMaxMiB, int maxTaskAllocs,
+                                                    int maxTaskSleep,
+                                                    boolean isSkewed, double skewAmount,
+                                                    boolean useTemplate,
+                                                    double templateChangeAmount) {
+    ArrayList<Situation> ret = new ArrayList<>(numIterations);
+    long start = System.nanoTime();
+    System.out.println("Generating " + numIterations + " test situations...");
+
+    Random r = new Random(seed);
+    for (int i = 0; i < numIterations; i++) {
+      ret.add(new Situation(r, numTasks, taskMaxMiB, maxTaskAllocs, maxTaskSleep,
+          isSkewed, skewAmount, useTemplate, templateChangeAmount));
+    }
+
+    long end = System.nanoTime();
+    long diff = TimeUnit.MILLISECONDS.convert(end - start, TimeUnit.NANOSECONDS);
+    System.out.println("Took " + diff + " milliseconds to generate " + numIterations);
+    return ret;
+  }
+
+  interface MemoryOp {
+    default void doIt(DeviceMemoryBuffer[] buffers, long taskId) {
+      long threadId = RmmSpark.getCurrentThreadId();
+      RmmSpark.shuffleThreadWorkingOnTasks(new long[] {taskId});
+      RmmSpark.startRetryBlock(threadId);
+      try {
+        int tries = 0;
+        while (tries < 100 && tries >= 0) {
+          try {
+            if (tries > 0) {
+              RmmSpark.blockThreadUntilReady();
+            }
+            tries++;
+            doIt(buffers);
+            tries = -1;
+          } catch (GpuRetryOOM oom) {
+            // Don't need to clear the buffers, because there is only one buffer.
+            numRetry.incrementAndGet();
+          } catch (CpuRetryOOM oom) {
+            // Don't need to clear the buffers, because there is only one buffer.
+            numRetry.incrementAndGet();
+          }
+        }
+        if (tries >= 100) {
+          throw new OutOfMemoryError("Could not make shuffle work after " + tries + " tries");
+        }
+      } finally {
+        RmmSpark.endRetryBlock(threadId);
+        RmmSpark.poolThreadFinishedForTask(taskId);
+      }
+    }
+
+    void doIt(DeviceMemoryBuffer[] buffers);
+
+    MemoryOp[] split();
+
+    MemoryOp randomMod(Random r, double templateChangeAmount);
+
+    MemoryOp makeSkewed(double skewAmount);
+  }
+
   private static class TestRmmEventHandler implements RmmEventHandler {
     private final boolean needsSync;
 
     public TestRmmEventHandler(boolean needsSync) {
       this.needsSync = needsSync;
     }
+
     @Override
     public long[] getAllocThresholds() {
       return null;
@@ -270,7 +350,7 @@ public class RmmSparkMonteCarlo {
     volatile boolean done = false;
 
     public TaskRunnerThread(CyclicBarrier barrier, SituationRunner runner, int taskRetry,
-        ExecutorService shuffle) {
+                            ExecutorService shuffle) {
       this.barrier = barrier;
       this.runner = runner;
       this.taskRetry = taskRetry;
@@ -374,6 +454,7 @@ public class RmmSparkMonteCarlo {
 
   static class ShuffleThreadFactory implements ThreadFactory {
     static final AtomicLong idGen = new AtomicLong(0);
+
     @Override
     public Thread newThread(Runnable runnable) {
       long id = idGen.getAndIncrement();
@@ -385,12 +466,10 @@ public class RmmSparkMonteCarlo {
   }
 
   public static class SituationRunner {
-    final TaskRunnerThread[] threads;
     public final boolean debugOoms;
-    private ExecutorService shuffle;
+    final TaskRunnerThread[] threads;
     final CyclicBarrier barrier;
     volatile boolean sitIsDone = false;
-
     // Stats
     volatile int failedSits;
     volatile int successSits;
@@ -401,6 +480,7 @@ public class RmmSparkMonteCarlo {
     volatile long totalTimeLost;
     volatile boolean sitFailed;
     volatile boolean didThisSitFail = false;
+    private final ExecutorService shuffle;
 
     public SituationRunner(int parallelism, int taskRetry, int shuffleThreads, boolean debugOoms) {
       this.debugOoms = debugOoms;
@@ -433,6 +513,22 @@ public class RmmSparkMonteCarlo {
       }
     }
 
+    private static String asTimeStr(long timeNs) {
+      long justms = TimeUnit.NANOSECONDS.toMillis(timeNs);
+
+      long hours = TimeUnit.NANOSECONDS.toHours(timeNs);
+      long hoursInNanos = TimeUnit.HOURS.toNanos(hours);
+      timeNs = timeNs - hoursInNanos;
+      long mins = TimeUnit.NANOSECONDS.toMinutes(timeNs);
+      long minsInNanos = TimeUnit.MINUTES.toNanos(mins);
+      timeNs = timeNs - minsInNanos;
+      long secs = TimeUnit.NANOSECONDS.toSeconds(timeNs);
+      long secsInNanos = TimeUnit.SECONDS.toNanos(secs);
+      long ns = timeNs - secsInNanos;
+      return String.format("%1$02d:%2$02d:%3$02d.%4$09d", hours, mins, secs, ns) +
+          " or " + justms + " ms";
+    }
+
     public int run(List<Situation> situations) throws InterruptedException {
       numSplitAndRetry.set(0);
       numRetry.set(0);
@@ -447,7 +543,7 @@ public class RmmSparkMonteCarlo {
       }
       int numSits = 0;
       long totalSitTime = 0;
-      for (Situation sit: situations) {
+      for (Situation sit : situations) {
         numSits++;
         long start = System.nanoTime();
         for (TaskRunnerThread t : threads) {
@@ -497,22 +593,6 @@ public class RmmSparkMonteCarlo {
       }
     }
 
-    private static String asTimeStr(long timeNs) {
-      long justms = TimeUnit.NANOSECONDS.toMillis(timeNs);
-
-      long hours = TimeUnit.NANOSECONDS.toHours(timeNs);
-      long hoursInNanos = TimeUnit.HOURS.toNanos(hours);
-      timeNs = timeNs - hoursInNanos;
-      long mins = TimeUnit.NANOSECONDS.toMinutes(timeNs);
-      long minsInNanos = TimeUnit.MINUTES.toNanos(mins);
-      timeNs = timeNs - minsInNanos;
-      long secs = TimeUnit.NANOSECONDS.toSeconds(timeNs);
-      long secsInNanos = TimeUnit.SECONDS.toNanos(secs);
-      long ns = timeNs - secsInNanos;
-      return String.format("%1$02d:%2$02d:%3$02d.%4$09d", hours, mins, secs, ns) +
-          " or " + justms + " ms";
-    }
-
     public void finish() {
       for (TaskRunnerThread t : threads) {
         t.finish();
@@ -535,49 +615,8 @@ public class RmmSparkMonteCarlo {
     }
   }
 
-  interface MemoryOp {
-    default void doIt(DeviceMemoryBuffer[] buffers, long taskId) {
-      long threadId = RmmSpark.getCurrentThreadId();
-      RmmSpark.shuffleThreadWorkingOnTasks(new long[]{taskId});
-      RmmSpark.startRetryBlock(threadId);
-      try {
-        int tries = 0;
-        while (tries < 100 && tries >= 0) {
-          try {
-            if (tries > 0) {
-              RmmSpark.blockThreadUntilReady();
-            }
-            tries++;
-            doIt(buffers);
-            tries = -1;
-          } catch (GpuRetryOOM oom) {
-            // Don't need to clear the buffers, because there is only one buffer.
-            numRetry.incrementAndGet();
-          } catch (CpuRetryOOM oom) {
-            // Don't need to clear the buffers, because there is only one buffer.
-            numRetry.incrementAndGet();
-          }
-        }
-        if (tries >= 100) {
-          throw new OutOfMemoryError("Could not make shuffle work after " + tries + " tries");
-        }
-      } finally {
-        RmmSpark.endRetryBlock(threadId);
-        RmmSpark.poolThreadFinishedForTask(taskId);
-      }
-    }
-
-    void doIt(DeviceMemoryBuffer[] buffers);
-
-    MemoryOp[] split();
-
-    MemoryOp randomMod(Random r, double templateChangeAmount);
-
-    MemoryOp makeSkewed(double skewAmount);
-  }
-
   public static class AllocOp implements MemoryOp {
-    private static AtomicLong idgen = new AtomicLong(0);
+    private static final AtomicLong idgen = new AtomicLong(0);
 
     public final int offset;
     private final long size;
@@ -598,6 +637,7 @@ public class RmmSparkMonteCarlo {
       this.sleepTime = sleepTime;
       this.id = id;
     }
+
     @Override
     public String toString() {
       return "ALLOC[" + offset + "] " + size + " SLEEP " + sleepTime;
@@ -636,7 +676,7 @@ public class RmmSparkMonteCarlo {
     @Override
     public MemoryOp randomMod(Random r, double templateChangeAmount) {
       double proposedSizeMult = (1.0 - (r.nextDouble() * 2.0)) * templateChangeAmount;
-      long newSize = (long)(proposedSizeMult * size);
+      long newSize = (long) (proposedSizeMult * size);
       if (newSize <= 0) {
         newSize = 1;
       }
@@ -645,7 +685,7 @@ public class RmmSparkMonteCarlo {
 
     @Override
     public MemoryOp makeSkewed(double skewAmount) {
-      return new AllocOp(offset, (long)(size * skewAmount), sleepTime);
+      return new AllocOp(offset, (long) (size * skewAmount), sleepTime);
     }
   }
 
@@ -662,7 +702,7 @@ public class RmmSparkMonteCarlo {
     }
 
     @Override
-    public void doIt(DeviceMemoryBuffer[]  buffers) {
+    public void doIt(DeviceMemoryBuffer[] buffers) {
       DeviceMemoryBuffer buf = buffers[offset];
       if (buf != null) {
         buf.close();
@@ -692,9 +732,9 @@ public class RmmSparkMonteCarlo {
   }
 
   public static class TaskOpSet {
+    final int numBuffers;
     DeviceMemoryBuffer[] buffers;
     ArrayList<MemoryOp> operations;
-    final int numBuffers;
     long allocatedBeforeError = 0;
 
     private TaskOpSet(int numBuffers, ArrayList<MemoryOp> operations) {
@@ -703,7 +743,7 @@ public class RmmSparkMonteCarlo {
     }
 
     public TaskOpSet(Random r, long taskMaxMiB,
-        int maxTaskAllocs, int maxTaskSleep) {
+                     int maxTaskAllocs, int maxTaskSleep) {
       long maxSleepTimeNano = TimeUnit.MILLISECONDS.toNanos(maxTaskSleep);
       long totalSleepTimeNano = 0;
       if (maxSleepTimeNano > 0) {
@@ -733,7 +773,8 @@ public class RmmSparkMonteCarlo {
           // We want the sleeps to be very small because we are not simulating
           // the time, and generally they will be. In the future we can make this
           // configurable.
-          long sleepTime = (long)(totalSleepTimeNano * sleepWeights[allocOpNum]/totalSleepWeight);
+          long sleepTime =
+              (long) (totalSleepTimeNano * sleepWeights[allocOpNum] / totalSleepWeight);
           AllocOp ao = new AllocOp(allocOpNum, size, sleepTime);
           operations.add(ao);
           outstandingAllocOps.add(ao);
@@ -777,9 +818,9 @@ public class RmmSparkMonteCarlo {
       allocatedBeforeError = 0;
       boolean isForShuffle = shuffle != null;
       boolean done = false;
-      while(!done) {
+      while (!done) {
         try {
-          for (MemoryOp op: operations) {
+          for (MemoryOp op : operations) {
             if (isForShuffle) {
               try {
                 RmmSpark.submittingToPool();
@@ -827,7 +868,7 @@ public class RmmSparkMonteCarlo {
 
     public TaskOpSet randomMod(Random r, double templateChangeAmount) {
       ArrayList<MemoryOp> newOps = new ArrayList<>(operations.size());
-      for (MemoryOp op: operations) {
+      for (MemoryOp op : operations) {
         newOps.add(op.randomMod(r, templateChangeAmount));
       }
       return new TaskOpSet(numBuffers, newOps);
@@ -835,7 +876,7 @@ public class RmmSparkMonteCarlo {
 
     public TaskOpSet makeSkewed(double skewAmount) {
       ArrayList<MemoryOp> newOps = new ArrayList<>(operations.size());
-      for (MemoryOp op: operations) {
+      for (MemoryOp op : operations) {
         newOps.add(op.makeSkewed(skewAmount));
       }
       return new TaskOpSet(numBuffers, newOps);
@@ -904,7 +945,7 @@ public class RmmSparkMonteCarlo {
 
     public Task randomMod(Random r, double templateChangeAmount) {
       LinkedList<TaskOpSet> changed = new LinkedList<>();
-      for (TaskOpSet orig: toDo) {
+      for (TaskOpSet orig : toDo) {
         changed.add(orig.randomMod(r, templateChangeAmount));
       }
       return new Task(changed, 0);
@@ -912,7 +953,7 @@ public class RmmSparkMonteCarlo {
 
     public Task makeSkewed(double skewAmount) {
       LinkedList<TaskOpSet> changed = new LinkedList<>();
-      for (TaskOpSet orig: toDo) {
+      for (TaskOpSet orig : toDo) {
         changed.add(orig.makeSkewed(skewAmount));
       }
       return new Task(changed, 0);
@@ -923,8 +964,9 @@ public class RmmSparkMonteCarlo {
     LinkedList<Task> tasks = new LinkedList<>();
 
     public Situation(Random r, long numTasks, long taskMaxMiB,
-        int maxTaskAllocs, int maxTaskSleep,
-        boolean isSkewed, double skewAmount, boolean useTemplate, double templateChangeAmount) {
+                     int maxTaskAllocs, int maxTaskSleep,
+                     boolean isSkewed, double skewAmount, boolean useTemplate,
+                     double templateChangeAmount) {
       if (useTemplate) {
         Task template = new Task(r, taskMaxMiB, maxTaskAllocs, maxTaskSleep);
         tasks.add(template);
@@ -956,24 +998,5 @@ public class RmmSparkMonteCarlo {
     public String toString() {
       return "Sit: " + tasks.size();
     }
-  }
-
-  private static List<Situation> generateSituations(long seed, int numIterations, long numTasks,
-      long taskMaxMiB, int maxTaskAllocs, int maxTaskSleep,
-      boolean isSkewed, double skewAmount, boolean useTemplate, double templateChangeAmount) {
-    ArrayList<Situation> ret = new ArrayList<>(numIterations);
-    long start = System.nanoTime();
-    System.out.println("Generating " + numIterations + " test situations...");
-
-    Random r = new Random(seed);
-    for (int i = 0; i < numIterations; i++) {
-      ret.add(new Situation(r, numTasks, taskMaxMiB, maxTaskAllocs, maxTaskSleep,
-          isSkewed, skewAmount, useTemplate, templateChangeAmount));
-    }
-
-    long end = System.nanoTime();
-    long diff = TimeUnit.MILLISECONDS.convert(end - start, TimeUnit.NANOSECONDS);
-    System.out.println("Took " + diff + " milliseconds to generate " + numIterations);
-    return ret;
   }
 }

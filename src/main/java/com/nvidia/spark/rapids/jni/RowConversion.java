@@ -16,9 +16,15 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.NativeDepsLoader;
+import ai.rapids.cudf.Table;
 
-/** Utility class for converting between column major and row major data */
+/**
+ * Utility class for converting between column major and row major data
+ */
 public class RowConversion {
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -27,7 +33,7 @@ public class RowConversion {
   /**
    * For details about how this method functions refer to
    * {@link #convertToRowsFixedWidthOptimized()}.
-   *
+   * <p>
    * The only thing different between this method and {@link #convertToRowsFixedWidthOptimized()}
    * is that this can handle rougly 250M columns while {@link #convertToRowsFixedWidthOptimized()}
    * can only handle columns less than 100
@@ -63,7 +69,7 @@ public class RowConversion {
    *  |row N+1 | validity for row N+1 | padding |
    *  ...
    * </pre>
-   *
+   * <p>
    * The format of each row is similar in layout to a C struct where each column will have padding
    * in front of it to align it properly. Each row has padding inserted at the end so the next row
    * is aligned to a 64-bit boundary. This is so that the first column will always start at the
@@ -79,8 +85,8 @@ public class RowConversion {
    *   | A - BOOL8 (8-bit) | B - INT16 (16-bit) | C - DURATION_DAYS (32-bit) |
    * </pre>
    * <p/>
-   *  Will have a layout that looks like
-   *  <p/><pre>
+   * Will have a layout that looks like
+   * <p/><pre>
    *  | A_0 | P | B_0 | B_1 | C_0 | C_1 | C_2 | C_3 | V0 | P | P | P | P | P | P | P |
    * </pre>
    * <p/>
@@ -127,14 +133,14 @@ public class RowConversion {
   /**
    * Convert a column of list of bytes that is formatted like the output from `convertToRows`
    * and convert it back to a table.
-   *
+   * <p>
    * NOTE: This method doesn't support nested types
    *
-   * @param vec the row data to process.
+   * @param vec    the row data to process.
    * @param schema the types of each column.
    * @return the parsed table.
    */
-  public static Table convertFromRows(ColumnView vec, DType ... schema) {
+  public static Table convertFromRows(ColumnView vec, DType... schema) {
     int[] types = new int[schema.length];
     int[] scale = new int[schema.length];
     for (int i = 0; i < schema.length; i++) {
@@ -148,14 +154,14 @@ public class RowConversion {
   /**
    * Convert a column of list of bytes that is formatted like the output from `convertToRows`
    * and convert it back to a table.
-   *
+   * <p>
    * NOTE: This method doesn't support nested types
    *
-   * @param vec the row data to process.
+   * @param vec    the row data to process.
    * @param schema the types of each column.
    * @return the parsed table.
    */
-  public static Table convertFromRowsFixedWidthOptimized(ColumnView vec, DType ... schema) {
+  public static Table convertFromRowsFixedWidthOptimized(ColumnView vec, DType... schema) {
     int[] types = new int[schema.length];
     int[] scale = new int[schema.length];
     for (int i = 0; i < schema.length; i++) {
@@ -167,8 +173,11 @@ public class RowConversion {
   }
 
   private static native long[] convertToRows(long nativeHandle);
+
   private static native long[] convertToRowsFixedWidthOptimized(long nativeHandle);
 
   private static native long[] convertFromRows(long nativeColumnView, int[] types, int[] scale);
-  private static native long[] convertFromRowsFixedWidthOptimized(long nativeColumnView, int[] types, int[] scale);
+
+  private static native long[] convertFromRowsFixedWidthOptimized(long nativeColumnView,
+                                                                  int[] types, int[] scale);
 }

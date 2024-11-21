@@ -23,19 +23,10 @@ import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
-import java.util.Arrays;
-import java.util.Map;
-
 /**
  * Initialize RMM in ways that are specific to Spark.
  */
 public class RmmSpark {
-
-  public enum OomInjectionType {
-    CPU_OR_GPU,
-    CPU,
-    GPU;
-  }
 
   private static volatile SparkResourceAdaptor sra = null;
 
@@ -50,13 +41,15 @@ public class RmmSpark {
   /**
    * Set the event handler in a way that Spark wants it. For now this is the same as RMM, but in
    * the future it is likely to change.
-   * @param handler the handler to set
+   *
+   * @param handler     the handler to set
    * @param logLocation the location where you want spark state transitions. Alloc and free logging
    *                    is handled separately when setting up RMM. "stderr" or "stdout" are treated
    *                    as `std::cerr` and `std::cout` respectively in native code. Anything else
    *                    is treated as a file.
    */
-  public static void setEventHandler(RmmEventHandler handler, String logLocation) throws RmmException {
+  public static void setEventHandler(RmmEventHandler handler, String logLocation)
+      throws RmmException {
     // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     synchronized (Rmm.class) {
       // RmmException constructor is not public, so we have to use a different exception
@@ -125,8 +118,9 @@ public class RmmSpark {
   /**
    * Indicate that a given thread is dedicated to a specific task. This thread can be part of a
    * thread pool, but if it blocks it can never transitively block another active task.
+   *
    * @param threadId the thread ID to use
-   * @param taskId the task ID this thread is working on.
+   * @param taskId   the task ID this thread is working on.
    */
   public static void startDedicatedTaskThread(long threadId, long taskId, Thread thread) {
     synchronized (Rmm.class) {
@@ -140,6 +134,7 @@ public class RmmSpark {
   /**
    * Indicate that the current thread is dedicated to a specific task. This thread can be part of
    * a thread pool, but if this blocks it can never transitively block another active task.
+   *
    * @param taskId the task ID this thread is working on.
    */
   public static void currentThreadIsDedicatedToTask(long taskId) {
@@ -148,9 +143,10 @@ public class RmmSpark {
 
   /**
    * A shuffle thread has started to work on some tasks.
+   *
    * @param threadId the thread ID (not java thread id).
-   * @param thread the java thread
-   * @param taskIds the IDs of tasks that this is starting work on.
+   * @param thread   the java thread
+   * @param taskIds  the IDs of tasks that this is starting work on.
    */
   public static void shuffleThreadWorkingTasks(long threadId, Thread thread, long[] taskIds) {
     synchronized (Rmm.class) {
@@ -163,6 +159,7 @@ public class RmmSpark {
 
   /**
    * The current thread is a shuffle thread and has started to work on some tasks.
+   *
    * @param taskIds the IDs of the tasks that this is starting work on.
    */
   public static void shuffleThreadWorkingOnTasks(long[] taskIds) {
@@ -172,12 +169,13 @@ public class RmmSpark {
   /**
    * The current thread which is in a thread pool that could transitively block other tasks has
    * started to work on a task.
+   *
    * @param taskId the ID of the task that this is starting work on.
    */
   public static void poolThreadWorkingOnTask(long taskId) {
     long threadId = getCurrentThreadId();
     Thread thread = Thread.currentThread();
-    long[] taskIds = new long[]{taskId};
+    long[] taskIds = new long[] {taskId};
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
         ThreadStateRegistry.addThread(threadId, thread);
@@ -189,8 +187,9 @@ public class RmmSpark {
   /**
    * A thread in a thread pool that could transitively block other tasks has finished work
    * on some tasks.
+   *
    * @param threadId the thread ID (not java thread id).
-   * @param taskIds the IDs of the tasks that are done.
+   * @param taskIds  the IDs of the tasks that are done.
    */
   public static void poolThreadFinishedForTasks(long threadId, long[] taskIds) {
     synchronized (Rmm.class) {
@@ -202,8 +201,9 @@ public class RmmSpark {
 
   /**
    * A shuffle thread has finished work on some tasks.
+   *
    * @param threadId the thread ID (not java thread id).
-   * @param taskIds the IDs of the tasks that are done.
+   * @param taskIds  the IDs of the tasks that are done.
    */
   private static void shuffleThreadFinishedForTasks(long threadId, long[] taskIds) {
     poolThreadFinishedForTasks(threadId, taskIds);
@@ -212,6 +212,7 @@ public class RmmSpark {
   /**
    * The current thread which is in a thread pool that could transitively block other tasks
    * has finished work on some tasks.
+   *
    * @param taskIds the IDs of the tasks that are done.
    */
   public static void poolThreadFinishedForTasks(long[] taskIds) {
@@ -220,6 +221,7 @@ public class RmmSpark {
 
   /**
    * The current shuffle thread has finished work on some tasks.
+   *
    * @param taskIds the IDs of the tasks that are done.
    */
   public static void shuffleThreadFinishedForTasks(long[] taskIds) {
@@ -229,14 +231,16 @@ public class RmmSpark {
   /**
    * The current thread which is in a thread pool that could transitively block other tasks
    * has finished work on a task.
+   *
    * @param taskId the ID of the task that is done.
    */
   public static void poolThreadFinishedForTask(long taskId) {
-    poolThreadFinishedForTasks(getCurrentThreadId(), new long[]{taskId});
+    poolThreadFinishedForTasks(getCurrentThreadId(), new long[] {taskId});
   }
 
   /**
    * Indicate that a retry block has started for a given thread.
+   *
    * @param threadId the id of the thread, not the java ID.
    */
   public static void startRetryBlock(long threadId) {
@@ -256,6 +260,7 @@ public class RmmSpark {
 
   /**
    * Indicate that a retry block has ended for a given thread.
+   *
    * @param threadId the id of the thread, not the java ID.
    */
   public static void endRetryBlock(long threadId) {
@@ -283,6 +288,7 @@ public class RmmSpark {
 
   /**
    * Remove the given thread ID from being associated with a given task
+   *
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle
    *                 (not java thread id).
    */
@@ -305,6 +311,7 @@ public class RmmSpark {
    * Remove all task associations for a given thread. This is intended to be used as a part
    * of tests when a thread is shutting down, or for a pool thread when it is fully done.
    * Dedicated task thread typically are cleaned when the task itself completes.
+   *
    * @param threadId the id of the thread to clean up
    */
   public static void removeAllThreadAssociation(long threadId) {
@@ -327,6 +334,7 @@ public class RmmSpark {
   /**
    * Indicate that a given task is done and if there are any threads still associated with it
    * then they should also be removed.
+   *
    * @param taskId the ID of the task that has completed.
    */
   public static void taskDone(long taskId) {
@@ -339,6 +347,7 @@ public class RmmSpark {
 
   /**
    * A dedicated task thread is about to submit work to a pool that could transitively block it.
+   *
    * @param threadId the ID of the thread that is about to submit the work.
    */
   public static void submittingToPool(long threadId) {
@@ -360,6 +369,7 @@ public class RmmSpark {
   /**
    * A dedicated task thread is about to wait on work done on a pool that could transitively
    * block it.
+   *
    * @param threadId the ID of the thread that is about to wait.
    */
   public static void waitingOnPool(long threadId) {
@@ -381,6 +391,7 @@ public class RmmSpark {
   /**
    * A dedicated task thread is done waiting on a pool, either for a result or after submitting
    * something to the pool.
+   *
    * @param threadId the ID of the thread that is done.
    */
   public static void doneWaitingOnPool(long threadId) {
@@ -430,6 +441,7 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a GpuRetryOOM or CpuRetryOOM on their next
    * allocation attempt, depending on the type of allocation being done.
+   *
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceRetryOOM(long threadId) {
@@ -439,9 +451,10 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a GpuRetryOOM or CpuRetryOOM on their next
    * allocation attempt, depending on the type of allocation being done.
-   * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the *RetryOOM should be thrown
-   * @param oomMode the ordinal corresponding to OomInjectionType to filter allocations
+   *
+   * @param threadId  the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs   the number of times the *RetryOOM should be thrown
+   * @param oomMode   the ordinal corresponding to OomInjectionType to filter allocations
    * @param skipCount how many matching allocations to skip
    */
   public static void forceRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
@@ -461,6 +474,7 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM of CpuSplitAndRetryOOM
    * on their next allocation attempt, depending on the allocation being done.
+   *
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceSplitAndRetryOOM(long threadId) {
@@ -470,9 +484,10 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a GpuSplitAndRetryOOM or CpuSplitAndRetryOOm
    * on their next allocation attempt, depending on the allocation being done.
-   * @param threadId the ID of the thread to throw the exception (not java thread id).
-   * @param numOOMs the number of times the *SplitAndRetryOOM should be thrown
-   * @param oomMode the ordinal corresponding to OomInjectionType to filter allocations
+   *
+   * @param threadId  the ID of the thread to throw the exception (not java thread id).
+   * @param numOOMs   the number of times the *SplitAndRetryOOM should be thrown
+   * @param oomMode   the ordinal corresponding to OomInjectionType to filter allocations
    * @param skipCount how many matching allocations to skip
    */
   public static void forceSplitAndRetryOOM(long threadId, int numOOMs, int oomMode, int skipCount) {
@@ -492,6 +507,7 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a CudfException on their next allocation attempt.
    * This is to simulate a cuDF exception being thrown from a kernel and test retry handling code.
+   *
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    */
   public static void forceCudfException(long threadId) {
@@ -501,6 +517,7 @@ public class RmmSpark {
   /**
    * Force the thread with the given ID to throw a CudfException on their next allocation attempt.
    * This is to simulate a cuDF exception being thrown from a kernel and test retry handling code.
+   *
    * @param threadId the ID of the thread to throw the exception (not java thread id).
    * @param numTimes the number of times the CudfException should be thrown
    */
@@ -527,6 +544,7 @@ public class RmmSpark {
 
   /**
    * Get the number of retry exceptions that were thrown and reset the metric.
+   *
    * @param taskId the id of the task to get the metric for.
    * @return the number of times it was thrown or 0 if in the UNKNOWN state.
    */
@@ -543,6 +561,7 @@ public class RmmSpark {
 
   /**
    * Get the number of split and retry exceptions that were thrown and reset the metric.
+   *
    * @param taskId the id of the task to get the metric for.
    * @return the number of times it was thrown or 0 if in the UNKNOWN state.
    */
@@ -559,6 +578,7 @@ public class RmmSpark {
 
   /**
    * Get how long, in nanoseconds, that the task was blocked for
+   *
    * @param taskId the id of the task to get the metric for.
    * @return the time the task was blocked or 0 if in the UNKNOWN state.
    */
@@ -575,6 +595,7 @@ public class RmmSpark {
 
   /**
    * Get how long, in nanoseconds, that this task lost in computation time due to retries.
+   *
    * @param taskId the id of the task to get the metric for.
    * @return the time the task did computation that was lost.
    */
@@ -591,6 +612,7 @@ public class RmmSpark {
 
   /**
    * Get the max device memory footprint, in bytes, that this task had allocated over its lifetime
+   *
    * @param taskId the id of the task to get the metric for.
    * @return the max device memory footprint.
    */
@@ -608,7 +630,8 @@ public class RmmSpark {
   /**
    * Called before doing an allocation on the CPU. This could throw an injected exception to help
    * with testing.
-   * @param amount the amount of memory being requested
+   *
+   * @param amount   the amount of memory being requested
    * @param blocking is this for a blocking allocate or a non-blocking one.
    * @return a boolean that indicates if the allocation is recursive. Note that recursive
    * allocations on the CPU are only allowed with non-blocking allocations. This must be passed
@@ -628,9 +651,10 @@ public class RmmSpark {
 
   /**
    * The allocation that was going to be done succeeded.
-   * @param ptr a pointer to the memory that was allocated.
-   * @param amount the amount of memory that was allocated.
-   * @param blocking is this for a blocking allocate or a non-blocking one.
+   *
+   * @param ptr          a pointer to the memory that was allocated.
+   * @param amount       the amount of memory that was allocated.
+   * @param blocking     is this for a blocking allocate or a non-blocking one.
    * @param wasRecursive the boolean that was returned from `preCpuAlloc`.
    */
   public static void postCpuAllocSuccess(long ptr, long amount, boolean blocking,
@@ -646,8 +670,9 @@ public class RmmSpark {
 
   /**
    * The allocation failed, and spilling didn't save it.
-   * @param wasOom was the failure caused by an OOM or something else.
-   * @param blocking is this for a blocking allocate or a non-blocking one.
+   *
+   * @param wasOom       was the failure caused by an OOM or something else.
+   * @param blocking     is this for a blocking allocate or a non-blocking one.
    * @param wasRecursive the boolean that was returned from `preCpuAlloc`.
    * @return true if the allocation should be retried else false if the state machine
    * thinks that a retry would not help.
@@ -666,7 +691,8 @@ public class RmmSpark {
 
   /**
    * Some CPU memory was freed.
-   * @param ptr a pointer to the memory being deallocated.
+   *
+   * @param ptr    a pointer to the memory being deallocated.
    * @param amount the amount that was made available.
    */
   public static void cpuDeallocate(long ptr, long amount) {
@@ -677,6 +703,12 @@ public class RmmSpark {
     if (local != null && local.isOpen()) {
       local.cpuDeallocate(ptr, amount);
     }
+  }
+
+  public enum OomInjectionType {
+    CPU_OR_GPU,
+    CPU,
+    GPU
   }
 
 }

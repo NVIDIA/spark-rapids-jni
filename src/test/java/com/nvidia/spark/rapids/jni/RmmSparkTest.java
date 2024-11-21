@@ -16,6 +16,10 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
+
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DeviceMemoryBuffer;
 import ai.rapids.cudf.HostMemoryBuffer;
@@ -27,20 +31,14 @@ import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandler;
 import ai.rapids.cudf.RmmLimitingResourceAdaptor;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
-
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.fail;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class RmmSparkTest {
   private final static long ALIGNMENT = 256;
@@ -56,249 +54,6 @@ public class RmmSparkTest {
   public void teardown() {
     if (Rmm.isInitialized()) {
       Rmm.shutdown();
-    }
-  }
-
-  public interface TaskThreadOp<T> {
-    T doIt();
-  }
-
-  public static class TaskThread extends Thread {
-    private final String name;
-    private final boolean isForPool;
-    private long threadId = -1;
-    private long taskId = 100;
-
-    public TaskThread(String name, long taskId) {
-      this(name, false);
-      this.taskId = taskId;
-    }
-
-    public TaskThread(String name, boolean isForPool) {
-      super(name);
-      this.name = name;
-      this.isForPool = isForPool;
-    }
-
-    public synchronized long getThreadId() {
-      return threadId;
-    }
-
-    private LinkedBlockingQueue<TaskThreadOp> queue = new LinkedBlockingQueue<>();
-
-    public void initialize() throws ExecutionException, InterruptedException, TimeoutException {
-      setDaemon(true);
-      start();
-      Future<Void> waitForStart = doIt(new TaskThreadOp<Void>() {
-        @Override
-        public Void doIt() {
-          if (!isForPool) {
-            RmmSpark.currentThreadIsDedicatedToTask(taskId);
-          }
-          return null;
-        }
-
-        @Override
-        public String toString() {
-          return "INIT TASK " + name + " " + (isForPool ? "POOL" : ("TASK " + taskId));
-        }
-      });
-      System.err.println("WAITING FOR STARTUP (" + name + ")");
-      waitForStart.get(1000, TimeUnit.MILLISECONDS);
-      System.err.println("THREAD IS READY TO GO (" + name + ")");
-    }
-
-    public void pollForState(RmmSparkThreadState state, long l, TimeUnit tu) throws TimeoutException, InterruptedException {
-      long start = System.nanoTime();
-      long timeoutAfter = start + tu.toNanos(l);
-      RmmSparkThreadState currentState = null;
-      while (System.nanoTime() <= timeoutAfter) {
-        currentState = RmmSpark.getStateOf(threadId);
-        if (currentState == state) {
-          return;
-        }
-        // Yes we are essentially doing a busy wait...
-        Thread.sleep(10);
-      }
-      throw new TimeoutException(name + " WAITING FOR STATE " + state + " BUT STATE IS " + currentState);
-    }
-
-    private static class TaskThreadDoneOp implements TaskThreadOp<Void>, Future<Object> {
-      private TaskThread wrapped;
-
-      TaskThreadDoneOp(TaskThread td) {
-        wrapped = td;
-      }
-
-      @Override
-      public String toString() {
-        return "TASK DONE";
-      }
-
-      @Override
-      public Void doIt() {
-        return null;
-      }
-
-      @Override
-      public boolean cancel(boolean b) {
-        return false;
-      }
-
-      @Override
-      public boolean isCancelled() {
-        return false;
-      }
-
-      @Override
-      public boolean isDone() {
-        return !wrapped.isAlive();
-      }
-
-      @Override
-      public Object get() throws InterruptedException, ExecutionException {
-        throw new RuntimeException("FUTURE NEEDS A TIMEOUT. THIS IS A TEST!");
-      }
-
-      @Override
-      public Object get(long l, TimeUnit timeUnit) throws InterruptedException, ExecutionException, TimeoutException {
-        System.err.println("WAITING FOR THREAD DONE " + l + " " + timeUnit);
-        wrapped.join(timeUnit.toMillis(l));
-        return null;
-      }
-    }
-
-    public Future done() {
-      TaskThreadDoneOp op = new TaskThreadDoneOp(this);
-      queue.offer(op);
-      return op;
-    }
-
-    private static class TaskThreadTrackingOp<T> implements TaskThreadOp<T>, Future<T> {
-      private final TaskThreadOp<T> wrapped;
-      private boolean done = false;
-      private Throwable t = null;
-      private T ret = null;
-
-
-      @Override
-      public String toString() {
-        return wrapped.toString();
-      }
-
-      TaskThreadTrackingOp(TaskThreadOp<T> td) {
-        wrapped = td;
-      }
-
-      @Override
-      public T doIt() {
-        try {
-          T tmp = wrapped.doIt();
-          synchronized (this) {
-            ret = tmp;
-            return ret;
-          }
-        } catch (Throwable t) {
-          synchronized (this) {
-            this.t = t;
-          }
-          return null;
-        } finally {
-          synchronized (this) {
-            done = true;
-            this.notifyAll();
-          }
-        }
-      }
-
-      @Override
-      public boolean cancel(boolean b) {
-        return false;
-      }
-
-      @Override
-      public boolean isCancelled() {
-        return false;
-      }
-
-      @Override
-      public synchronized boolean isDone() {
-        return done;
-      }
-
-      @Override
-      public synchronized T get() throws InterruptedException, ExecutionException {
-        throw new RuntimeException("This is a test you should always have timeouts...");
-      }
-
-      @Override
-      public synchronized T get(long l, TimeUnit timeUnit) throws InterruptedException, ExecutionException, TimeoutException {
-        if (!done) {
-          System.err.println("WAITING " + l + " " + timeUnit + " FOR '" + wrapped + "'");
-          wait(timeUnit.toMillis(l));
-          if (!done) {
-            throw new TimeoutException();
-          }
-        }
-        if (t != null) {
-          throw new ExecutionException(t);
-        }
-        return ret;
-      }
-    }
-
-    public <T> Future<T> doIt(TaskThreadOp<T> op) {
-      if (!isAlive()) {
-        throw new IllegalStateException("Thread is already done...");
-      }
-      TaskThreadTrackingOp<T> tracking = new TaskThreadTrackingOp<>(op);
-      queue.offer(tracking);
-      return tracking;
-    }
-
-    public Future<Void> blockUntilReady() {
-      return doIt(new TaskThreadOp<Void>() {
-        @Override
-        public Void doIt() {
-          RmmSpark.blockThreadUntilReady();
-          return null;
-        }
-
-        @Override
-        public String toString() {
-          return "BLOCK UNTIL THREAD IS READY";
-        }
-      });
-    }
-
-    @Override
-    public void run() {
-      try {
-        synchronized (this) {
-          threadId = RmmSpark.getCurrentThreadId();
-        }
-        System.err.println("INSIDE THREAD RUNNING (" + name + ")");
-        while (true) {
-          // Because of how our deadlock detection code works we don't want to
-          // block this thread, so we do this in a busy loop. It is not ideal,
-          // but works, and is more accurate to what the Spark is likely to do
-          TaskThreadOp op = queue.poll();
-          // null is returned from the queue if it is empty
-          if (op != null) {
-            System.err.println("GOT '" + op + "' ON " + name);
-            if (op instanceof TaskThreadDoneOp) {
-              return;
-            }
-            op.doIt();
-            System.err.println("'" + op + "' FINISHED ON " + name);
-          }
-        }
-      } catch (Throwable t) {
-        System.err.println("THROWABLE CAUGHT IN " + name);
-        t.printStackTrace(System.err);
-      } finally {
-        System.err.println("THREAD EXITING " + name);
-      }
     }
   }
 
@@ -339,7 +94,7 @@ public class RmmSparkTest {
       // No change in the state after a force
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertThrows(GpuRetryOOM.class, () -> Rmm.alloc(100).close());
-      assert(RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
+      assert (RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
 
       // Verify that injecting OOM does not cause the block to actually happen or
       // the state to change
@@ -406,7 +161,7 @@ public class RmmSparkTest {
       // No change in the state after a force
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertThrows(CpuRetryOOM.class, () -> LimitingOffHeapAllocForTests.alloc(100).close());
-      assert(RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
+      assert (RmmSpark.getAndResetComputeTimeLostToRetryNs(taskid) > 0);
 
       // Verify that injecting OOM does not cause the block to actually happen or
       // the state to change
@@ -423,7 +178,8 @@ public class RmmSparkTest {
       RmmSpark.forceSplitAndRetryOOM(threadId);
       // No change in state after force
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
-      assertThrows(CpuSplitAndRetryOOM.class, () -> LimitingOffHeapAllocForTests.alloc(100).close());
+      assertThrows(CpuSplitAndRetryOOM.class,
+          () -> LimitingOffHeapAllocForTests.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
 
@@ -475,12 +231,14 @@ public class RmmSparkTest {
     Thread t = Thread.currentThread();
     try {
       RmmSpark.startDedicatedTaskThread(threadIdOne, taskId, t);
-      assertThrows(CudfException.class, () -> RmmSpark.shuffleThreadWorkingTasks(threadIdOne, t, taskIds));
+      assertThrows(CudfException.class,
+          () -> RmmSpark.shuffleThreadWorkingTasks(threadIdOne, t, taskIds));
       // There can be races when a thread goes from one task to another, so we just make it safe to do.
       RmmSpark.startDedicatedTaskThread(threadIdOne, otherTaskId, t);
 
       RmmSpark.shuffleThreadWorkingTasks(threadIdTwo, t, taskIds);
-      assertThrows(CudfException.class, () -> RmmSpark.startDedicatedTaskThread(threadIdTwo, otherTaskId, t));
+      assertThrows(CudfException.class,
+          () -> RmmSpark.startDedicatedTaskThread(threadIdTwo, otherTaskId, t));
       // Remove the association
       RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, taskId);
       RmmSpark.removeDedicatedThreadAssociation(threadIdTwo, otherTaskId);
@@ -489,143 +247,6 @@ public class RmmSparkTest {
     } finally {
       RmmSpark.taskDone(taskId);
       RmmSpark.taskDone(otherTaskId);
-    }
-  }
-
-
-  static abstract class AllocOnAnotherThread implements AutoCloseable {
-    final TaskThread thread;
-    final long size;
-    final long taskId;
-    MemoryBuffer b = null;
-    Future<Void> fb;
-    Future<Void> fc = null;
-
-    public AllocOnAnotherThread(TaskThread thread, long size) {
-      this.thread = thread;
-      this.size = size;
-      this.taskId = -1;
-      fb = thread.doIt(new TaskThreadOp<Void>() {
-        @Override
-        public Void doIt() {
-          doAlloc();
-          return null;
-        }
-
-        @Override
-        public String toString() {
-          return "ALLOC(" + size + ")";
-        }
-      });
-    }
-
-    public AllocOnAnotherThread(TaskThread thread, long size, long taskId) {
-      this.thread = thread;
-      this.size = size;
-      this.taskId = taskId;
-      fb = thread.doIt(new TaskThreadOp<Void>() {
-        @Override
-        public Void doIt() {
-          RmmSpark.shuffleThreadWorkingOnTasks(new long[]{taskId});
-          doAlloc();
-          return null;
-        }
-
-        @Override
-        public String toString() {
-          return "ALLOC(" + size + ")";
-        }
-      });
-    }
-
-    public void waitForAlloc() throws ExecutionException, InterruptedException, TimeoutException {
-      fb.get(1000, TimeUnit.MILLISECONDS);
-    }
-
-    public void freeOnThread() {
-      if (fc != null) {
-        throw new IllegalStateException("free called multiple times");
-      }
-
-      fc = thread.doIt(new TaskThreadOp<Void>() {
-        @Override
-        public Void doIt() {
-          close();
-          return null;
-        }
-
-        @Override
-        public String toString() {
-          return "FREE(" + size + ")";
-        }
-      });
-    }
-
-    public void waitForFree() throws ExecutionException, InterruptedException, TimeoutException {
-      if (fc == null) {
-        freeOnThread();
-      }
-      fc.get(1000, TimeUnit.MILLISECONDS);
-    }
-
-    public void freeAndWait() throws ExecutionException, InterruptedException, TimeoutException {
-      waitForFree();
-    }
-
-    abstract protected Void doAlloc();
-
-    @Override
-    public synchronized void close() {
-      if (b != null) {
-        try {
-          b.close();
-          b = null;
-        } finally {
-          if (this.taskId > 0) {
-            RmmSpark.poolThreadFinishedForTasks(thread.threadId, new long[]{taskId});
-          }
-        }
-      }
-    }
-  }
-
-  public static class GpuAllocOnAnotherThread extends AllocOnAnotherThread {
-
-    public GpuAllocOnAnotherThread(TaskThread thread, long size) {
-      super(thread, size);
-    }
-
-    public GpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
-      super(thread, size, taskId);
-    }
-
-    @Override
-    protected Void doAlloc() {
-      DeviceMemoryBuffer tmp = Rmm.alloc(size);
-      synchronized (this) {
-        b = tmp;
-      }
-      return null;
-    }
-  }
-
-  public static class CpuAllocOnAnotherThread extends AllocOnAnotherThread {
-
-    public CpuAllocOnAnotherThread(TaskThread thread, long size) {
-      super(thread, size);
-    }
-
-    public CpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
-      super(thread, size, taskId);
-    }
-
-    @Override
-    protected Void doAlloc() {
-      HostMemoryBuffer tmp = LimitingOffHeapAllocForTests.alloc(size);
-      synchronized (this) {
-        b = tmp;
-      }
-      return null;
     }
   }
 
@@ -698,7 +319,8 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testBasicBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testBasicBlocking()
+      throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
@@ -715,7 +337,8 @@ public class RmmSparkTest {
       try (AllocOnAnotherThread firstOne = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo,
+            6 * 1024 * 1024)) {
           taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Free the first allocation to wake up the second task...
           firstOne.freeAndWait();
@@ -730,7 +353,8 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testBasicCpuBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testBasicCpuBlocking()
+      throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
@@ -748,7 +372,8 @@ public class RmmSparkTest {
       try (AllocOnAnotherThread firstOne = new CpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo,
+            6 * 1024 * 1024)) {
           taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Free the first allocation to wake up the second task...
           firstOne.freeAndWait();
@@ -764,7 +389,8 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testBasicMixedBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testBasicMixedBlocking()
+      throws ExecutionException, InterruptedException, TimeoutException {
     final long MB = 1024 * 1024;
     setupRmmForTestingWithLimits(10 * MB);
     LimitingOffHeapAllocForTests.setLimit(10 * MB);
@@ -799,12 +425,15 @@ public class RmmSparkTest {
           firstCpuAlloc.waitForAlloc();
 
           // Blocking GPU Alloc
-          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, SIX_MB)) {
+          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree,
+              SIX_MB)) {
             taskThree.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
             // Blocking CPU Alloc
-            try (AllocOnAnotherThread secondCpuAlloc = new CpuAllocOnAnotherThread(taskFour, SIX_MB)) {
-              taskFour.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+            try (AllocOnAnotherThread secondCpuAlloc = new CpuAllocOnAnotherThread(taskFour,
+                SIX_MB)) {
+              taskFour.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000,
+                  TimeUnit.MILLISECONDS);
 
               // We want to make sure that the order of wakeup corresponds to the location of the data that was released
               // Not necessarily the priority of the task/thread.
@@ -819,7 +448,8 @@ public class RmmSparkTest {
             secondGpuAlloc.freeAndWait();
           }
           // Do one more alloc after freeing on same task to show the max allocation metric is unimpacted
-          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, FIVE_MB)) {
+          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree,
+              FIVE_MB)) {
             secondGpuAlloc.waitForAlloc();
             secondGpuAlloc.freeAndWait();
           }
@@ -838,7 +468,8 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testShuffleBlocking() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testShuffleBlocking()
+      throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     TaskThread shuffleOne = new TaskThread("TEST THREAD SHUFFLE", true);
@@ -861,11 +492,14 @@ public class RmmSparkTest {
       try (AllocOnAnotherThread firstOne = new GpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondOne = new GpuAllocOnAnotherThread(taskTwo,
+            6 * 1024 * 1024)) {
           taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Make sure that shuffle has higher priority than tasks...
-          try (AllocOnAnotherThread thirdOne = new GpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024, 2)) {
-            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          try (AllocOnAnotherThread thirdOne = new GpuAllocOnAnotherThread(shuffleOne,
+              6 * 1024 * 1024, 2)) {
+            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000,
+                TimeUnit.MILLISECONDS);
             // But taskOne is not blocked, so there will be no retry until it is blocked, or else
             // it is making progress
             taskOne.doIt((TaskThreadOp<Void>) () -> {
@@ -900,9 +534,9 @@ public class RmmSparkTest {
     }
   }
 
-
   @Test
-  public void testShuffleBlockingCpu() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testShuffleBlockingCpu()
+      throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
@@ -926,11 +560,14 @@ public class RmmSparkTest {
       try (AllocOnAnotherThread firstOne = new CpuAllocOnAnotherThread(taskOne, 5 * 1024 * 1024)) {
         firstOne.waitForAlloc();
         // This one should block
-        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo,
+            6 * 1024 * 1024)) {
           taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Make sure that shuffle has higher priority than tasks...
-          try (AllocOnAnotherThread thirdOne = new CpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024, 2)) {
-            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
+          try (AllocOnAnotherThread thirdOne = new CpuAllocOnAnotherThread(shuffleOne,
+              6 * 1024 * 1024, 2)) {
+            shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000,
+                TimeUnit.MILLISECONDS);
             // But taskOne is not blocked, so there will be no retry until it is blocked, or else
             // it is making progress
             taskOne.doIt((TaskThreadOp<Void>) () -> {
@@ -982,24 +619,29 @@ public class RmmSparkTest {
       long tTwoId = taskTwo.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
 
-      try (AllocOnAnotherThread allocThreeOne = new GpuAllocOnAnotherThread(taskThree, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread allocThreeOne = new GpuAllocOnAnotherThread(taskThree,
+          5 * 1024 * 1024)) {
         allocThreeOne.waitForAlloc();
-        try (AllocOnAnotherThread allocTwoOne = new GpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+        try (AllocOnAnotherThread allocTwoOne = new GpuAllocOnAnotherThread(taskTwo,
+            3 * 1024 * 1024)) {
           allocTwoOne.waitForAlloc();
 
-          try (AllocOnAnotherThread allocTwoTwo = new GpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+          try (AllocOnAnotherThread allocTwoTwo = new GpuAllocOnAnotherThread(taskTwo,
+              3 * 1024 * 1024)) {
             taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
-            try (AllocOnAnotherThread allocThreeTwo = new GpuAllocOnAnotherThread(taskThree, 4 * 1024 * 1024)) {
+            try (AllocOnAnotherThread allocThreeTwo = new GpuAllocOnAnotherThread(taskThree,
+                4 * 1024 * 1024)) {
               // This one should be able to allocate because there is not enough memory, but
               // now all the threads would be blocked, so the lowest priority thread is going to
               // become BUFN
-              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000,
+                  TimeUnit.MILLISECONDS);
               try {
                 allocThreeTwo.waitForAlloc();
                 fail("ALLOC AFTER BUFN SHOULD HAVE THROWN...");
               } catch (ExecutionException ee) {
-                assert(ee.getCause() instanceof GpuRetryOOM);
+                assert (ee.getCause() instanceof GpuRetryOOM);
               }
               // allocOneTwo cannot be freed, nothing was allocated because it threw an exception.
               allocThreeOne.freeAndWait();
@@ -1016,7 +658,8 @@ public class RmmSparkTest {
 
               taskTwo.done().get(1000, TimeUnit.MILLISECONDS);
               // Now that task two is done see if task one is running again...
-              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000,
+                  TimeUnit.MILLISECONDS);
               // Now we could finish trying our allocations, but this is good enough...
             }
           }
@@ -1046,24 +689,29 @@ public class RmmSparkTest {
       long tTwoId = taskTwo.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tTwoId));
 
-      try (AllocOnAnotherThread allocThreeOne = new CpuAllocOnAnotherThread(taskThree, 5 * 1024 * 1024)) {
+      try (AllocOnAnotherThread allocThreeOne = new CpuAllocOnAnotherThread(taskThree,
+          5 * 1024 * 1024)) {
         allocThreeOne.waitForAlloc();
-        try (AllocOnAnotherThread allocTwoOne = new CpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+        try (AllocOnAnotherThread allocTwoOne = new CpuAllocOnAnotherThread(taskTwo,
+            3 * 1024 * 1024)) {
           allocTwoOne.waitForAlloc();
 
-          try (AllocOnAnotherThread allocTwoTwo = new CpuAllocOnAnotherThread(taskTwo, 3 * 1024 * 1024)) {
+          try (AllocOnAnotherThread allocTwoTwo = new CpuAllocOnAnotherThread(taskTwo,
+              3 * 1024 * 1024)) {
             taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
 
-            try (AllocOnAnotherThread allocThreeTwo = new CpuAllocOnAnotherThread(taskThree, 4 * 1024 * 1024)) {
+            try (AllocOnAnotherThread allocThreeTwo = new CpuAllocOnAnotherThread(taskThree,
+                4 * 1024 * 1024)) {
               // This one should be able to allocate because there is not enough memory, but
               // now all the threads would be blocked, so the lowest priority thread is going to
               // become BUFN
-              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_BUFN_WAIT, 1000,
+                  TimeUnit.MILLISECONDS);
               try {
                 allocThreeTwo.waitForAlloc();
                 fail("ALLOC AFTER BUFN SHOULD HAVE THROWN...");
               } catch (ExecutionException ee) {
-                assert(ee.getCause() instanceof CpuRetryOOM);
+                assert (ee.getCause() instanceof CpuRetryOOM);
               }
               // allocOneTwo cannot be freed, nothing was allocated because it threw an exception.
               allocThreeOne.freeAndWait();
@@ -1080,7 +728,8 @@ public class RmmSparkTest {
 
               taskTwo.done().get(1000, TimeUnit.MILLISECONDS);
               // Now that task two is done see if task one is running again...
-              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000, TimeUnit.MILLISECONDS);
+              taskThree.pollForState(RmmSparkThreadState.THREAD_RUNNING, 1000,
+                  TimeUnit.MILLISECONDS);
               // Now we could finish trying our allocations, but this is good enough...
             }
           }
@@ -1093,7 +742,8 @@ public class RmmSparkTest {
   }
 
   @Test
-  public void testBUFNSplitAndRetrySingleThread() throws ExecutionException, InterruptedException, TimeoutException {
+  public void testBUFNSplitAndRetrySingleThread()
+      throws ExecutionException, InterruptedException, TimeoutException {
     // We are doing ths one single threaded.
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
@@ -1119,7 +769,8 @@ public class RmmSparkTest {
         }
         assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
         // Now we try to allocate with half the data.
-        try (AllocOnAnotherThread secondTry = new GpuAllocOnAnotherThread(taskOne, 3 * 1024 * 1024)) {
+        try (AllocOnAnotherThread secondTry = new GpuAllocOnAnotherThread(taskOne,
+            3 * 1024 * 1024)) {
           secondTry.waitForAlloc();
         }
       }
@@ -1232,7 +883,7 @@ public class RmmSparkTest {
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
   }
-  
+
   //
   // These next two tests deal with a special case where allocations (and allocation failures)
   // could happen during spill handling.
@@ -1256,7 +907,8 @@ public class RmmSparkTest {
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
-        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {
+        }
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
@@ -1268,7 +920,7 @@ public class RmmSparkTest {
   @Test
   public void testAllocationFailedDuringSpill() {
     // Create a handler that allocates 2MB from the handler (it should fail)
-    AllocatingRmmEventHandler rmmEventHandler = new AllocatingRmmEventHandler(2L*1024*1024);
+    AllocatingRmmEventHandler rmmEventHandler = new AllocatingRmmEventHandler(2L * 1024 * 1024);
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
@@ -1277,13 +929,396 @@ public class RmmSparkTest {
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
       try (DeviceMemoryBuffer filler = Rmm.alloc(9 * 1024 * 1024)) {
-        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {}
+        try (DeviceMemoryBuffer shouldFail = Rmm.alloc(2 * 1024 * 1024)) {
+        }
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
     assertEquals(0, rmmEventHandler.getAllocationCount());
+  }
+
+  public interface TaskThreadOp<T> {
+    T doIt();
+  }
+
+  public static class TaskThread extends Thread {
+    private final String name;
+    private final boolean isForPool;
+    private long threadId = -1;
+    private long taskId = 100;
+    private final LinkedBlockingQueue<TaskThreadOp> queue = new LinkedBlockingQueue<>();
+
+    public TaskThread(String name, long taskId) {
+      this(name, false);
+      this.taskId = taskId;
+    }
+
+    public TaskThread(String name, boolean isForPool) {
+      super(name);
+      this.name = name;
+      this.isForPool = isForPool;
+    }
+
+    public synchronized long getThreadId() {
+      return threadId;
+    }
+
+    public void initialize() throws ExecutionException, InterruptedException, TimeoutException {
+      setDaemon(true);
+      start();
+      Future<Void> waitForStart = doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          if (!isForPool) {
+            RmmSpark.currentThreadIsDedicatedToTask(taskId);
+          }
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "INIT TASK " + name + " " + (isForPool ? "POOL" : ("TASK " + taskId));
+        }
+      });
+      System.err.println("WAITING FOR STARTUP (" + name + ")");
+      waitForStart.get(1000, TimeUnit.MILLISECONDS);
+      System.err.println("THREAD IS READY TO GO (" + name + ")");
+    }
+
+    public void pollForState(RmmSparkThreadState state, long l, TimeUnit tu)
+        throws TimeoutException, InterruptedException {
+      long start = System.nanoTime();
+      long timeoutAfter = start + tu.toNanos(l);
+      RmmSparkThreadState currentState = null;
+      while (System.nanoTime() <= timeoutAfter) {
+        currentState = RmmSpark.getStateOf(threadId);
+        if (currentState == state) {
+          return;
+        }
+        // Yes we are essentially doing a busy wait...
+        Thread.sleep(10);
+      }
+      throw new TimeoutException(
+          name + " WAITING FOR STATE " + state + " BUT STATE IS " + currentState);
+    }
+
+    public Future done() {
+      TaskThreadDoneOp op = new TaskThreadDoneOp(this);
+      queue.offer(op);
+      return op;
+    }
+
+    public <T> Future<T> doIt(TaskThreadOp<T> op) {
+      if (!isAlive()) {
+        throw new IllegalStateException("Thread is already done...");
+      }
+      TaskThreadTrackingOp<T> tracking = new TaskThreadTrackingOp<>(op);
+      queue.offer(tracking);
+      return tracking;
+    }
+
+    public Future<Void> blockUntilReady() {
+      return doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          RmmSpark.blockThreadUntilReady();
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "BLOCK UNTIL THREAD IS READY";
+        }
+      });
+    }
+
+    @Override
+    public void run() {
+      try {
+        synchronized (this) {
+          threadId = RmmSpark.getCurrentThreadId();
+        }
+        System.err.println("INSIDE THREAD RUNNING (" + name + ")");
+        while (true) {
+          // Because of how our deadlock detection code works we don't want to
+          // block this thread, so we do this in a busy loop. It is not ideal,
+          // but works, and is more accurate to what the Spark is likely to do
+          TaskThreadOp op = queue.poll();
+          // null is returned from the queue if it is empty
+          if (op != null) {
+            System.err.println("GOT '" + op + "' ON " + name);
+            if (op instanceof TaskThreadDoneOp) {
+              return;
+            }
+            op.doIt();
+            System.err.println("'" + op + "' FINISHED ON " + name);
+          }
+        }
+      } catch (Throwable t) {
+        System.err.println("THROWABLE CAUGHT IN " + name);
+        t.printStackTrace(System.err);
+      } finally {
+        System.err.println("THREAD EXITING " + name);
+      }
+    }
+
+    private static class TaskThreadDoneOp implements TaskThreadOp<Void>, Future<Object> {
+      private final TaskThread wrapped;
+
+      TaskThreadDoneOp(TaskThread td) {
+        wrapped = td;
+      }
+
+      @Override
+      public String toString() {
+        return "TASK DONE";
+      }
+
+      @Override
+      public Void doIt() {
+        return null;
+      }
+
+      @Override
+      public boolean cancel(boolean b) {
+        return false;
+      }
+
+      @Override
+      public boolean isCancelled() {
+        return false;
+      }
+
+      @Override
+      public boolean isDone() {
+        return !wrapped.isAlive();
+      }
+
+      @Override
+      public Object get() throws InterruptedException, ExecutionException {
+        throw new RuntimeException("FUTURE NEEDS A TIMEOUT. THIS IS A TEST!");
+      }
+
+      @Override
+      public Object get(long l, TimeUnit timeUnit)
+          throws InterruptedException, ExecutionException, TimeoutException {
+        System.err.println("WAITING FOR THREAD DONE " + l + " " + timeUnit);
+        wrapped.join(timeUnit.toMillis(l));
+        return null;
+      }
+    }
+
+    private static class TaskThreadTrackingOp<T> implements TaskThreadOp<T>, Future<T> {
+      private final TaskThreadOp<T> wrapped;
+      private boolean done = false;
+      private Throwable t = null;
+      private T ret = null;
+
+
+      TaskThreadTrackingOp(TaskThreadOp<T> td) {
+        wrapped = td;
+      }
+
+      @Override
+      public String toString() {
+        return wrapped.toString();
+      }
+
+      @Override
+      public T doIt() {
+        try {
+          T tmp = wrapped.doIt();
+          synchronized (this) {
+            ret = tmp;
+            return ret;
+          }
+        } catch (Throwable t) {
+          synchronized (this) {
+            this.t = t;
+          }
+          return null;
+        } finally {
+          synchronized (this) {
+            done = true;
+            this.notifyAll();
+          }
+        }
+      }
+
+      @Override
+      public boolean cancel(boolean b) {
+        return false;
+      }
+
+      @Override
+      public boolean isCancelled() {
+        return false;
+      }
+
+      @Override
+      public synchronized boolean isDone() {
+        return done;
+      }
+
+      @Override
+      public synchronized T get() throws InterruptedException, ExecutionException {
+        throw new RuntimeException("This is a test you should always have timeouts...");
+      }
+
+      @Override
+      public synchronized T get(long l, TimeUnit timeUnit)
+          throws InterruptedException, ExecutionException, TimeoutException {
+        if (!done) {
+          System.err.println("WAITING " + l + " " + timeUnit + " FOR '" + wrapped + "'");
+          wait(timeUnit.toMillis(l));
+          if (!done) {
+            throw new TimeoutException();
+          }
+        }
+        if (t != null) {
+          throw new ExecutionException(t);
+        }
+        return ret;
+      }
+    }
+  }
+
+  static abstract class AllocOnAnotherThread implements AutoCloseable {
+    final TaskThread thread;
+    final long size;
+    final long taskId;
+    MemoryBuffer b = null;
+    Future<Void> fb;
+    Future<Void> fc = null;
+
+    public AllocOnAnotherThread(TaskThread thread, long size) {
+      this.thread = thread;
+      this.size = size;
+      this.taskId = -1;
+      fb = thread.doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          doAlloc();
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "ALLOC(" + size + ")";
+        }
+      });
+    }
+
+    public AllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      this.thread = thread;
+      this.size = size;
+      this.taskId = taskId;
+      fb = thread.doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          RmmSpark.shuffleThreadWorkingOnTasks(new long[] {taskId});
+          doAlloc();
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "ALLOC(" + size + ")";
+        }
+      });
+    }
+
+    public void waitForAlloc() throws ExecutionException, InterruptedException, TimeoutException {
+      fb.get(1000, TimeUnit.MILLISECONDS);
+    }
+
+    public void freeOnThread() {
+      if (fc != null) {
+        throw new IllegalStateException("free called multiple times");
+      }
+
+      fc = thread.doIt(new TaskThreadOp<Void>() {
+        @Override
+        public Void doIt() {
+          close();
+          return null;
+        }
+
+        @Override
+        public String toString() {
+          return "FREE(" + size + ")";
+        }
+      });
+    }
+
+    public void waitForFree() throws ExecutionException, InterruptedException, TimeoutException {
+      if (fc == null) {
+        freeOnThread();
+      }
+      fc.get(1000, TimeUnit.MILLISECONDS);
+    }
+
+    public void freeAndWait() throws ExecutionException, InterruptedException, TimeoutException {
+      waitForFree();
+    }
+
+    abstract protected Void doAlloc();
+
+    @Override
+    public synchronized void close() {
+      if (b != null) {
+        try {
+          b.close();
+          b = null;
+        } finally {
+          if (this.taskId > 0) {
+            RmmSpark.poolThreadFinishedForTasks(thread.threadId, new long[] {taskId});
+          }
+        }
+      }
+    }
+  }
+
+  public static class GpuAllocOnAnotherThread extends AllocOnAnotherThread {
+
+    public GpuAllocOnAnotherThread(TaskThread thread, long size) {
+      super(thread, size);
+    }
+
+    public GpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      super(thread, size, taskId);
+    }
+
+    @Override
+    protected Void doAlloc() {
+      DeviceMemoryBuffer tmp = Rmm.alloc(size);
+      synchronized (this) {
+        b = tmp;
+      }
+      return null;
+    }
+  }
+
+  public static class CpuAllocOnAnotherThread extends AllocOnAnotherThread {
+
+    public CpuAllocOnAnotherThread(TaskThread thread, long size) {
+      super(thread, size);
+    }
+
+    public CpuAllocOnAnotherThread(TaskThread thread, long size, long taskId) {
+      super(thread, size, taskId);
+    }
+
+    @Override
+    protected Void doAlloc() {
+      HostMemoryBuffer tmp = LimitingOffHeapAllocForTests.alloc(size);
+      synchronized (this) {
+        b = tmp;
+      }
+      return null;
+    }
   }
 
   private static class BaseRmmEventHandler implements RmmEventHandler {
@@ -1320,12 +1355,12 @@ public class RmmSparkTest {
 
     long allocSize;
 
-    public int getAllocationCount() {
-      return allocationCount;
-    }
-
     public AllocatingRmmEventHandler(long allocSize) {
       this.allocSize = allocSize;
+    }
+
+    public int getAllocationCount() {
+      return allocationCount;
     }
 
     @Override
@@ -1340,7 +1375,8 @@ public class RmmSparkTest {
           return false;
         } else {
           stillHandlingAllocFailure = true;
-          try (DeviceMemoryBuffer dmb = Rmm.alloc(allocSize)) { // try to allocate one byte, and free
+          try (
+              DeviceMemoryBuffer dmb = Rmm.alloc(allocSize)) { // try to allocate one byte, and free
             allocationCount++;
             stillHandlingAllocFailure = false;
           }

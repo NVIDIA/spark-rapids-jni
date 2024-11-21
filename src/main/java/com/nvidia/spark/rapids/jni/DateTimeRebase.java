@@ -16,7 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.NativeDepsLoader;
 
 /**
  * Utility class for converting between column major and row major data

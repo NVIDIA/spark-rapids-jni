@@ -16,29 +16,36 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.CudfAccessor;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.NativeDepsLoader;
+import ai.rapids.cudf.Scalar;
 
 public class RegexRewriteUtils {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
-/**
- * @brief Check if input string contains regex pattern `literal[start-end]{len,}`, which means
- * a literal string followed by a range of characters in the range of start to end, with at least
- * len characters.
- *
- * @param strings Column of strings to check for literal.
- * @param literal UTF-8 encoded string to check in strings column.
- * @param len Minimum number of characters to check after the literal.
- * @param start Minimum UTF-8 codepoint value to check for in the range.
- * @param end Maximum UTF-8 codepoint value to check for in the range.
- * @return ColumnVector of booleans where true indicates the string contains the pattern.
- */
-  public static ColumnVector literalRangePattern(ColumnVector input, Scalar literal, int len, int start, int end) {
-    assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(literal), len, start, end));
+  /**
+   * @param strings Column of strings to check for literal.
+   * @param literal UTF-8 encoded string to check in strings column.
+   * @param len     Minimum number of characters to check after the literal.
+   * @param start   Minimum UTF-8 codepoint value to check for in the range.
+   * @param end     Maximum UTF-8 codepoint value to check for in the range.
+   * @return ColumnVector of booleans where true indicates the string contains the pattern.
+   * @brief Check if input string contains regex pattern `literal[start-end]{len,}`, which means
+   * a literal string followed by a range of characters in the range of start to end, with at least
+   * len characters.
+   */
+  public static ColumnVector literalRangePattern(ColumnVector input, Scalar literal, int len,
+                                                 int start, int end) {
+    assert (input.getType().equals(DType.STRING)) : "column must be a String";
+    return new ColumnVector(
+        literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(literal), len,
+            start, end));
   }
 
-  private static native long literalRangePattern(long input, long literal, int len, int start, int end);
+  private static native long literalRangePattern(long input, long literal, int len, int start,
+                                                 int end);
 }

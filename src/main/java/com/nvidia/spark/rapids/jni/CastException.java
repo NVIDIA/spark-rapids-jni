@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.nvidia.spark.rapids.jni;
 
 /**
@@ -21,9 +22,9 @@ package com.nvidia.spark.rapids.jni;
 public class CastException extends RuntimeException {
   private final int rowWithError;
   private final String stringWithError;
-  
+
   CastException(String stringWithError, int rowWithError) {
-    super("Error casting data on row " + String.valueOf(rowWithError) + ": " + stringWithError);
+    super("Error casting data on row " + rowWithError + ": " + stringWithError);
 
     this.rowWithError = rowWithError;
     this.stringWithError = stringWithError;

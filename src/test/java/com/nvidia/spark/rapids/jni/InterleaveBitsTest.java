@@ -16,17 +16,19 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
-import org.junit.jupiter.api.Test;
-
 import java.util.ArrayList;
 import java.util.List;
-
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+import org.junit.jupiter.api.Test;
 
 public class InterleaveBitsTest {
+
+  public static HostColumnVector.DataType outputType =
+      new HostColumnVector.ListType(true, new HostColumnVector.BasicType(false, DType.UINT8));
 
   // The following source of truth comes from deltalake, but translated to java, and uses a List
   // to make our tests simpler. Deltalake only supports ints. For completeness and better
@@ -48,7 +50,7 @@ public class InterleaveBitsTest {
       int idx = 0;
       while (idx < inputs.length) {
         int tmp = (((inputs[idx] >> bit) & 1) << ret_bit);
-        ret_byte = (byte)(ret_byte | tmp);
+        ret_byte = (byte) (ret_byte | tmp);
         ret_bit -= 1;
         if (ret_bit == -1) {
           // finished processing a byte
@@ -61,8 +63,8 @@ public class InterleaveBitsTest {
       }
       bit -= 1;
     }
-    assert(ret_idx == inputs.length * 4);
-    assert(ret_bit == 7);
+    assert (ret_idx == inputs.length * 4);
+    assert (ret_bit == 7);
     return ret;
   }
 
@@ -83,7 +85,7 @@ public class InterleaveBitsTest {
       int idx = 0;
       while (idx < inputs.length) {
         int tmp = (((inputs[idx] >> bit) & 1) << ret_bit);
-        ret_byte = (byte)(ret_byte | tmp);
+        ret_byte = (byte) (ret_byte | tmp);
         ret_bit -= 1;
         if (ret_bit == -1) {
           // finished processing a byte
@@ -96,8 +98,8 @@ public class InterleaveBitsTest {
       }
       bit -= 1;
     }
-    assert(ret_idx == inputs.length * 2);
-    assert(ret_bit == 7);
+    assert (ret_idx == inputs.length * 2);
+    assert (ret_bit == 7);
     return ret;
   }
 
@@ -118,7 +120,7 @@ public class InterleaveBitsTest {
       int idx = 0;
       while (idx < inputs.length) {
         int tmp = (((inputs[idx] >> bit) & 1) << ret_bit);
-        ret_byte = (byte)(ret_byte | tmp);
+        ret_byte = (byte) (ret_byte | tmp);
         ret_bit -= 1;
         if (ret_bit == -1) {
           // finished processing a byte
@@ -131,8 +133,8 @@ public class InterleaveBitsTest {
       }
       bit -= 1;
     }
-    assert(ret_idx == inputs.length);
-    assert(ret_bit == 7);
+    assert (ret_idx == inputs.length);
+    assert (ret_bit == 7);
     return ret;
   }
 
@@ -172,9 +174,6 @@ public class InterleaveBitsTest {
     return ret;
   }
 
-  public static HostColumnVector.DataType outputType =
-      new HostColumnVector.ListType(true, new HostColumnVector.BasicType(false, DType.UINT8));
-
   public static void doIntTest(int numRows, Integer[]... inputs) {
     List<Byte>[] expected = getExpected(numRows, inputs);
     ColumnVector[] cvInputs = new ColumnVector[inputs.length];
@@ -187,7 +186,7 @@ public class InterleaveBitsTest {
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
-      for (ColumnVector cv: cvInputs) {
+      for (ColumnVector cv : cvInputs) {
         if (cv != null) {
           cv.close();
         }
@@ -207,7 +206,7 @@ public class InterleaveBitsTest {
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
-      for (ColumnVector cv: cvInputs) {
+      for (ColumnVector cv : cvInputs) {
         if (cv != null) {
           cv.close();
         }
@@ -227,7 +226,7 @@ public class InterleaveBitsTest {
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
-      for (ColumnVector cv: cvInputs) {
+      for (ColumnVector cv : cvInputs) {
         if (cv != null) {
           cv.close();
         }
@@ -295,21 +294,21 @@ public class InterleaveBitsTest {
 
   @Test
   void testShort2NonNull() {
-    Short[] inputs1 = {(short)0x0102, (short)0x0000, (short)0xFFFF, (short)0xFF00};
-    Short[] inputs2 = {(short)0x1020, (short)0xFFFF, (short)0x0000, (short)0x00FF};
+    Short[] inputs1 = {(short) 0x0102, (short) 0x0000, (short) 0xFFFF, (short) 0xFF00};
+    Short[] inputs2 = {(short) 0x1020, (short) 0xFFFF, (short) 0x0000, (short) 0x00FF};
     doShortTest(inputs1.length, inputs1, inputs2);
   }
 
   @Test
   void testByte2NonNull() {
-    Byte[] inputs1 = {(byte)0x01, (byte)0x00, (byte)0xFF, (byte)0x0F};
-    Byte[] inputs2 = {(byte)0x10, (byte)0xFF, (byte)0x00, (byte)0xF0};
+    Byte[] inputs1 = {(byte) 0x01, (byte) 0x00, (byte) 0xFF, (byte) 0x0F};
+    Byte[] inputs2 = {(byte) 0x10, (byte) 0xFF, (byte) 0x00, (byte) 0xF0};
     doByteTest(inputs1.length, inputs1, inputs2);
   }
 
   @Test
   void testInt2Null() {
-    Integer[] inputs1 = {0x00000000, null,       0xFFFFFFFF, 0xFF00FF00};
+    Integer[] inputs1 = {0x00000000, null, 0xFFFFFFFF, 0xFF00FF00};
     Integer[] inputs2 = {0xFFFFFFFF, 0x00000000, 0x00FF00FF, null};
     doIntTest(inputs1.length, inputs1, inputs2);
   }
@@ -324,17 +323,17 @@ public class InterleaveBitsTest {
 
   @Test
   void testShort3NonNull() {
-    Short[] inputs1 = {(short)0x0000, (short)0x4444, (short)0x1111};
-    Short[] inputs2 = {(short)0x1111, (short)0x8888, (short)0x2222};
-    Short[] inputs3 = {(short)0x2222, (short)0x0000, (short)0x4444};
+    Short[] inputs1 = {(short) 0x0000, (short) 0x4444, (short) 0x1111};
+    Short[] inputs2 = {(short) 0x1111, (short) 0x8888, (short) 0x2222};
+    Short[] inputs3 = {(short) 0x2222, (short) 0x0000, (short) 0x4444};
     doShortTest(inputs1.length, inputs1, inputs2, inputs3);
   }
 
   @Test
   void testByte3NonNull() {
-    Byte[] inputs1 = {(byte)0x00, (byte)0x44, (byte)0x11};
-    Byte[] inputs2 = {(byte)0x11, (byte)0x88, (byte)0x22};
-    Byte[] inputs3 = {(byte)0x22, (byte)0x00, (byte)0x44};
+    Byte[] inputs1 = {(byte) 0x00, (byte) 0x44, (byte) 0x11};
+    Byte[] inputs2 = {(byte) 0x11, (byte) 0x88, (byte) 0x22};
+    Byte[] inputs3 = {(byte) 0x22, (byte) 0x00, (byte) 0x44};
     doByteTest(inputs1.length, inputs1, inputs2, inputs3);
   }
 }

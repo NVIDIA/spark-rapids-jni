@@ -1,18 +1,18 @@
 /*
-* Copyright (c) 2023-2024, NVIDIA CORPORATION.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 package com.nvidia.spark.rapids.jni;
 
@@ -20,9 +20,6 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
@@ -34,17 +31,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Gpu time zone utility.
  * Provides two kinds of APIs
- *  - Time zone transitions cache APIs
- *      `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
- *      When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will wait;
- *      These APIs guarantee only one thread is loading transitions cache,
- *      And guarantee loading cache only occurs one time.
- *  - Rebase time zone APIs
- *    fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
+ * - Time zone transitions cache APIs
+ * `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
+ * When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will wait;
+ * These APIs guarantee only one thread is loading transitions cache,
+ * And guarantee loading cache only occurs one time.
+ * - Rebase time zone APIs
+ * fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
  */
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
@@ -104,7 +103,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static synchronized void closeResources()  {
+  private static synchronized void closeResources() {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
       zoneIdToTable = null;
@@ -115,7 +114,8 @@ public class GpuTimeZoneDB {
     }
   }
 
-  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
+  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input,
+                                                         ZoneId currentTimeZone) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
     if (!isSupportedTimeZone(currentTimeZone)) {
@@ -132,8 +132,9 @@ public class GpuTimeZoneDB {
           transitions.getNativeView(), tzIndex));
     }
   }
-  
-  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
+
+  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input,
+                                                         ZoneId desiredTimeZone) {
     // TODO: Remove this check when all timezones are supported
     // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
     if (!isSupportedTimeZone(desiredTimeZone)) {
@@ -150,13 +151,13 @@ public class GpuTimeZoneDB {
           transitions.getNativeView(), tzIndex));
     }
   }
-  
+
   // TODO: Deprecate this API when we support all timezones 
   // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
   public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
     return desiredTimeZone != null &&
-      (desiredTimeZone.getRules().isFixedOffset() ||
-      desiredTimeZone.getRules().getTransitionRules().isEmpty());
+        (desiredTimeZone.getRules().isFixedOffset() ||
+            desiredTimeZone.getRules().getTransitionRules().isEmpty());
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
@@ -170,10 +171,10 @@ public class GpuTimeZoneDB {
   // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
     String formattedZoneId = timeZoneId
-      // To support the (+|-)h:mm format because it was supported before Spark 3.0.
-      .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
-      // To support the (+|-)hh:m format because it was supported before Spark 3.0.
-      .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
+        // To support the (+|-)h:mm format because it was supported before Spark 3.0.
+        .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
+        // To support the (+|-)hh:m format because it was supported before Spark 3.0.
+        .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
   }
 
@@ -266,12 +267,13 @@ public class GpuTimeZoneDB {
 
   /**
    * FOR TESTING PURPOSES ONLY, DO NOT USE IN PRODUCTION
-   *
-   * This method retrieves the raw list of struct data that forms the list of 
-   * fixed transitions for a particular zoneId. 
-   *
+   * <p>
+   * This method retrieves the raw list of struct data that forms the list of
+   * fixed transitions for a particular zoneId.
+   * <p>
    * It has default visibility so the test can access it.
-   * @param zoneId
+   *
+   * @param zoneId Zone id
    * @return list of fixed transitions
    */
   static synchronized List getHostFixedTransitions(String zoneId) {
@@ -285,5 +287,6 @@ public class GpuTimeZoneDB {
 
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
-  private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
+  private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions,
+                                                                 int tzIndex);
 }

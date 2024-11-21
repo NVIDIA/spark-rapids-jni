@@ -18,9 +18,8 @@ package com.nvidia.spark.rapids.jni;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-import org.junit.jupiter.api.Test;
-
 import ai.rapids.cudf.ColumnVector;
+import org.junit.jupiter.api.Test;
 
 public class DateTimeRebaseTest {
   @Test

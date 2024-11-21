@@ -16,31 +16,36 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.Schema;
-import com.nvidia.spark.rapids.jni.schema.Visitors;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignment;
+
+import ai.rapids.cudf.Schema;
+import com.nvidia.spark.rapids.jni.schema.Visitors;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 
 /**
  * This class is used to calculate column offsets of merged buffer.
  */
 class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
-  // Total data len in gpu, which accounts for 64 byte alignment
-  private long totalDataLen;
   // Column offset in gpu device buffer, it has one field for each flattened column
   private final List<ColumnOffsetInfo> columnOffsets;
+  // Total data len in gpu, which accounts for 64 byte alignment
+  private long totalDataLen;
 
   public MergedInfoCalc(List<KudoTable> tables) {
     super(tables);
     this.totalDataLen = 0;
     this.columnOffsets = new ArrayList<>(tables.get(0).getHeader().getNumColumns());
+  }
+
+  static MergedInfoCalc calc(Schema schema, List<KudoTable> table) {
+    MergedInfoCalc calc = new MergedInfoCalc(table);
+    Visitors.visitSchema(schema, calc);
+    return calc;
   }
 
   @Override
@@ -58,7 +63,9 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
       totalDataLen += validityBufferLen;
     }
 
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, INVALID_OFFSET, 0));
+    columnOffsets.add(
+        new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, INVALID_OFFSET,
+            0));
     return null;
   }
 
@@ -75,13 +82,15 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
     long offsetBufferLen = 0;
     long offsetBufferOffset = INVALID_OFFSET;
     if (getTotalRowCount() > 0) {
-      offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
+      offsetBufferLen = padFor64byteAlignment((long) (getTotalRowCount() + 1) * Integer.BYTES);
       offsetBufferOffset = totalDataLen;
       totalDataLen += offsetBufferLen;
     }
 
 
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, INVALID_OFFSET, 0));
+    columnOffsets.add(
+        new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen,
+            INVALID_OFFSET, 0));
     return null;
   }
 
@@ -105,7 +114,7 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
       long offsetBufferLen = 0;
       long offsetBufferOffset = INVALID_OFFSET;
       if (getTotalRowCount() > 0) {
-        offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
+        offsetBufferLen = padFor64byteAlignment((long) (getTotalRowCount() + 1) * Integer.BYTES);
         offsetBufferOffset = totalDataLen;
         totalDataLen += offsetBufferLen;
       }
@@ -118,7 +127,8 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
         totalDataLen += dataBufferLen;
       }
 
-      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, dataBufferOffset, dataBufferLen));
+      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset,
+          offsetBufferLen, dataBufferOffset, dataBufferLen));
     } else {
       long totalRowCount = getTotalRowCount();
       long validityBufferLen = 0;
@@ -132,17 +142,18 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
       long dataBufferLen = 0;
       long dataBufferOffset = INVALID_OFFSET;
       if (totalRowCount > 0) {
-        dataBufferLen = padFor64byteAlignment(totalRowCount * primitiveType.getType().getSizeInBytes());
+        dataBufferLen =
+            padFor64byteAlignment(totalRowCount * primitiveType.getType().getSizeInBytes());
         dataBufferOffset = totalDataLen;
         totalDataLen += dataBufferLen;
       }
 
-      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, dataBufferOffset, dataBufferLen));
+      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0,
+          dataBufferOffset, dataBufferLen));
     }
 
     return null;
   }
-
 
   public long getTotalDataLen() {
     return totalDataLen;
@@ -158,11 +169,5 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
         "totalDataLen=" + totalDataLen +
         ", columnOffsets=" + columnOffsets +
         '}';
-  }
-
-  static MergedInfoCalc calc(Schema schema, List<KudoTable> table) {
-    MergedInfoCalc calc = new MergedInfoCalc(table);
-    Visitors.visitSchema(schema, calc);
-    return calc;
   }
 }

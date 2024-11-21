@@ -13,15 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.NativeDepsLoader;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-/** Profiler that collects CUDA and NVTX events for the current process. */
+/**
+ * Profiler that collects CUDA and NVTX events for the current process.
+ */
 public class Profiler {
   private static final long DEFAULT_WRITE_BUFFER_SIZE = 1024 * 1024;
   private static final int DEFAULT_FLUSH_PERIOD_MILLIS = 0;
@@ -31,6 +33,7 @@ public class Profiler {
   /**
    * Initialize the profiler in a standby state. The start method must be called after this
    * to start collecting profiling data.
+   *
    * @param config profiler configuration
    */
   public static void init(DataWriter w, Config config) {
@@ -53,10 +56,11 @@ public class Profiler {
    * Deprecated. Use init(Config) instead.
    * Initialize the profiler in a standby state. The start method must be called after this
    * to start collecting profiling data.
-   * @param w data writer for writing profiling data
-   * @param writeBufferSize size of host memory buffer to use for collecting profiling data.
-   *                        Recommended to be between 1-8 MB in size to balance callback
-   *                        overhead with latency.
+   *
+   * @param w                 data writer for writing profiling data
+   * @param writeBufferSize   size of host memory buffer to use for collecting profiling data.
+   *                          Recommended to be between 1-8 MB in size to balance callback
+   *                          overhead with latency.
    * @param flushPeriodMillis time period in milliseconds to explicitly flush collected
    *                          profiling data to the writer. A value <= 0 will disable explicit
    *                          flushing.
@@ -119,17 +123,22 @@ public class Profiler {
 
   private static native void nativeShutdown();
 
-  /** Interface for profiler data writers */
+  /**
+   * Interface for profiler data writers
+   */
   public interface DataWriter extends AutoCloseable {
     /**
      * Called by the profiler to write a block of profiling data. Profiling data is written
      * in a size-prefixed flatbuffer format. See profiler.fbs for the schema.
+     *
      * @param data profiling data to be written
      */
     void write(ByteBuffer data);
   }
 
-  /** Profiler configuration class. **/
+  /**
+   * Profiler configuration class.
+   **/
   public static class Config {
     private final long writeBufferSize;
     private final int flushPeriodMillis;
@@ -141,7 +150,9 @@ public class Profiler {
       this.allocAsyncCapturing = builder.allocAsyncCapturing;
     }
 
-    /** Builder interface for profiler configuration. **/
+    /**
+     * Builder interface for profiler configuration.
+     **/
     public static class Builder {
       private long writeBufferSize = DEFAULT_WRITE_BUFFER_SIZE;
       private int flushPeriodMillis = DEFAULT_FLUSH_PERIOD_MILLIS;
@@ -151,6 +162,7 @@ public class Profiler {
        * Configure the size of the host memory buffer used for collecting profiling data.
        * Recommended to be between 1 to 8 MB in size to balance callback overhead with
        * latency.
+       *
        * @param writeBufferSize size of buffer in bytes
        */
       public Builder withWriteBufferSize(long writeBufferSize) {
@@ -160,6 +172,7 @@ public class Profiler {
 
       /**
        * Configure the time period to explicitly flush collected profiling data to the writer.
+       *
        * @param flushPeriodMillis time period in milliseconds. A value <= 0 will disable explicit
        *                          flushing.
        */
@@ -170,6 +183,7 @@ public class Profiler {
 
       /**
        * Configure whether async allocation and free events are captured by the profiler.
+       *
        * @param allocAsyncCapturing true if async allocation and free events should be captured,
        *                            false otherwise.
        */
@@ -178,7 +192,9 @@ public class Profiler {
         return this;
       }
 
-      /** Build a profiler configuration object. */
+      /**
+       * Build a profiler configuration object.
+       */
       public Config build() {
         return new Config(this);
       }

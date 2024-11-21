@@ -18,7 +18,6 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
-
 import org.junit.jupiter.api.Test;
 
 public class HistogramTest {
@@ -27,7 +26,7 @@ public class HistogramTest {
     try (ColumnVector values = ColumnVector.fromInts(5, 10, 30);
          ColumnVector freqs = ColumnVector.fromLongs(1, 0, 1);
          ColumnVector histogram = Histogram.createHistogramIfValid(values, freqs, true);
-         ColumnVector percentiles = Histogram.percentileFromHistogram(histogram, new double[]{1},
+         ColumnVector percentiles = Histogram.percentileFromHistogram(histogram, new double[] {1},
              false);
          ColumnVector expected = ColumnVector.fromBoxedDoubles(5.0, null, 30.0)) {
       AssertUtils.assertColumnsAreEqual(percentiles, expected);
@@ -39,7 +38,7 @@ public class HistogramTest {
     try (ColumnVector values = ColumnVector.fromBoxedInts(null, null, null);
          ColumnVector freqs = ColumnVector.fromLongs(1, 2, 3);
          ColumnVector histogram = Histogram.createHistogramIfValid(values, freqs, true);
-         ColumnVector percentiles = Histogram.percentileFromHistogram(histogram, new double[]{0.5},
+         ColumnVector percentiles = Histogram.percentileFromHistogram(histogram, new double[] {0.5},
              false);
          ColumnVector expected = ColumnVector.fromBoxedDoubles(null, null, null)) {
       AssertUtils.assertColumnsAreEqual(percentiles, expected);

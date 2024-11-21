@@ -36,10 +36,16 @@ public class HostTable implements AutoCloseable {
   private long nativeTableView;
   private HostMemoryBuffer hostBuffer;
 
+  private HostTable(long tableHandle, HostMemoryBuffer hostBuffer) {
+    this.nativeTableView = tableHandle;
+    this.hostBuffer = hostBuffer;
+  }
+
   /**
    * Copies a device table to a host table asynchronously.
    * NOTE: The caller must synchronize on the stream before examining the data on the host.
-   * @param table device table to copy
+   *
+   * @param table  device table to copy
    * @param stream stream to use for the copy
    * @return host table
    */
@@ -63,7 +69,8 @@ public class HostTable implements AutoCloseable {
 
   /**
    * Copies a device table to a host table synchronously.
-   * @param table device table to copy
+   *
+   * @param table  device table to copy
    * @param stream stream to use for the copy
    * @return host table
    */
@@ -75,6 +82,7 @@ public class HostTable implements AutoCloseable {
 
   /**
    * Copies a device table to a host table synchronously on the default stream.
+   *
    * @param table device table to copy
    * @return host table
    */
@@ -82,10 +90,16 @@ public class HostTable implements AutoCloseable {
     return fromTable(table, Cuda.DEFAULT_STREAM);
   }
 
-  private HostTable(long tableHandle, HostMemoryBuffer hostBuffer) {
-    this.nativeTableView = tableHandle;
-    this.hostBuffer = hostBuffer;
-  }
+  private static native long bufferSize(long tableHandle, long stream);
+
+  private static native long copyFromTableAsync(long tableHandle, long hostAddress, long hostSize,
+                                                long stream);
+
+  private static native long[] toDeviceColumnViews(long tableHandle, long hostToDevPtrOffset);
+
+  private static native void freeDeviceColumnView(long columnHandle);
+
+  private static native void freeHostTable(long tableHandle);
 
   /**
    * Gets the address of the host_table_view for this host table.
@@ -106,6 +120,7 @@ public class HostTable implements AutoCloseable {
    * Copies the host table to a device table asynchronously.
    * NOTE: The caller must synchronize on the stream before closing this instance,
    * or the copy could still be in-flight when the host memory is invalidated or reused.
+   *
    * @param stream stream to use for the copy
    * @return device table
    */
@@ -120,7 +135,8 @@ public class HostTable implements AutoCloseable {
       boolean done = false;
       try {
         for (int i = 0; i < columnViewHandles.length; i++) {
-          columns[i] = ColumnVector.fromViewWithContiguousAllocation(columnViewHandles[i], devBuffer);
+          columns[i] =
+              ColumnVector.fromViewWithContiguousAllocation(columnViewHandles[i], devBuffer);
           columnViewHandles[i] = 0;
         }
         table = new Table(columns);
@@ -149,6 +165,7 @@ public class HostTable implements AutoCloseable {
 
   /**
    * Copies the host table to a device table synchronously.
+   *
    * @param stream stream to use for the copy
    * @return device table
    */
@@ -160,6 +177,7 @@ public class HostTable implements AutoCloseable {
 
   /**
    * Copies the host table to a device table synchronously on the default stream.
+   *
    * @return device table
    */
   public Table toTable() {
@@ -176,15 +194,4 @@ public class HostTable implements AutoCloseable {
       hostBuffer = null;
     }
   }
-
-  private static native long bufferSize(long tableHandle, long stream);
-
-  private static native long copyFromTableAsync(long tableHandle, long hostAddress, long hostSize,
-                                                long stream);
-
-  private static native long[] toDeviceColumnViews(long tableHandle, long hostToDevPtrOffset);
-
-  private static native void freeDeviceColumnView(long columnHandle);
-
-  private static native void freeHostTable(long tableHandle);
 }

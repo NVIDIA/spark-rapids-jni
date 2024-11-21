@@ -16,18 +16,18 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
 import ai.rapids.cudf.ColumnVector;
 import org.davidmoten.hilbert.HilbertCurve;
 import org.davidmoten.hilbert.SmallHilbertCurve;
 import org.junit.jupiter.api.Test;
 
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
-
 public class HilbertIndexTest {
   static long[] getExpected(int numBits, int numRows, Integer[]... inputs) {
     final int dimensions = inputs.length;
     final int length = numBits * dimensions;
-    assert(length <= 64);
+    assert (length <= 64);
     SmallHilbertCurve shc = HilbertCurve.small().bits(numBits).dimensions(dimensions);
     long[] ret = new long[numRows];
     long[] tmpInputs = new long[dimensions];
@@ -60,7 +60,7 @@ public class HilbertIndexTest {
         assertColumnsAreEqual(expectedCv, results);
       }
     } finally {
-      for (ColumnVector cv: cvInputs) {
+      for (ColumnVector cv : cvInputs) {
         if (cv != null) {
           cv.close();
         }
@@ -87,15 +87,15 @@ public class HilbertIndexTest {
 
   @Test
   void testInt2NonNull() {
-    Integer[] inputs1 = {  1, 500, 1000, 250};
-    Integer[] inputs2 = {500, 400,  300, 200};
+    Integer[] inputs1 = {1, 500, 1000, 250};
+    Integer[] inputs2 = {500, 400, 300, 200};
     doTest(10, inputs1.length, inputs1, inputs2);
   }
 
   @Test
   void testInt2Null() {
-    Integer[] inputs1 = {  0, null,  50, 1000};
-    Integer[] inputs2 = {200,  300, 100,    0};
+    Integer[] inputs1 = {0, null, 50, 1000};
+    Integer[] inputs2 = {200, 300, 100, 0};
     doTest(10, inputs1.length, inputs1, inputs2);
   }
 

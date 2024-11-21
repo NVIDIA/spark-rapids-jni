@@ -31,18 +31,6 @@ public class MergeMetrics {
     this.convertToTableTime = convertToTableTime;
   }
 
-  public long getCalcHeaderTime() {
-    return calcHeaderTime;
-  }
-
-  public long getMergeIntoHostBufferTime() {
-    return mergeIntoHostBufferTime;
-  }
-
-  public long getConvertToTableTime() {
-    return convertToTableTime;
-  }
-
   public static Builder builder() {
     return new Builder();
   }
@@ -54,6 +42,17 @@ public class MergeMetrics {
         .convertToTableTime(metrics.convertToTableTime);
   }
 
+  public long getCalcHeaderTime() {
+    return calcHeaderTime;
+  }
+
+  public long getMergeIntoHostBufferTime() {
+    return mergeIntoHostBufferTime;
+  }
+
+  public long getConvertToTableTime() {
+    return convertToTableTime;
+  }
 
   public static class Builder {
     private long calcHeaderTime;

@@ -16,16 +16,15 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
+import static java.lang.Math.toIntExact;
+
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVectorCore;
 import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
-
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
-import static java.lang.Math.toIntExact;
 
 /**
  * This class visits a list of columns and calculates the serialized table header.
@@ -44,7 +43,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
   private long totalDataLen;
   private int nextColIdx;
 
-  private Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
+  private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
 
   KudoTableHeaderCalc(int rowOffset, int numRows, int numFlattenedCols) {
     this.root = new SliceInfo(rowOffset, numRows);
@@ -53,6 +52,41 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
     this.bitset = new byte[(numFlattenedCols + 7) / 8];
     this.numFlattenedCols = numFlattenedCols;
     this.nextColIdx = 0;
+  }
+
+  private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
+    if (col.hasValidityVector() && info.getRowCount() > 0) {
+      return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
+    } else {
+      return 0;
+    }
+  }
+
+  private static long dataLenOfOffsetBuffer(HostColumnVectorCore col, SliceInfo info) {
+    if (DType.STRING.equals(col.getType()) && info.getRowCount() > 0) {
+      return padForHostAlignment((long) (info.rowCount + 1) * Integer.BYTES);
+    } else {
+      return 0;
+    }
+  }
+
+  private static long dataLenOfDataBuffer(HostColumnVectorCore col, SliceInfo info) {
+    if (DType.STRING.equals(col.getType())) {
+      if (col.getOffsets() != null) {
+        long startByteOffset = col.getOffsets().getInt((long) info.offset * Integer.BYTES);
+        long endByteOffset = col.getOffsets().getInt(
+            (long) (info.offset + info.rowCount) * Integer.BYTES);
+        return padForHostAlignment(endByteOffset - startByteOffset);
+      } else {
+        return 0;
+      }
+    } else {
+      if (col.getType().getSizeInBytes() > 0) {
+        return padForHostAlignment((long) col.getType().getSizeInBytes() * info.rowCount);
+      } else {
+        return 0;
+      }
+    }
   }
 
   public KudoTableHeader getHeader() {
@@ -93,7 +127,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
     long offsetBufferLength = 0;
     if (col.getOffsets() != null && parent.rowCount > 0) {
-      offsetBufferLength = padForHostAlignment((parent.rowCount + 1) * Integer.BYTES);
+      offsetBufferLength = padForHostAlignment((long) (parent.rowCount + 1) * Integer.BYTES);
     }
 
     this.validityBufferLen += validityBufferLength;
@@ -105,8 +139,8 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
     SliceInfo current;
 
     if (col.getOffsets() != null) {
-      int start = col.getOffsets().getInt(parent.offset * Integer.BYTES);
-      int end = col.getOffsets().getInt((parent.offset + parent.rowCount) * Integer.BYTES);
+      int start = col.getOffsets().getInt((long) parent.offset * Integer.BYTES);
+      int end = col.getOffsets().getInt((long) (parent.offset + parent.rowCount) * Integer.BYTES);
       int rowCount = end - start;
       current = new SliceInfo(start, rowCount);
     } else {
@@ -123,7 +157,6 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
     return null;
   }
-
 
   @Override
   public Void visit(HostColumnVectorCore col) {
@@ -148,39 +181,5 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
       bitset[bytePos] = (byte) (bitset[bytePos] | (1 << bitPos));
     }
     nextColIdx++;
-  }
-
-  private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
-    if (col.hasValidityVector() && info.getRowCount() > 0) {
-      return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
-    } else {
-      return 0;
-    }
-  }
-
-  private static long dataLenOfOffsetBuffer(HostColumnVectorCore col, SliceInfo info) {
-    if (DType.STRING.equals(col.getType()) && info.getRowCount() > 0) {
-      return padForHostAlignment((info.rowCount + 1) * Integer.BYTES);
-    } else {
-      return 0;
-    }
-  }
-
-  private static long dataLenOfDataBuffer(HostColumnVectorCore col, SliceInfo info) {
-    if (DType.STRING.equals(col.getType())) {
-      if (col.getOffsets() != null) {
-        long startByteOffset = col.getOffsets().getInt(info.offset * Integer.BYTES);
-        long endByteOffset = col.getOffsets().getInt((info.offset + info.rowCount) * Integer.BYTES);
-        return padForHostAlignment(endByteOffset - startByteOffset);
-      } else {
-        return 0;
-      }
-    } else {
-      if (col.getType().getSizeInBytes() > 0) {
-        return padForHostAlignment(col.getType().getSizeInBytes() * info.rowCount);
-      } else {
-        return 0;
-      }
-    }
   }
 }

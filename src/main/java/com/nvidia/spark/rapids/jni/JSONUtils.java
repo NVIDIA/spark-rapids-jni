@@ -16,52 +16,30 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
-
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.JSONOptions;
+import ai.rapids.cudf.NativeDepsLoader;
 import java.util.List;
 
 public class JSONUtils {
+  public static final int MAX_PATH_DEPTH = getMaxJSONPathDepth();
+
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static final int MAX_PATH_DEPTH = getMaxJSONPathDepth();
-
-  public enum PathInstructionType {
-    WILDCARD,
-    INDEX,
-    NAMED
-  }
-
-  public static class PathInstructionJni {
-    // type: byte, name: String, index: int
-    private final byte type;
-    private final String name;
-    private final int index;
-
-    public PathInstructionJni(PathInstructionType type, String name, long index) {
-      this.type = (byte) type.ordinal();
-      this.name = name;
-      if (index > Integer.MAX_VALUE) {
-        throw new IllegalArgumentException("index is too large " + index);
-      }
-      this.index = (int) index;
-    }
-
-    public PathInstructionJni(PathInstructionType type, String name, int index) {
-      this.type = (byte) type.ordinal();
-      this.name = name;
-      this.index = index;
-    }
-  }
-
   /**
    * Extract a JSON path from a JSON column. The path is processed in a Spark compatible way.
-   * @param input the string column containing JSON
+   *
+   * @param input            the string column containing JSON
    * @param pathInstructions the instructions for the path processing
    * @return the result of processing the path
    */
-  public static ColumnVector getJsonObject(ColumnVector input, PathInstructionJni[] pathInstructions) {
+  public static ColumnVector getJsonObject(ColumnVector input,
+                                           PathInstructionJni[] pathInstructions) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     int numTotalInstructions = pathInstructions.length;
     byte[] typeNums = new byte[numTotalInstructions];
@@ -80,6 +58,7 @@ public class JSONUtils {
   /**
    * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
+   *
    * @param input the string column containing JSON
    * @param paths the instructions for multiple paths
    * @return the result of processing each path in the order that they were passed in
@@ -92,15 +71,16 @@ public class JSONUtils {
   /**
    * Extract multiple JSON paths from a JSON column. The paths are processed in a Spark
    * compatible way.
-   * @param input the string column containing JSON
-   * @param paths the instructions for multiple paths
+   *
+   * @param input             the string column containing JSON
+   * @param paths             the instructions for multiple paths
    * @param memoryBudgetBytes a budget that is used to limit the amount of memory
    *                          that is used when processing the paths. This is a soft limit.
    *                          A value <= 0 disables this and all paths will be processed in parallel.
-   * @param parallelOverride Set a maximum number of paths to be processed in parallel. The memory
-   *                         budget can limit how many paths can be processed in parallel. This overrides
-   *                         that automatically calculated value with a set value for benchmarking purposes.
-   *                         A value <= 0 disables this.
+   * @param parallelOverride  Set a maximum number of paths to be processed in parallel. The memory
+   *                          budget can limit how many paths can be processed in parallel. This overrides
+   *                          that automatically calculated value with a set value for benchmarking purposes.
+   *                          A value <= 0 disables this.
    * @return the result of processing each path in the order that they were passed in
    */
   public static ColumnVector[] getJsonObjectMultiplePaths(ColumnVector input,
@@ -137,7 +117,6 @@ public class JSONUtils {
     return ret;
   }
 
-
   /**
    * Extract key-value pairs for each output map from the given json strings. These key-value are
    * copied directly as substrings of the input without any type conversion.
@@ -152,9 +131,9 @@ public class JSONUtils {
    * function will just simply copy the input value strings to the output.
    *
    * @param input The input strings column in which each row specifies a json object
-   * @param opts The options for parsing JSON strings
+   * @param opts  The options for parsing JSON strings
    * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
-   *         which the key-value pairs are extracted directly from the input json strings
+   * which the key-value pairs are extracted directly from the input json strings
    */
   public static ColumnVector extractRawMapFromJsonString(ColumnView input, JSONOptions opts) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
@@ -169,41 +148,16 @@ public class JSONUtils {
    * Extract key-value pairs for each output map from the given json strings. This method is
    * similar to {@link #extractRawMapFromJsonString(ColumnView, JSONOptions)} but is deprecated.
    *
-   * @deprecated This method is deprecated since it does not have parameters to control various
-   * JSON reader behaviors.
-   *
    * @param input The input strings column in which each row specifies a json object
    * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
-   *         which the key-value pairs are extracted directly from the input json strings
+   * which the key-value pairs are extracted directly from the input json strings
+   * @deprecated This method is deprecated since it does not have parameters to control various
+   * JSON reader behaviors.
    */
   public static ColumnVector extractRawMapFromJsonString(ColumnView input) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
     return new ColumnVector(extractRawMapFromJsonString(input.getNativeView(),
         true, true, true, true));
-  }
-
-  /**
-   * A class to hold the result when concatenating JSON strings.
-   * <p>
-   * A long with the concatenated data, the result also contains a vector that indicates
-   * whether each row in the input is null or empty, and the delimiter used for concatenation.
-   */
-  public static class ConcatenatedJson implements AutoCloseable {
-    public final ColumnVector isNullOrEmpty;
-    public final DeviceMemoryBuffer data;
-    public final char delimiter;
-
-    public ConcatenatedJson(ColumnVector isNullOrEmpty, DeviceMemoryBuffer data, char delimiter) {
-      this.isNullOrEmpty = isNullOrEmpty;
-      this.data = data;
-      this.delimiter = delimiter;
-    }
-
-    @Override
-    public void close() {
-      isNullOrEmpty.close();
-      data.close();
-    }
   }
 
   /**
@@ -231,7 +185,7 @@ public class JSONUtils {
    * by the input isNull column.
    *
    * @param children The children columns of the output structs column
-   * @param isNull A boolean column specifying the rows at which the output column should be null
+   * @param isNull   A boolean column specifying the rows at which the output column should be null
    * @return A structs column created from the given children and the isNull column
    */
   public static ColumnVector makeStructs(ColumnView[] children, ColumnView isNull) {
@@ -257,7 +211,6 @@ public class JSONUtils {
                                                           long memoryBudgetBytes,
                                                           int parallelOverride);
 
-
   private static native long extractRawMapFromJsonString(long input,
                                                          boolean normalizeSingleQuotes,
                                                          boolean leadingZerosAllowed,
@@ -267,4 +220,57 @@ public class JSONUtils {
   private static native long[] concatenateJsonStrings(long input);
 
   private static native long makeStructs(long[] children, long isNull);
+
+
+  public enum PathInstructionType {
+    WILDCARD,
+    INDEX,
+    NAMED
+  }
+
+  public static class PathInstructionJni {
+    // type: byte, name: String, index: int
+    private final byte type;
+    private final String name;
+    private final int index;
+
+    public PathInstructionJni(PathInstructionType type, String name, long index) {
+      this.type = (byte) type.ordinal();
+      this.name = name;
+      if (index > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException("index is too large " + index);
+      }
+      this.index = (int) index;
+    }
+
+    public PathInstructionJni(PathInstructionType type, String name, int index) {
+      this.type = (byte) type.ordinal();
+      this.name = name;
+      this.index = index;
+    }
+  }
+
+  /**
+   * A class to hold the result when concatenating JSON strings.
+   * <p>
+   * A long with the concatenated data, the result also contains a vector that indicates
+   * whether each row in the input is null or empty, and the delimiter used for concatenation.
+   */
+  public static class ConcatenatedJson implements AutoCloseable {
+    public final ColumnVector isNullOrEmpty;
+    public final DeviceMemoryBuffer data;
+    public final char delimiter;
+
+    public ConcatenatedJson(ColumnVector isNullOrEmpty, DeviceMemoryBuffer data, char delimiter) {
+      this.isNullOrEmpty = isNullOrEmpty;
+      this.data = data;
+      this.delimiter = delimiter;
+    }
+
+    @Override
+    public void close() {
+      isNullOrEmpty.close();
+      data.close();
+    }
+  }
 }

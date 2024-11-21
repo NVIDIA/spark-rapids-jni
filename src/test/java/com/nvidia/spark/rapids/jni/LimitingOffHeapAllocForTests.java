@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.HostMemoryBuffer;
-
 import java.util.Optional;
 
 /**
@@ -27,6 +26,7 @@ import java.util.Optional;
 public class LimitingOffHeapAllocForTests {
   private static long limit;
   private static long amountAllocated = 0;
+
   public static synchronized void setLimit(long limit) {
     LimitingOffHeapAllocForTests.limit = limit;
     if (amountAllocated > 0) {
@@ -68,6 +68,7 @@ public class LimitingOffHeapAllocForTests {
 
   /**
    * Do a non-blocking allocation
+   *
    * @param amount the amount to allocate
    * @return the allocated buffer or not.
    */
@@ -77,6 +78,7 @@ public class LimitingOffHeapAllocForTests {
 
   /**
    * Do a blocking allocation
+   *
    * @param amount the amount to allocate
    * @return the allocated buffer
    */

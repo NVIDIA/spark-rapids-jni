@@ -16,11 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.util.HashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
-import java.util.HashSet;
 
 /**
  * This is used to allow us to map a native thread id to a java thread so we can look at the
