@@ -1379,8 +1379,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           if (!is_for_cpu) {
             gpu_memory_allocated_bytes += num_bytes;
             thread->second.metrics.gpu_max_memory_allocated =
-              std::max(thread->second.metrics.gpu_max_memory_allocated,
-                       gpu_memory_allocated_bytes);
+              std::max(thread->second.metrics.gpu_max_memory_allocated, gpu_memory_allocated_bytes);
           }
           break;
         default: break;
