@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Get checkout depth
         run: |
-          echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 1 ))" >> $GITHUB_ENV
+          echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 10 ))" >> $GITHUB_ENV
 
       - name: Checkout code
         uses: actions/checkout@v4
