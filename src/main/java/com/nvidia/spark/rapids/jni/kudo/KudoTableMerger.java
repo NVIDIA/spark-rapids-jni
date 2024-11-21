@@ -16,17 +16,6 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.HostMemoryBuffer;
-import ai.rapids.cudf.Schema;
-import com.nvidia.spark.rapids.jni.Arms;
-import com.nvidia.spark.rapids.jni.schema.Visitors;
-
-import java.nio.ByteOrder;
-import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.OptionalInt;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
@@ -35,31 +24,28 @@ import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.Schema;
+import com.nvidia.spark.rapids.jni.Arms;
+import com.nvidia.spark.rapids.jni.schema.Visitors;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.OptionalInt;
+
 /**
  * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult},
  * which could be easily converted to a {@link ai.rapids.cudf.ContiguousTable}.
  */
 class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeResult> {
-  // Number of 1s in a byte
-  private static final int[] NUMBER_OF_ONES = new int[256];
-
-  static {
-    for (int i = 0; i < NUMBER_OF_ONES.length; i += 1) {
-      int count = 0;
-      for (int j = 0; j < 8; j += 1) {
-        if ((i & (1 << j)) != 0) {
-          count += 1;
-        }
-      }
-      NUMBER_OF_ONES[i] = count;
-    }
-  }
-
   private final List<ColumnOffsetInfo> columnOffsets;
   private final HostMemoryBuffer buffer;
   private final List<ColumnViewInfo> colViewInfoList;
 
-  public KudoTableMerger(List<KudoTable> tables, HostMemoryBuffer buffer, List<ColumnOffsetInfo> columnOffsets) {
+  public KudoTableMerger(List<KudoTable> tables, HostMemoryBuffer buffer,
+                         List<ColumnOffsetInfo> columnOffsets) {
     super(tables);
     requireNonNull(buffer, "buffer can't be null!");
     ensure(columnOffsets != null, "column offsets cannot be null");
@@ -155,80 +141,64 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
                                         HostMemoryBuffer src, int srcOffset,
                                         SliceInfo sliceInfo) {
     int nullCount = 0;
-    int totalRowCount = sliceInfo.getRowCount();
-    int curIdx = 0;
-    int curSrcByteIdx = srcOffset;
-    int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
-    int curDestByteIdx = startBit / 8;
-    int curDestBitIdx = startBit % 8;
+    int totalRowCount = toIntExact(sliceInfo.getRowCount() + sliceInfo.getValidityBufferInfo().getBeginBit());
+    int curSrcIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+    int curDestIdx = startBit;
 
-    while (curIdx < totalRowCount) {
-      int leftRowCount = totalRowCount - curIdx;
-      int appendCount;
-      if (curDestBitIdx == 0) {
-        appendCount = min(8, leftRowCount);
-      } else {
-        appendCount = min(8 - curDestBitIdx, leftRowCount);
-      }
 
-      int leftBitsInCurSrcByte = 8 - curSrcBitIdx;
-      byte srcByte = src.getByte(curSrcByteIdx);
-      if (leftBitsInCurSrcByte >= appendCount) {
-        // Extract appendCount bits from srcByte, starting from curSrcBitIdx
-        byte mask = (byte) (((1 << appendCount) - 1) & 0xFF);
-        srcByte = (byte) ((srcByte >>> curSrcBitIdx) & mask);
+    while (curSrcIdx < totalRowCount) {
+      int leftRowCount = totalRowCount - curSrcIdx;
 
-        nullCount += (appendCount - NUMBER_OF_ONES[srcByte & 0xFF]);
+      int curDestOffset = (curDestIdx / 32) * Integer.BYTES;
+      int curDestBitIdx = curDestIdx % 32;
 
-        // Sets the bits in destination buffer starting from curDestBitIdx to 0
-        byte destByte = dest.getByte(curDestByteIdx);
-        destByte = (byte) (destByte & ((1 << curDestBitIdx) - 1) & 0xFF);
+      int curSrcOffset = srcOffset + (curSrcIdx / 32) * Integer.BYTES;
+      int curSrcBitIdx = curSrcIdx % 32;
 
-        // Update destination byte with the bits from source byte
-        destByte = (byte) ((destByte | (srcByte << curDestBitIdx)) & 0xFF);
-        dest.setByte(curDestByteIdx, destByte);
+      // This is safe since we always have validity buffer 4 bytes padded
+      int srcInt = src.getInt(curSrcOffset);
+      srcInt = srcInt >>> curSrcBitIdx;
 
-        curSrcBitIdx += appendCount;
-        if (curSrcBitIdx == 8) {
-          curSrcBitIdx = 0;
-          curSrcByteIdx += 1;
+      if (dest.getLength() >= (curDestOffset + Integer.BYTES)) {
+        // We have enough room to get an int
+        int destInt = dest.getInt(curDestOffset);
+        destInt &= (1 << curDestBitIdx) - 1;
+        destInt |= srcInt << curDestBitIdx;
+        dest.setInt(curDestOffset, destInt);
+
+        int appendCount = min(leftRowCount, 32 - Math.max(curSrcBitIdx, curDestBitIdx));
+
+        curDestIdx += appendCount;
+        curSrcIdx += appendCount;
+        if (appendCount == 32) {
+          nullCount += 32 - Integer.bitCount(srcInt);
+        } else {
+          int mask = (1 << appendCount) - 1;
+          nullCount += (appendCount  - Integer.bitCount(srcInt & mask));
         }
       } else {
-        // Extract appendCount bits from srcByte, starting from curSrcBitIdx
-        byte mask = (byte) (((1 << leftBitsInCurSrcByte) - 1) & 0xFF);
-        srcByte = (byte) ((srcByte >>> curSrcBitIdx) & mask);
+        int destBufRemBytes = toIntExact(dest.getLength() - curDestOffset);
+        byte[] destBytes = new byte[4];
+        dest.getBytes(destBytes, 0, curDestOffset, destBufRemBytes);
+        int destInt = ByteBuffer.wrap(destBytes).order(ByteOrder.LITTLE_ENDIAN).getInt();
+        destInt &= (1 << curDestBitIdx) - 1;
+        destInt |= srcInt << curDestBitIdx;
 
-        byte nextSrcByte = src.getByte(curSrcByteIdx + 1);
-        byte nextSrcByteMask = (byte) ((1 << (appendCount - leftBitsInCurSrcByte)) - 1);
-        nextSrcByte = (byte) (nextSrcByte & nextSrcByteMask);
-        nextSrcByte = (byte) (nextSrcByte << leftBitsInCurSrcByte);
-        srcByte = (byte) (srcByte | nextSrcByte);
+        ByteBuffer.wrap(destBytes).order(ByteOrder.LITTLE_ENDIAN).putInt(destInt);
+        dest.setBytes(curDestOffset, destBytes, 0, destBufRemBytes);
 
-        nullCount += (appendCount - NUMBER_OF_ONES[srcByte & 0xFF]);
+        int appendCount = min(leftRowCount, destBufRemBytes * 8 - Math.max(curSrcBitIdx, curDestBitIdx));
 
-        // Sets the bits in destination buffer starting from curDestBitIdx to 0
-        byte destByte = dest.getByte(curDestByteIdx);
-        destByte = (byte) (destByte & ((1 << curDestBitIdx) - 1));
-
-        // Update destination byte with the bits from source byte
-        destByte = (byte) (destByte | (srcByte << curDestBitIdx));
-        dest.setByte(curDestByteIdx, destByte);
-
-        // Update the source byte index and bit index
-        curSrcByteIdx += 1;
-        curSrcBitIdx = appendCount - leftBitsInCurSrcByte;
-      }
-
-      curIdx += appendCount;
-
-      // Update the destination byte index and bit index
-      curDestBitIdx += appendCount;
-      if (curDestBitIdx == 8) {
-        curDestBitIdx = 0;
-        curDestByteIdx += 1;
+        curDestIdx += appendCount;
+        curSrcIdx += appendCount;
+        int mask = (1 << appendCount) - 1;
+        nullCount += (appendCount  - Integer.bitCount(srcInt & mask));
       }
     }
 
+    int srcIdx = curSrcIdx;
+    ensure(curSrcIdx == totalRowCount, () -> "Did not copy all of the validity buffer, total row count: " + totalRowCount +
+        " current src idx: " + srcIdx);
     return nullCount;
   }
 
@@ -325,7 +295,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
     List<KudoTable> serializedTables = mergedInfo.getTables();
     return Arms.closeIfException(HostMemoryBuffer.allocate(mergedInfo.getTotalDataLen()),
         buffer -> {
-          KudoTableMerger merger = new KudoTableMerger(serializedTables, buffer, mergedInfo.getColumnOffsets());
+          KudoTableMerger merger =
+              new KudoTableMerger(serializedTables, buffer, mergedInfo.getColumnOffsets());
           return Visitors.visitSchema(schema, merger);
         });
   }
