@@ -20,7 +20,12 @@
 set -ex
 
 # Assuming you are in the root of your git repository
-MODIFIED_FILES=$(git diff --name-only "origin/${GITHUB_BASE_REF}")
+if [[ -z "${GITHUB_BASE_REF+x}" ]]; then
+  MODIFIED_FILES=$(git diff --name-only)
+else
+  MODIFIED_FILES=$(git diff --name-only "origin/${GITHUB_BASE_REF}")
+fi
+
 
 SRC_DIR="src/main/java/"
 TEST_SRC_DIR="src/test/java/"
