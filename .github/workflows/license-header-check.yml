@@ -45,4 +45,5 @@ jobs:
             *.txt,
             *.xml,
             *.fbs,
-            build/*
+            build/*,
+            dev/*

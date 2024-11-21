@@ -32,10 +32,6 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: true
-        fetch-depth: 0
-
-    - name: Fetch branches and tags
-      run: git fetch --all
 
     - name: Run checkstyle
       run: mvn checkstyle:check
