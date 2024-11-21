@@ -36,6 +36,7 @@ def main():
                         help="if delete HEAD branch after auto-merge")
     args = parser.parse_args()
 
+
     pr = PullRequest(head_owner=args.owner, head=args.head, head_token=args.token,
                      base_owner=args.owner, repo=args.repo, base=args.base, base_token=args.token)
     try:
