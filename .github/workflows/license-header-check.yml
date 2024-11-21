@@ -22,11 +22,16 @@ on:
 jobs:
   license-header-check:
     runs-on: ubuntu-latest
+    if: "!contains(github.event.pull_request.title, '[bot]')"
     steps:
+      - name: Get checkout depth
+        run: |
+          echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 10 ))" >> $GITHUB_ENV
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 5
+          fetch-depth: ${{ env.PR_FETCH_DEPTH }}
 
       - name: license-header-check
         uses: NVIDIA/spark-rapids-common/license-header-check@main
@@ -47,3 +52,5 @@ jobs:
             *.fbs,
             build/*,
             dev/*
+          excluded_file_patterns: |
+            thirdparty/*
