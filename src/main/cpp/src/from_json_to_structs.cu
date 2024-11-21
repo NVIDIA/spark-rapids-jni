@@ -832,12 +832,8 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::move(input_content.children[cudf::lists_column_view::offsets_column_index]));
-      new_children.emplace_back(convert_data_type(std::move(child),
-                                                  schema.child_types.front().second,
-                                                  allow_nonnumeric_numbers,
-                                                  is_us_locale,
-                                                  stream,
-                                                  mr));
+      new_children.emplace_back(convert_data_type(
+        std::move(child), child_schema, allow_nonnumeric_numbers, is_us_locale, stream, mr));
 
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
@@ -875,18 +871,19 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
     auto const num_children = input.num_children();
 
     if (schema.type.id() == cudf::type_id::LIST) {
-      CUDF_EXPECTS(d_type == cudf::type_id::LIST, "Input column should be LIST.");
+      auto const& child_schema = schema.child_types.front().second;
+      auto const child         = input.child(cudf::lists_column_view::child_column_index);
+
+      // Handle mismatched child schema.
+      if (cudf::is_nested(child_schema.type) && (child_schema.type.id() != child.type().id())) {
+        return make_all_nulls_column(schema, num_rows, stream, mr);
+      }
 
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.emplace_back(
         std::make_unique<cudf::column>(input.child(cudf::lists_column_view::offsets_column_index)));
       new_children.emplace_back(
-        convert_data_type(input.child(cudf::lists_column_view::child_column_index),
-                          schema.child_types.front().second,
-                          allow_nonnumeric_numbers,
-                          is_us_locale,
-                          stream,
-                          mr));
+        convert_data_type(child, child_schema, allow_nonnumeric_numbers, is_us_locale, stream, mr));
 
       // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
       // on the child column as it does not have non-empty nulls.
@@ -899,8 +896,6 @@ std::unique_ptr<cudf::column> convert_data_type(InputType&& input,
     }
 
     if (schema.type.id() == cudf::type_id::STRUCT) {
-      CUDF_EXPECTS(d_type == cudf::type_id::STRUCT, "Input column should be STRUCT.");
-
       std::vector<std::unique_ptr<cudf::column>> new_children;
       new_children.reserve(num_children);
       for (cudf::size_type i = 0; i < num_children; ++i) {
