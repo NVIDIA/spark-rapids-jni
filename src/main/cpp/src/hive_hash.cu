@@ -246,7 +246,7 @@ class hive_device_row_hasher {
      * @brief Functor to compute the hive hash value for a nested column.
      *
      * This functor produces the same result as "HiveHash" in Spark for structs and lists.
-     * The pseudocode of Spark's HiveHash function for structs and lists is as follows:
+     * The pseudocode of Spark's HiveHash function for structs is as follows:
      *
      * hive_hash_value_t hive_hash(NestedType element) {
      *    hive_hash_value_t hash = HIVE_INIT_HASH;
@@ -255,6 +255,9 @@ class hive_device_row_hasher {
      *    }
      *    return hash;
      * }
+     *
+     * In the cases of lists, the hash value is computed by a similar way but we iterate through the list 
+     * elements instead of through the child columns' elements.
      *
      * This functor uses a stack to simulate the recursive process of the above pseudocode.
      * When an element is popped from the stack, it means that the hash value of it has been
