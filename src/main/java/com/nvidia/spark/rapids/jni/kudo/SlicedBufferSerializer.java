@@ -50,7 +50,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
   private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
   private long totalDataLen;
 
-  SlicedBufferSerializer(long rowOffset, long numRows, BufferType bufferType, DataWriter writer) {
+  SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.bufferType = bufferType;
     this.writer = writer;
@@ -109,10 +109,10 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
     SliceInfo current;
     if (col.getOffsets() != null) {
-      long start = col.getOffsets()
+      int start = col.getOffsets()
           .getInt(parent.offset * Integer.BYTES);
-      long end = col.getOffsets().getInt((parent.offset + parent.rowCount) * Integer.BYTES);
-      long rowCount = end - start;
+      int end = col.getOffsets().getInt((parent.offset + parent.rowCount) * Integer.BYTES);
+      int rowCount = end - start;
 
       current = new SliceInfo(start, rowCount);
     } else {

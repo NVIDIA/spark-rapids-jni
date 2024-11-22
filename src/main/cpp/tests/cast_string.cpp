@@ -43,13 +43,13 @@ TYPED_TEST_SUITE(StringToFloatTests, cudf::test::FloatingPointTypes);
 
 TYPED_TEST(StringToIntegerTests, Simple)
 {
-  auto const strings = test::strings_column_wrapper{"1", "0", "42"};
+  auto const strings = test::strings_column_wrapper{"1", "0", "42", "null"};
   strings_column_view scv{strings};
 
   auto const result = spark_rapids_jni::string_to_integer(
     data_type{type_to_id<TypeParam>()}, scv, false, true, cudf::get_default_stream());
 
-  test::fixed_width_column_wrapper<TypeParam> expected({1, 0, 42}, {1, 1, 1});
+  test::fixed_width_column_wrapper<TypeParam> expected({1, 0, 42, 0}, {1, 1, 1, 0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
@@ -250,6 +250,24 @@ TYPED_TEST(StringToIntegerTests, Empty)
 
   EXPECT_EQ(result->size(), 0);
   EXPECT_EQ(result->type().id(), type_to_id<TypeParam>());
+}
+
+TYPED_TEST(StringToIntegerTests, NonEmptyNulls)
+{
+  auto const strings           = test::strings_column_wrapper{"123", "123", "123", "123"}.release();
+  auto const valids            = std::vector<bool>{true, false, true, false};
+  auto [null_mask, null_count] = cudf::test::detail::make_null_mask(valids.begin(), valids.end());
+  strings->set_null_mask(null_mask, null_count);
+
+  auto const scv = strings_column_view{*strings};
+  EXPECT_EQ(scv.chars_size(cudf::get_default_stream()), 12);  // make sure it has non-empty null.
+
+  auto const result = spark_rapids_jni::string_to_integer(
+    data_type{type_to_id<TypeParam>()}, scv, false, true, cudf::get_default_stream());
+
+  test::fixed_width_column_wrapper<TypeParam> expected({123, 0, 123, 0}, {1, 0, 1, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
 
 TEST_F(StringToDecimalTests, Simple)
@@ -552,6 +570,26 @@ TEST_F(StringToDecimalTests, Empty)
   EXPECT_EQ(result->type().scale(), 2);
 }
 
+TEST_F(StringToDecimalTests, NonEmptyNulls)
+{
+  auto const strings =
+    test::strings_column_wrapper{"1.23456", "1.23456", "1.23456", "1.23456"}.release();
+  auto const valids            = std::vector<bool>{true, false, true, false};
+  auto [null_mask, null_count] = cudf::test::detail::make_null_mask(valids.begin(), valids.end());
+  strings->set_null_mask(null_mask, null_count);
+
+  auto const scv = strings_column_view{*strings};
+  EXPECT_EQ(scv.chars_size(cudf::get_default_stream()), 28);  // make sure it has non-empty null.
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(6, -5, scv, false, true, cudf::get_default_stream());
+
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {123456, 0, 123456, 0}, {1, 0, 1, 0}, numeric::scale_type{-5});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
 TYPED_TEST(StringToFloatTests, Simple)
 {
   cudf::test::strings_column_wrapper in{"-1.8946e-10",
@@ -706,4 +744,22 @@ TYPED_TEST(StringToFloatTests, Empty)
                                                         cudf::get_default_stream());
 
   EXPECT_EQ(result->size(), 0);
+}
+
+TYPED_TEST(StringToFloatTests, NonEmptyNulls)
+{
+  auto const strings = test::strings_column_wrapper{"1.23", "1.23", "1.23", "1.23"}.release();
+  auto const valids  = std::vector<bool>{true, false, true, false};
+  auto [null_mask, null_count] = cudf::test::detail::make_null_mask(valids.begin(), valids.end());
+  strings->set_null_mask(null_mask, null_count);
+
+  auto const scv = strings_column_view{*strings};
+  EXPECT_EQ(scv.chars_size(cudf::get_default_stream()), 16);  // make sure it has non-empty null.
+
+  auto const result = spark_rapids_jni::string_to_float(
+    data_type{type_to_id<TypeParam>()}, scv, false, cudf::get_default_stream());
+
+  test::fixed_width_column_wrapper<TypeParam> expected({1.23, 0.0, 1.23, 0.0}, {1, 0, 1, 0});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(result->view(), expected);
 }

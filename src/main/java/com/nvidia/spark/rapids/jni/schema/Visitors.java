@@ -37,10 +37,11 @@ public class Visitors {
      * @param schema the schema to visit
      * @param visitor the visitor to use
      * @param <T> Return type when visiting intermediate nodes. See {@link SchemaVisitor}
+     * @param <P> Return type when previsiting a list. See {@link SchemaVisitor}
      * @param <R> Return type after processing all children values. See {@link SchemaVisitor}
      * @return the result of visiting the schema
      */
-    public static <T, R> R visitSchema(Schema schema, SchemaVisitor<T, R> visitor) {
+    public static <T, P, R> R visitSchema(Schema schema, SchemaVisitor<T, P, R> visitor) {
         Objects.requireNonNull(schema, "schema cannot be null");
         Objects.requireNonNull(visitor, "visitor cannot be null");
 
@@ -51,7 +52,7 @@ public class Visitors {
         return visitor.visitTopSchema(schema, childrenResult);
     }
 
-    private static <T, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, R> visitor) {
+    private static <T, P, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, P, R> visitor) {
         switch (schema.getType().getTypeId()) {
             case STRUCT:
                 List<T> children = IntStream.range(0, schema.getNumChildren())
@@ -59,7 +60,7 @@ public class Visitors {
                         .collect(Collectors.toList());
                 return visitor.visitStruct(schema, children);
             case LIST:
-                T preVisitResult = visitor.preVisitList(schema);
+                P preVisitResult = visitor.preVisitList(schema);
                 T childResult = visitSchemaInner(schema.getChild(0), visitor);
                 return visitor.visitList(schema, preVisitResult, childResult);
             default:

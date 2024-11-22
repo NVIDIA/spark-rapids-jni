@@ -108,20 +108,25 @@ void print_pair_debug(rmm::device_uvector<T> const& input,
 }
 
 // Print the final output map data (Spark's MapType, i.e., List<Struct<String,String>>).
-void print_output_spark_map(rmm::device_uvector<cudf::size_type> const& list_offsets,
+void print_output_spark_map(std::unique_ptr<cudf::column> const& list_offsets,
                             std::unique_ptr<cudf::column> const& extracted_keys,
                             std::unique_ptr<cudf::column> const& extracted_values,
                             rmm::cuda_stream_view stream)
 {
-  auto const keys_child   = extracted_keys->child(cudf::strings_column_view::chars_column_index);
+  if (extracted_keys->size() == 0) {
+    std::cerr << "Extract keys-values are all empty.\n" << std::endl;
+    return;
+  }
+
+  auto const keys_sv      = cudf::strings_column_view{extracted_keys->view()};
+  auto const values_sv    = cudf::strings_column_view{extracted_values->view()};
   auto const keys_offsets = extracted_keys->child(cudf::strings_column_view::offsets_column_index);
-  auto const values_child = extracted_values->child(cudf::strings_column_view::chars_column_index);
   auto const values_offsets =
     extracted_values->child(cudf::strings_column_view::offsets_column_index);
 
   auto const h_extracted_keys_child = cudf::detail::make_host_vector_sync(
-    cudf::device_span<char const>{keys_child.view().data<char>(),
-                                  static_cast<size_t>(keys_child.size())},
+    cudf::device_span<char const>{keys_sv.chars_begin(stream),
+                                  static_cast<size_t>(keys_sv.chars_size(stream))},
     stream);
   auto const h_extracted_keys_offsets = cudf::detail::make_host_vector_sync(
     cudf::device_span<int const>{keys_offsets.view().data<int>(),
@@ -129,8 +134,8 @@ void print_output_spark_map(rmm::device_uvector<cudf::size_type> const& list_off
     stream);
 
   auto const h_extracted_values_child = cudf::detail::make_host_vector_sync(
-    cudf::device_span<char const>{values_child.view().data<char>(),
-                                  static_cast<size_t>(values_child.size())},
+    cudf::device_span<char const>{values_sv.chars_begin(stream),
+                                  static_cast<size_t>(values_sv.chars_size(stream))},
     stream);
   auto const h_extracted_values_offsets = cudf::detail::make_host_vector_sync(
     cudf::device_span<int const>{values_offsets.view().data<int>(),
@@ -138,7 +143,9 @@ void print_output_spark_map(rmm::device_uvector<cudf::size_type> const& list_off
     stream);
 
   auto const h_list_offsets = cudf::detail::make_host_vector_sync(
-    cudf::device_span<cudf::size_type const>{list_offsets.data(), list_offsets.size()}, stream);
+    cudf::device_span<cudf::size_type const>{list_offsets->view().begin<cudf::size_type>(),
+                                             static_cast<std::size_t>(list_offsets->size())},
+    stream);
   CUDF_EXPECTS(h_list_offsets.back() == extracted_keys->size(),
                "Invalid list offsets computation.");
 

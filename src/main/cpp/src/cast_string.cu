@@ -408,12 +408,7 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
   auto const row_start   = offsets[row];
   auto const len         = offsets[row + 1] - row_start;
   bool const valid_entry = incoming_null_mask == nullptr || bit_is_set(incoming_null_mask, row);
-
-  auto ret   = validate_and_exponent<T>(&chars[row_start], len, strip);
-  bool valid = ret.has_value();
-  bool positive;
-  int decimal_location;
-  int first_digit;
+  bool valid             = valid_entry && len > 0;
 
   // first_digit is distance into the string array for the first digit to process. This skips +, -,
   // whitespace, etc. decimal_location is the index into the string where the decimal point should
@@ -439,8 +434,15 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
     return count;
   };
 
+  auto const validated =
+    valid ? validate_and_exponent<T>(&chars[row_start], len, strip) : cuda::std::nullopt;
+  valid = validated.has_value();
+
   if (valid) {
-    thrust::tie(positive, decimal_location, first_digit) = *ret;
+    bool positive;
+    int decimal_location;
+    int first_digit;
+    thrust::tie(positive, decimal_location, first_digit) = *validated;
 
     auto const max_digits_before_decimal                   = precision + scale;
     auto const significant_digits_before_decimal_in_string = count_significant_digits(
