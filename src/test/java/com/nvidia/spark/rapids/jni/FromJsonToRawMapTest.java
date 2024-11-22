@@ -19,11 +19,21 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.BinaryOp;
 
+import ai.rapids.cudf.JSONOptions;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class FromJsonToRawMapTest {
+  private static JSONOptions getOptions() {
+    return JSONOptions.builder()
+        .withNormalizeSingleQuotes(true)
+        .withLeadingZeros(true)
+        .withNonNumericNumbers(true)
+        .withUnquotedControlChars(true)
+        .build();
+  }
+
 
   @Test
   void testFromJsonSimpleInput() {
@@ -36,7 +46,7 @@ public class FromJsonToRawMapTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, getOptions());
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipcode", "ZipCodeType", "City",
              "State", "category", "index", "author", "title", "price");
@@ -65,7 +75,7 @@ public class FromJsonToRawMapTest {
 
     try (ColumnVector input =
              ColumnVector.fromStrings(jsonString1, jsonString2, null, jsonString3);
-         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input);
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, getOptions());
 
          ColumnVector expectedKeys = ColumnVector.fromStrings("Zipc\u00f3de", "Z\u00edpCodeTyp" +
                  "\u00e9", "City", "St\u00e2te", "Zipc\u00f3de", "Z\u00edpCodeTyp\u00e9",
@@ -76,6 +86,44 @@ public class FromJsonToRawMapTest {
          ColumnVector expectedOffsets = ColumnVector.fromInts(0, 4, 4, 4, 8);
          ColumnVector tmpMap = expectedStructs.makeListFromOffsets(4, expectedOffsets);
          ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, 1, null, 1);
+         ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
+             templateBitmask);
+    ) {
+      assertColumnsAreEqual(expectedMap, outputMap);
+    }
+  }
+
+  @Test
+  void testFromJsonEmptyAndInvalidInput() {
+    try (ColumnVector input =
+             ColumnVector.fromStrings("{}", "BAD", "{\"A\": 100}");
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, getOptions());
+
+         ColumnVector expectedKeys = ColumnVector.fromStrings("A");
+         ColumnVector expectedValues = ColumnVector.fromStrings("100");
+         ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 0, 0, 1);
+         ColumnVector tmpMap = expectedStructs.makeListFromOffsets(3, expectedOffsets);
+         ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, null, 1);
+         ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
+             templateBitmask);
+    ) {
+      assertColumnsAreEqual(expectedMap, outputMap);
+    }
+  }
+
+  @Test
+  void testFromJsonInputWithSingleQuotes() {
+    try (ColumnVector input =
+             ColumnVector.fromStrings("{'teacher': 'ABC', 'student': 'XYZ'}",
+                 "invalid", "null", "", "  ");
+         ColumnVector outputMap = JSONUtils.extractRawMapFromJsonString(input, getOptions());
+         ColumnVector expectedKeys = ColumnVector.fromStrings("teacher", "student");
+         ColumnVector expectedValues = ColumnVector.fromStrings("ABC", "XYZ");
+         ColumnVector expectedStructs = ColumnVector.makeStruct(expectedKeys, expectedValues);
+         ColumnVector expectedOffsets = ColumnVector.fromInts(0, 2, 2, 2, 2, 2);
+         ColumnVector tmpMap = expectedStructs.makeListFromOffsets(5, expectedOffsets);
+         ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, null, null, null, null);
          ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
              templateBitmask);
     ) {
