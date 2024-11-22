@@ -484,8 +484,7 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   // Return early if there's nothing to hash
   if (input.num_columns() == 0 || input.num_rows() == 0) { return output; }
 
-  // Nested depth cannot exceed 8
-  constexpr int max_nested_depth = 8;
+    constexpr int  MAX_NESTED_DEPTH = 8;
   check_nested_depth(input, max_nested_depth);
 
   bool const nullable   = has_nested_nulls(input);
