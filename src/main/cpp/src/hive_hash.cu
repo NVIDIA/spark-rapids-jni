@@ -237,7 +237,7 @@ class hive_device_row_hasher {
 
       __device__ int get_idx_to_process() { return _idx_to_process; }
 
-      __device__ cudf::column_device_view get_element() { return _element; }
+      __device__ cudf::column_device_view get_column() { return _column; }
     };
 
 
