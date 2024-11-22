@@ -370,7 +370,7 @@ class hive_device_row_hasher {
       // of `col_stack_frame` directly.
       // Instead leverage the byte array to create the col_stack_frame array.
       alignas(col_stack_frame) char stack_wrapper[sizeof(col_stack_frame) * MAX_NESTED_DEPTH];
-      col_stack_frame_ptr col_stack = reinterpret_cast<col_stack_frame_ptr>(stack_wrapper);
+      auto col_stack = reinterpret_cast<col_stack_frame*>(stack_wrapper);
       int stack_size                = 0;
 
       col_stack[stack_size++] = col_stack_frame(curr_col);
