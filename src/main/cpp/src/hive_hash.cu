@@ -268,11 +268,12 @@ class hive_device_row_hasher {
      * 1. Initialize the stack and push the root column into the stack.
      * 2. While the stack is not empty:
      *    a. Get the top element of the stack. Don't pop it until it is processed.
-     *    b. If the column is a nested column:
+     *    b. If the column is a structs column:
      *        i.  If all child columns are processed, pop the element and update `cur_hash` of its
      *            parent column.
      *        ii. Otherwise, push the next child column into the stack.
-     *    c. If the column is a primitive column, compute the hash value, pop the element,
+     *    c. If the column is a lists column, process it by a similar way as structs column but iterating through the list elements instead of child columns' elements.
+     *    d. If the column is a primitive column, compute the hash value, pop the element,
      *       and update `cur_hash` of its parent column.
      * 3. Return the hash value of the root column.
      *
