@@ -297,8 +297,7 @@ class hive_device_row_hasher {
      * separately.
      *
      * For example, consider the following nested column: `List<List<int>>`
-     * lists_column = [ [[1, 0], null, [2, null]] ], which has only one item
-     * [[1, 0], null, [2, null]
+     * [[1, 0], null, [2, null]]
      *
      *     L1
      *     |
