@@ -37,7 +37,7 @@ using hive_hash_value_t = int32_t;
 constexpr hive_hash_value_t HIVE_HASH_FACTOR = 31;
 constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
 
-constexpr int  MAX_NESTED_DEPTH = 8;
+constexpr int MAX_NESTED_DEPTH = 8;
 
 hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
 
@@ -215,9 +215,9 @@ class hive_device_row_hasher {
      */
     struct col_stack_frame {
      private:
-      cudf::column_device_view _column;
-      hive_hash_value_t _cur_hash;        // current hash value of the column
-      int _idx_to_process;                // the index of child or element to process next
+      cudf::column_device_view _column;  // the column has only one row
+      hive_hash_value_t _cur_hash;       // current hash value of the column
+      int _idx_to_process;               // the index of child or element to process next
 
      public:
       __device__ col_stack_frame() =
@@ -496,11 +496,10 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   auto output_view      = output->mutable_view();
 
   // Compute the hash value for each row
-  thrust::tabulate(
-    rmm::exec_policy(stream),
-    output_view.begin<hive_hash_value_t>(),
-    output_view.end<hive_hash_value_t>(),
-    hive_device_row_hasher<hive_hash_function, bool>(nullable, *input_view));
+  thrust::tabulate(rmm::exec_policy(stream),
+                   output_view.begin<hive_hash_value_t>(),
+                   output_view.end<hive_hash_value_t>(),
+                   hive_device_row_hasher<hive_hash_function, bool>(nullable, *input_view));
 
   return output;
 }
