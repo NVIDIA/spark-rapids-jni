@@ -345,9 +345,9 @@ class hive_device_row_hasher {
      *            |
      *            L2              List<int>
      *      /     |     \
-     *    L2[0] L2[1] L2[2]       List<int>
+     *    L2[0] L2[1] L2[2]       int
      *     |            |
-     *    i1           i2         Int
+     *    i1           i2         int
      *
      * Note: L2、i1、i2 are all temporary columns, which would not be pushed into the stack.
      * There is an optimization for the list column. If the child column is of primitive type, the
