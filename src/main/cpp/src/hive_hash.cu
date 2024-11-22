@@ -240,7 +240,6 @@ class hive_device_row_hasher {
       __device__ cudf::column_device_view get_element() { return _element; }
     };
 
-    typedef col_stack_frame* col_stack_frame_ptr;
 
     /**
      * @brief Functor to compute the hive hash value for a nested column.
