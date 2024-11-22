@@ -213,7 +213,7 @@ class hive_device_row_hasher {
      */
     struct col_stack_frame {
      private:
-      cudf::column_device_view _element;  // the column has only one row
+      cudf::column_device_view _column;
       hive_hash_value_t _cur_hash;        // current hash value of the column
       int _idx_to_process;                // the index of child or element to process next
 
