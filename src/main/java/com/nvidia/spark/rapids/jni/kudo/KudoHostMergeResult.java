@@ -16,14 +16,16 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
-import com.nvidia.spark.rapids.jni.schema.Visitors;
-
-import java.util.List;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
+
+import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.Schema;
+import ai.rapids.cudf.Table;
+import com.nvidia.spark.rapids.jni.schema.Visitors;
+import java.util.List;
 
 /**
  * The result of merging several kudo tables into one contiguous table on the host.
@@ -33,11 +35,13 @@ public class KudoHostMergeResult implements AutoCloseable {
   private final List<ColumnViewInfo> columnInfoList;
   private HostMemoryBuffer hostBuf;
 
-  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
+  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf,
+                      List<ColumnViewInfo> columnInfoList) {
     requireNonNull(schema, "schema is null");
     requireNonNull(columnInfoList, "columnInfoList is null");
     ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
-        "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
+        "Column offsets size does not match flattened schema size, column offsets size: " +
+            columnInfoList.size() +
             ", flattened schema size: " + schema.getFlattenedColumnNames().length);
     this.schema = schema;
     this.columnInfoList = columnInfoList;
@@ -52,6 +56,7 @@ public class KudoHostMergeResult implements AutoCloseable {
 
   /**
    * Get the length of the data in the host buffer.
+   *
    * @return the length of the data in the host buffer
    */
   public long getDataLength() {
@@ -60,6 +65,7 @@ public class KudoHostMergeResult implements AutoCloseable {
 
   /**
    * Convert the host buffer into a cudf table.
+   *
    * @return the cudf table
    */
   public Table toTable() {

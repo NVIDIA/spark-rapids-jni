@@ -16,16 +16,23 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.CudfAccessor;
+import ai.rapids.cudf.CudfException;
+import ai.rapids.cudf.NativeDepsLoader;
+import ai.rapids.cudf.Scalar;
 
 public class GpuSubstringIndexUtils {
-    static{
-        NativeDepsLoader.loadNativeDeps();
-    }
+  static {
+    NativeDepsLoader.loadNativeDeps();
+  }
 
-    public static ColumnVector substringIndex(ColumnView cv, Scalar delimiter, int count){
-        return new ColumnVector(substringIndex(cv.getNativeView(), CudfAccessor.getScalarHandle(delimiter), count));
-    }
+  public static ColumnVector substringIndex(ColumnView cv, Scalar delimiter, int count) {
+    return new ColumnVector(
+        substringIndex(cv.getNativeView(), CudfAccessor.getScalarHandle(delimiter), count));
+  }
 
-    private static native long substringIndex(long columnView, long delimiter, int count) throws CudfException;
+  private static native long substringIndex(long columnView, long delimiter, int count)
+      throws CudfException;
 }

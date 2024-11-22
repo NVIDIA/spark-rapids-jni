@@ -16,15 +16,15 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.CudfException;
-import org.junit.jupiter.api.Test;
-
-import java.util.Arrays;
-import java.util.List;
-
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.CudfException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import org.junit.jupiter.api.Test;
 
 public class GetJsonObjectTest {
   /**
@@ -33,7 +33,7 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        namedPath("k") };
+        namedPath("k")};
     try (ColumnVector jsonCv = ColumnVector.fromStrings(
         "{\"k\": \"v\"}");
          ColumnVector expected = ColumnVector.fromStrings(
@@ -50,19 +50,23 @@ public class GetJsonObjectTest {
   void getJsonObjectTest2() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
 
-        namedPath("k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111")
+        namedPath(
+            "k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111")
     };
 
-    String JSON = "{\"k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\""
-        +
-        ":\"v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"}";
-    String expectedStr = "v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+    String JSON =
+        "{\"k1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\""
+            +
+            ":\"v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\"}";
+    String expectedStr =
+        "v1_111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
-            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr,
+            expectedStr);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -82,7 +86,8 @@ public class GetJsonObjectTest {
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
-            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr,
+            expectedStr);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -110,7 +115,8 @@ public class GetJsonObjectTest {
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
-            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr,
+            expectedStr);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -125,13 +131,15 @@ public class GetJsonObjectTest {
         namedPath("URdeosurl")
     };
 
-    String JSON = "{\"brand\":\"ssssss\",\"duratRon\":15,\"eqTosuresurl\":\"\",\"RsZxarthrl\":false,\"xonRtorsurl\":\"\",\"xonRtorsurlstOTe\":0,\"TRctures\":[{\"RxaGe\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\"}],\"Toster\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\",\"reserUed\":{\"bRtLate\":391.79,\"xooUZRke\":26876,\"nahrlIeneratRonNOTe\":0,\"useJublRc\":6,\"URdeoRd\":821284086},\"tRtle\":\"ssssssssssmMsssssssssssssssssss\",\"url\":\"s{storehrl}\",\"usersTortraRt\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-6971178959s-664926866s-6096674871.zTG\",\"URdeosurl\":\"http:\\/\\/nadURdeo2.baRdu.cox\\/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3\",\"URdeoRd\":821284086}";
+    String JSON =
+        "{\"brand\":\"ssssss\",\"duratRon\":15,\"eqTosuresurl\":\"\",\"RsZxarthrl\":false,\"xonRtorsurl\":\"\",\"xonRtorsurlstOTe\":0,\"TRctures\":[{\"RxaGe\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\"}],\"Toster\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-196588744s840172444s-773690137.zTG\",\"reserUed\":{\"bRtLate\":391.79,\"xooUZRke\":26876,\"nahrlIeneratRonNOTe\":0,\"useJublRc\":6,\"URdeoRd\":821284086},\"tRtle\":\"ssssssssssmMsssssssssssssssssss\",\"url\":\"s{storehrl}\",\"usersTortraRt\":\"VttTs:\\/\\/feed-RxaGe.baRdu.cox\\/0\\/TRc\\/-6971178959s-664926866s-6096674871.zTG\",\"URdeosurl\":\"http:\\/\\/nadURdeo2.baRdu.cox\\/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3\",\"URdeoRd\":821284086}";
     String expectedStr = "http://nadURdeo2.baRdu.cox/5fa3893aed7fc0f8231dab7be23efc75s820s6240.xT3";
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
         ColumnVector expected = ColumnVector.fromStrings(
-            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr);
+            expectedStr, expectedStr, expectedStr, expectedStr, expectedStr, expectedStr,
+            expectedStr);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
     }
@@ -146,7 +154,8 @@ public class GetJsonObjectTest {
         namedPath("Vgdezsurl")
     };
 
-    String JSON = "{\"brand\":\"ssssss\",\"duratgzn\":17,\"eSyzsuresurl\":\"\",\"gswUartWrl\":false,\"Uzngtzrsurl\":\"\",\"UzngtzrsurlstJye\":0,\"ygctures\":[{\"gUaqe\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\/0\\/ygc\\/63025364s-376461312s7528698939.Qyq\"}],\"yzster\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\,\"url\":\"s{stHreqrl}\",\"usersPHrtraIt\":\"LttPs:\\/\\/feed-IUaxe.baIdu.cHU\\/0\\/PIc\\/-1043913002s489796992s-1505641721.Pnx\",\"kIdeHsurl\":\"LttP:\\/\\/nadkIdeH9.baIdu.cHU\\/4d7d308bd7c04e63069fd343adfa792as1790s1080.UP3\",\"kIdeHId\":852890923}";
+    String JSON =
+        "{\"brand\":\"ssssss\",\"duratgzn\":17,\"eSyzsuresurl\":\"\",\"gswUartWrl\":false,\"Uzngtzrsurl\":\"\",\"UzngtzrsurlstJye\":0,\"ygctures\":[{\"gUaqe\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\/0\\/ygc\\/63025364s-376461312s7528698939.Qyq\"}],\"yzster\":\"Ittys:\\/\\/feed-gUaqe.bagdu.czU\\,\"url\":\"s{stHreqrl}\",\"usersPHrtraIt\":\"LttPs:\\/\\/feed-IUaxe.baIdu.cHU\\/0\\/PIc\\/-1043913002s489796992s-1505641721.Pnx\",\"kIdeHsurl\":\"LttP:\\/\\/nadkIdeH9.baIdu.cHU\\/4d7d308bd7c04e63069fd343adfa792as1790s1080.UP3\",\"kIdeHId\":852890923}";
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(
             JSON, JSON, JSON, JSON, JSON, JSON, JSON);
@@ -245,7 +254,8 @@ public class GetJsonObjectTest {
   void getJsonObjectTest_Test_leading_zeros() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[0];
     try (
-        ColumnVector jsonCv = ColumnVector.fromStrings("00", "01", "02", "000", "-01", "-00", "-02");
+        ColumnVector jsonCv = ColumnVector.fromStrings("00", "01", "02", "000", "-01", "-00",
+            "-02");
         ColumnVector expected = ColumnVector.fromStrings(null, null, null, null, null, null, null);
         ColumnVector actual = JSONUtils.getJsonObject(jsonCv, query)) {
       assertColumnsAreEqual(expected, actual);
@@ -316,7 +326,7 @@ public class GetJsonObjectTest {
    * case path 5: case (START_ARRAY, Subscript :: Wildcard :: Subscript ::
    * Wildcard :: xs), set flatten style
    * case path 2: case (START_ARRAY, Nil) if style == FlattenStyle
-   *
+   * <p>
    * First use path5 [*][*] to enable flatten style.
    */
   @Test
@@ -390,7 +400,8 @@ public class GetJsonObjectTest {
     };
 
     // flatten the arrays, then query named path "k"
-    String JSON1 = "[  [[[ {'k': 'v1'} ], {'k': 'v2'}]], [[{'k': 'v3'}], {'k': 'v4'}], {'k': 'v5'}  ]";
+    String JSON1 =
+        "[  [[[ {'k': 'v1'} ], {'k': 'v2'}]], [[{'k': 'v3'}], {'k': 'v4'}], {'k': 'v5'}  ]";
     String expectedStr1 = "[\"v5\"]";
 
     try (
@@ -415,7 +426,8 @@ public class GetJsonObjectTest {
     String expectedStr1 = "[1,[21,22],3]";
 
     String JSON2 = "[1]";
-    String expectedStr2 = "1"; // note: in row mode, if it has only 1 item, then remove the outer: []
+    String expectedStr2 =
+        "1"; // note: in row mode, if it has only 1 item, then remove the outer: []
 
     try (
         ColumnVector jsonCv = ColumnVector.fromStrings(JSON1, JSON2);
@@ -626,8 +638,8 @@ public class GetJsonObjectTest {
 
   @Test
   void getJsonObjectMultiplePathsTest() {
-    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
-    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<JSONUtils.PathInstructionJni> path0 = Collections.singletonList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Collections.singletonList(namedPath("k1"));
     List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
     try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
          ColumnVector expected0 = ColumnVector.fromStrings("v0");
@@ -646,14 +658,16 @@ public class GetJsonObjectTest {
 
   @Test
   void getJsonObjectMultiplePathsTest_JNIKernelCalledTwice() {
-    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
-    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
-    List<JSONUtils.PathInstructionJni> path2 = Arrays.asList();
+    List<JSONUtils.PathInstructionJni> path0 = Collections.singletonList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Collections.singletonList(namedPath("k1"));
+    List<JSONUtils.PathInstructionJni> path2 = Collections.emptyList();
     List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1, path2);
-    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}", "['\n\n\n\n\n\n\n\n\n\n']");
+    try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}",
+        "['\n\n\n\n\n\n\n\n\n\n']");
          ColumnVector expected0 = ColumnVector.fromStrings("v0", null);
          ColumnVector expected1 = ColumnVector.fromStrings("v1", null);
-         ColumnVector expected2 = ColumnVector.fromStrings("{\"k0\":\"v0\",\"k1\":\"v1\"}", "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]")) {
+         ColumnVector expected2 = ColumnVector.fromStrings("{\"k0\":\"v0\",\"k1\":\"v1\"}",
+             "[\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\"]")) {
       ColumnVector[] output = JSONUtils.getJsonObjectMultiplePaths(jsonCv, paths);
       try {
         assertColumnsAreEqual(expected0, output[0]);
@@ -669,8 +683,8 @@ public class GetJsonObjectTest {
 
   @Test
   void getJsonObjectMultiplePathsTestCrazyLowMemoryBudget() {
-    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
-    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<JSONUtils.PathInstructionJni> path0 = Collections.singletonList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Collections.singletonList(namedPath("k1"));
     List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
     try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
          ColumnVector expected0 = ColumnVector.fromStrings("v0");
@@ -689,8 +703,8 @@ public class GetJsonObjectTest {
 
   @Test
   void getJsonObjectMultiplePathsTestMemoryBudget() {
-    List<JSONUtils.PathInstructionJni> path0 = Arrays.asList(namedPath("k0"));
-    List<JSONUtils.PathInstructionJni> path1 = Arrays.asList(namedPath("k1"));
+    List<JSONUtils.PathInstructionJni> path0 = Collections.singletonList(namedPath("k0"));
+    List<JSONUtils.PathInstructionJni> path1 = Collections.singletonList(namedPath("k1"));
     List<List<JSONUtils.PathInstructionJni>> paths = Arrays.asList(path0, path1);
     try (ColumnVector jsonCv = ColumnVector.fromStrings("{\"k0\": \"v0\", \"k1\": \"v1\"}");
          ColumnVector expected0 = ColumnVector.fromStrings("v0");
@@ -725,7 +739,7 @@ public class GetJsonObjectTest {
   /**
    * This test is when an exception is thrown due to maximum nesting depth being exceeded
    * when pushing the context stack during evaluating the JSON path.
-   *
+   * <p>
    * The maximum depth limit here is the same as the limit for the input JSON path.
    */
   @Test
@@ -752,7 +766,7 @@ public class GetJsonObjectTest {
   /**
    * This test is when an exception is thrown due to maximum nesting depth being exceeded
    * in the JSON parser. The JSON path is simply mirroring the input.
-   *
+   * <p>
    * Note that the maximum depth in the internal parser, which is being tested here, is different
    * from the limit for the input JSON path.
    */

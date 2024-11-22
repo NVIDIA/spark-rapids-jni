@@ -16,16 +16,15 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.readerFrom;
+import static java.util.Objects.requireNonNull;
+
 import ai.rapids.cudf.HostMemoryBuffer;
 import com.nvidia.spark.rapids.jni.Arms;
-
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Optional;
-
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.readerFrom;
-import static java.util.Objects.requireNonNull;
 
 /**
  * Serialized table in kudo format, including a {{@link KudoTableHeader}} and a {@link HostMemoryBuffer} for serialized
@@ -65,14 +64,15 @@ public class KudoTable implements AutoCloseable {
         return new KudoTable(header, null);
       }
 
-      return Arms.closeIfException(HostMemoryBuffer.allocate(header.getTotalDataLen(), false), buffer -> {
-        try {
-          buffer.copyFromStream(0, din, header.getTotalDataLen());
-          return new KudoTable(header, buffer);
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-      });
+      return Arms.closeIfException(HostMemoryBuffer.allocate(header.getTotalDataLen(), false),
+          buffer -> {
+            try {
+              buffer.copyFromStream(0, din, header.getTotalDataLen());
+              return new KudoTable(header, buffer);
+            } catch (IOException e) {
+              throw new RuntimeException(e);
+            }
+          });
     });
   }
 

@@ -16,13 +16,12 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.BinaryOp;
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
+import ai.rapids.cudf.BinaryOp;
+import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.JSONOptions;
 import org.junit.jupiter.api.Test;
-
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class FromJsonToRawMapTest {
   private static JSONOptions getOptions() {
@@ -58,7 +57,7 @@ public class FromJsonToRawMapTest {
          ColumnVector tmpMap = expectedStructs.makeListFromOffsets(4, expectedOffsets);
          ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, 1, null, 1);
          ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
-             templateBitmask);
+             templateBitmask)
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
     }
@@ -87,7 +86,7 @@ public class FromJsonToRawMapTest {
          ColumnVector tmpMap = expectedStructs.makeListFromOffsets(4, expectedOffsets);
          ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, 1, null, 1);
          ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
-             templateBitmask);
+             templateBitmask)
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
     }
@@ -106,7 +105,7 @@ public class FromJsonToRawMapTest {
          ColumnVector tmpMap = expectedStructs.makeListFromOffsets(3, expectedOffsets);
          ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, null, 1);
          ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
-             templateBitmask);
+             templateBitmask)
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
     }
@@ -125,7 +124,7 @@ public class FromJsonToRawMapTest {
          ColumnVector tmpMap = expectedStructs.makeListFromOffsets(5, expectedOffsets);
          ColumnVector templateBitmask = ColumnVector.fromBoxedInts(1, null, null, null, null);
          ColumnVector expectedMap = tmpMap.mergeAndSetValidity(BinaryOp.BITWISE_AND,
-             templateBitmask);
+             templateBitmask)
     ) {
       assertColumnsAreEqual(expectedMap, outputMap);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.NativeDepsLoader;
 
 /**
  * Utility class for converting between column major and row major data

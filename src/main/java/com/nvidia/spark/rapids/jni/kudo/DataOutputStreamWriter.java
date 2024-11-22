@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.HostMemoryBuffer;
-
 import java.io.DataOutputStream;
 import java.io.IOException;
 

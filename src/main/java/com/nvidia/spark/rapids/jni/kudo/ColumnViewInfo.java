@@ -16,11 +16,12 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.*;
-
-import java.util.Optional;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
+
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DType;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import java.util.Optional;
 
 class ColumnViewInfo {
   private final DType dtype;
@@ -42,12 +43,12 @@ class ColumnViewInfo {
     long baseAddress = buffer.getAddress();
 
     if (dtype.isNestedType()) {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress),
           childrenView);
     } else {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getDataBuffer(baseAddress),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress));

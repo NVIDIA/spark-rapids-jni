@@ -16,18 +16,17 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Table;
-import org.junit.jupiter.api.Test;
-
 import java.math.BigDecimal;
 import java.math.BigInteger;
-
-import static ai.rapids.cudf.AssertUtils.*;
+import org.junit.jupiter.api.Test;
 
 public class DecimalUtilsTest {
-  ColumnVector makeDec128Column(String ... values) {
+  ColumnVector makeDec128Column(String... values) {
     BigDecimal[] decVals = new BigDecimal[values.length];
     for (int i = 0; i < values.length; i++) {
       if (values[i] != null) {
@@ -44,7 +43,7 @@ public class DecimalUtilsTest {
     try (ColumnVector lhs =
              makeDec128Column("1.0", "10.0", "1000000000000000000000000000000000000.0");
          ColumnVector rhs =
-             makeDec128Column("1",   "1",    "1");
+             makeDec128Column("1", "1", "1");
          ColumnVector expectedBasic =
              makeDec128Column("1.0", "10.0", "1000000000000000000000000000000000000.0");
          ColumnVector expectedValid =
@@ -132,9 +131,9 @@ public class DecimalUtilsTest {
   @Test
   void simpleNegMultiplyOneByZero() {
     try (ColumnVector lhs =
-             makeDec128Column("1.0",  "-1.0", "10.0");
+             makeDec128Column("1.0", "-1.0", "10.0");
          ColumnVector rhs =
-             makeDec128Column("-1",   "1",    "-1");
+             makeDec128Column("-1", "1", "-1");
          ColumnVector expectedBasic =
              makeDec128Column("-1.0", "-1.0", "-10.0");
          ColumnVector expectedValid =
@@ -148,11 +147,11 @@ public class DecimalUtilsTest {
   @Test
   void simpleNegMultiplyOneByOne() {
     try (ColumnVector lhs =
-             makeDec128Column("1.0",  "-1.0", "3.7");
+             makeDec128Column("1.0", "-1.0", "3.7");
          ColumnVector rhs =
              makeDec128Column("-1.0", "-1.0", "-1.5");
          ColumnVector expectedBasic =
-             makeDec128Column("-1.0",  "1.0", "-5.6");
+             makeDec128Column("-1.0", "1.0", "-5.6");
          ColumnVector expectedValid =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
@@ -193,9 +192,9 @@ public class DecimalUtilsTest {
     try (ColumnVector lhs =
              makeDec128Column("1.0", "10.0", "1.0", "1000000000000000000000000000000000000.0");
          ColumnVector rhs =
-             makeDec128Column("1",   "2",    "0",   "5");
+             makeDec128Column("1", "2", "0", "5");
          ColumnVector expectedBasic =
-             makeDec128Column("1.0", "5.0",  "0",   "200000000000000000000000000000000000.0");
+             makeDec128Column("1.0", "5.0", "0", "200000000000000000000000000000000000.0");
          ColumnVector expectedValid =
              ColumnVector.fromBooleans(false, false, true, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
@@ -207,10 +206,12 @@ public class DecimalUtilsTest {
   @Test
   void intDivide() {
     try (ColumnVector lhs =
-             makeDec128Column("3396191716868766147341919609.06", "-6893798181986328848375556144.67");
+             makeDec128Column("3396191716868766147341919609.06",
+                 "-6893798181986328848375556144.67");
          ColumnVector rhs =
              makeDec128Column("7317548469.64", "98565515088.44");
-         ColumnVector expectedBasic = ColumnVector.fromLongs(464116053478747633L, -69941278912819784L);
+         ColumnVector expectedBasic = ColumnVector.fromLongs(464116053478747633L,
+             -69941278912819784L);
          ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
       assertColumnsAreEqual(expectedValid, found.getColumn(0));
@@ -227,7 +228,8 @@ public class DecimalUtilsTest {
              makeDec128Column("451635271134476686911387864.48", "5313675970270560086329837153.18");
          ColumnVector rhs =
              makeDec128Column("-961.110", "181.958");
-         ColumnVector expectedBasic = ColumnVector.fromLongs(2284624887606872042L, -2928582767902049472L);
+         ColumnVector expectedBasic = ColumnVector.fromLongs(2284624887606872042L,
+             -2928582767902049472L);
          ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
       assertColumnsAreEqual(expectedValid, found.getColumn(0));
@@ -238,7 +240,8 @@ public class DecimalUtilsTest {
   @Test
   void intDivideOverflow() {
     try (ColumnVector lhs =
-             makeDec128Column("-999999999999999999999999999999999999.99", "999999999999999999999999999999999999.99");
+             makeDec128Column("-999999999999999999999999999999999999.99",
+                 "999999999999999999999999999999999999.99");
          ColumnVector rhs = makeDec128Column("0", "0");
          ColumnVector expectedValid = ColumnVector.fromBooleans(true, true);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
@@ -248,27 +251,42 @@ public class DecimalUtilsTest {
 
   @Test
   void remainder1() {
-    try (ColumnVector lhs = 
-            makeDec128Column("2775750723350045263458396405825339066", "2775750723350045263458396405825339066", "-2775750723350045263458396405825339066", "-2775750723350045263458396405825339066");
-        ColumnVector rhs = 
-            makeDec128Column("-4890990637589340307512622401149178814.1", "4890990637589340307512622401149178814.1", "-4890990637589340307512622401149178814.1", "4890990637589340307512622401149178814.1");
-        ColumnVector expected =
-            makeDec128Column("2775750723350045263458396405825339066.0", "2775750723350045263458396405825339066.0", "-2775750723350045263458396405825339066.0", "-2775750723350045263458396405825339066.0");
-        Table found = DecimalUtils.remainder128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(ColumnVector.fromBooleans(false, false, false, false), found.getColumn(0));
+    try (ColumnVector lhs =
+             makeDec128Column("2775750723350045263458396405825339066",
+                 "2775750723350045263458396405825339066", "-2775750723350045263458396405825339066",
+                 "-2775750723350045263458396405825339066");
+         ColumnVector rhs =
+             makeDec128Column("-4890990637589340307512622401149178814.1",
+                 "4890990637589340307512622401149178814.1",
+                 "-4890990637589340307512622401149178814.1",
+                 "4890990637589340307512622401149178814.1");
+         ColumnVector expected =
+             makeDec128Column("2775750723350045263458396405825339066.0",
+                 "2775750723350045263458396405825339066.0",
+                 "-2775750723350045263458396405825339066.0",
+                 "-2775750723350045263458396405825339066.0");
+         Table found = DecimalUtils.remainder128(lhs, rhs, -1)) {
+      assertColumnsAreEqual(ColumnVector.fromBooleans(false, false, false, false),
+          found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
   }
 
   @Test
   void remainder2() {
-    try (ColumnVector lhs = 
-            makeDec128Column("-80968577325845461854951721352418610.13", "-80968577325845461854951721352418610.13", "-66686472768705331734321352506496901.71");
-        ColumnVector rhs = 
-            makeDec128Column("6749200345857154099505910298895800952.1", "-6749200345857154099505910298895800952.1", "-43880265997097383351377368851255372.5");
-        ColumnVector expected =
-            makeDec128Column("-80968577325845461854951721352418610.13", "-80968577325845461854951721352418610.13", "-22806206771607948382943983655241529.21");
-        Table found = DecimalUtils.remainder128(lhs, rhs, -2)) {
+    try (ColumnVector lhs =
+             makeDec128Column("-80968577325845461854951721352418610.13",
+                 "-80968577325845461854951721352418610.13",
+                 "-66686472768705331734321352506496901.71");
+         ColumnVector rhs =
+             makeDec128Column("6749200345857154099505910298895800952.1",
+                 "-6749200345857154099505910298895800952.1",
+                 "-43880265997097383351377368851255372.5");
+         ColumnVector expected =
+             makeDec128Column("-80968577325845461854951721352418610.13",
+                 "-80968577325845461854951721352418610.13",
+                 "-22806206771607948382943983655241529.21");
+         Table found = DecimalUtils.remainder128(lhs, rhs, -2)) {
       assertColumnsAreEqual(ColumnVector.fromBooleans(false, false, false), found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
@@ -276,13 +294,13 @@ public class DecimalUtilsTest {
 
   @Test
   void remainder7() {
-    try (ColumnVector lhs = 
-            makeDec128Column("5776949384953805890688943467625198736");
-        ColumnVector rhs = 
-            makeDec128Column("-67337920196996830.354487679299");
-        ColumnVector expected =
-            makeDec128Column("16310460742282291.8108019");
-        Table found = DecimalUtils.remainder128(lhs, rhs, -7)) {
+    try (ColumnVector lhs =
+             makeDec128Column("5776949384953805890688943467625198736");
+         ColumnVector rhs =
+             makeDec128Column("-67337920196996830.354487679299");
+         ColumnVector expected =
+             makeDec128Column("16310460742282291.8108019");
+         Table found = DecimalUtils.remainder128(lhs, rhs, -7)) {
       assertColumnsAreEqual(ColumnVector.fromBooleans(false), found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
@@ -290,13 +308,13 @@ public class DecimalUtilsTest {
 
   @Test
   void remainder10() {
-    try (ColumnVector lhs = 
-            makeDec128Column("5776949384953805890688943467625198736");
-        ColumnVector rhs = 
-            makeDec128Column("-6733792019699683035.4487679299");
-        ColumnVector expected =
-            makeDec128Column("3585222007130884413.9709383255");
-        Table found = DecimalUtils.remainder128(lhs, rhs, -10)) {
+    try (ColumnVector lhs =
+             makeDec128Column("5776949384953805890688943467625198736");
+         ColumnVector rhs =
+             makeDec128Column("-6733792019699683035.4487679299");
+         ColumnVector expected =
+             makeDec128Column("3585222007130884413.9709383255");
+         Table found = DecimalUtils.remainder128(lhs, rhs, -10)) {
       assertColumnsAreEqual(ColumnVector.fromBooleans(false), found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
@@ -654,7 +672,8 @@ public class DecimalUtilsTest {
         ColumnVector input2 = ColumnVector.fromDoubles(9.95);
         ColumnVector input3 = ColumnVector.fromDoubles(10.3);
         ColumnVector input4 = ColumnVector.fromDoubles(-10000000.0, -100000.0, 1.0, 100.0, 1000.0);
-        ColumnVector input5 = ColumnVector.fromDoubles(-10000000.0, 1.0, Double.NaN, -2.0, Double.NEGATIVE_INFINITY);
+        ColumnVector input5 = ColumnVector.fromDoubles(-10000000.0, 1.0, Double.NaN, -2.0,
+            Double.NEGATIVE_INFINITY);
 
         ColumnVector expected1 = ColumnVector.decimalFromLongs(-7, 35276195313L);
         ColumnVector expected2 = ColumnVector.decimalFromInts(-1, 100);
@@ -662,11 +681,21 @@ public class DecimalUtilsTest {
         ColumnVector expected4 = ColumnVector.decimalFromBoxedInts(-1, null, null, 10, 1000, null);
         ColumnVector expected5 = ColumnVector.decimalFromBoxedLongs(-1, null, 10L, null, -20L, null)
     ) {
-      DecimalUtils.CastFloatToDecimalResult output1 = DecimalUtils.floatingPointToDecimal(input1, DType.create(DType.DTypeEnum.DECIMAL64, -7), 12);
-      DecimalUtils.CastFloatToDecimalResult output2 = DecimalUtils.floatingPointToDecimal(input2, DType.create(DType.DTypeEnum.DECIMAL32, -1), 3);
-      DecimalUtils.CastFloatToDecimalResult output3 = DecimalUtils.floatingPointToDecimal(input3, DType.create(DType.DTypeEnum.DECIMAL128, -1), 18);
-      DecimalUtils.CastFloatToDecimalResult output4 = DecimalUtils.floatingPointToDecimal(input4, DType.create(DType.DTypeEnum.DECIMAL32, -1), 4);
-      DecimalUtils.CastFloatToDecimalResult output5 = DecimalUtils.floatingPointToDecimal(input5, DType.create(DType.DTypeEnum.DECIMAL64, -1), 4);
+      DecimalUtils.CastFloatToDecimalResult output1 =
+          DecimalUtils.floatingPointToDecimal(input1, DType.create(DType.DTypeEnum.DECIMAL64, -7),
+              12);
+      DecimalUtils.CastFloatToDecimalResult output2 =
+          DecimalUtils.floatingPointToDecimal(input2, DType.create(DType.DTypeEnum.DECIMAL32, -1),
+              3);
+      DecimalUtils.CastFloatToDecimalResult output3 =
+          DecimalUtils.floatingPointToDecimal(input3, DType.create(DType.DTypeEnum.DECIMAL128, -1),
+              18);
+      DecimalUtils.CastFloatToDecimalResult output4 =
+          DecimalUtils.floatingPointToDecimal(input4, DType.create(DType.DTypeEnum.DECIMAL32, -1),
+              4);
+      DecimalUtils.CastFloatToDecimalResult output5 =
+          DecimalUtils.floatingPointToDecimal(input5, DType.create(DType.DTypeEnum.DECIMAL64, -1),
+              4);
 
       try {
         assert (!output1.hasFailure);

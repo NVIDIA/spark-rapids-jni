@@ -25,77 +25,80 @@ import java.util.function.Function;
  * This class contains utility methods for automatic resource management.
  */
 public class Arms {
-    /**
-     * This method close the resource if an exception is thrown while executing the function.
-     */
-    public static <R extends AutoCloseable, T> T closeIfException(R resource, Function<R, T> function) {
+  /**
+   * This method close the resource if an exception is thrown while executing the function.
+   */
+  public static <R extends AutoCloseable, T> T closeIfException(R resource,
+                                                                Function<R, T> function) {
+    try {
+      return function.apply(resource);
+    } catch (Exception e) {
+      if (resource != null) {
         try {
-            return function.apply(resource);
-        } catch (Exception e) {
-            if (resource != null) {
-                try {
-                    resource.close();
-                } catch (Exception inner) {
-                    e.addSuppressed(inner);
-                }
-            }
-            throw e;
+          resource.close();
+        } catch (Exception inner) {
+          e.addSuppressed(inner);
         }
+      }
+      throw e;
     }
+  }
 
-    /**
-     * This method safely closes all the resources.
-     * <p>
-     * This method will iterate through all the resources and closes them. If any exception happened during the
-     * traversal, exception will be captured and rethrown after all resources closed.
-     * </p>
-     */
-    public static <R extends AutoCloseable> void closeAll(Iterator<R> resources) {
-        Throwable t = null;
-        while (resources.hasNext()) {
-            try {
-                R resource = resources.next();
-                if (resource != null) {
-                    resource.close();
-                }
-            } catch (Exception e) {
-                if (t == null) {
-                    t = e;
-                } else {
-                    t.addSuppressed(e);
-                }
-            }
+  /**
+   * This method safely closes all the resources.
+   * <p>
+   * This method will iterate through all the resources and closes them. If any exception happened during the
+   * traversal, exception will be captured and rethrown after all resources closed.
+   * </p>
+   */
+  public static <R extends AutoCloseable> void closeAll(Iterator<R> resources) {
+    Throwable t = null;
+    while (resources.hasNext()) {
+      try {
+        R resource = resources.next();
+        if (resource != null) {
+          resource.close();
         }
-
-        if (t != null) throw new RuntimeException(t);
-    }
-
-
-    /**
-     * This method safely closes all the resources. See {@link #closeAll(Iterator)} for more details.
-     */
-    public static <R extends AutoCloseable> void closeAll(R... resources) {
-        closeAll(Arrays.asList(resources));
-    }
-
-    /**
-     * This method safely closes the resources. See {@link #closeAll(Iterator)} for more details.
-     */
-    public static <R extends AutoCloseable> void closeAll(Collection<R> resources) {
-        closeAll(resources.iterator());
-    }
-
-    /**
-     * This method safely closes the resources after applying the function.
-     * <br/>
-     * See {@link #closeAll(Iterator)} for more details.
-     */
-    public static <R extends AutoCloseable, C extends Collection<R>, V> V withResource(
-        C resource, Function<C, V> function) {
-        try {
-            return function.apply(resource);
-        } finally {
-            closeAll(resource);
+      } catch (Exception e) {
+        if (t == null) {
+          t = e;
+        } else {
+          t.addSuppressed(e);
         }
+      }
     }
+
+    if (t != null) {
+      throw new RuntimeException(t);
+    }
+  }
+
+
+  /**
+   * This method safely closes all the resources. See {@link #closeAll(Iterator)} for more details.
+   */
+  public static <R extends AutoCloseable> void closeAll(R... resources) {
+    closeAll(Arrays.asList(resources));
+  }
+
+  /**
+   * This method safely closes the resources. See {@link #closeAll(Iterator)} for more details.
+   */
+  public static <R extends AutoCloseable> void closeAll(Collection<R> resources) {
+    closeAll(resources.iterator());
+  }
+
+  /**
+   * This method safely closes the resources after applying the function.
+   * <br/>
+   * See {@link #closeAll(Iterator)} for more details.
+   */
+  public static <R extends AutoCloseable, C extends Collection<R>, V> V withResource(
+      C resource, Function<C, V> function) {
+    try {
+      return function.apply(resource);
+    } finally {
+      closeAll(resource);
+    }
+  }
 }

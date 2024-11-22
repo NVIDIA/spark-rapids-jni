@@ -16,11 +16,10 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.*;
-
-import org.junit.jupiter.api.Test;
-
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
+import ai.rapids.cudf.ColumnVector;
+import org.junit.jupiter.api.Test;
 
 public class CaseWhenTest {
 
@@ -36,7 +35,7 @@ public class CaseWhenTest {
         ColumnVector b3 = ColumnVector.fromBooleans(
             true, true, true, false);
         ColumnVector expected = ColumnVector.fromInts(0, 1, 2, 4)) {
-      ColumnVector[] boolColumns = new ColumnVector[] { b0, b1, b2, b3 };
+      ColumnVector[] boolColumns = new ColumnVector[] {b0, b1, b2, b3};
       try (ColumnVector actual = CaseWhen.selectFirstTrueIndex(boolColumns)) {
         assertColumnsAreEqual(expected, actual);
       }
@@ -55,7 +54,7 @@ public class CaseWhenTest {
         ColumnVector b3 = ColumnVector.fromBoxedBooleans(
             null, null, null, true, null);
         ColumnVector expected = ColumnVector.fromInts(4, 4, 4, 1, 1)) {
-      ColumnVector[] boolColumns = new ColumnVector[] { b0, b1, b2, b3 };
+      ColumnVector[] boolColumns = new ColumnVector[] {b0, b1, b2, b3};
       try (ColumnVector actual = CaseWhen.selectFirstTrueIndex(boolColumns)) {
         assertColumnsAreEqual(expected, actual);
       }

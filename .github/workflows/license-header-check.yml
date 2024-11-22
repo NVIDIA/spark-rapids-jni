@@ -50,6 +50,7 @@ jobs:
             *.txt,
             *.xml,
             *.fbs,
-            build/*
+            build/*,
+            dev/*
           excluded_file_patterns: |
             thirdparty/*

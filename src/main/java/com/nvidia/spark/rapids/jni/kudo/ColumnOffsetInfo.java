@@ -16,9 +16,9 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.DeviceMemoryBufferView;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
+
+import ai.rapids.cudf.DeviceMemoryBufferView;
 
 /**
  * This class is used to store the offsets of the buffer of a column in the serialized data.
@@ -32,7 +32,8 @@ class ColumnOffsetInfo {
   private final long data;
   private final long dataBufferLen;
 
-  public ColumnOffsetInfo(long validity, long validityBufferLen, long offset, long offsetBufferLen, long data,
+  public ColumnOffsetInfo(long validity, long validityBufferLen, long offset, long offsetBufferLen,
+                          long data,
                           long dataBufferLen) {
     ensureNonNegative(validityBufferLen, "validityBuffeLen");
     ensureNonNegative(offsetBufferLen, "offsetBufferLen");
@@ -47,6 +48,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get the validity buffer offset.
+   *
    * @return {@value #INVALID_OFFSET} if the validity buffer is not present, otherwise the offset.
    */
   long getValidity() {
@@ -55,6 +57,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get a view of the validity buffer from underlying buffer.
+   *
    * @param baseAddress the base address of underlying buffer.
    * @return null if the validity buffer is not present, otherwise a view of the buffer.
    */
@@ -67,6 +70,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get the offset buffer offset.
+   *
    * @return {@value #INVALID_OFFSET} if the offset buffer is not present, otherwise the offset.
    */
   long getOffset() {
@@ -75,6 +79,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get a view of the offset buffer from underlying buffer.
+   *
    * @param baseAddress the base address of underlying buffer.
    * @return null if the offset buffer is not present, otherwise a view of the buffer.
    */
@@ -87,6 +92,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get the data buffer offset.
+   *
    * @return {@value #INVALID_OFFSET} if the data buffer is not present, otherwise the offset.
    */
   long getData() {
@@ -95,6 +101,7 @@ class ColumnOffsetInfo {
 
   /**
    * Get a view of the data buffer from underlying buffer.
+   *
    * @param baseAddress the base address of underlying buffer.
    * @return null if the data buffer is not present, otherwise a view of the buffer.
    */

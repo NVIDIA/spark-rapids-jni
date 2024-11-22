@@ -16,15 +16,15 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
+import static java.util.Objects.requireNonNull;
+
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
-
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
-import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
-import static java.util.Objects.requireNonNull;
 
 /**
  * Holds the metadata about a serialized table. If this is being read from a stream
@@ -49,6 +49,23 @@ public final class KudoTableHeader {
   // A bit set to indicate if a column has a validity buffer or not. Each column is represented by a single bit.
   private final byte[] hasValidityBuffer;
 
+  KudoTableHeader(int offset, int numRows, int validityBufferLen, int offsetBufferLen,
+                  int totalDataLen, int numColumns, byte[] hasValidityBuffer) {
+    this.offset = ensureNonNegative(offset, "offset");
+    this.numRows = ensureNonNegative(numRows, "numRows");
+    this.validityBufferLen = ensureNonNegative(validityBufferLen, "validityBufferLen");
+    this.offsetBufferLen = ensureNonNegative(offsetBufferLen, "offsetBufferLen");
+    this.totalDataLen = ensureNonNegative(totalDataLen, "totalDataLen");
+    this.numColumns = ensureNonNegative(numColumns, "numColumns");
+
+    requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
+    ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),
+        () -> numColumns + " columns expects hasValidityBuffer with length " +
+            lengthOfHasValidityBuffer(numColumns) +
+            ", but found " + hasValidityBuffer.length);
+    this.hasValidityBuffer = hasValidityBuffer;
+  }
+
   /**
    * Reads the table header from the given input stream.
    *
@@ -61,8 +78,9 @@ public final class KudoTableHeader {
     try {
       num = din.readInt();
       if (num != SER_FORMAT_MAGIC_NUMBER) {
-        throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
-            " found " + num);
+        throw new IllegalStateException(
+            "Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
+                " found " + num);
       }
     } catch (EOFException e) {
       // If we get an EOF at the very beginning don't treat it as an error because we may
@@ -81,24 +99,14 @@ public final class KudoTableHeader {
     byte[] hasValidityBuffer = new byte[validityBufferLength];
     din.readFully(hasValidityBuffer);
 
-    return Optional.of(new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
-        hasValidityBuffer));
+    return Optional.of(
+        new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen,
+            numColumns,
+            hasValidityBuffer));
   }
 
-  KudoTableHeader(int offset, int numRows, int validityBufferLen, int offsetBufferLen,
-                  int totalDataLen, int numColumns, byte[] hasValidityBuffer) {
-    this.offset = ensureNonNegative(offset, "offset");
-    this.numRows = ensureNonNegative(numRows, "numRows");
-    this.validityBufferLen = ensureNonNegative(validityBufferLen, "validityBufferLen");
-    this.offsetBufferLen = ensureNonNegative(offsetBufferLen, "offsetBufferLen");
-    this.totalDataLen = ensureNonNegative(totalDataLen, "totalDataLen");
-    this.numColumns = ensureNonNegative(numColumns, "numColumns");
-
-    requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
-    ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),
-        () -> numColumns + " columns expects hasValidityBuffer with length " + lengthOfHasValidityBuffer(numColumns) +
-            ", but found " + hasValidityBuffer.length);
-    this.hasValidityBuffer = hasValidityBuffer;
+  private static int lengthOfHasValidityBuffer(int numColumns) {
+    return (numColumns + 7) / 8;
   }
 
   /**
@@ -186,9 +194,5 @@ public final class KudoTableHeader {
         ", numColumns=" + numColumns +
         ", hasValidityBuffer=" + Arrays.toString(hasValidityBuffer) +
         '}';
-  }
-
-  private static int lengthOfHasValidityBuffer(int numColumns) {
-    return (numColumns + 7) / 8;
   }
 }

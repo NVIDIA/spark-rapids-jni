@@ -16,17 +16,6 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.HostMemoryBuffer;
-import ai.rapids.cudf.Schema;
-import com.nvidia.spark.rapids.jni.Arms;
-import com.nvidia.spark.rapids.jni.schema.Visitors;
-
-import java.nio.ByteOrder;
-import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.OptionalInt;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
@@ -34,6 +23,16 @@ import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignm
 import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
+
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.Schema;
+import com.nvidia.spark.rapids.jni.Arms;
+import com.nvidia.spark.rapids.jni.schema.Visitors;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult},
@@ -59,7 +58,8 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
   private final HostMemoryBuffer buffer;
   private final List<ColumnViewInfo> colViewInfoList;
 
-  public KudoTableMerger(List<KudoTable> tables, HostMemoryBuffer buffer, List<ColumnOffsetInfo> columnOffsets) {
+  public KudoTableMerger(List<KudoTable> tables, HostMemoryBuffer buffer,
+                         List<ColumnOffsetInfo> columnOffsets) {
     super(tables);
     requireNonNull(buffer, "buffer can't be null!");
     ensure(columnOffsets != null, "column offsets cannot be null");
@@ -67,83 +67,6 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
     this.columnOffsets = columnOffsets;
     this.buffer = buffer;
     this.colViewInfoList = new ArrayList<>(columnOffsets.size());
-  }
-
-  @Override
-  protected KudoHostMergeResult doVisitTopSchema(Schema schema, List<Void> children) {
-    return new KudoHostMergeResult(schema, buffer, colViewInfoList);
-  }
-
-  @Override
-  protected Void doVisitStruct(Schema structType, List<Void> children) {
-    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
-    int totalRowCount = getTotalRowCount();
-    colViewInfoList.add(new ColumnViewInfo(structType.getType(),
-        offsetInfo, nullCount, totalRowCount));
-    return null;
-  }
-
-  @Override
-  protected Void doPreVisitList(Schema listType) {
-    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
-    int totalRowCount = getTotalRowCount();
-    deserializeOffsetBuffer(offsetInfo);
-
-    colViewInfoList.add(new ColumnViewInfo(listType.getType(),
-        offsetInfo, nullCount, totalRowCount));
-    return null;
-  }
-
-  @Override
-  protected Void doVisitList(Schema listType, Void preVisitResult, Void childResult) {
-    return null;
-  }
-
-  @Override
-  protected Void doVisit(Schema primitiveType) {
-    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
-    int totalRowCount = getTotalRowCount();
-    if (primitiveType.getType().hasOffsets()) {
-      deserializeOffsetBuffer(offsetInfo);
-      deserializeDataBuffer(offsetInfo, OptionalInt.empty());
-    } else {
-      deserializeDataBuffer(offsetInfo, OptionalInt.of(primitiveType.getType().getSizeInBytes()));
-    }
-
-    colViewInfoList.add(new ColumnViewInfo(primitiveType.getType(),
-        offsetInfo, nullCount, totalRowCount));
-
-    return null;
-  }
-
-  private int deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
-    if (curColOffset.getValidity() != INVALID_OFFSET) {
-      long offset = curColOffset.getValidity();
-      long validityBufferSize = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
-      try (HostMemoryBuffer validityBuffer = buffer.slice(offset, validityBufferSize)) {
-        int nullCountTotal = 0;
-        int startRow = 0;
-        for (int tableIdx = 0; tableIdx < getTableSize(); tableIdx += 1) {
-          SliceInfo sliceInfo = sliceInfoOf(tableIdx);
-          long validityOffset = validifyBufferOffset(tableIdx);
-          if (validityOffset != INVALID_OFFSET) {
-            nullCountTotal += copyValidityBuffer(validityBuffer, startRow,
-                memoryBufferOf(tableIdx), toIntExact(validityOffset),
-                sliceInfo);
-          } else {
-            appendAllValid(validityBuffer, startRow, sliceInfo.getRowCount());
-          }
-
-          startRow += sliceInfo.getRowCount();
-        }
-        return nullCountTotal;
-      }
-    } else {
-      return 0;
-    }
   }
 
   /**
@@ -251,10 +174,97 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
     }
   }
 
+  static KudoHostMergeResult merge(Schema schema, MergedInfoCalc mergedInfo) {
+    List<KudoTable> serializedTables = mergedInfo.getTables();
+    return Arms.closeIfException(HostMemoryBuffer.allocate(mergedInfo.getTotalDataLen()),
+        buffer -> {
+          KudoTableMerger merger =
+              new KudoTableMerger(serializedTables, buffer, mergedInfo.getColumnOffsets());
+          return Visitors.visitSchema(schema, merger);
+        });
+  }
+
+  @Override
+  protected KudoHostMergeResult doVisitTopSchema(Schema schema, List<Void> children) {
+    return new KudoHostMergeResult(schema, buffer, colViewInfoList);
+  }
+
+  @Override
+  protected Void doVisitStruct(Schema structType, List<Void> children) {
+    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
+    colViewInfoList.add(new ColumnViewInfo(structType.getType(),
+        offsetInfo, nullCount, totalRowCount));
+    return null;
+  }
+
+  @Override
+  protected Void doPreVisitList(Schema listType) {
+    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
+    deserializeOffsetBuffer(offsetInfo);
+
+    colViewInfoList.add(new ColumnViewInfo(listType.getType(),
+        offsetInfo, nullCount, totalRowCount));
+    return null;
+  }
+
+  @Override
+  protected Void doVisitList(Schema listType, Void preVisitResult, Void childResult) {
+    return null;
+  }
+
+  @Override
+  protected Void doVisit(Schema primitiveType) {
+    ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    int nullCount = deserializeValidityBuffer(offsetInfo);
+    int totalRowCount = getTotalRowCount();
+    if (primitiveType.getType().hasOffsets()) {
+      deserializeOffsetBuffer(offsetInfo);
+      deserializeDataBuffer(offsetInfo, OptionalInt.empty());
+    } else {
+      deserializeDataBuffer(offsetInfo, OptionalInt.of(primitiveType.getType().getSizeInBytes()));
+    }
+
+    colViewInfoList.add(new ColumnViewInfo(primitiveType.getType(),
+        offsetInfo, nullCount, totalRowCount));
+
+    return null;
+  }
+
+  private int deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
+    if (curColOffset.getValidity() != INVALID_OFFSET) {
+      long offset = curColOffset.getValidity();
+      long validityBufferSize = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
+      try (HostMemoryBuffer validityBuffer = buffer.slice(offset, validityBufferSize)) {
+        int nullCountTotal = 0;
+        int startRow = 0;
+        for (int tableIdx = 0; tableIdx < getTableSize(); tableIdx += 1) {
+          SliceInfo sliceInfo = sliceInfoOf(tableIdx);
+          long validityOffset = validifyBufferOffset(tableIdx);
+          if (validityOffset != INVALID_OFFSET) {
+            nullCountTotal += copyValidityBuffer(validityBuffer, startRow,
+                memoryBufferOf(tableIdx), toIntExact(validityOffset),
+                sliceInfo);
+          } else {
+            appendAllValid(validityBuffer, startRow, sliceInfo.getRowCount());
+          }
+
+          startRow += sliceInfo.getRowCount();
+        }
+        return nullCountTotal;
+      }
+    } else {
+      return 0;
+    }
+  }
+
   private void deserializeOffsetBuffer(ColumnOffsetInfo curColOffset) {
     if (curColOffset.getOffset() != INVALID_OFFSET) {
       long offset = curColOffset.getOffset();
-      long bufferSize = Integer.BYTES * (getTotalRowCount() + 1);
+      long bufferSize = (long) Integer.BYTES * (getTotalRowCount() + 1);
 
       IntBuffer buf = buffer
           .asByteBuffer(offset, toIntExact(bufferSize))
@@ -298,7 +308,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
           for (int tableIdx = 0; tableIdx < getTableSize(); tableIdx += 1) {
             SliceInfo sliceInfo = sliceInfoOf(tableIdx);
             if (sliceInfo.getRowCount() > 0) {
-              int thisDataLen = toIntExact(elementSize * sliceInfo.getRowCount());
+              int thisDataLen = toIntExact((long) elementSize * sliceInfo.getRowCount());
               copyDataBuffer(buf, start, tableIdx, thisDataLen);
               start += thisDataLen;
             }
@@ -316,17 +326,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
     }
   }
 
-
   private ColumnOffsetInfo getCurColumnOffsets() {
     return columnOffsets.get(getCurrentIdx());
-  }
-
-  static KudoHostMergeResult merge(Schema schema, MergedInfoCalc mergedInfo) {
-    List<KudoTable> serializedTables = mergedInfo.getTables();
-    return Arms.closeIfException(HostMemoryBuffer.allocate(mergedInfo.getTotalDataLen()),
-        buffer -> {
-          KudoTableMerger merger = new KudoTableMerger(serializedTables, buffer, mergedInfo.getColumnOffsets());
-          return Visitors.visitSchema(schema, merger);
-        });
   }
 }

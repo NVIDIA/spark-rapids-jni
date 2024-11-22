@@ -16,11 +16,11 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Scalar;
 import org.junit.jupiter.api.Test;
-
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class RegexRewriteUtilsTest {
 
@@ -29,9 +29,9 @@ public class RegexRewriteUtilsTest {
     int d = 3;
     try (ColumnVector inputCv = ColumnVector.fromStrings(
         "abc123", "aabc123", "aabc12", "abc1232", "aabc1232");
-        Scalar pattern = Scalar.fromString("abc");
-        ColumnVector expected = ColumnVector.fromBooleans(true, true, false, true, true);
-        ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 48, 57)) {
+         Scalar pattern = Scalar.fromString("abc");
+         ColumnVector expected = ColumnVector.fromBooleans(true, true, false, true, true);
+         ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 48, 57)) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -41,9 +41,10 @@ public class RegexRewriteUtilsTest {
     int d = 2;
     try (ColumnVector inputCv = ColumnVector.fromStrings(
         "数据砖块", "火花-急流英伟达", "英伟达Nvidia", "火花-急流");
-        Scalar pattern = Scalar.fromString("英");
-        ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false);
-        ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 19968, 40869)) {
+         Scalar pattern = Scalar.fromString("英");
+         ColumnVector expected = ColumnVector.fromBooleans(false, true, true, false);
+         ColumnVector actual = RegexRewriteUtils.literalRangePattern(inputCv, pattern, d, 19968,
+             40869)) {
       assertColumnsAreEqual(expected, actual);
     }
   }

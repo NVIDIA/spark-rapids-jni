@@ -16,16 +16,19 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.HostMemoryBuffer;
-import ai.rapids.cudf.Schema;
-import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
-
-import java.util.*;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
 import static java.lang.Math.toIntExact;
+
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.Schema;
+import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * This class provides a base class for visiting multiple kudo tables, e.g. it helps to maintain internal states during
@@ -40,11 +43,11 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
   private final long[] currentDataOffset;
   private final Deque<SliceInfo>[] sliceInfoStack;
   private final Deque<Integer> totalRowCountStack;
+  // Temporary buffer to store data length of string column to avoid repeated allocation
+  private final int[] strDataLen;
   // A temporary variable to keep if current column has null
   private boolean hasNull;
   private int currentIdx;
-  // Temporary buffer to store data length of string column to avoid repeated allocation
-  private final int[] strDataLen;
   // Temporary variable to calculate total data length of string column
   private long totalStrDataLen;
 
@@ -187,7 +190,8 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
     }
   }
 
-  private void updateOffsets(boolean updateOffset, boolean updateData, boolean updateSliceInfo, int sizeInBytes) {
+  private void updateOffsets(boolean updateOffset, boolean updateData, boolean updateSliceInfo,
+                             int sizeInBytes) {
     long totalRowCount = 0;
     for (int tableIdx = 0; tableIdx < tables.size(); tableIdx++) {
       SliceInfo sliceInfo = sliceInfoOf(tableIdx);
@@ -202,11 +206,13 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
         }
 
         if (tables.get(tableIdx).getHeader().hasValidityBuffer(currentIdx)) {
-          currentValidityOffsets[tableIdx] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+          currentValidityOffsets[tableIdx] +=
+              padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
         }
 
         if (updateOffset) {
-          currentOffsetOffsets[tableIdx] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+          currentOffsetOffsets[tableIdx] +=
+              padForHostAlignment((long) (sliceInfo.getRowCount() + 1) * Integer.BYTES);
           if (updateData) {
             // string type
             currentDataOffset[tableIdx] += padForHostAlignment(strDataLen[tableIdx]);
@@ -215,7 +221,8 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
         } else {
           if (updateData) {
             // primitive type
-            currentDataOffset[tableIdx] += padForHostAlignment(sliceInfo.getRowCount() * sizeInBytes);
+            currentDataOffset[tableIdx] +=
+                padForHostAlignment((long) sliceInfo.getRowCount() * sizeInBytes);
           }
         }
 

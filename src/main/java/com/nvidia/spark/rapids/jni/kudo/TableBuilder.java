@@ -16,24 +16,28 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
-import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
-
-import java.util.ArrayList;
-import java.util.List;
-
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
+
+import ai.rapids.cudf.CloseableArray;
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.DeviceMemoryBuffer;
+import ai.rapids.cudf.Schema;
+import ai.rapids.cudf.Table;
+import com.nvidia.spark.rapids.jni.Arms;
+import com.nvidia.spark.rapids.jni.schema.SchemaVisitor;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class is used to build a cudf table from a list of column view info, and a device buffer.
  */
 class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, AutoCloseable {
-  private int curColumnIdx;
   private final DeviceMemoryBuffer buffer;
   private final List<ColumnViewInfo> colViewInfoList;
   private final List<ColumnView> columnViewList;
+  private int curColumnIdx;
 
   public TableBuilder(List<ColumnViewInfo> colViewInfoList, DeviceMemoryBuffer buffer) {
     requireNonNull(colViewInfoList, "colViewInfoList cannot be null");
@@ -52,10 +56,12 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
     // `children`, so we need to clear `columnViewList`.
     this.columnViewList.clear();
     try {
-      try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(new ColumnVector[children.size()])) {
+      try (CloseableArray<ColumnVector> arr = CloseableArray.wrap(
+          new ColumnVector[children.size()])) {
         for (int i = 0; i < children.size(); i++) {
           ColumnView colView = children.set(i, null);
-          arr.set(i, ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
+          arr.set(i,
+              ColumnVector.fromViewWithContiguousAllocation(colView.getNativeView(), buffer));
         }
 
         return new Table(arr.getArray());
@@ -87,7 +93,7 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
   @Override
   public ColumnView visitList(Schema listType, ColumnViewInfo colViewInfo, ColumnView childResult) {
 
-    ColumnView[] children = new ColumnView[]{childResult};
+    ColumnView[] children = new ColumnView[] {childResult};
 
     ColumnView view = colViewInfo.buildColumnView(buffer, children);
     columnViewList.add(view);

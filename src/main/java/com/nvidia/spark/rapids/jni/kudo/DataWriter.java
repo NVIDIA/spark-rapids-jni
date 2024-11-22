@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.HostMemoryBuffer;
-
 import java.io.IOException;
 
 /**
@@ -34,7 +33,8 @@ abstract class DataWriter {
    * @param srcOffset offset to start at.
    * @param len       amount to copy.
    */
-  public abstract void copyDataFrom(HostMemoryBuffer src, long srcOffset, long len) throws IOException;
+  public abstract void copyDataFrom(HostMemoryBuffer src, long srcOffset, long len)
+      throws IOException;
 
   public void flush() throws IOException {
     // NOOP by default
