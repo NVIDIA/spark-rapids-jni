@@ -390,10 +390,17 @@ class hive_device_row_hasher {
           if (top.get_idx_to_process() == curr_col.num_child_columns()) {
             if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
           } else {
-            // Push the next child into the stack
-            col_stack[stack_size++] =
-              col_stack_frame(cudf::detail::structs_column_device_view(curr_col).get_sliced_child(
-                top.get_and_inc_idx_to_process()));
+    auto const scv = cudf::detail::structs_column_device_view(curr_col);
+    for(auto idx = top.get_idx_to_process(); idx < scv.num_child_columns(); ++idx) {
+      auto const child = scv.get_sliced_child(idx);
+      top.get_and_inc_idx_to_process();
+      if(child is not nested) {
+        // update hash of current row
+      } else {
+        col_stack[stack_size++] = col_stack_frame(child);
+        break;
+      }
+    }
           }
         } else if (curr_col.type().id() == cudf::type_id::LIST) {
           // Get the child column of the list column
