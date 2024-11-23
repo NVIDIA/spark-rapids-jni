@@ -22,12 +22,14 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <memory>
 
 namespace spark_rapids_jni {
 
+/**
+ * @brief Extract a map column from the JSON strings given by an input strings column.
+ */
 std::unique_ptr<cudf::column> from_json_to_raw_map(
   cudf::strings_column_view const& input,
   bool normalize_single_quotes,
@@ -37,9 +39,51 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
-std::unique_ptr<cudf::column> make_structs(
-  std::vector<cudf::column_view> const& input,
-  cudf::column_view const& is_null,
+/**
+ * @brief Parse JSON strings into a struct column followed by a given data schema.
+ *
+ * The data schema is specified as data arrays flattened by depth-first-search order.
+ */
+std::unique_ptr<cudf::column> from_json_to_structs(
+  cudf::strings_column_view const& input,
+  std::vector<std::string> const& col_names,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions,
+  bool normalize_single_quotes,
+  bool allow_leading_zeros,
+  bool allow_nonnumeric_numbers,
+  bool allow_unquoted_control,
+  bool is_us_locale,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
+
+/**
+ * @brief Convert from a strings column to a column with the desired type given by a data schema.
+ *
+ * The given column schema is specified as data arrays flattened by depth-first-search order.
+ */
+std::unique_ptr<cudf::column> convert_from_strings(
+  cudf::strings_column_view const& input,
+  std::vector<int> const& num_children,
+  std::vector<int> const& types,
+  std::vector<int> const& scales,
+  std::vector<int> const& precisions,
+  bool allow_nonnumeric_numbers,
+  bool is_us_locale,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
+
+/**
+ * @brief Remove quotes from each string in the given strings column.
+ *
+ * If `nullify_if_not_quoted` is true, an input string that is not quoted will result in a null.
+ * Otherwise, the output will be the same as the unquoted input.
+ */
+std::unique_ptr<cudf::column> remove_quotes(
+  cudf::strings_column_view const& input,
+  bool nullify_if_not_quoted,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 

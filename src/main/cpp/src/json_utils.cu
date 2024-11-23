@@ -190,8 +190,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
-  // If the null count doesn't change, that mean we do not have any rows containing `null` string
-  // literal or empty rows. In such cases, just use the input column for concatenation.
+  // If the null count doesn't change, just use the input column for concatenation.
   auto const input_applied_null =
     null_count == input.null_count()
       ? cudf::column_view{}
@@ -200,7 +199,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
                           input.chars_begin(stream),
                           reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
                           null_count,
-                          0,
+                          input.offset(),
                           std::vector<cudf::column_view>{input.offsets()}};
 
   auto concat_strings = cudf::strings::detail::join_strings(
@@ -215,32 +214,6 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
           std::make_unique<cudf::column>(std::move(should_be_nullified), rmm::device_buffer{}, 0)};
 }
 
-std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& children,
-                                           cudf::column_view const& is_null,
-                                           rmm::cuda_stream_view stream,
-                                           rmm::device_async_resource_ref mr)
-{
-  if (children.size() == 0) { return nullptr; }
-
-  auto const row_count = children.front().size();
-  for (auto const& col : children) {
-    CUDF_EXPECTS(col.size() == row_count, "All columns must have the same number of rows.");
-  }
-
-  auto const [null_mask, null_count] = cudf::detail::valid_if(
-    is_null.begin<bool>(), is_null.end<bool>(), thrust::logical_not{}, stream, mr);
-
-  auto const structs =
-    cudf::column_view(cudf::data_type{cudf::type_id::STRUCT},
-                      row_count,
-                      nullptr,
-                      reinterpret_cast<cudf::bitmask_type const*>(null_mask.data()),
-                      null_count,
-                      0,
-                      children);
-  return std::make_unique<cudf::column>(structs, stream, mr);
-}
-
 }  // namespace detail
 
 std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::column>> concat_json(
@@ -251,15 +224,6 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
 {
   CUDF_FUNC_RANGE();
   return detail::concat_json(input, nullify_invalid_rows, stream, mr);
-}
-
-std::unique_ptr<cudf::column> make_structs(std::vector<cudf::column_view> const& children,
-                                           cudf::column_view const& is_null,
-                                           rmm::cuda_stream_view stream,
-                                           rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return detail::make_structs(children, is_null, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
