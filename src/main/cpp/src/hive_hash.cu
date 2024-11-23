@@ -224,7 +224,7 @@ class hive_device_row_hasher {
         delete;  // Because the default constructor of `cudf::column_device_view` is deleted
 
       __device__ col_stack_frame(cudf::column_device_view col)
-        : _column(col), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
+        : _column(std::move(col)), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
       {
       }
 
