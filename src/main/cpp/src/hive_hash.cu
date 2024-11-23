@@ -271,11 +271,9 @@ class hive_device_row_hasher {
      *    b. If the column is a structs column:
      *        i.  If all child columns are processed, pop the element and update `cur_hash` of its
      *            parent column.
-     *        ii. Otherwise, push the next child column into the stack.
+     *        ii. Otherwise, process the next child column.
      *    c. If the column is a lists column, process it by a similar way as structs column but
      *       iterating through the list elements instead of child columns' elements.
-     *    d. If the column is a primitive column, compute the hash value, pop the element,
-     *       and update `cur_hash` of its parent column.
      * 3. Return the hash value of the root column.
      *
      * For example, consider the following nested column: `Struct<Struct<int, float>, decimal>`
@@ -286,14 +284,12 @@ class hive_device_row_hasher {
      *   / \
      *  i   f
      *
-     * The `pop` order of the stack is: i, f, S2, d, S1.
-     * - When i   is popped, S2's cur_hash is updated to `hash(i)`.
-     * - When f   is popped, S2's cur_hash is updated to `hash(i) * HIVE_HASH_FACTOR + hash(f)`,
-     *   which is the hash value of S2.
-     * - When S2  is popped, S1's cur_hash is updated to `hash(S2)`.
-     * - When d   is popped, S1's cur_hash is updated to `hash(S2) * HIVE_HASH_FACTOR + hash(d)`,
-     *   which is the hash value of S1.
-     * - When S1  is popped, the hash value of the root column is returned.
+     * - First, S1 is pushed into the stack. Then, S2 is pushed into the stack.
+     * - S2's hash value can be computed directly because its children are of primitive types.
+     *   When S2 is popped, S1's `cur_hash` is updated to S2's hash value.
+     * - Now the top of the stack is S1. The next child to process is d. S1's `cur_hash` is updated
+     *   to `hash(S2) * HIVE_HASH_FACTOR + hash(d)`, which is the hash value of S1.
+     * - When S1 is popped, the hash value of the root column is returned.
      *
      * As lists columns have a different interface from structs columns, we need to handle them
      * separately.
@@ -334,7 +330,7 @@ class hive_device_row_hasher {
      * |2    |2   |
      * |3    |null|
      * length: 4
-* null_mask: 0111
+     * null_mask: 0111
      *
      * Since the underlying data loses the null information of the top-level list column, computing
      * hash values using the underlying data merely can yield different results compared to Spark.
@@ -354,9 +350,8 @@ class hive_device_row_hasher {
      *    i1           i2         int
      *
      * Note: L2、i1、i2 are all temporary columns, which would not be pushed into the stack.
-     * There is an optimization for the list column. If the child column is of primitive type, the
-     * hash value of the list column can be directly computed. Thus we can decrease the depth of
-     * the stack by one.
+     * If the child column is of primitive type, the hash value of the list column can be directly
+     * computed.
      *
      * @tparam T The type of the column.
      * @param col The column device view.
@@ -385,22 +380,26 @@ class hive_device_row_hasher {
         // Do not pop it until it is processed. The definition of `processed` is:
         // - For structs, it is when all child columns are processed.
         // - For lists, it is when all elements in the list are processed.
-        // - For primitive types, it is when the hash value is computed.
         if (curr_col.type().id() == cudf::type_id::STRUCT) {
           if (top.get_idx_to_process() == curr_col.num_child_columns()) {
             if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
           } else {
-    auto const scv = cudf::detail::structs_column_device_view(curr_col);
-    for(auto idx = top.get_idx_to_process(); idx < scv.num_child_columns(); ++idx) {
-      auto const child = scv.get_sliced_child(idx);
-      top.get_and_inc_idx_to_process();
-      if(child is not nested) {
-        // update hash of current row
-      } else {
-        col_stack[stack_size++] = col_stack_frame(child);
-        break;
-      }
-    }
+            auto const structcv = cudf::detail::structs_column_device_view(curr_col);
+            while (top.get_idx_to_process() < curr_col.num_child_columns()) {
+              auto idx             = top.get_and_inc_idx_to_process();
+              auto const child_col = structcv.get_sliced_child(idx);
+              // If the child is of primitive type, accumulate child hash into struct hash
+              if (child_col.type().id() != cudf::type_id::LIST &&
+                  child_col.type().id() != cudf::type_id::STRUCT) {
+                auto child_hash =
+                  cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                    child_col.type(), this->hash_functor, child_col, 0);
+                top.update_cur_hash(child_hash);
+              } else {
+                col_stack[stack_size++] = col_stack_frame(child_col);
+                break;
+              }
+            }
           }
         } else if (curr_col.type().id() == cudf::type_id::LIST) {
           // Get the child column of the list column
@@ -429,12 +428,6 @@ class hive_device_row_hasher {
                 col_stack_frame(child_col.slice(top.get_and_inc_idx_to_process(), 1));
             }
           }
-        } else {
-          // There is only one element in the column for primitive types
-          auto hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-            curr_col.type(), this->hash_functor, curr_col, 0);
-          top.update_cur_hash(hash);
-          if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
         }
       }
       return col_stack[0].get_hash();
@@ -455,10 +448,6 @@ void check_nested_depth(cudf::table_view const& input)
   column_checker_fn_t get_nested_depth = [&](cudf::column_view const& col) {
     if (col.type().id() == cudf::type_id::LIST) {
       auto const child_col = cudf::lists_column_view(col).child();
-      if (child_col.type().id() != cudf::type_id::STRUCT &&
-          child_col.type().id() != cudf::type_id::LIST) {
-        return 1;
-      }
       return 1 + get_nested_depth(child_col);
     } else if (col.type().id() == cudf::type_id::STRUCT) {
       int max_child_depth = 0;
@@ -467,7 +456,7 @@ void check_nested_depth(cudf::table_view const& input)
       }
       return 1 + max_child_depth;
     } else {  // Primitive type
-      return 1;
+      return 0;
     }
   };
 
