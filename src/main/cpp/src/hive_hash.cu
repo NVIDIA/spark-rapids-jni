@@ -334,7 +334,7 @@ class hive_device_row_hasher {
      * |2    |2   |
      * |3    |null|
      * length: 4
-     * null_mask: 1110
+* null_mask: 0111
      *
      * Since the underlying data loses the null information of the top-level list column, computing
      * hash values using the underlying data merely can yield different results compared to Spark.
