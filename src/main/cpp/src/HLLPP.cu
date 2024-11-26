@@ -84,7 +84,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4 , "HyperLogLogPlusPlus requires precision is bigger than 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision is bigger than 4.");
   auto const input_iter = cudf::detail::make_counting_transform_iterator(
     0, [&](int i) { return input.child(i).begin<int64_t>(); });
   auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + input.num_children());
