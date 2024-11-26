@@ -92,7 +92,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
   auto result     = cudf::make_numeric_column(
     cudf::data_type{cudf::type_id::INT64}, input.size(), cudf::mask_state::ALL_VALID, stream);
   // evaluate from struct<long, ..., long>
-  thrust::for_each_n(rmm::exec_policy(stream),
+  thrust::for_each_n(rmm::exec_policy_nosync(stream),
                      thrust::make_counting_iterator(0),
                      input.size(),
                      estimate_fn{d_inputs, precision, result->mutable_view().data<int64_t>()});
