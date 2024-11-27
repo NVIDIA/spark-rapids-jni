@@ -193,6 +193,21 @@ struct test_udf_simple_type : cudf::host_udf_base {
                                  static_cast<OutputType>(init_value),
                                  thrust::plus<>{});
 
+      if constexpr (std::is_same_v<InputType, double> && std::is_same_v<OutputType, double>) {
+        std::vector<double> in(values.size());
+        CUDF_CUDA_TRY(cudaMemcpyAsync(in.data(),
+                                      values.begin<double>(),
+                                      values.size() * sizeof(double),
+                                      cudaMemcpyDefault,
+                                      stream.value()));
+        stream.synchronize();
+        std::cout << "input: " << std::endl;
+        for (auto x : in) {
+          std::cout << x << ", ";
+        }
+        std::cout << "\nresult: " << result << std::endl;
+      }
+
       auto output = cudf::make_numeric_scalar(output_dtype, stream, mr);
       static_cast<cudf::scalar_type_t<OutputType>*>(output.get())->set_value(result, stream);
       return output;
