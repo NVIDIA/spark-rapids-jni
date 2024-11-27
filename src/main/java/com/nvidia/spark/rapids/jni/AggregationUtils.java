@@ -23,6 +23,16 @@ public class AggregationUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
+  enum AggregationType {
+    Reduction(0),
+    SegmentedReduction(1),
+    GroupByAggregation(2);
+
+    final int nativeId;
+
+    AggregationType(int nativeId) {this.nativeId = nativeId;}
+  }
+
   /**
    * Create a test host UDF for testing purposes.
    *
@@ -35,9 +45,9 @@ public class AggregationUtils {
    * new ai.rapids.cudf.HostUDFAggregation(udfAndHash[0], udfAndHash[1]);
    * ```
    */
-  public static long[] createTestHostUDF() {
-    return createNativeTestHostUDF();
+  public static long[] createTestHostUDF(AggregationType type) {
+    return createNativeTestHostUDF(type.nativeId);
   }
 
-  private static native long[] createNativeTestHostUDF();
+  private static native long[] createNativeTestHostUDF(int type);
 }

@@ -205,7 +205,6 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
-  src/aggregation_utils.cu
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
@@ -225,6 +224,7 @@ add_library(
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/substring_index.cu
+  src/test_host_udf_agg.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
