@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.12.00
+  VERSION 25.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -209,13 +209,14 @@ add_library(
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
-  src/format_float.cu
   src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/decimal_utils.cu
+  src/format_float.cu
   src/from_json_to_raw_map.cu
+  src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
   src/json_utils.cu
@@ -282,6 +283,8 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
+  PUBLIC rmm::rmm
+  PRIVATE $<TARGET_NAME_IF_EXISTS:rmm::rmm_logger_impl>
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")

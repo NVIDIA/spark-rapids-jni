@@ -166,80 +166,78 @@ public class JSONUtils {
   }
 
   /**
-   * Extract key-value pairs for each output map from the given json strings. This method is
-   * similar to {@link #extractRawMapFromJsonString(ColumnView, JSONOptions)} but is deprecated.
-   *
-   * @deprecated This method is deprecated since it does not have parameters to control various
-   * JSON reader behaviors.
+   * Parse a JSON string into a struct column following by the given data schema.
+   * <p/>
+   * Many JSON options in the given {@code opts} parameter are ignored from passing down to the
+   * native code. That is because these options are hard-coded with the same values in both the
+   * plugin code and native code. Specifically:<br>
+   * - {@code RecoverWithNull: true}<br>
+   * - {@code MixedTypesAsStrings: true}<br>
+   * - {@code NormalizeWhitespace: true}<br>
+   * - {@code KeepQuotes: true}<br>
+   * - {@code StrictValidation: true}<br>
+   * - {@code Experimental: true}
    *
    * @param input The input strings column in which each row specifies a json object
-   * @return A map column (i.e., a column of type {@code List<Struct<String,String>>}) in
-   *         which the key-value pairs are extracted directly from the input json strings
+   * @param schema The schema of the output struct column
+   * @param opts The options for parsing JSON strings
+   * @param isUSLocale Whether the current local is US locale, used when converting strings to
+   *        decimal types
+   * @return A struct column in which each row is parsed from the corresponding json string
    */
-  public static ColumnVector extractRawMapFromJsonString(ColumnView input) {
+  public static ColumnVector fromJSONToStructs(ColumnView input, Schema schema, JSONOptions opts,
+                                               boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    return new ColumnVector(extractRawMapFromJsonString(input.getNativeView(),
-        true, true, true, true));
+    return new ColumnVector(fromJSONToStructs(input.getNativeView(),
+        schema.getFlattenedColumnNames(),
+        schema.getFlattenedNumChildren(),
+        schema.getFlattenedTypeIds(),
+        schema.getFlattenedTypeScales(),
+        schema.getFlattenedDecimalPrecisions(),
+        opts.isNormalizeSingleQuotes(),
+        opts.leadingZerosAllowed(),
+        opts.nonNumericNumbersAllowed(),
+        opts.unquotedControlChars(),
+        isUSLocale));
   }
 
   /**
-   * A class to hold the result when concatenating JSON strings.
-   * <p>
-   * A long with the concatenated data, the result also contains a vector that indicates
-   * whether each row in the input is null or empty, and the delimiter used for concatenation.
-   */
-  public static class ConcatenatedJson implements AutoCloseable {
-    public final ColumnVector isNullOrEmpty;
-    public final DeviceMemoryBuffer data;
-    public final char delimiter;
-
-    public ConcatenatedJson(ColumnVector isNullOrEmpty, DeviceMemoryBuffer data, char delimiter) {
-      this.isNullOrEmpty = isNullOrEmpty;
-      this.data = data;
-      this.delimiter = delimiter;
-    }
-
-    @Override
-    public void close() {
-      isNullOrEmpty.close();
-      data.close();
-    }
-  }
-
-  /**
-   * Concatenate JSON strings in the input column into a single JSON string.
-   * <p>
-   * During concatenation, the function also generates a boolean vector that indicates whether
-   * each row in the input is null or empty. The delimiter used for concatenation is also returned.
+   * Convert from a strings column to a column with the desired type given by a data schema.
    *
-   * @param input The input strings column to concatenate
-   * @return A {@link ConcatenatedJson} object that contains the concatenated output
+   * @param input The input strings column
+   * @param schema The schema of the output column
+   * @param allowedNonNumericNumbers Whether non-numeric numbers are allowed, used when converting
+   *        strings to float types
+   * @param isUSLocale Whether the current local is US locale, used when converting strings to
+   *        decimal types
+   * @return A column with the desired data type
    */
-  public static ConcatenatedJson concatenateJsonStrings(ColumnView input) {
+  public static ColumnVector convertFromStrings(ColumnView input, Schema schema,
+                                                boolean allowedNonNumericNumbers,
+                                                boolean isUSLocale) {
     assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
-    long[] concatenated = concatenateJsonStrings(input.getNativeView());
-    return new ConcatenatedJson(new ColumnVector(concatenated[0]),
-        DeviceMemoryBuffer.fromRmm(concatenated[1], concatenated[2], concatenated[3]),
-        (char) concatenated[4]);
+    return new ColumnVector(convertFromStrings(input.getNativeView(),
+        schema.getFlattenedNumChildren(),
+        schema.getFlattenedTypeIds(),
+        schema.getFlattenedTypeScales(),
+        schema.getFlattenedDecimalPrecisions(),
+        allowedNonNumericNumbers,
+        isUSLocale));
   }
 
   /**
-   * Create a structs column from the given children columns and a boolean column specifying
-   * the rows at which the output column.should be null.
-   * <p>
-   * Note that the children columns are expected to have null rows at the same positions indicated
-   * by the input isNull column.
+   * Remove quotes from each string in the given strings column.
+   * <p/>
+   * If `nullifyIfNotQuoted` is true, an input string that is not quoted will result in a null.
+   * Otherwise, the output will be the same as the unquoted input.
    *
-   * @param children The children columns of the output structs column
-   * @param isNull A boolean column specifying the rows at which the output column should be null
-   * @return A structs column created from the given children and the isNull column
+   * @param input The input strings column
+   * @param nullifyIfNotQuoted Whether to output a null row if the input string is not quoted
+   * @return A strings column in which quotes are removed from all strings
    */
-  public static ColumnVector makeStructs(ColumnView[] children, ColumnView isNull) {
-    long[] handles = new long[children.length];
-    for (int i = 0; i < children.length; i++) {
-      handles[i] = children[i].getNativeView();
-    }
-    return new ColumnVector(makeStructs(handles, isNull.getNativeView()));
+  public static ColumnVector removeQuotes(ColumnView input, boolean nullifyIfNotQuoted) {
+    assert (input.getType().equals(DType.STRING)) : "Input must be of STRING type";
+    return new ColumnVector(removeQuotes(input.getNativeView(), nullifyIfNotQuoted));
   }
 
   private static native int getMaxJSONPathDepth();
@@ -257,14 +255,31 @@ public class JSONUtils {
                                                           long memoryBudgetBytes,
                                                           int parallelOverride);
 
-
   private static native long extractRawMapFromJsonString(long input,
                                                          boolean normalizeSingleQuotes,
                                                          boolean leadingZerosAllowed,
                                                          boolean nonNumericNumbersAllowed,
                                                          boolean unquotedControlChars);
 
-  private static native long[] concatenateJsonStrings(long input);
+  private static native long fromJSONToStructs(long input,
+                                               String[] names,
+                                               int[] numChildren,
+                                               int[] typeIds,
+                                               int[] typeScales,
+                                               int[] typePrecision,
+                                               boolean normalizeSingleQuotes,
+                                               boolean leadingZerosAllowed,
+                                               boolean nonNumericNumbersAllowed,
+                                               boolean unquotedControlChars,
+                                               boolean isUSLocale);
 
-  private static native long makeStructs(long[] children, long isNull);
+  private static native long convertFromStrings(long input,
+                                                int[] numChildren,
+                                                int[] typeIds,
+                                                int[] typeScales,
+                                                int[] typePrecision,
+                                                boolean nonNumericNumbersAllowed,
+                                                boolean isUSLocale);
+
+  private static native long removeQuotes(long input, boolean nullifyIfNotQuoted);
 }
