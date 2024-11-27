@@ -19,7 +19,7 @@
 
 extern "C" {
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_createNativeTestHostUDF(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_AggregationUtils_createNativeTestHostUDF(
   JNIEnv* env, jclass, jint agg_type)
 {
   try {
@@ -29,16 +29,12 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_createNa
       switch (agg_type) {
         case 0: return spark_rapids_jni::create_test_reduction_host_udf();
         case 1: return spark_rapids_jni::create_test_segmented_reduction_host_udf();
-        case 2: return spark_rapids_jni::create_test_groupby_host_udf();
-        default:;
+        default: return spark_rapids_jni::create_test_groupby_host_udf();
       }
     }();
-    // The first value is pointer to host_udf instance,
-    // and the second value is its hash code.
-    auto out_handles = cudf::jni::native_jlongArray(env, 2);
-    out_handles[1]   = static_cast<jlong>(udf_ptr->do_hash());
-    out_handles[0]   = reinterpret_cast<jlong>(udf_ptr.release());
-    return out_handles.get_jArray();
+    CUDF_EXPECTS(udf_ptr != nullptr, "Invalid host udf instance.");
+
+    return reinterpret_cast<jlong>(udf_ptr.release());
   }
   CATCH_STD(env, 0);
 }

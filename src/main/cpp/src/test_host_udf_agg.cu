@@ -141,7 +141,7 @@ struct test_udf_simple_type : cudf::host_udf_base {
   template <typename T>
   static constexpr bool is_valid_output_t()
   {
-    return std::is_same_v<T, int64_t>;
+    return std::is_same_v<T, double> || std::is_same_v<T, int64_t>;
   }
 
   struct reduce_fn {

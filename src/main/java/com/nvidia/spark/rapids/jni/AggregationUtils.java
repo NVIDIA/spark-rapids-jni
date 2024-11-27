@@ -23,7 +23,7 @@ public class AggregationUtils {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  enum AggregationType {
+  public enum AggregationType {
     Reduction(0),
     SegmentedReduction(1),
     GroupByAggregation(2);
@@ -35,19 +35,19 @@ public class AggregationUtils {
 
   /**
    * Create a test host UDF for testing purposes.
-   *
+   *<p/>
    * This will return two values: the first is the pointer to the host UDF, and the second is the
    * hash code of the host UDF.
-   *
+   *<p/>
    * To create a host UDF aggregation, do this:
    * ```
    * long[] udfAndHash = AggregationUtils.createTestHostUDF();
    * new ai.rapids.cudf.HostUDFAggregation(udfAndHash[0], udfAndHash[1]);
    * ```
    */
-  public static long[] createTestHostUDF(AggregationType type) {
+  public static long createTestHostUDF(AggregationType type) {
     return createNativeTestHostUDF(type.nativeId);
   }
 
-  private static native long[] createNativeTestHostUDF(int type);
+  private static native long createNativeTestHostUDF(int type);
 }
