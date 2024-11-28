@@ -176,7 +176,7 @@ public class KudoSerializer {
    * @param numRows   number of rows to write
    * @return number of bytes written
    */
-   WriteMetrics writeToStream(Table table, OutputStream out, int rowOffset, int numRows) {
+   WriteMetrics writeToStreamWithMetrics(Table table, OutputStream out, int rowOffset, int numRows) {
     HostColumnVector[] columns = null;
     try {
       columns = IntStream.range(0, table.getNumberOfColumns())
@@ -185,7 +185,7 @@ public class KudoSerializer {
           .toArray(HostColumnVector[]::new);
 
       Cuda.DEFAULT_STREAM.sync();
-      return writeToStream(columns, out, rowOffset, numRows);
+      return writeToStreamWithMetrics(columns, out, rowOffset, numRows);
     } finally {
       if (columns != null) {
         for (HostColumnVector column : columns) {
@@ -193,6 +193,16 @@ public class KudoSerializer {
         }
       }
     }
+  }
+
+  /**
+   * Write partition of an array of {@link HostColumnVector} to an output stream.
+   * See {@link #writeToStreamWithMetrics(HostColumnVector[], OutputStream, int, int)} for more
+   * details.
+   * @return number of bytes written
+   */
+  public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
+     return writeToStreamWithMetrics(columns, out, rowOffset, numRows).getWrittenBytes();
   }
 
   /**
@@ -208,7 +218,7 @@ public class KudoSerializer {
    * @param numRows   number of rows to write
    * @return number of bytes written
    */
-  public WriteMetrics writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
+  public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, OutputStream out, int rowOffset, int numRows) {
     ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
         "please call writeRowCountToStream");
@@ -291,13 +301,9 @@ public class KudoSerializer {
     KudoTableHeaderCalc headerCalc = new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
     KudoTableHeader header = headerCalc.getHeader();
-    withTime(() -> {
-      try {
-        header.writeTo(out);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }, metrics::addCopyHeaderTime);
+    long currentTime = System.nanoTime();
+    header.writeTo(out);
+    metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
     metrics.addWrittenBytes(header.getSerializedSize());
 
     long bytesWritten = 0;

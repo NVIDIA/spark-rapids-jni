@@ -208,14 +208,12 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     }
   }
 
-  private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length) {
-    return withTime(() -> {
-      try {
-        writer.copyDataFrom(buffer, offset, length);
-        return padForHostAlignment(writer, length);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }, metrics::addCopyBufferTime);
+  private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)
+      throws IOException {
+    long now = System.nanoTime();
+    writer.copyDataFrom(buffer, offset, length);
+    long ret = padForHostAlignment(writer, length);
+    metrics.addCopyBufferTime(System.nanoTime() - now);
+    return ret;
   }
 }

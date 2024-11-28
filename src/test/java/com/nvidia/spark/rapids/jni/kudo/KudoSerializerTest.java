@@ -75,7 +75,7 @@ public class KudoSerializerTest {
 
     try (Table t = buildSimpleTable()) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
-      long bytesWritten = serializer.writeToStream(t, out, 0, 4).getWrittenBytes();
+      long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
       assertEquals(189, bytesWritten);
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
@@ -365,7 +365,7 @@ public class KudoSerializerTest {
 
       ByteArrayOutputStream bout = new ByteArrayOutputStream();
       for (TableSlice slice : tableSlices) {
-        serializer.writeToStream(slice.getBaseTable(), bout, slice.getStartRow(), slice.getNumRows());
+        serializer.writeToStreamWithMetrics(slice.getBaseTable(), bout, slice.getStartRow(), slice.getNumRows());
       }
       bout.flush();
 
