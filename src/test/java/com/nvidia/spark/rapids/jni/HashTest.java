@@ -534,6 +534,36 @@ public class HashTest {
   }
 
   @Test
+  void testXXHash64NestedDepthExceedsLimit() {
+    try (ColumnVector nestedIntListCV = ColumnVector.fromLists(
+            new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
+            Arrays.asList(Arrays.asList(null, null), null),
+            Arrays.asList(Collections.singletonList(0), Collections.singletonList(-2), Collections.singletonList(3)),
+            Arrays.asList(null, Collections.singletonList(Integer.MAX_VALUE)),
+            Arrays.asList(Collections.singletonList(5), Arrays.asList(-6, null)),
+            Arrays.asList(Collections.singletonList(Integer.MIN_VALUE), null),
+            null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(
+            0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(0.0, 100.0, -100.0,
+            POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(0f, 100f, -100f,
+            NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(
+            true, false, null, false, true, null);
+         ColumnView structs1 = ColumnView.makeStructView(nestedIntListCV, integers);
+         ColumnView structs2 = ColumnView.makeStructView(structs1, doubles);
+         ColumnView structs3 = ColumnView.makeStructView(structs2, bools);
+         ColumnView structs4 = ColumnView.makeStructView(structs3);
+         ColumnView structs5 = ColumnView.makeStructView(structs4, floats);
+         ColumnView structs6 = ColumnView.makeStructView(structs5);
+         ColumnView structs7 = ColumnView.makeStructView(structs6);
+         ColumnView nestedResult = ColumnView.makeStructView(structs7);) {
+      assertThrows(CudfException.class, () -> Hash.xxhash64(new ColumnView[]{nestedResult}));
+    }
+  }
+
+  @Test
   void testHiveHashBools() {
     try (ColumnVector v0 = ColumnVector.fromBoxedBooleans(true, false, null);
          ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});
