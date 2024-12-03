@@ -333,8 +333,8 @@ class device_row_hasher {
    public:
     class element_hasher {
      private:
-      Nullate const _check_nulls;
-      hash_value_type const _seed;
+      Nullate _check_nulls;
+      hash_value_type _seed;
 
      public:
       __device__ element_hasher(Nullate check_nulls, hash_value_type seed)
