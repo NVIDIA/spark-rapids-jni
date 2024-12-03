@@ -1,40 +1,54 @@
-## Memory management
+## Memory Management Overview
 
-The Spark-RAPIDS plugin manages device memory to effectively allocate the limited device memory resource among concurrent tasks.
-For memory management, the plugin tracks every device memory allocation and de-allocation request during processing.
-While there is enough memory available, the allocation request succeeds and the task continues processing.
-However, when the allocation request cannot succeed due to lack of memory, the plugin pauses that thread. When all of the active tasks have at least one thread paused, the plugin starts to roll back some of those paused threads to points where all of their input data is spillable, and let the other threads try to complete. If every thread except one has been rolled back and the one remaining thread cannot still make progress, then pluging picks up one thread to split its input and try again.
+Effective memory management is crucial for processing queries successfully with limited memory resources.
+The Spark-RAPIDS plugin leverages the [RAPIDS Memory Manager (RMM)](https://github.com/rapidsai/rmm) to handle and recover from out-of-memory (OOM) errors during query processing. This document describes the mechanisms and the state management implemented in [SparkResourceAdaptorJni.cpp](../src/main/cpp/src/SparkResourceAdaptorJni.cpp). The plugin tracks every memory allocation and deallocation request to handle various OOM situations. It chooses the appropriate recovery mechanism, such as spilling, rollback-and-retry, or split-and-retry, based on the situation. If recovery is not possible, the plugin fails gracefully.
 
-### State machine for OOM handler
 
-The Spark-RAPIDS plugin keeps track of the state of the individual threads. Note that one Spark task can use multiple threads during execution.
+### Handling Out-of-Memory Errors
 
-The thread can have one of these states at a time:
+The Spark-RAPIDS plugin manages both device memory and host memory (optional). It tracks all memory allocations to detect OOM errors. While an allocation request succeeds, the plugin does not interfere with the running threads. However, when the allocation request fails due to insufficient memory, the plugin pauses the requesting thread and allows it to retry later when more memory becomes available. The plugin employs several strategies to free up memory:
 
-- `UNKNOWN`: the thread has not been registered with the tracking system.
-- `THREAD_RUNNING`: the thread is running normally.
-- `THREAD_ALLOC`: the thread has initiated a memory allocation.
-- `THREAD_ALLOC_FREE`: the thread has requested a memory free before the allocation completes.
-- `THREAD_BLOCKED`: the allocation is blocked due to lack of memory. The thread is waiting for enough memory to be available.
-- `THREAD_BUFN_THROW`: a deadlock has been detected as all threads are blocked, and this thread has been selected to roll back to the point where all its data is spillable.
-- `THREAD_BUFN_WAIT`: the thread has initiated the rollback.
-- `THREAD_BUFN`: the thread has rolled back and is now blocked until further notice (BUFN). The task will be unblocked once high priority tasks release enough memory.
-- `THREAD_SPLIT_THROW`: a deadlock has been detected as all threads are BUFN, and this thread has been selected to roll back, split its input, and retry.
-- `THREAD_REMOVE_THROW`: the task has been unregistered while blocked.
+- Spilling: Data marked as spillable is moved out of memory.
+- Rollback: If no thread can make progress even after spilling, the plugin starts rolling back threads to the point where their inputs are spillable, allowing other thread to proceed.
+- Split and retry: If no thread can still make progress even after rolling back all threads, the inputs of some threads are split, and the threads retry with smaller data.
 
-The thread state can change based on the diagram below. Note that the thread state can transition from any state to `UNKNOWN`, but it is omitted in the diagram for brevity.
+If no further splitting is possible, the plugin gracefully cancels the query and reports the OOM error.
+
+### State Machine for OOM Handler
+
+To handle various OOM situations, the Spark-RAPIDS plugin keeps track of the state of individual threads. Note that one Spark task can use multiple threads during execution.
+
+A thread can have one of these states at a time:
+
+- `UNKNOWN`: The thread has not been registered with the tracking system.
+- `THREAD_RUNNING`: The thread is running normally and has no memory allocations pending.
+- `THREAD_ALLOC`: The thread has initiated a memory allocation (either CPU or GPU).
+- `THREAD_ALLOC_FREE`: A separate thread has freed memory before the allocation of this thread completes. The allocation will be retried in case that there is enough memory available after the free.
+- `THREAD_BLOCKED`: The allocation request failed and the thread has been paused, waiting for more memory to become available. Note that the thread pause is usually expected to last for a short period of time as the GPU typically has a lot of memory churn. 
+- `THREAD_BUFN_THROW`: A deadlock has been detected as all threads are blocked, and this thread has been selected to roll back to the point where all its data is spillable. An exception will be thrown to trigger this rollback when the thread awakes.
+- `THREAD_BUFN_WAIT`: An exception has been thrown to initiate the rollback. The thread might be doing some preparation for the retry.
+- `THREAD_BUFN`: The thread has rolled back and is now blocked until further notice (BUFN). The task will be unblocked once another task completes.
+- `THREAD_SPLIT_THROW`: A deadlock has been detected as all threads are BUFN, and this thread has been selected to split its input and retry. Note that the processing will fail without retrying if the input cannot be further split.
+- `THREAD_REMOVE_THROW`: The task has been unregistered from another thread while it is blocked. The blocked thread will be awakened to throw an exception. This should not happen under normal operation unless the Spark process is being shut down before all task threads have exited.
+
+The thread state can change based on the diagram below. Note that the thread state can transition from any state to `UNKNOWN` unless it is blocked, either `THREAD_BLOCKED` or `THREAD_BUFN`. Thist is omitted in the diagram for brevity.
 
 ![alt text](img/memory_state_machine.png "Thread state machine")
 
-### Thread priority
+### Thread Priority
 
-The Spark-RAPIDS plugin uses the thread priority when it needs to break ties between threads. See the [Deadlock busting](#deadlock-busting) section below for an example use case. The thread priority is currently decoupled with the query priority. That is, the threads processing a high priority query do not necessarily have the same high priority. Instead, each task thread is assigned a priority based on their `task_id` and `thread_id`. Shuffle threads have the highest priority, and thus are always prioritized over task threads. This is because other task threads may depend on shuffle indirectly, and this lets us avoid situations of priority inversion. In the future, we may consider taking the query priority into the thread priority.
+The Spark-RAPIDS plugin uses thread priority to break ties between threads.
+Note that the thread priority is currently decoupled from query priority. Each task thread is assigned a priority based on their `task_id` and `thread_id`. 
+Shuffle threads have the highest priority to avoid priority inversion as the task threads may depend on the shuffle indirectly.
 
-### Deadlock busting
+### Deadlock Resolution
 
-The deadlock can occur when every active task has at least one thread that is either directly blocked on a memory allocation or indirectly blocked by shuffle being blocked on a memory allocation. When this happens, the lowest priority thread (see the above [Thread priority](thread-priority) section for the thread priority) is selected to break the deadlock. There are two cases of the deadlock.
+Deadlocks occur when every active task has at least one thread blocked on memory allocation, either directly during its execution or indirectly by dependencies on shuffle blocked.
+The lowest priority thread (see the above [Thread priority](thread-priority) section for the thread priority) is selected to break the deadlock. There are two kinds of deadlocks.
 
-1) All threads are blocked and there is at least one thread in the `THREAD_BLOCKED` state. In this case, the lowest priority thread is selected among `THREAD_BLOCKED` threads to break the deadlock. The thread selected transitions its state to `THREAD_BUFN_THROW` and initiates the rollback-and-retry process. After the rollback, all input data of the thread will be spillable and the thread will block before allocating more GPU memory until enough memory is freed up for other threads.
-2) If all threads are blocked and are in the `THREAD_BUFN` state, the lowest priority thread is selected to split its input first and then retry with a smaller input. The thread selected transitions its state to `THREAD_SPLIT_THROW` and initiates the rollback-split-and-retry process.
-
-If the thread selected is a task thread and its priority is not the highest priority, the thread will transition its state into the `THREAD_BUFN_THROW` state. Any threads that was just marked as `THREAD_BUFN_THROW` will be awaken to start the rollback process and initiate the retry. After the rollback, all input data of the thread will be spillable and the thread will block before allocating more GPU memory until enough memory is freed up for other threads.
+1) All threads are blocked, either `THREAD_BLOCKED` or `THREAD_BUFN`, and there is at least one thread in the `THREAD_BLOCKED` state.
+In this case, the lowest priority thread is selected among `THREAD_BLOCKED` threads to break the deadlock.
+The selected thread transitions its state to `THREAD_BUFN_THROW`. Any threads that was just marked as `THREAD_BUFN_THROW` will be awakened to start the rollback process and initiate the retry.
+After the rollback, all data of the thread will be spillable and the thread will be blocked before allocating more GPU memory until enough memory is freed up for other threads.
+2) If all threads are in the `THREAD_BUFN` state, the lowest priority thread is selected to split its data first and then retry.
+The selected thread transitions its state to `THREAD_SPLIT_THROW` and throws an exception to initiate the split-and-retry process.
