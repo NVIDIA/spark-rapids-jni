@@ -17,7 +17,6 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.withTime;
 
 import ai.rapids.cudf.BufferType;
 import ai.rapids.cudf.DType;
