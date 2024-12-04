@@ -211,6 +211,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
+  src/datetime_truncate.cu
   src/decimal_utils.cu
   src/format_float.cu
   src/from_json_to_raw_map.cu
