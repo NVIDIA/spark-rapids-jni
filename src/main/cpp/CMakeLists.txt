@@ -190,7 +190,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
-  src/DateTimeRebaseJni.cpp
+  src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp

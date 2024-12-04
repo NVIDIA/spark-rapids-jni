@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "datetime_rebase.hpp"
+#include "datetime_utils.hpp"
 
 //
 #include <cudf/column/column.hpp>

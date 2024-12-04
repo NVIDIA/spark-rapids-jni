@@ -1,5 +1,5 @@
 /*
- * Copyright (c)  2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import ai.rapids.cudf.ColumnVector;
 
-public class DateTimeRebaseTest {
+public class DateTimeUtilsTest {
   @Test
   void rebaseDaysToJulianTest() {
     try (ColumnVector input = ColumnVector.timestampDaysFromBoxedInts(-719162, -354285, null,
@@ -33,7 +33,7 @@ public class DateTimeRebaseTest {
              -141704, -141428, -141427,
              null, null,
              -141427, -141427, -31463, -31453, -1, 0, 18335);
-         ColumnVector result = DateTimeRebase.rebaseGregorianToJulian(input)) {
+         ColumnVector result = DateTimeUtils.rebaseGregorianToJulian(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
@@ -48,7 +48,7 @@ public class DateTimeRebaseTest {
              -141714, -141438, -141427,
              null, null,
              -141427, -141427, -31463, -31453, -1, 0, 18335);
-         ColumnVector result = DateTimeRebase.rebaseJulianToGregorian(input)) {
+         ColumnVector result = DateTimeUtils.rebaseJulianToGregorian(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
@@ -78,7 +78,7 @@ public class DateTimeRebaseTest {
                  1L,
                  null,
                  1584178381500000L);
-         ColumnVector result = DateTimeRebase.rebaseGregorianToJulian(input)) {
+         ColumnVector result = DateTimeUtils.rebaseGregorianToJulian(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
@@ -108,7 +108,7 @@ public class DateTimeRebaseTest {
                  1L,
                  null,
                  1584178381500000L);
-         ColumnVector result = DateTimeRebase.rebaseJulianToGregorian(input)) {
+         ColumnVector result = DateTimeUtils.rebaseJulianToGregorian(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
