@@ -16,18 +16,14 @@
 
 #include "datetime_utils.hpp"
 
-//
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/copying.hpp>
 #include <cudf/detail/null_mask.hpp>
-#include <cudf/utilities/default_stream.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
-//
 #include <rmm/exec_policy.hpp>
 #include <rmm/resource_ref.hpp>
 
-//
 #include <cuda/functional>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
@@ -347,13 +343,14 @@ std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const type = input.type().id();
   CUDF_EXPECTS(
     type == cudf::type_id::TIMESTAMP_DAYS || type == cudf::type_id::TIMESTAMP_MICROSECONDS,
     "The input must be either day or microsecond timestamps to rebase.");
 
-  if (input.size() == 0) { return cudf::empty_like(input); }
-
+  if (input.size() == 0) { return cudf::make_empty_column(input.type()); }
   return type == cudf::type_id::TIMESTAMP_DAYS ? gregorian_to_julian_days(input, stream, mr)
                                                : gregorian_to_julian_micros(input, stream, mr);
 }
@@ -362,13 +359,14 @@ std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   auto const type = input.type().id();
   CUDF_EXPECTS(
     type == cudf::type_id::TIMESTAMP_DAYS || type == cudf::type_id::TIMESTAMP_MICROSECONDS,
     "The input must be either day or microsecond timestamps to rebase.");
 
-  if (input.size() == 0) { return cudf::empty_like(input); }
-
+  if (input.size() == 0) { return cudf::make_empty_column(input.type()); }
   return type == cudf::type_id::TIMESTAMP_DAYS ? julian_to_gregorian_days(input, stream, mr)
                                                : julian_to_gregorian_micros(input, stream, mr);
 }
