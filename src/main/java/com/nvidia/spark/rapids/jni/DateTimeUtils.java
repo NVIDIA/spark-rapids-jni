@@ -34,6 +34,9 @@ public class DateTimeUtils {
    * <p>
    * This is to match with Apache Spark's `localRebaseGregorianToJulianDays` and
    * `rebaseGregorianToJulianMicros` functions with timezone fixed to UTC.
+   *
+   * @param input The input column
+   * @return A new column with the rebase applied
    */
   public static ColumnVector rebaseGregorianToJulian(ColumnView input) {
     return new ColumnVector(rebaseGregorianToJulian(input.getNativeView()));
@@ -47,13 +50,46 @@ public class DateTimeUtils {
    * <p>
    * This is to match with Apache Spark's `localRebaseJulianToGregorianDays` and
    * `rebaseJulianToGregorianMicros` functions with timezone fixed to UTC.
+   *
+   * @param input The input column
+   * @return A new column with the rebase applied
    */
   public static ColumnVector rebaseJulianToGregorian(ColumnView input) {
     return new ColumnVector(rebaseJulianToGregorian(input.getNativeView()));
   }
 
+  /**
+   * Truncate the given dates or timestamps to the unit specified by component.
+   * <p/>
+   * The input column must be of type TIMESTAMP_DAYS or TIMESTAMP_MICROSECONDS.
+   * <p/>
+   * For TIMESTAMP_DAYS, the valid components are:<br>
+   *  - {@code "YEAR", "YYYY", "YY"}<br>
+   *  - {@code "MONTH", "MM", "MON"}<br>
+   * <p/>
+   * For TIMESTAMP_MICROSECONDS, the valid components are:<br>
+   *  - {@code "YEAR", "YYYY", "YY"}<br>
+   *  - {@code "MONTH", "MM", "MON"}<br>
+   *  - {@code "DAY", "DD"}<br>
+   *  - {@code "HOUR"}<br>
+   *  - {@code "MINUTE"}<br>
+   *  - {@code "SECOND"}<br>
+   *  - {@code "MILLISECOND"}<br>
+   *  - {@code "MICROSECOND"}<br>
+   * <p/>
+   * Currently, {@code "QUARTER"} and {@code "WEEK"} are not supported.
+   *
+   * @param input The input column
+   * @param component The time component (case-insensitive) to truncate to
+   * @return A new column with the truncated date/time
+   */
+  public static ColumnVector truncate(ColumnView input, String component) {
+    return new ColumnVector(truncate(input.getNativeView(), component));
+  }
 
   private static native long rebaseGregorianToJulian(long nativeHandle);
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
+
+  private static native long truncate(long nativeHandle, String component);
 }
