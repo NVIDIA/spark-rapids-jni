@@ -94,7 +94,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "a284f551d6b4b16a31dca1a14f3b760da8739458",
+      "git_tag" : "890aa1522cbfea0891912fa17d7149ef5a4d0368",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.02"
     },
