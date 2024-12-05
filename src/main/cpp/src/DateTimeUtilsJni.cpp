@@ -49,17 +49,17 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseJul
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncate(JNIEnv* env,
                                                                                 jclass,
-                                                                                jlong input,
-                                                                                jstring component)
+                                                                                jlong datetime,
+                                                                                jlong format)
 {
-  JNI_NULL_CHECK(env, input, "input column is null", 0);
+  JNI_NULL_CHECK(env, datetime, "datetime column is null", 0);
+  JNI_NULL_CHECK(env, format, "format column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input_cv       = reinterpret_cast<cudf::column_view const*>(input);
-    auto const component_jstr = cudf::jni::native_jstring(env, component);
-    auto const component_str  = std::string(component_jstr.get(), component_jstr.size_bytes());
-    auto output               = spark_rapids_jni::truncate(*input_cv, component_str);
+    auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
+    auto const format_cv   = reinterpret_cast<cudf::column_view const*>(format);
+    auto output            = spark_rapids_jni::truncate(*datetime_cv, *format_cv);
     return reinterpret_cast<jlong>(output.release());
   }
   CATCH_STD(env, 0);
