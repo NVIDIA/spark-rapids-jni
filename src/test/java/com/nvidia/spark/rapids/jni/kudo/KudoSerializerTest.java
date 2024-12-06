@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -54,7 +55,7 @@ public class KudoSerializerTest {
 
   @Test
   public void testRowCountOnly() throws Exception {
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    OpenByteArrayOutputStream out = new OpenByteArrayOutputStream();
     long bytesWritten = KudoSerializer.writeRowCountToStream(out, 5);
     assertEquals(28, bytesWritten);
 
@@ -74,7 +75,7 @@ public class KudoSerializerTest {
     KudoSerializer serializer = new KudoSerializer(buildSimpleTestSchema());
 
     try (Table t = buildSimpleTable()) {
-      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      OpenByteArrayOutputStream out = new OpenByteArrayOutputStream();
       long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
       assertEquals(189, bytesWritten);
 
@@ -191,6 +192,36 @@ public class KudoSerializerTest {
       checkMergeTable(table2, asList(new TableSlice(509, 3, table1)));
       return null;
     });
+  }
+
+  @Test
+  public void testByteArrayOutputStreamWriter() throws Exception {
+    ByteArrayOutputStream bout = new ByteArrayOutputStream(32);
+    DataWriter writer = new ByteArrayOutputStreamWriter(bout);
+
+    writer.writeInt(0x12345678);
+
+    byte[] testByteArr1 = new byte[2097];
+    ThreadLocalRandom.current().nextBytes(testByteArr1);
+    writer.write(testByteArr1, 0, testByteArr1.length);
+
+    byte[] testByteArr2 = new byte[7896];
+    ThreadLocalRandom.current().nextBytes(testByteArr2);
+    try(HostMemoryBuffer buffer = HostMemoryBuffer.allocate(testByteArr2.length)) {
+      buffer.setBytes(0, testByteArr2, 0, testByteArr2.length);
+      writer.copyDataFrom(buffer, 0, testByteArr2.length);
+    }
+
+    byte[] expected = new byte[4 + testByteArr1.length + testByteArr2.length];
+    expected[0] = 0x12;
+    expected[1] = 0x34;
+    expected[2] = 0x56;
+    expected[3] = 0x78;
+    System.arraycopy(testByteArr1, 0, expected, 4, testByteArr1.length);
+    System.arraycopy(testByteArr2, 0, expected, 4 + testByteArr1.length,
+        testByteArr2.length);
+
+    assertArrayEquals(expected, bout.toByteArray());
   }
 
   private static Schema buildSimpleTestSchema() {
@@ -363,7 +394,7 @@ public class KudoSerializerTest {
     try {
       KudoSerializer serializer = new KudoSerializer(schemaOf(expected));
 
-      ByteArrayOutputStream bout = new ByteArrayOutputStream();
+      OpenByteArrayOutputStream bout = new OpenByteArrayOutputStream();
       for (TableSlice slice : tableSlices) {
         serializer.writeToStreamWithMetrics(slice.getBaseTable(), bout, slice.getStartRow(), slice.getNumRows());
       }

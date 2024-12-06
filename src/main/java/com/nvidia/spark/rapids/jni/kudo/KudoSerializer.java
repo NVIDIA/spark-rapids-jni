@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 import ai.rapids.cudf.BufferType;
@@ -28,6 +29,7 @@ import ai.rapids.cudf.Table;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -232,16 +234,24 @@ public class KudoSerializer {
    */
   public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, OutputStream out,
                                                int rowOffset, int numRows) {
+
+    return writeToStreamWithMetrics(columns, writerFrom(out), rowOffset, numRows);
+  }
+
+  public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, DataWriter out,
+                                               int rowOffset, int numRows) {
     ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
     ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
         "please call writeRowCountToStream");
 
     try {
-      return writeSliced(columns, writerFrom(out), rowOffset, numRows);
+      return writeSliced(columns, out, rowOffset, numRows);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
+
+
 
   /**
    * Write a row count only record to an output stream.
@@ -316,6 +326,9 @@ public class KudoSerializer {
         new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
     KudoTableHeader header = headerCalc.getHeader();
+
+    out.reserve(toIntExact(header.getSerializedSize() + header.getTotalDataLen()));
+
     long currentTime = System.nanoTime();
     header.writeTo(out);
     metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
@@ -342,10 +355,15 @@ public class KudoSerializer {
   }
 
   private static DataWriter writerFrom(OutputStream out) {
-    if (!(out instanceof DataOutputStream)) {
-      out = new DataOutputStream(new BufferedOutputStream(out));
+    if (out instanceof DataOutputStream) {
+      return new DataOutputStreamWriter((DataOutputStream) out);
+    } else if (out instanceof OpenByteArrayOutputStream) {
+      return new OpenByteArrayOutputStreamWriter((OpenByteArrayOutputStream) out);
+    } else if (out instanceof ByteArrayOutputStream) {
+      return new ByteArrayOutputStreamWriter((ByteArrayOutputStream) out);
+    } else {
+      return new DataOutputStreamWriter(new DataOutputStream(new BufferedOutputStream(out)));
     }
-    return new DataOutputStreamWriter((DataOutputStream) out);
   }
 
 

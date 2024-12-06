@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,46 +16,46 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.HostMemoryBuffer;
+import static java.lang.Math.toIntExact;
+import static java.util.Objects.requireNonNull;
 
-import java.io.DataOutputStream;
+import ai.rapids.cudf.HostMemoryBuffer;
 import java.io.IOException;
 
-/**
- * Visible for testing
- */
-class DataOutputStreamWriter implements DataWriter {
-  private final byte[] arrayBuffer = new byte[1024];
-  private final DataOutputStream dout;
+public class OpenByteArrayOutputStreamWriter implements DataWriter {
+  private final OpenByteArrayOutputStream out;
 
-  public DataOutputStreamWriter(DataOutputStream dout) {
-    this.dout = dout;
+  public OpenByteArrayOutputStreamWriter(OpenByteArrayOutputStream bout) {
+    requireNonNull(bout, "Byte array output stream can't be null");
+    this.out = bout;
   }
 
   @Override
-  public void writeInt(int i) throws IOException {
-    dout.writeInt(i);
+  public void reserve(int size) throws IOException {
+    out.reserve(size);
+  }
+
+  @Override
+  public void writeInt(int v) throws IOException {
+    out.reserve(4 + out.size());
+    out.write((v >>> 24) & 0xFF);
+    out.write((v >>> 16) & 0xFF);
+    out.write((v >>>  8) & 0xFF);
+    out.write((v >>>  0) & 0xFF);
   }
 
   @Override
   public void copyDataFrom(HostMemoryBuffer src, long srcOffset, long len) throws IOException {
-    long dataLeft = len;
-    while (dataLeft > 0) {
-      int amountToCopy = (int) Math.min(arrayBuffer.length, dataLeft);
-      src.getBytes(arrayBuffer, 0, srcOffset, amountToCopy);
-      dout.write(arrayBuffer, 0, amountToCopy);
-      srcOffset += amountToCopy;
-      dataLeft -= amountToCopy;
-    }
+    out.write(src, srcOffset, toIntExact(len));
   }
 
   @Override
   public void flush() throws IOException {
-    dout.flush();
+
   }
 
   @Override
   public void write(byte[] arr, int offset, int length) throws IOException {
-    dout.write(arr, offset, length);
+    out.write(arr, offset, length);
   }
 }
