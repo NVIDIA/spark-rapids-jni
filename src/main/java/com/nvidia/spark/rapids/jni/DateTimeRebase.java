@@ -19,8 +19,6 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.*;
 
 /**
- * @deprecated Use {@link DateTimeUtils} instead.
- *
  * This will be removed after the plugin picks up DateTimeUtils class.
  */
 public class DateTimeRebase {
