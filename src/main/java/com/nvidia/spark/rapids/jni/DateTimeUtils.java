@@ -59,37 +59,41 @@ public class DateTimeUtils {
   }
 
   /**
-   * Truncate the given dates or timestamps to the unit specified by component.
-   * <p/>
-   * The input column must be of type TIMESTAMP_DAYS or TIMESTAMP_MICROSECONDS.
-   * <p/>
-   * For TIMESTAMP_DAYS, the valid components are:<br>
-   *  - {@code "YEAR", "YYYY", "YY"}<br>
-   *  - {@code "MONTH", "MM", "MON"}<br>
-   * <p/>
-   * For TIMESTAMP_MICROSECONDS, the valid components are:<br>
-   *  - {@code "YEAR", "YYYY", "YY"}<br>
-   *  - {@code "MONTH", "MM", "MON"}<br>
-   *  - {@code "DAY", "DD"}<br>
-   *  - {@code "HOUR"}<br>
-   *  - {@code "MINUTE"}<br>
-   *  - {@code "SECOND"}<br>
-   *  - {@code "MILLISECOND"}<br>
-   *  - {@code "MICROSECOND"}<br>
-   * <p/>
-   * Currently, {@code "QUARTER"} and {@code "WEEK"} are not supported.
+   * Truncate the given date or timestamp to the unit specified by the format string.
+   * <p>
+   * The input date/time must be of type TIMESTAMP_DAYS or TIMESTAMP_MICROSECONDS, and the format
+   * be of type STRING. In addition, the format strings are case-insensitive.
+   * <p>
+   * For TIMESTAMP_DAYS, the valid format are:<br>
+   *  - {@code "YEAR", "YYYY", "YY"}: truncate to the first date of the year.<br>
+   *  - {@code "QUARTER"}: truncate to the first date of the quarter.<br>
+   *  - {@code "MONTH", "MM", "MON"}: truncate to the first date of the month.<br>
+   *  - {@code "WEEK"}: truncate to the Monday of the week.<br>
+   * <br/>
+   * For TIMESTAMP_MICROSECONDS, the valid format are:<br>
+   *  - {@code "YEAR", "YYYY", "YY"}: truncate to the first date of the year.<br>
+   *  - {@code "QUARTER"}: truncate to the first date of the quarter.<br>
+   *  - {@code "MONTH", "MM", "MON"}: truncate to the first date of the month.<br>
+   *  - {@code "WEEK"}: truncate to the Monday of the week.<br>
+   *  - {@code "DAY", "DD"}: zero out the time part.<br>
+   *  - {@code "HOUR"}: zero out the minute and second with fraction part.<br>
+   *  - {@code "MINUTE"}: zero out the second with fraction part.<br>
+   *  - {@code "SECOND"}: zero out the second fraction part.<br>
+   *  - {@code "MILLISECOND"}: zero out the microseconds.<br>
+   *  - {@code "MICROSECOND"}: keep everything.<br>
    *
-   * @param input The input column
-   * @param component The time component (case-insensitive) to truncate to
-   * @return A new column with the truncated date/time
+   * @param datetime The input date/time
+   * @param format The time component to truncate to
+   * @return The truncated date/time
    */
-  public static ColumnVector truncate(ColumnView input, String component) {
-    return new ColumnVector(truncate(input.getNativeView(), component));
+  public static ColumnVector truncate(ColumnView datetime, ColumnView format) {
+    return new ColumnVector(truncate(datetime.getNativeView(), format.getNativeView()));
   }
+
 
   private static native long rebaseGregorianToJulian(long nativeHandle);
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
 
-  private static native long truncate(long nativeHandle, String component);
+  private static native long truncate(long datetimeHandle, long formatHandle);
 }
