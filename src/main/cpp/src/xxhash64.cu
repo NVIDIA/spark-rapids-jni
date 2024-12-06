@@ -515,7 +515,7 @@ void check_nested_depth(cudf::table_view const& input)
 
   column_checker_fn_t get_nested_depth = [&](cudf::column_view const& col) {
     if (col.type().id() == cudf::type_id::LIST) {
-      auto const& child_col = cudf::lists_column_view(col).child();
+      auto const child_col = cudf::lists_column_view(col).child();
       // When encountering a List of Struct column, we need to account for an extra depth,
       // as both the struct column and its elements will be pushed into the stack.
       if (child_col.type().id() == cudf::type_id::STRUCT) {
