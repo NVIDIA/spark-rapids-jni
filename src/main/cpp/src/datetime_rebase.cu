@@ -42,8 +42,8 @@ __device__ __inline__ auto days_from_julian(cuda::std::chrono::year_month_day co
   int32_t const era          = (year >= 0 ? year : year - 3) / 4;
   uint32_t const year_of_era = static_cast<uint32_t>(year - era * 4);  // [0, 3]
   uint32_t const day_of_year =
-    (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;   // [0, 365]
-  uint32_t const day_of_era = year_of_era * 365 + day_of_year;  // [0, 1460]
+    (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;          // [0, 365]
+  uint32_t const day_of_era = year_of_era * 365 + day_of_year;         // [0, 1460]
   return era * 1461 + static_cast<int32_t>(day_of_era) - 719470;
 }
 
@@ -108,10 +108,10 @@ __device__ __inline__ cuda::std::chrono::year_month_day julian_from_days(int32_t
   uint32_t const day_of_era   = static_cast<uint32_t>(z - era * 1461);   // [0, 1460]
   uint32_t const year_of_era  = (day_of_era - day_of_era / 1460) / 365;  // [0, 3]
   int32_t const year          = static_cast<int32_t>(year_of_era) + era * 4;
-  uint32_t const day_of_year  = day_of_era - 365 * year_of_era;        // [0, 365]
-  uint32_t const mp           = (5 * day_of_year + 2) / 153;           // [0, 11]
-  uint32_t const month        = mp + (mp < 10 ? 3 : -9);               // [1, 12]
-  uint32_t const day_of_month = day_of_year - (153 * mp + 2) / 5 + 1;  // [1, 31]
+  uint32_t const day_of_year  = day_of_era - 365 * year_of_era;          // [0, 365]
+  uint32_t const mp           = (5 * day_of_year + 2) / 153;             // [0, 11]
+  uint32_t const month        = mp + (mp < 10 ? 3 : -9);                 // [1, 12]
+  uint32_t const day_of_month = day_of_year - (153 * mp + 2) / 5 + 1;    // [1, 31]
 
   return cuda::std::chrono::year_month_day{cuda::std::chrono::year{year + (month <= 2)},
                                            cuda::std::chrono::month{month},
