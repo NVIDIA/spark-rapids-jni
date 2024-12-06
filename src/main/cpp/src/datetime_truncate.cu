@@ -111,13 +111,22 @@ __device__ inline uint32_t trunc_quarter_month(uint32_t month)
   return (zero_based_month / 3u) * 3u + 1u;
 }
 
-__device__ inline uint32_t trunc_to_monday(uint32_t days_since_epoch)
+__device__ inline cuda::std::chrono::sys_days trunc_to_monday(
+  cuda::std::chrono::sys_days const days_since_epoch)
 {
-  // Since 1970/01/01 is Thursday, we have Thursday = 0, Friday = 1 and so on.
-  auto constexpr MONDAY       = 4u;
-  auto const day_of_week      = (days_since_epoch + MONDAY) % 7u;
-  auto const days_to_subtract = day_of_week == 0 ? 6u : day_of_week - 1u;
-  return days_since_epoch - days_to_subtract;
+  // Have to define our constant as `cuda::std::chrono::Monday` is not available in device code.
+  // [0, 6] => [Sun, Sat]
+  auto constexpr MONDAY       = cuda::std::chrono::weekday{1};
+  auto const weekday          = cuda::std::chrono::weekday{days_since_epoch};
+  auto const days_to_subtract = weekday - MONDAY;  // [-1, 5]
+
+  if (days_to_subtract.count() == 0) { return days_since_epoch; }
+
+  // If the input is a Sunday (weekday == 0), we have `days_to_subtract` negative thus
+  // we need to subtract 6 days to get the previous Monday.
+  return days_to_subtract.count() > 0
+           ? days_since_epoch - days_to_subtract
+           : days_since_epoch - cuda::std::chrono::days{6};
 }
 
 template <typename Timestamp>
@@ -139,9 +148,7 @@ __device__ inline thrust::optional<Timestamp> trunc_date(
     case truncate_component::MM:
     case truncate_component::MON:
       return Timestamp{sys_days{year_month_day{ymd.year(), ymd.month(), day{1}}}};
-    case truncate_component::WEEK:
-      return Timestamp{
-        sys_days{days{trunc_to_monday(days_since_epoch.time_since_epoch().count())}}};
+    case truncate_component::WEEK: return Timestamp{trunc_to_monday(days_since_epoch)};
     default: return thrust::nullopt;
   }
 }
