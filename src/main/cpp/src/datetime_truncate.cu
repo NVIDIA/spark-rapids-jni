@@ -44,10 +44,15 @@ namespace {
  */
 enum class truncate_component : uint8_t {
   YEAR,
+  YYYY,
+  YY,
   QUARTER,
   MONTH,
+  MM,
+  MON,
   WEEK,
   DAY,
+  DD,
   HOUR,
   MINUTE,
   SECOND,
@@ -63,17 +68,22 @@ __device__ truncate_component parse_component(cudf::string_view const format)
 {
   // This must be kept in sync with the `truncate_component` enum.
   char const* components[] = {"YEAR",
+                              "YYYY",
+                              "YY",
                               "QUARTER",
                               "MONTH",
+                              "MM",
+                              "MON",
                               "WEEK",
                               "DAY",
+                              "DD",
                               "HOUR",
                               "MINUTE",
                               "SECOND",
                               "MILLISECOND",
                               "MICROSECOND"};
   // Manually calculate sizes of the strings since `strlen` is not available in device code.
-  cudf::size_type const comp_sizes[] = {4, 7, 5, 4, 3, 4, 6, 6, 11, 11};
+  cudf::size_type const comp_sizes[] = {4, 4, 2, 7, 5, 2, 3, 4, 3, 2, 4, 6, 6, 11, 11};
 
   auto constexpr num_components = std::size(components);
 
@@ -119,11 +129,15 @@ __device__ inline thrust::optional<Timestamp> trunc_date(
   using namespace cuda::std::chrono;
   switch (trunc_comp) {
     case truncate_component::YEAR:
+    case truncate_component::YYYY:
+    case truncate_component::YY:
       return Timestamp{sys_days{year_month_day{ymd.year(), month{1}, day{1}}}};
     case truncate_component::QUARTER:
       return Timestamp{sys_days{year_month_day{
         ymd.year(), month{trunc_quarter_month(static_cast<uint32_t>(ymd.month()))}, day{1}}}};
     case truncate_component::MONTH:
+    case truncate_component::MM:
+    case truncate_component::MON:
       return Timestamp{sys_days{year_month_day{ymd.year(), ymd.month(), day{1}}}};
     case truncate_component::WEEK:
       return Timestamp{
@@ -203,7 +217,8 @@ struct truncate_timestamp_fn {
     };
 
     switch (trunc_comp) {
-      case truncate_component::DAY: return {Timestamp{sys_days{ymd}}, true};
+      case truncate_component::DAY:
+      case truncate_component::DD: return {Timestamp{sys_days{ymd}}, true};
       case truncate_component::HOUR: return {Timestamp{sys_days{ymd} + hrs_()}, true};
       case truncate_component::MINUTE: return {Timestamp{sys_days{ymd} + mins_()}, true};
       case truncate_component::SECOND: return {Timestamp{sys_days{ymd} + secs_()}, true};
