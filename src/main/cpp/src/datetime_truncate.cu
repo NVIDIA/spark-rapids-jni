@@ -124,9 +124,8 @@ __device__ inline cuda::std::chrono::sys_days trunc_to_monday(
 
   // If the input is a Sunday (weekday == 0), we have `days_to_subtract` negative thus
   // we need to subtract 6 days to get the previous Monday.
-  return days_to_subtract.count() > 0
-           ? days_since_epoch - days_to_subtract
-           : days_since_epoch - cuda::std::chrono::days{6};
+  return days_to_subtract.count() > 0 ? days_since_epoch - days_to_subtract
+                                      : days_since_epoch - cuda::std::chrono::days{6};
 }
 
 template <typename Timestamp>
@@ -214,22 +213,17 @@ struct truncate_timestamp_fn {
     auto time_since_midnight = ts - days_since_epoch;
     if (time_since_midnight.count() < 0) { time_since_midnight += days(1); }
 
-    auto const hrs_  = [&] { return duration_cast<hours>(time_since_midnight); };
-    auto const mins_ = [&] { return duration_cast<minutes>(time_since_midnight) - hrs_(); };
-    auto const secs_ = [&] {
-      return duration_cast<seconds>(time_since_midnight) - hrs_() - mins_();
-    };
-    auto const millisecs_ = [&] {
-      return duration_cast<milliseconds>(time_since_midnight) - hrs_() - mins_() - secs_();
-    };
-
     switch (trunc_comp) {
       case truncate_component::DAY:
       case truncate_component::DD: return {Timestamp{sys_days{ymd}}, true};
-      case truncate_component::HOUR: return {Timestamp{sys_days{ymd} + hrs_()}, true};
-      case truncate_component::MINUTE: return {Timestamp{sys_days{ymd} + mins_()}, true};
-      case truncate_component::SECOND: return {Timestamp{sys_days{ymd} + secs_()}, true};
-      case truncate_component::MILLISECOND: return {Timestamp{sys_days{ymd} + millisecs_()}, true};
+      case truncate_component::HOUR:
+        return {Timestamp{sys_days{ymd} + floor<hours>(time_since_midnight)}, true};
+      case truncate_component::MINUTE:
+        return {Timestamp{sys_days{ymd} + floor<minutes>(time_since_midnight)}, true};
+      case truncate_component::SECOND:
+        return {Timestamp{sys_days{ymd} + floor<seconds>(time_since_midnight)}, true};
+      case truncate_component::MILLISECOND:
+        return {Timestamp{sys_days{ymd} + floor<milliseconds>(time_since_midnight)}, true};
       default: CUDF_UNREACHABLE("Unhandled truncating component.");
     }
   }
