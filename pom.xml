@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>24.10.0</version>
+  <version>24.12.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -94,7 +94,7 @@
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
-    <hadoop.version>3.2.4</hadoop.version>
+    <hadoop.version>3.4.0</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${project.build.directory}/libcudf/cmake-build/</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
@@ -110,6 +110,10 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
+    <!-- This skips applying and unapplying patchs to CUDF. Be aware that if you 
+    try to build the main jar without patching CUDF it could result in build
+    failures because the two often need to be in sync with each other. So use
+    at your own risk. -->
     <submodule.patch.skip>false</submodule.patch.skip>
     <antrun.version>3.0.0</antrun.version>
     <hilbert.version>0.2.2</hilbert.version>
@@ -452,15 +456,13 @@
                   <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
                   <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
                   <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
+                  <arg value="-DCUDA_STATIC_CUFILE=ON"/>
                   <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
-                  <arg value="-DCUDF_ENABLE_ARROW_S3=OFF"/>
-                  <arg value="-DCUDF_ENABLE_ARROW_PARQUET=ON"/>
-                  <arg value="-DCUDF_USE_ARROW_STATIC=ON"/>
                   <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
                   <arg value="-DCUDF_LARGE_STRINGS_DISABLED=ON"/>
+                  <arg value="-DCUDF_KVIKIO_REMOTE_IO=OFF"/>
                   <arg value="-DLIBCUDF_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
                   <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
-                  <arg value="-DUSE_GDS=${USE_GDS}" />
                   <arg value="-C=${cudf.pin.path}/setup.cmake"/>
                 </exec>
                 <exec dir="${libcudf.build.path}"
@@ -491,6 +493,7 @@
                   <env key="CUDF_ROOT" value="${cudf.path}"/>
                   <arg value="${cudf.path}/java/src/main/native"/>
                   <arg value="-DBUILD_SHARED_LIBS=OFF"/>
+                  <arg value="-DCUDA_STATIC_CUFILE=ON"/>
                   <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
                   <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
                   <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>

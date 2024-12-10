@@ -304,17 +304,6 @@ __device__ inline thrust::tuple<bool, int> path_match_index(
   }
 }
 
-__device__ inline thrust::tuple<bool, cudf::string_view> path_match_named(
-  cudf::device_span<path_instruction const> path)
-{
-  auto match = path_match_element(path, path_instruction_type::NAMED);
-  if (match) {
-    return thrust::make_tuple(true, path.data()[0].name);
-  } else {
-    return thrust::make_tuple(false, cudf::string_view());
-  }
-}
-
 __device__ inline thrust::tuple<bool, int> path_match_index_wildcard(
   cudf::device_span<path_instruction const> path)
 {
@@ -464,7 +453,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
       // case (START_OBJECT, Named :: xs)
       // case path 4
       else if (json_token::START_OBJECT == ctx.token &&
-               thrust::get<0>(path_match_named(ctx.path))) {
+               ctx.path.front().type == path_instruction_type::NAMED) {
         if (!ctx.is_first_enter) {
           // 2st enter
           // skip the following children after the expect
@@ -492,15 +481,16 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
           ctx.is_first_enter = false;
           // match first mached children with expected name
           bool found_expected_child = false;
-          while (json_token::END_OBJECT != p.next_token()) {
+          auto const to_match_name  = ctx.path.front().name;
+          while (true) {
+            auto const is_name_matched = p.parse_next_token_with_matching(to_match_name);
+            if (json_token::END_OBJECT == p.get_current_token()) { break; }
+
             // JSON validation check
             if (json_token::ERROR == p.get_current_token()) { return {false, 0}; }
 
-            // need to try more children
-            auto match_named = path_match_named(ctx.path);
-            auto named       = thrust::get<1>(match_named);
             // current token is FIELD_NAME
-            if (p.match_current_field_name(named)) {
+            if (is_name_matched) {
               // skip FIELD_NAME token
               p.next_token();
               // JSON validation check
@@ -1029,7 +1019,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     construct_path_commands(json_paths, stream);
 
   auto const num_outputs = json_paths.size();
-  std::vector<std::unique_ptr<cudf::column>> output;
 
   // The error check array contains markers denoting if there is any out-of-bound write occurs
   // (first `num_outputs` elements), or if the nesting depth exceeded its limits (the last element).
@@ -1062,19 +1051,23 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   auto d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+    rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
 
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
+  std::vector<cudf::device_span<thrust::pair<char const*, cudf::size_type> const>>
+    batch_stringviews;
+  batch_stringviews.reserve(out_stringviews.size());
+
   // If we didn't see any out-of-bound write, everything is good so far.
   // Just gather the output strings and return.
   if (has_no_oob) {
     for (auto const& out_sview : out_stringviews) {
-      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+      batch_stringviews.emplace_back(out_sview);
     }
-    return output;
+    return cudf::make_strings_column_batch(batch_stringviews, stream, mr);
   }
   // From here, we had out-of-bound write. Although this is very rare, it may still happen.
 
@@ -1082,6 +1075,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   std::vector<std::pair<std::unique_ptr<cudf::column>, int64_t>> out_offsets_and_sizes;
   std::vector<rmm::device_uvector<char>> out_char_buffers;
   std::vector<std::size_t> oob_indices;
+  std::vector<std::size_t> no_oob_indices;
 
   // Check validity from the stored char pointers.
   auto const validator = [] __device__(thrust::pair<char const*, cudf::size_type> const item) {
@@ -1095,7 +1089,6 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
 
     if (h_error_check[idx]) {
       oob_indices.emplace_back(idx);
-      output.emplace_back(nullptr);  // just placeholder.
 
       out_null_masks_and_null_counts.emplace_back(
         cudf::detail::valid_if(out_sview.begin(), out_sview.end(), validator, stream, mr));
@@ -1121,9 +1114,18 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
                                   out_char_buffers.back().data(),
                                   d_error_check.data() + idx});
     } else {
-      output.emplace_back(cudf::make_strings_column(out_sview, stream, mr));
+      no_oob_indices.emplace_back(idx);
+      batch_stringviews.emplace_back(out_sview);
     }
   }
+
+  std::vector<std::unique_ptr<cudf::column>> output(num_outputs);
+  auto no_oob_output = cudf::make_strings_column_batch(batch_stringviews, stream, mr);
+  for (std::size_t idx = 0; idx < no_oob_indices.size(); ++idx) {
+    auto const out_idx = no_oob_indices[idx];
+    output[out_idx]    = std::move(no_oob_output[idx]);
+  }
+
   // These buffers are no longer needed.
   scratch_buffers.clear();
   out_stringviews.clear();
@@ -1132,7 +1134,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   d_path_data = cudf::detail::make_device_uvector_async(
     h_path_data, stream, rmm::mr::get_current_device_resource());
   thrust::uninitialized_fill(
-    rmm::exec_policy(stream), d_error_check.begin(), d_error_check.end(), 0);
+    rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
   h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
