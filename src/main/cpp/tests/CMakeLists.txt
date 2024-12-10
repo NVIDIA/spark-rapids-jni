@@ -31,7 +31,8 @@ function(ConfigureTest CMAKE_TEST_NAME)
                    INSTALL_RPATH "\$ORIGIN/../../../lib"
     )
     target_link_libraries(${CMAKE_TEST_NAME} GTest::gtest_main GTest::gmock_main cudf::cudf
-                                             cudf::cudftestutil spark_rapids_jni)
+                                             cudf::cudftestutil cudf::cudftestutil_impl
+                                             spark_rapids_jni)
     add_test(NAME ${CMAKE_TEST_NAME} COMMAND ${CMAKE_TEST_NAME})
     install(
         TARGETS ${CMAKE_TEST_NAME}

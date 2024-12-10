@@ -15,8 +15,8 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "from_json.hpp"
 #include "get_json_object.hpp"
+#include "json_utils.hpp"
 
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -142,7 +142,13 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMapFromJsonString(
-  JNIEnv* env, jclass, jlong j_input)
+  JNIEnv* env,
+  jclass,
+  jlong j_input,
+  jboolean normalize_single_quotes,
+  jboolean allow_leading_zeros,
+  jboolean allow_nonnumeric_numbers,
+  jboolean allow_unquoted_control)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
 
@@ -150,8 +156,128 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv}).release());
+      spark_rapids_jni::from_json_to_raw_map(cudf::strings_column_view{*input_cv},
+                                             normalize_single_quotes,
+                                             allow_leading_zeros,
+                                             allow_nonnumeric_numbers,
+                                             allow_unquoted_control)
+        .release());
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
+                                                             jclass,
+                                                             jlong j_input,
+                                                             jobjectArray j_col_names,
+                                                             jintArray j_num_children,
+                                                             jintArray j_types,
+                                                             jintArray j_scales,
+                                                             jintArray j_precisions,
+                                                             jboolean normalize_single_quotes,
+                                                             jboolean allow_leading_zeros,
+                                                             jboolean allow_nonnumeric_numbers,
+                                                             jboolean allow_unquoted_control,
+                                                             jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_col_names, "j_col_names is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
+  JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
+  JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
+  JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const col_names    = cudf::jni::native_jstringArray(env, j_col_names).as_cpp_vector();
+    auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
+    auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
+    auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
+    auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
+
+    CUDF_EXPECTS(col_names.size() > 0, "Invalid schema data: col_names.");
+    CUDF_EXPECTS(col_names.size() == num_children.size(), "Invalid schema data: num_children.");
+    CUDF_EXPECTS(col_names.size() == types.size(), "Invalid schema data: types.");
+    CUDF_EXPECTS(col_names.size() == scales.size(), "Invalid schema data: scales.");
+    CUDF_EXPECTS(col_names.size() == precisions.size(), "Invalid schema data: precisions.");
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::from_json_to_structs(cudf::strings_column_view{*input_cv},
+                                             col_names,
+                                             num_children,
+                                             types,
+                                             scales,
+                                             precisions,
+                                             normalize_single_quotes,
+                                             allow_leading_zeros,
+                                             allow_nonnumeric_numbers,
+                                             allow_unquoted_control,
+                                             is_us_locale)
+        .release());
+  }
+  CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_JSONUtils_convertFromStrings(JNIEnv* env,
+                                                              jclass,
+                                                              jlong j_input,
+                                                              jintArray j_num_children,
+                                                              jintArray j_types,
+                                                              jintArray j_scales,
+                                                              jintArray j_precisions,
+                                                              jboolean allow_nonnumeric_numbers,
+                                                              jboolean is_us_locale)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+  JNI_NULL_CHECK(env, j_num_children, "j_num_children is null", 0);
+  JNI_NULL_CHECK(env, j_types, "j_types is null", 0);
+  JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
+  JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
+    auto const num_children = cudf::jni::native_jintArray(env, j_num_children).to_vector();
+    auto const types        = cudf::jni::native_jintArray(env, j_types).to_vector();
+    auto const scales       = cudf::jni::native_jintArray(env, j_scales).to_vector();
+    auto const precisions   = cudf::jni::native_jintArray(env, j_precisions).to_vector();
+
+    CUDF_EXPECTS(num_children.size() > 0, "Invalid schema data: num_children.");
+    CUDF_EXPECTS(num_children.size() == types.size(), "Invalid schema data: types.");
+    CUDF_EXPECTS(num_children.size() == scales.size(), "Invalid schema data: scales.");
+    CUDF_EXPECTS(num_children.size() == precisions.size(), "Invalid schema data: precisions.");
+
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::convert_from_strings(cudf::strings_column_view{*input_cv},
+                                             num_children,
+                                             types,
+                                             scales,
+                                             precisions,
+                                             allow_nonnumeric_numbers,
+                                             is_us_locale)
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
+  JNIEnv* env, jclass, jlong j_input, jboolean nullify_if_not_quoted)
+{
+  JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::remove_quotes(cudf::strings_column_view{*input_cv}, nullify_if_not_quoted)
+        .release());
+  }
+  CATCH_STD(env, 0);
+}
+
+}  // extern "C"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,21 +14,29 @@
  * limitations under the License.
  */
 
-#pragma once
+package com.nvidia.spark.rapids.jni;
 
-#include <cudf/strings/strings_column_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
+/**
+ * A utility class for holding a pair of values.
+ */
+public class Pair<K, V> {
+    private final K left;
+    private final V right;
 
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/resource_ref.hpp>
+    public Pair(K left, V right) {
+        this.left = left;
+        this.right = right;
+    }
 
-#include <memory>
+    public K getLeft() {
+        return left;
+    }
 
-namespace spark_rapids_jni {
+    public V getRight() {
+        return right;
+    }
 
-std::unique_ptr<cudf::column> from_json_to_raw_map(
-  cudf::strings_column_view const& input,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
-
-}  // namespace spark_rapids_jni
+    public static <K, V> Pair<K, V> of(K left, V right) {
+        return new Pair<>(left, right);
+    }
+}
