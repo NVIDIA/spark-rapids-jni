@@ -223,6 +223,7 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/shuffle_split.cu
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
