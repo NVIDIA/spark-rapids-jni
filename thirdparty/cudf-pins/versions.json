@@ -5,15 +5,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e21d607157218540cd7c45461213fb96adf720b7",
+      "git_tag" : "05e019afe53f9b0e4454cbd822f9bdda18df49bb",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
-        {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/cccl_symbol_visibility.diff",
-          "fixed_in" : "2.6",
-          "issue" : "Correct symbol visibility issues in libcudacxx [https://github.com/NVIDIA/cccl/pull/1832/]"
-        },
         {
           "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_disable_64bit_dispatching.diff",
           "fixed_in" : "",
@@ -30,7 +25,7 @@
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "version" : "2.5.0"
+      "version" : "2.7.0"
     },
     "GTest" : 
     {
@@ -99,9 +94,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "dc6c0c1ffa22b61a0663ec266b4a23f1df173234",
+      "git_tag" : "d49ed59b77e37effa912b8546226111f4c154c18",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.12"
+      "version" : "25.02"
     },
     "nanoarrow" : 
     {
@@ -149,9 +144,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "3b5f6af2eaa0519643ccc2a4c1395307bfd3ad7e",
+      "git_tag" : "46b232e1b0ba9386079bb0e0dbabe9cf8e7afec6",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.12"
+      "version" : "25.02"
     },
     "spdlog" : 
     {
