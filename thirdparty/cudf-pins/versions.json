@@ -10,11 +10,6 @@
       "patches" : 
       [
         {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_disable_64bit_dispatching.diff",
-          "fixed_in" : "",
-          "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
-        },
-        {
           "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
@@ -144,7 +139,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "46b232e1b0ba9386079bb0e0dbabe9cf8e7afec6",
+      "git_tag" : "c3841ddfd312f65db69c1e28aa2d6c11a034f80c",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.02"
     },
