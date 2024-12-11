@@ -132,6 +132,9 @@ include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
 # find CCCL
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
+# find spdlog
+include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+
 # JNI
 find_package(JNI REQUIRED)
 if(JNI_FOUND)
@@ -278,6 +281,7 @@ target_link_libraries(
     ${CUDFJNI_LIB}
     cudf::cudf
     nvtx3::nvtx3-cpp
+    spdlog::spdlog_header_only
   -Wl,--no-whole-archive
     ${ARROW_LIB}
     ${PARQUET_LIB}
