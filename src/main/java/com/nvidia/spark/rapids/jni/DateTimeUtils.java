@@ -87,21 +87,53 @@ public class DateTimeUtils {
    * @return The truncated date/time
    */
   public static ColumnVector truncate(ColumnView datetime, ColumnView format) {
-    return new ColumnVector(truncate(datetime.getNativeView(), format.getNativeView()));
+    return new ColumnVector(truncate(datetime.getNativeView(), format.getNativeView(),
+        false, false));
+  }
+
+  /**
+   * Truncate the given date or timestamp to the unit specified by the format string.
+   * <p>
+   * This function is similar to {@link #truncate(ColumnView, ColumnView)} but the input date/time
+   * is a scalar instead of a column.
+   *
+   * @param datetime The input date/time
+   * @param format The time component to truncate to
+   * @return The truncated date/time
+   */
+  public static ColumnVector truncate(Scalar datetime, ColumnView format) {
+    return new ColumnVector(truncate(datetime.getScalarHandle(), format.getNativeView(),
+        true, false));
   }
 
   /**
    * Truncate the given date or timestamp to the unit specified by the format string.
    * <p>
    * This function is similar to {@link #truncate(ColumnView, ColumnView)} but the input format
-   * is a literal string instead of a column.
+   * is a scalar instead of a column.
    *
    * @param datetime The input date/time
    * @param format The time component to truncate to
    * @return The truncated date/time
    */
-  public static ColumnVector truncate(ColumnView datetime, String format) {
-    return new ColumnVector(truncateScalarFormat(datetime.getNativeView(), format));
+  public static ColumnVector truncate(ColumnView datetime, Scalar format) {
+    return new ColumnVector(truncate(datetime.getNativeView(), format.getScalarHandle(),
+        false, true));
+  }
+
+  /**
+   * Truncate the given date or timestamp to the unit specified by the format string.
+   * <p>
+   * This function is similar to {@link #truncate(ColumnView, ColumnView)} but both the input
+   * date/time and format are scalars instead of columns.
+   *
+   * @param datetime The input date/time
+   * @param format The time component to truncate to
+   * @return The truncated date/time
+   */
+  public static ColumnVector truncate(Scalar datetime, Scalar format) {
+    return new ColumnVector(truncate(datetime.getScalarHandle(), format.getScalarHandle(),
+        true, true));
   }
 
 
@@ -109,7 +141,6 @@ public class DateTimeUtils {
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
 
-  private static native long truncate(long datetimeHandle, long formatHandle);
-
-  private static native long truncateScalarFormat(long datetimeHandle, String format);
+  private static native long truncate(long datetimeHandle, long formatHandle,
+                                      boolean datetimeIsScalar, boolean formatIsScalar);
 }

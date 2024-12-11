@@ -47,36 +47,37 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseJul
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncate(JNIEnv* env,
-                                                                                jclass,
-                                                                                jlong datetime,
-                                                                                jlong format)
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncate(JNIEnv* env,
+                                                        jclass,
+                                                        jlong datetime,
+                                                        jlong format,
+                                                        jboolean datetime_is_scalar,
+                                                        jboolean format_is_scalar)
 {
   JNI_NULL_CHECK(env, datetime, "datetime column is null", 0);
   JNI_NULL_CHECK(env, format, "format column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
-    auto const format_cv   = reinterpret_cast<cudf::column_view const*>(format);
-    auto output            = spark_rapids_jni::truncate(*datetime_cv, *format_cv);
-    return reinterpret_cast<jlong>(output.release());
-  }
-  CATCH_STD(env, 0);
-}
+    if (datetime_is_scalar) {
+      auto const datetime_s = reinterpret_cast<cudf::scalar const*>(datetime);
+      if (format_is_scalar) {
+        auto const format_s = reinterpret_cast<cudf::scalar const*>(format);
+        return reinterpret_cast<jlong>(
+          spark_rapids_jni::truncate(*datetime_s, *format_s).release());
+      }
+      auto const format_cv = reinterpret_cast<cudf::column_view const*>(format);
+      return reinterpret_cast<jlong>(spark_rapids_jni::truncate(*datetime_s, *format_cv).release());
+    }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateScalarFormat(
-  JNIEnv* env, jclass, jlong datetime, jstring format)
-{
-  JNI_NULL_CHECK(env, datetime, "datetime column is null", 0);
-
-  try {
-    cudf::jni::auto_set_device(env);
     auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
-    auto const format_jstr = cudf::jni::native_jstring(env, format);
-    auto const format      = std::string(format_jstr.get(), format_jstr.size_bytes());
-    auto output            = spark_rapids_jni::truncate(*datetime_cv, format);
-    return reinterpret_cast<jlong>(output.release());
+    if (format_is_scalar) {
+      auto const format_s = reinterpret_cast<cudf::scalar const*>(format);
+      return reinterpret_cast<jlong>(spark_rapids_jni::truncate(*datetime_cv, *format_s).release());
+    }
+    auto const format_cv = reinterpret_cast<cudf::column_view const*>(format);
+    return reinterpret_cast<jlong>(spark_rapids_jni::truncate(*datetime_cv, *format_cv).release());
   }
   CATCH_STD(env, 0);
 }
