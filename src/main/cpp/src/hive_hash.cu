@@ -15,6 +15,7 @@
  */
 
 #include "hash.cuh"
+#include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -36,8 +37,6 @@ using hive_hash_value_t = int32_t;
 
 constexpr hive_hash_value_t HIVE_HASH_FACTOR = 31;
 constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
-
-constexpr int MAX_NESTED_DEPTH = 8;
 
 hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
 
