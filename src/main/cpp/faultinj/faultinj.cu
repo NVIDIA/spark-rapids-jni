@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <cudf/logger.hpp>
-
 #include <cuda.h>
 
 #include <assert.h>
@@ -30,28 +28,29 @@
 #define BOOST_SPIRIT_THREADSAFE
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <spdlog/spdlog.h>
 #include <sys/inotify.h>
 #include <sys/time.h>
 
 // Format enums for logging
-// auto format_as(CUpti_CallbackDomain domain) { return fmt::underlying(domain); }
+auto format_as(CUpti_CallbackDomain domain) { return fmt::underlying(domain); }
 
 namespace {
 
-#define CUPTI_CALL(call)                                                 \
-  do {                                                                   \
-    CUptiResult _status = call;                                          \
-    if (_status != CUPTI_SUCCESS) {                                      \
-      const char* errstr;                                                \
-      cuptiGetResultString(_status, &errstr);                            \
-      CUDF_LOG_ERROR("function {} failed with error {}", #call, errstr); \
-    }                                                                    \
+#define CUPTI_CALL(call)                                                \
+  do {                                                                  \
+    CUptiResult _status = call;                                         \
+    if (_status != CUPTI_SUCCESS) {                                     \
+      const char* errstr;                                               \
+      cuptiGetResultString(_status, &errstr);                           \
+      spdlog::error("function {} failed with error {}", #call, errstr); \
+    }                                                                   \
   } while (0)
 
-#define PTHREAD_CALL(call)                                                                         \
-  do {                                                                                             \
-    int _status = call;                                                                            \
-    if (_status != 0) { CUDF_LOG_ERROR("function {} failed with error code {}", #call, _status); } \
+#define PTHREAD_CALL(call)                                                                        \
+  do {                                                                                            \
+    int _status = call;                                                                           \
+    if (_status != 0) { spdlog::error("function {} failed with error code {}", #call, _status); } \
   } while (0)
 
 typedef enum { FI_TRAP, FI_ASSERT, FI_RETURN_VALUE } FaultInjectionType;
@@ -90,16 +89,16 @@ void* dynamicReconfig(void* args);
 
 void globalControlInit(void)
 {
-  CUDF_LOG_DEBUG("globalControlInit of fault injection");
+  spdlog::debug("globalControlInit of fault injection");
   globalControl.initialized     = 0;
   globalControl.subscriber      = 0;
   globalControl.terminateThread = 0;
-  CUDF_LOG_TRACE("checking environment {}", configFilePathEnv);
+  spdlog::trace("checking environment {}", configFilePathEnv);
   const char* configFilePath = std::getenv(configFilePathEnv.c_str());
-  CUDF_LOG_DEBUG("{} is {}", configFilePathEnv, configFilePath);
+  spdlog::debug("{} is {}", configFilePathEnv, configFilePath);
   if (configFilePath) {
     globalControl.configFilePath = std::string(configFilePath);
-    CUDF_LOG_DEBUG("will init config from {}", globalControl.configFilePath);
+    spdlog::debug("will init config from {}", globalControl.configFilePath);
   }
   readFaultInjectorConfig();
   globalControl.initialized = 1;
@@ -116,10 +115,10 @@ void atExitHandler(void)
   if (globalControl.dynamic) {
     globalControl.terminateThread = 1;
     PTHREAD_CALL(pthread_join(globalControl.dynamicThread, nullptr));
-    CUDF_LOG_INFO("reconfig thread shut down ... exiting");
+    spdlog::info("reconfig thread shut down ... exiting");
   }
 
-  CUDF_LOG_DEBUG("atExitHandler: cuptiFinalize");
+  spdlog::debug("atExitHandler: cuptiFinalize");
   CUPTI_CALL(cuptiFinalize());
 }
 
@@ -201,9 +200,9 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
         // case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernelEx_ptsz:
         if (std::string(cbInfo->symbolName)
               .compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
-          CUDF_LOG_DEBUG("rejecting fake launch functionName={} symbol={}",
-                         cbInfo->functionName,
-                         cbInfo->symbolName);
+          spdlog::debug("rejecting fake launch functionName={} symbol={}",
+                        cbInfo->functionName,
+                        cbInfo->symbolName);
           break;
         }
         // intentional fallthrough
@@ -226,9 +225,9 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
       case CUPTI_RUNTIME_TRACE_CBID_cudaGraphLaunch_ptsz_v10000:
         if (std::string(cbInfo->symbolName)
               .compare(0, faultInjectorKernelPrefix.size(), faultInjectorKernelPrefix) == 0) {
-          CUDF_LOG_DEBUG("rejecting fake launch functionName={} symbol={}",
-                         cbInfo->functionName,
-                         cbInfo->symbolName);
+          spdlog::debug("rejecting fake launch functionName={} symbol={}",
+                        cbInfo->functionName,
+                        cbInfo->symbolName);
           break;
         }
         // intentional fallthrough
@@ -262,7 +261,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
   const int interceptionCount =
     (*matchedFaultConfig).get_optional<int>(interceptionCountKey).value_or(INT_MAX);
 
-  CUDF_LOG_TRACE(
+  spdlog::trace(
     "considered config domain={} function={} injectionType={} probability={} "
     "interceptionCount={}",
     domain,
@@ -272,7 +271,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
     interceptionCount);
 
   if (interceptionCount <= 0) {
-    CUDF_LOG_TRACE(
+    spdlog::trace(
       "skipping interception because hit count reached 0, "
       "domain={} function={} injectionType={} probability={} "
       "interceptionCount={}",
@@ -288,9 +287,9 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
     if (injectionProbability <= 0) { return; }
     const int rand10000     = std::rand() % 10000;
     const int skipThreshold = injectionProbability * 10000 / 100;
-    CUDF_LOG_TRACE("rand1000={} skipThreshold={}", rand10000, skipThreshold);
+    spdlog::trace("rand1000={} skipThreshold={}", rand10000, skipThreshold);
     if (rand10000 >= skipThreshold) { return; }
-    CUDF_LOG_DEBUG(
+    spdlog::debug(
       "matched config based on rand10000={} skipThreshold={} "
       "domain={} function={} injectionType={} probability={}",
       rand10000,
@@ -300,7 +299,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
       injectionType,
       injectionProbability);
   } else {
-    CUDF_LOG_DEBUG(
+    spdlog::debug(
       "matched 100% config domain={} function={} injectionType={} "
       "probability={}",
       domain,
@@ -311,7 +310,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
 
   // update counter if not unlimited
   if (interceptionCount != INT_MAX) {
-    CUDF_LOG_DEBUG("updating interception count {}: before locking", interceptionCount);
+    spdlog::debug("updating interception count {}: before locking", interceptionCount);
     // TODO the lock is too coarse-grained.
     PTHREAD_CALL(pthread_rwlock_wrlock(&globalControl.configLock));
     const int interceptionCount = (*matchedFaultConfig).get<int>("interceptionCount");
@@ -336,7 +335,7 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
         *cuResPtr          = static_cast<CUresult>(substituteReturnCode);
       } else if (domain == CUPTI_CB_DOMAIN_RUNTIME_API) {
         cudaError_t* cudaErrPtr = static_cast<cudaError_t*>(cbInfo->functionReturnValue);
-        CUDF_LOG_ERROR("updating runtime return value DOES NOT WORK, use trap or assert");
+        spdlog::error("updating runtime return value DOES NOT WORK, use trap or assert");
         *cudaErrPtr = static_cast<cudaError_t>(substituteReturnCode);
         break;
       }
@@ -351,17 +350,17 @@ void CUPTIAPI faultInjectionCallbackHandler(void*,
 void readFaultInjectorConfig(void)
 {
   if (globalControl.configFilePath.empty()) {
-    CUDF_LOG_ERROR("specify convig via environment {}", configFilePathEnv);
+    spdlog::error("specify convig via environment {}", configFilePathEnv);
     return;
   }
   std::ifstream jsonStream(globalControl.configFilePath);
   if (!jsonStream.good()) {
-    CUDF_LOG_ERROR("check file exists {}", globalControl.configFilePath);
+    spdlog::error("check file exists {}", globalControl.configFilePath);
     return;
   }
 
-  // The numeric value of level_enum is retrieved from
-  // https://github.com/rapidsai/rapids-logger/blob/main/logger.hpp.in#L40
+  // to retrieve and the numeric value of spdlog:level::level_enum
+  // https://github.com/gabime/spdlog/blob/d546201f127c306ec8a0082d57562a05a049af77/include/spdlog/common.h#L198-L204
   const std::string logLevelKey = "logLevel";
 
   // A Boolean flag as to whether to watch for config file modifications
@@ -393,28 +392,29 @@ void readFaultInjectorConfig(void)
 
     const unsigned seed =
       globalControl.configRoot.get_optional<unsigned>(seedKey).value_or(std::time(0));
-    CUDF_LOG_INFO("Seeding std::srand with {}", seed);
+    spdlog::info("Seeding std::srand with {}", seed);
     std::srand(seed);
 
-    CUDF_LOG_INFO("changed log level to {}", logLevel);
-    cudf::default_logger().set_level(static_cast<cudf::level_enum>(logLevel));
+    const spdlog::level::level_enum logLevelEnum = static_cast<spdlog::level::level_enum>(logLevel);
+    spdlog::info("changed log level to {}", logLevel);
+    spdlog::set_level(logLevelEnum);
     traceConfig(globalControl.configRoot);
 
     globalControl.driverFaultConfigs = globalControl.configRoot.get_child_optional(driverFaultsKey);
     globalControl.runtimeFaultConfigs =
       globalControl.configRoot.get_child_optional(runtimeFaultsKey);
   } catch (boost::property_tree::json_parser::json_parser_error& error) {
-    CUDF_LOG_ERROR("error parsing fault injector config, still editing? {}", error.what());
+    spdlog::error("error parsing fault injector config, still editing? {}", error.what());
   }
   PTHREAD_CALL(pthread_rwlock_unlock(&globalControl.configLock));
   jsonStream.close();
-  CUDF_LOG_DEBUG("readFaultInjectorConfig from {} DONE", globalControl.configFilePath);
+  spdlog::debug("readFaultInjectorConfig from {} DONE", globalControl.configFilePath);
 }
 
 void traceConfig(boost::property_tree::ptree const& pTree)
 {
   for (auto it = pTree.begin(); it != pTree.end(); ++it) {
-    CUDF_LOG_TRACE("congig key={} value={}", it->first, it->second.get_value<std::string>());
+    spdlog::trace("congig key={} value={}", it->first, it->second.get_value<std::string>());
     traceConfig(it->second);
   }
 }
@@ -432,17 +432,17 @@ int eventCheck(int fd)
 
 void* dynamicReconfig(void*)
 {
-  CUDF_LOG_DEBUG("config watcher thread: inotify_init()");
+  spdlog::debug("config watcher thread: inotify_init()");
   const int inotifyFd = inotify_init();
   if (inotifyFd < 0) {
-    CUDF_LOG_ERROR("inotify_init() failed");
+    spdlog::error("inotify_init() failed");
     return nullptr;
   }
-  CUDF_LOG_DEBUG("config watcher thread: inotify_add_watch {}", globalControl.configFilePath);
+  spdlog::debug("config watcher thread: inotify_add_watch {}", globalControl.configFilePath);
   const int watchFd = inotify_add_watch(inotifyFd, globalControl.configFilePath.c_str(), IN_MODIFY);
   if (watchFd < 0) {
-    CUDF_LOG_ERROR("config watcher thread: inotify_add_watch {} failed",
-                   globalControl.configFilePath);
+    spdlog::error("config watcher thread: inotify_add_watch {} failed",
+                  globalControl.configFilePath);
     return nullptr;
   }
 
@@ -454,16 +454,16 @@ void* dynamicReconfig(void*)
   char eventBuffer[BUF_LEN];
 
   while (!globalControl.terminateThread) {
-    CUDF_LOG_TRACE("about to call eventCheck");
+    spdlog::trace("about to call eventCheck");
     const int eventCheckRes = eventCheck(inotifyFd);
-    CUDF_LOG_TRACE("eventCheck returned {}", eventCheckRes);
+    spdlog::trace("eventCheck returned {}", eventCheckRes);
     if (eventCheckRes > 0) {
       const int length = read(inotifyFd, eventBuffer, BUF_LEN);
-      CUDF_LOG_DEBUG("config watcher thread: read {} bytes", length);
+      spdlog::debug("config watcher thread: read {} bytes", length);
       if (length < EVENT_SIZE) { continue; }
       for (int i = 0; i < length;) {
         struct inotify_event* event = (struct inotify_event*)&eventBuffer[i];
-        CUDF_LOG_DEBUG("modfiled file detected: {}", event->name);
+        spdlog::debug("modfiled file detected: {}", event->name);
         i += EVENT_SIZE + event->len;
       }
       readFaultInjectorConfig();
@@ -471,15 +471,15 @@ void* dynamicReconfig(void*)
   }
 
   if (watchFd >= 0) {
-    CUDF_LOG_DEBUG("config watcher thread: inotify_rm_watch {} {}", inotifyFd, watchFd);
+    spdlog::debug("config watcher thread: inotify_rm_watch {} {}", inotifyFd, watchFd);
     inotify_rm_watch(inotifyFd, watchFd);
   }
   if (inotifyFd >= 0) {
-    CUDF_LOG_DEBUG("config watcher thread: close {}", inotifyFd);
+    spdlog::debug("config watcher thread: close {}", inotifyFd);
     close(inotifyFd);
   }
-  CUDF_LOG_INFO("exiting dynamic reconfig thread: terminateThread={}",
-                globalControl.terminateThread);
+  spdlog::info("exiting dynamic reconfig thread: terminateThread={}",
+               globalControl.terminateThread);
   return nullptr;
 }
 
@@ -490,9 +490,9 @@ void* dynamicReconfig(void*)
  */
 extern "C" int InitializeInjection(void)
 {
-  CUDF_LOG_INFO("cuInit entry point for libcufaultinj InitializeInjection");
+  spdlog::info("cuInit entry point for libcufaultinj InitializeInjection");
   // intial log level is trace until the config is read
-  cudf::default_logger().set_level(cudf::level_enum::trace);
+  spdlog::set_level(spdlog::level::trace);
 
   if (globalControl.initialized) { return 1; }
   // Init globalControl
@@ -501,7 +501,7 @@ extern "C" int InitializeInjection(void)
   registerAtExitHandler();
 
   if (globalControl.dynamic) {
-    CUDF_LOG_DEBUG("creating a thread to watch the fault injector config interactively");
+    spdlog::debug("creating a thread to watch the fault injector config interactively");
     PTHREAD_CALL(pthread_create(&globalControl.dynamicThread, nullptr, dynamicReconfig, nullptr));
   }
 

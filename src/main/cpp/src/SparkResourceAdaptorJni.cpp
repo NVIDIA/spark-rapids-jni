@@ -14,16 +14,18 @@
  * limitations under the License.
  */
 
-#include <cudf/logger.hpp>
-
 #include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <cudf_jni_apis.hpp>
 #include <pthread.h>
+#include <spdlog/common.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <chrono>
-#include <condition_variable>
 #include <exception>
 #include <map>
 #include <set>
@@ -112,24 +114,23 @@ const char* as_str(thread_state state)
   }
 }
 
-static std::shared_ptr<cudf::logger> make_logger(std::ostream& stream)
+static std::shared_ptr<spdlog::logger> make_logger(std::ostream& stream)
 {
-  return std::make_shared<cudf::logger>(
-    "SPARK_RMM", std::vector<cudf::sink_ptr>{std::make_shared<cudf::ostream_sink_mt>(stream)});
+  return std::make_shared<spdlog::logger>("SPARK_RMM",
+                                          std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
 }
 
-static std::shared_ptr<cudf::logger> make_logger()
+static std::shared_ptr<spdlog::logger> make_logger()
 {
-  return std::make_shared<cudf::logger>(
-    "SPARK_RMM", std::vector<cudf::sink_ptr>{std::make_shared<cudf::null_sink_mt>()});
+  return std::make_shared<spdlog::logger>("SPARK_RMM",
+                                          std::make_shared<spdlog::sinks::null_sink_mt>());
 }
 
 static auto make_logger(std::string const& filename)
 {
-  return std::make_shared<cudf::logger>(
+  return std::make_shared<spdlog::logger>(
     "SPARK_RMM",
-    std::vector<cudf::sink_ptr>{
-      std::make_shared<cudf::basic_file_sink_mt>(filename, true /*truncate file*/)});
+    std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, true /*truncate file*/));
 }
 
 /**
@@ -393,12 +394,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
  public:
   spark_resource_adaptor(JNIEnv* env,
                          rmm::mr::device_memory_resource* mr,
-                         std::shared_ptr<cudf::logger>& logger,
+                         std::shared_ptr<spdlog::logger>& logger,
                          bool const is_log_enabled)
     : resource{mr}, logger{logger}, is_log_enabled{is_log_enabled}
   {
     if (env->GetJavaVM(&jvm) < 0) { throw std::runtime_error("GetJavaVM failed"); }
-    logger->flush_on(cudf::level_enum::info);
+    logger->flush_on(spdlog::level::info);
     logger->set_pattern("%v");
     logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
     logger->set_pattern("%H:%M:%S.%f,%v");
@@ -879,7 +880,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
  private:
   rmm::mr::device_memory_resource* const resource;
-  std::shared_ptr<cudf::logger> logger;  ///< logger object
+  std::shared_ptr<spdlog::logger> logger;  ///< spdlog logger object
   bool const is_log_enabled;
 
   // The state mutex must be held when modifying the state of threads or tasks
@@ -1843,7 +1844,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cr
     cudf::jni::auto_set_device(env);
     auto wrapped = reinterpret_cast<rmm::mr::device_memory_resource*>(child);
     cudf::jni::native_jstring nlogloc(env, log_loc);
-    std::shared_ptr<cudf::logger> logger;
+    std::shared_ptr<spdlog::logger> logger;
     bool is_log_enabled;
     if (nlogloc.is_null()) {
       logger         = make_logger();
