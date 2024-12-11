@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022-2023, NVIDIA CORPORATION.
+# Copyright (c) 2022-2024, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,9 +28,5 @@ add_library(
 )
 
 target_link_libraries(
-  cufaultinj PRIVATE spdlog::spdlog_header_only
-)
-
-target_link_libraries(
-  cufaultinj PRIVATE CUDA::cupti_static
+  cufaultinj PRIVATE CUDA::cupti_static cudf::cudf_logger
 )
