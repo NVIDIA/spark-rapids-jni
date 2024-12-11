@@ -37,7 +37,7 @@ public class RegexRewriteUtils {
  */
   public static ColumnVector literalRangePattern(ColumnVector input, Scalar literal, int len, int start, int end) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(literal), len, start, end));
+    return new ColumnVector(literalRangePattern(input.getNativeView(), literal.getScalarHandle(), len, start, end));
   }
 
   private static native long literalRangePattern(long input, long literal, int len, int start, int end);

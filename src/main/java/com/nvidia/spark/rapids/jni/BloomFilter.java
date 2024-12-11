@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 
 import ai.rapids.cudf.BaseDeviceMemoryBuffer;
 import ai.rapids.cudf.ColumnVector;
-import ai.rapids.cudf.CudfAccessor;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Scalar;
@@ -46,7 +45,7 @@ public class BloomFilter {
     if(bloomFilterBits <= 0){
       throw new IllegalArgumentException("Bloom filters must have a positive number of bits");
     }
-    return CudfAccessor.scalarFromHandle(DType.LIST, creategpu(numHashes, bloomFilterBits));
+    return new Scalar(DType.LIST, creategpu(numHashes, bloomFilterBits));
   }
 
   /**
@@ -55,7 +54,7 @@ public class BloomFilter {
    * @param cv The column containing the values to add.
    */
   public static void put(Scalar bloomFilter, ColumnVector cv){
-    put(CudfAccessor.getScalarHandle(bloomFilter), cv.getNativeView());
+    put(bloomFilter.getScalarHandle(), cv.getNativeView());
   }
 
   /**
@@ -64,7 +63,7 @@ public class BloomFilter {
    * @return A new bloom filter containing the merged inputs.
    */
   public static Scalar merge(ColumnVector bloomFilters){
-    return CudfAccessor.scalarFromHandle(DType.LIST, merge(bloomFilters.getNativeView()));
+    return new Scalar(DType.LIST, merge(bloomFilters.getNativeView()));
   }
 
   /**
@@ -78,7 +77,7 @@ public class BloomFilter {
    * @return A boolean column indicating the results of the probe.
    */
   public static ColumnVector probe(Scalar bloomFilter, ColumnVector cv){
-    return new ColumnVector(probe(CudfAccessor.getScalarHandle(bloomFilter), cv.getNativeView()));
+    return new ColumnVector(probe(bloomFilter.getScalarHandle(), cv.getNativeView()));
   }
 
   /**
