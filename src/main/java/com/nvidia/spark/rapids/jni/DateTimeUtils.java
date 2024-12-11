@@ -90,10 +90,26 @@ public class DateTimeUtils {
     return new ColumnVector(truncate(datetime.getNativeView(), format.getNativeView()));
   }
 
+  /**
+   * Truncate the given date or timestamp to the unit specified by the format string.
+   * <p>
+   * This function is similar to {@link #truncate(ColumnView, ColumnView)} but the input format
+   * is a literal string instead of a column.
+   *
+   * @param datetime The input date/time
+   * @param format The time component to truncate to
+   * @return The truncated date/time
+   */
+  public static ColumnVector truncate(ColumnView datetime, String format) {
+    return new ColumnVector(truncateScalarFormat(datetime.getNativeView(), format));
+  }
+
 
   private static native long rebaseGregorianToJulian(long nativeHandle);
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
 
   private static native long truncate(long datetimeHandle, long formatHandle);
+
+  private static native long truncateScalarFormat(long datetimeHandle, String format);
 }

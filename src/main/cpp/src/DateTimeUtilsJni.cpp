@@ -65,4 +65,20 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncate(
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateScalarFormat(
+  JNIEnv* env, jclass, jlong datetime, jstring format)
+{
+  JNI_NULL_CHECK(env, datetime, "datetime column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
+    auto const format_jstr = cudf::jni::native_jstring(env, format);
+    auto const format      = std::string(format_jstr.get(), format_jstr.size_bytes());
+    auto output            = spark_rapids_jni::truncate(*datetime_cv, format);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  CATCH_STD(env, 0);
+}
+
 }  // extern "C"
