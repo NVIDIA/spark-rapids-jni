@@ -19,17 +19,37 @@
 # Script to build native code in cudf and spark-rapids-jni
 #
 
-set -ex
+set -e
+
+if [[ $FROM_MAVEN == "true" ]]; then
+  echo "Building native libraries. To rerun outside Maven enter the build environment via
+
+$ ./build/run-in-docker
+
+then run
+
+$ REUSE_ENV=true $0
+"
+fi
+
+# Disable items on arm64 due to missing dependencies in the CUDA toolkit
+if [ "$(uname -m)" == "aarch64" ]; then
+ USE_GDS="OFF" # cuFile RDMA libraries are missing
+ BUILD_FAULTINJ="OFF" # libcupti_static.a is missing
+fi
 
 # Environment variables to control the build
 PROJECT_BASE_DIR=${PROJECT_BASE_DIR:-$(realpath $(dirname $0)/..)}
 PROJECT_BUILD_DIR=${PROJECT_BUILD_DIR:-$PROJECT_BASE_DIR/target}
+if [[ "$REUSE_ENV" != "true" ]]; then
+  echo "
 BUILD_BENCHMARKS=${BUILD_BENCHMARKS:-ON}
 BUILD_CUDF_BENCHMARKS=${BUILD_CUDF_BENCHMARKS:-OFF}
 BUILD_CUDF_TESTS=${BUILD_CUDF_TESTS:-OFF}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 BUILD_PROFILER=${BUILD_PROFILER:-ON}
 BUILD_TESTS=${BUILD_TESTS:-ON}
+export CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 CPP_PARALLEL_LEVEL=${CPP_PARALLEL_LEVEL:-10}
 CUDF_BUILD_TYPE=${CUDF_BUILD_TYPE:-Release}
 CUDF_PATH=${CUDF_PATH:-$PROJECT_BASE_DIR/thirdparty/cudf}
@@ -43,7 +63,10 @@ LIBCUDF_INSTALL_PATH=${LIBCUDF_INSTALL_PATH:-$PROJECT_BUILD_DIR/libcudf-install}
 LIBCUDFJNI_BUILD_PATH=${LIBCUDFJNI_BUILD_PATH:-$PROJECT_BUILD_DIR/libcudfjni}
 SPARK_JNI_BUILD_PATH=${SPARK_JNI_BUILD_PATH:-$PROJECT_BUILD_DIR/jni/cmake-build}
 RMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL:-OFF}
-USE_GDS=${USE_GDS:-OFF}
+USE_GDS=${USE_GDS:-OFF}" > "$PROJECT_BUILD_DIR/buildcpp-env.sh"
+fi
+
+source "$PROJECT_BUILD_DIR/buildcpp-env.sh"
 
 #
 # libcudf build
@@ -53,6 +76,7 @@ cd "$LIBCUDF_BUILD_PATH"
 
 # Skip explicit cudf cmake configuration if it appears it has already configured
 if [[ $LIBCUDF_BUILD_CONFIGURE == true || ! -f $LIBCUDF_BUILD_PATH/CMakeCache.txt ]]; then
+  echo "Configuring cudf native libs"
   cmake "$CUDF_PATH/cpp" \
     -DBUILD_BENCHMARKS="$BUILD_CUDF_BENCHMARKS" \
     -DBUILD_SHARED_LIBS=OFF \
@@ -70,6 +94,7 @@ if [[ $LIBCUDF_BUILD_CONFIGURE == true || ! -f $LIBCUDF_BUILD_PATH/CMakeCache.tx
     -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
     -C="$CUDF_PIN_PATH/setup.cmake"
 fi
+echo "Building cudf native libs"
 cmake --build "$LIBCUDF_BUILD_PATH" --target install "-j$CPP_PARALLEL_LEVEL"
 
 #
@@ -77,6 +102,7 @@ cmake --build "$LIBCUDF_BUILD_PATH" --target install "-j$CPP_PARALLEL_LEVEL"
 #
 mkdir -p "$LIBCUDFJNI_BUILD_PATH"
 cd "$LIBCUDFJNI_BUILD_PATH"
+echo "Configuring cudfjni native libs"
 CUDF_CPP_BUILD_DIR="$LIBCUDF_BUILD_PATH" CUDF_ROOT="$CUDF_PATH" cmake \
   "$CUDF_PATH/java/src/main/native" \
   -DBUILD_SHARED_LIBS=OFF \
@@ -89,6 +115,7 @@ CUDF_CPP_BUILD_DIR="$LIBCUDF_BUILD_PATH" CUDF_ROOT="$CUDF_PATH" cmake \
   -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
   -DUSE_GDS="$USE_GDS" \
   -C="$CUDF_PIN_PATH/setup.cmake"
+echo "Building cudfjni native libs"
 cmake --build "$LIBCUDFJNI_BUILD_PATH" "-j$CPP_PARALLEL_LEVEL"
 
 #
@@ -96,6 +123,7 @@ cmake --build "$LIBCUDFJNI_BUILD_PATH" "-j$CPP_PARALLEL_LEVEL"
 #
 mkdir -p "$SPARK_JNI_BUILD_PATH"
 cd "$SPARK_JNI_BUILD_PATH"
+echo "Configuring spark-rapids-jni native libs"
 CUDF_CPP_BUILD_DIR="$LIBCUDF_BUILD_PATH" \
   CUDF_ROOT="$CUDF_PATH" \
   CUDF_INSTALL_DIR="$LIBCUDF_INSTALL_PATH" \
@@ -112,4 +140,5 @@ CUDF_CPP_BUILD_DIR="$LIBCUDF_BUILD_PATH" \
     -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
     -DUSE_GDS="$USE_GDS" \
     -C="$CUDF_PIN_PATH/setup.cmake"
+echo "Building spark-rapids-jni native libs"
 cmake --build "$SPARK_JNI_BUILD_PATH" "-j$CPP_PARALLEL_LEVEL"

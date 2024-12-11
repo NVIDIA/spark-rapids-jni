@@ -436,10 +436,7 @@
               <target>
                 <exec dir="${project.basedir}"
                       failonerror="true"
-                      executable="bash">
-                  <arg value="build/buildcpp.sh"/>
-                  <env key="PROJECT_BASE_DIR" value="${project.basedir}"/>
-                  <env key="PROJECT_BUILD_DIR" value="${project.build.directory}"/>
+                      executable="build/buildcpp.sh">
                   <env key="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
                   <env key="BUILD_CUDF_BENCHMARKS" value="${BUILD_CUDF_BENCHMARKS}"/>
                   <env key="BUILD_CUDF_TESTS" value="${BUILD_CUDF_TESTS}"/>
@@ -451,12 +448,15 @@
                   <env key="CUDF_PATH" value="${cudf.path}"/>
                   <env key="CUDF_PIN_PATH" value="${cudf.pin.path}"/>
                   <env key="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                  <env key="FROM_MAVEN" value="true"/>
                   <env key="GPU_ARCHS" value="${GPU_ARCHS}"/>
                   <env key="LIBCUDF_BUILD_CONFIGURE" value="${libcudf.build.configure}"/>
                   <env key="LIBCUDF_BUILD_PATH" value="${libcudf.build.path}"/>
                   <env key="LIBCUDF_DEPENDENCY_MODE" value="${libcudf.dependency.mode}"/>
                   <env key="LIBCUDF_INSTALL_PATH" value="${libcudf.install.path}"/>
                   <env key="LIBCUDFJNI_BUILD_PATH" value="${libcudfjni.build.path}"/>
+                  <env key="PROJECT_BASE_DIR" value="${project.basedir}"/>
+                  <env key="PROJECT_BUILD_DIR" value="${project.build.directory}"/>
                   <env key="SPARK_JNI_BUILD_PATH" value="${native.build.path}"/>
                   <env key="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                   <env key="USE_GDS" value="${USE_GDS}"/>
