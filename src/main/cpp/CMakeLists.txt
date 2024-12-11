@@ -277,7 +277,6 @@ target_link_libraries(
   -Wl,--whole-archive
     ${CUDFJNI_LIB}
     cudf::cudf
-    cudf::cudf_logger
     nvtx3::nvtx3-cpp
   -Wl,--no-whole-archive
     ${ARROW_LIB}
