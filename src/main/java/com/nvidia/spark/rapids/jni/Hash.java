@@ -25,7 +25,7 @@ public class Hash {
   // there doesn't appear to be a useful constant in spark to reference. this could break.
   static final long DEFAULT_XXHASH64_SEED = 42;
 
-  public static final int MAX_NESTED_DEPTH = getMaxNestedDepth();
+  public static final int MAX_STACK_DEPTH = getMaxStackDepth();
 
   static {
     NativeDepsLoader.loadNativeDeps();
@@ -102,7 +102,7 @@ public class Hash {
     return new ColumnVector(hiveHash(columnViews));
   }
 
-  private static native int getMaxNestedDepth();
+  private static native int getMaxStackDepth();
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
   

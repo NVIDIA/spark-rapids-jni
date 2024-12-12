@@ -25,7 +25,7 @@
 namespace spark_rapids_jni {
 
 constexpr int64_t DEFAULT_XXHASH64_SEED = 42;
-constexpr int MAX_NESTED_DEPTH          = 8;
+constexpr int MAX_STACK_DEPTH           = 8;
 
 /**
  * @brief Computes the murmur32 hash value of each row in the input set of columns.

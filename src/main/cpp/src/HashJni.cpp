@@ -21,9 +21,9 @@
 
 extern "C" {
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_Hash_getMaxNestedDepth(JNIEnv* env, jclass)
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_Hash_getMaxStackDepth(JNIEnv* env, jclass)
 {
-  return spark_rapids_jni::MAX_NESTED_DEPTH;
+  return spark_rapids_jni::MAX_STACK_DEPTH;
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Hash_murmurHash32(
