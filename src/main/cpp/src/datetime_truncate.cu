@@ -191,8 +191,8 @@ struct truncate_date_fn {
 
     truncation_format fmt{};
     if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
-      auto const fmt_str    = format.template element<cudf::string_view>(idx);
-      auto const trunc_comp = parse_format(fmt_str.data(), fmt_str.size_bytes());
+      auto const fmt_str = format.template element<cudf::string_view>(idx);
+      fmt                = parse_format(fmt_str.data(), fmt_str.size_bytes());
     } else {
       fmt = format;
     }
@@ -240,8 +240,8 @@ struct truncate_timestamp_fn {
 
     truncation_format fmt{};
     if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
-      auto const fmt_str    = format.template element<cudf::string_view>(idx);
-      auto const trunc_comp = parse_format(fmt_str.data(), fmt_str.size_bytes());
+      auto const fmt_str = format.template element<cudf::string_view>(idx);
+      fmt                = parse_format(fmt_str.data(), fmt_str.size_bytes());
     } else {
       fmt = format;
     }
@@ -334,6 +334,10 @@ std::unique_ptr<cudf::column> truncate_datetime(DateTimeT const& datetime,
     } else {
       auto const fmt_str = static_cast<cudf::string_scalar const&>(format).to_string(stream);
       auto const fmt = parse_format(fmt_str.data(), static_cast<cudf::size_type>(fmt_str.size()));
+      if (fmt == truncation_format::INVALID) {
+        return cudf::make_fixed_width_column(
+          datetime.type(), output_size, cudf::mask_state::ALL_NULL, stream, mr);
+      }
       do_transform(TransformFunc{*d_datetime_ptr, fmt});
     }
   } else {
@@ -345,6 +349,10 @@ std::unique_ptr<cudf::column> truncate_datetime(DateTimeT const& datetime,
     } else {
       auto const fmt_str = static_cast<cudf::string_scalar const&>(format).to_string(stream);
       auto const fmt = parse_format(fmt_str.data(), static_cast<cudf::size_type>(fmt_str.size()));
+      if (fmt == truncation_format::INVALID) {
+        return cudf::make_fixed_width_column(
+          datetime.type(), output_size, cudf::mask_state::ALL_NULL, stream, mr);
+      }
       do_transform(TransformFunc{d_datetime, fmt});
     }
   }
