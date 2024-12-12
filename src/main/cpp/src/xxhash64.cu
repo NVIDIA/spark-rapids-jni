@@ -15,6 +15,7 @@
  */
 
 #include "hash.cuh"
+#include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
@@ -33,8 +34,6 @@ namespace {
 
 using hash_value_type = int64_t;
 using half_size_type  = int32_t;
-
-constexpr int MAX_STACK_DEPTH = 8;
 
 constexpr __device__ inline int64_t rotate_bits_left_signed(hash_value_type h, int8_t r)
 {
