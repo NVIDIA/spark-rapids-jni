@@ -168,7 +168,7 @@ struct truncate_date_fn {
   using Timestamp = cudf::timestamp_D;
   static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
                   std::is_same_v<FormatDeviceT, truncation_format>,
-                "FormatDeviceT must be either a 'column_device_view' or a 'truncation_format'.");
+                "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
   FormatDeviceT format;
@@ -206,7 +206,7 @@ struct truncate_timestamp_fn {
   using Timestamp = cudf::timestamp_us;
   static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
                   std::is_same_v<FormatDeviceT, truncation_format>,
-                "FormatDeviceT must be either a `column_device_view` or a `truncation_format`.");
+                "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
 
   cudf::column_device_view datetime;
   FormatDeviceT format;
@@ -260,21 +260,6 @@ struct truncate_timestamp_fn {
     }
   }
 };
-
-void check_type(cudf::column_view const& datetime)
-{
-  CUDF_EXPECTS(datetime.type().id() == cudf::type_id::TIMESTAMP_DAYS ||
-                 datetime.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
-               "The date/time input must be either day or microsecond timestamps.");
-}
-
-template <typename FormatT>
-void check_types(cudf::column_view const& datetime, FormatT const& format)
-{
-  check_type(datetime);
-  CUDF_EXPECTS(format.type().id() == cudf::type_id::STRING,
-               "The format input must be of string type.");
-}
 
 template <typename Timestamp, typename FormatT>
 std::unique_ptr<cudf::column> truncate_datetime(cudf::column_view const& datetime,
@@ -336,6 +321,20 @@ std::unique_ptr<cudf::column> truncate_dispatcher(cudf::column_view const& datet
     return truncate_datetime<cudf::timestamp_D, FormatT>(datetime, format, output_size, stream, mr);
   }
   return truncate_datetime<cudf::timestamp_us, FormatT>(datetime, format, output_size, stream, mr);
+}
+
+void check_type(cudf::column_view const& datetime)
+{
+  CUDF_EXPECTS(datetime.type().id() == cudf::type_id::TIMESTAMP_DAYS ||
+                 datetime.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
+               "The date/time input must be either day or microsecond timestamps.");
+}
+
+void check_types(cudf::column_view const& datetime, cudf::column_view const& format)
+{
+  check_type(datetime);
+  CUDF_EXPECTS(format.type().id() == cudf::type_id::STRING,
+               "The format input must be of string type.");
 }
 
 }  // namespace

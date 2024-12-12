@@ -17,7 +17,6 @@
 #pragma once
 
 #include <cudf/datetime.hpp>
-#include <cudf/scalar/scalar.hpp>
 
 namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> rebase_gregorian_to_julian(
