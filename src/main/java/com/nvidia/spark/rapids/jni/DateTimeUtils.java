@@ -131,9 +131,9 @@ public class DateTimeUtils {
    * @param format The time component to truncate to
    * @return The truncated date/time
    */
-  public static ColumnVector truncate(Scalar datetime, Scalar format) {
-    return new ColumnVector(truncate(datetime.getScalarHandle(), format.getScalarHandle(),
-        true, true));
+  public static Scalar truncate(Scalar datetime, Scalar format) {
+    return new Scalar(datetime.getType(), truncate(datetime.getScalarHandle(),
+        format.getScalarHandle(), true, true));
   }
 
 
