@@ -1016,6 +1016,10 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(cudf::tabl
                                                                       rmm::cuda_stream_view stream,
                                                                       rmm::device_async_resource_ref mr)
 {
+  // for now, we don't allow strings, lists or columns with validity
+  CUDF_EXPECTS(std::all_of(input.begin(), input.end(), [](cudf::column_view const& col){
+    return col.type().id() != cudf::type_id::STRING && col.type().id() != cudf::type_id::LIST; }), "Unsupported column type (for now)");
+
   // empty inputs
   if (input.num_columns() == 0 || input.num_rows() == 0) {
     rmm::device_uvector<size_t> empty_offsets(1, stream, mr);
