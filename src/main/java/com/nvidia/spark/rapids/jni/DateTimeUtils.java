@@ -87,53 +87,22 @@ public class DateTimeUtils {
    * @return The truncated date/time
    */
   public static ColumnVector truncate(ColumnView datetime, ColumnView format) {
-    return new ColumnVector(truncate(datetime.getNativeView(), format.getNativeView(),
-        false, false));
-  }
-
-  /**
-   * Truncate the given date or timestamp to the unit specified by the format string.
-   * <p>
-   * This function is similar to {@link #truncate(ColumnView, ColumnView)} but the input date/time
-   * is a scalar instead of a column.
-   *
-   * @param datetime The input date/time
-   * @param format The time component to truncate to
-   * @return The truncated date/time
-   */
-  public static ColumnVector truncate(Scalar datetime, ColumnView format) {
-    return new ColumnVector(truncate(datetime.getScalarHandle(), format.getNativeView(),
-        true, false));
+    return new ColumnVector(truncateWithColumnFormat(datetime.getNativeView(),
+        format.getNativeView()));
   }
 
   /**
    * Truncate the given date or timestamp to the unit specified by the format string.
    * <p>
    * This function is similar to {@link #truncate(ColumnView, ColumnView)} but the input format
-   * is a scalar instead of a column.
+   * is a string literal instead of a column.
    *
    * @param datetime The input date/time
    * @param format The time component to truncate to
    * @return The truncated date/time
    */
-  public static ColumnVector truncate(ColumnView datetime, Scalar format) {
-    return new ColumnVector(truncate(datetime.getNativeView(), format.getScalarHandle(),
-        false, true));
-  }
-
-  /**
-   * Truncate the given date or timestamp to the unit specified by the format string.
-   * <p>
-   * This function is similar to {@link #truncate(ColumnView, ColumnView)} but both the input
-   * date/time and format are scalars instead of columns.
-   *
-   * @param datetime The input date/time
-   * @param format The time component to truncate to
-   * @return The truncated date/time
-   */
-  public static Scalar truncate(Scalar datetime, Scalar format) {
-    return new Scalar(datetime.getType(), truncate(datetime.getScalarHandle(),
-        format.getScalarHandle(), true, true));
+  public static ColumnVector truncate(ColumnView datetime, String format) {
+    return new ColumnVector(truncateWithScalarFormat(datetime.getNativeView(), format));
   }
 
 
@@ -141,6 +110,7 @@ public class DateTimeUtils {
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
 
-  private static native long truncate(long datetimeHandle, long formatHandle,
-                                      boolean datetimeIsScalar, boolean formatIsScalar);
+  private static native long truncateWithColumnFormat(long datetimeHandle, long formatHandle);
+
+  private static native long truncateWithScalarFormat(long datetimeHandle, String format);
 }

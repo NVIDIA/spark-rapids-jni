@@ -284,12 +284,18 @@ struct truncate_timestamp_fn {
   }
 };
 
-template <typename DateTimeT, typename FormatT>
-void check_types(DateTimeT const& datetime, FormatT const& format)
+template <typename DateTimeT>
+void check_type(DateTimeT const& datetime)
 {
   CUDF_EXPECTS(datetime.type().id() == cudf::type_id::TIMESTAMP_DAYS ||
                  datetime.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
                "The date/time input must be either day or microsecond timestamps.");
+}
+
+template <typename DateTimeT, typename FormatT>
+void check_types(DateTimeT const& datetime, FormatT const& format)
+{
+  check_type(datetime);
   CUDF_EXPECTS(format.type().id() == cudf::type_id::STRING,
                "The format input must be of string type.");
 }
@@ -332,8 +338,7 @@ std::unique_ptr<cudf::column> truncate_datetime(DateTimeT const& datetime,
       auto const d_format_ptr = cudf::column_device_view::create(format, stream);
       do_transform(TransformFunc{*d_datetime_ptr, *d_format_ptr});
     } else {
-      auto const fmt_str = static_cast<cudf::string_scalar const&>(format).to_string(stream);
-      auto const fmt = parse_format(fmt_str.data(), static_cast<cudf::size_type>(fmt_str.size()));
+      auto const fmt = parse_format(format.data(), static_cast<cudf::size_type>(format.size()));
       if (fmt == truncation_format::INVALID) {
         return cudf::make_fixed_width_column(
           datetime.type(), output_size, cudf::mask_state::ALL_NULL, stream, mr);
@@ -347,8 +352,7 @@ std::unique_ptr<cudf::column> truncate_datetime(DateTimeT const& datetime,
       auto const d_format_ptr = cudf::column_device_view::create(format, stream);
       do_transform(TransformFunc{d_datetime, *d_format_ptr});
     } else {
-      auto const fmt_str = static_cast<cudf::string_scalar const&>(format).to_string(stream);
-      auto const fmt = parse_format(fmt_str.data(), static_cast<cudf::size_type>(fmt_str.size()));
+      auto const fmt = parse_format(format.data(), static_cast<cudf::size_type>(format.size()));
       if (fmt == truncation_format::INVALID) {
         return cudf::make_fixed_width_column(
           datetime.type(), output_size, cudf::mask_state::ALL_NULL, stream, mr);
@@ -399,51 +403,20 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
   return truncate_dispatcher(datetime, format, size, stream, mr);
 }
 
-std::unique_ptr<cudf::column> truncate(cudf::scalar const& datetime,
-                                       cudf::column_view const& format,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
-{
-  check_types(datetime, format);
-
-  auto const size = format.size();
-  if (!datetime.is_valid() || format.size() == 0 || format.size() == format.null_count()) {
-    return cudf::make_fixed_width_column(
-      datetime.type(), size, cudf::mask_state::ALL_NULL, stream, mr);
-  }
-
-  return truncate_dispatcher(datetime, format, size, stream, mr);
-}
-
 std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
-                                       cudf::scalar const& format,
+                                       std::string const& format,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
-  check_types(datetime, format);
+  check_type(datetime);
 
   auto const size = datetime.size();
-  if (!format.is_valid() || datetime.size() == 0 || datetime.size() == datetime.null_count()) {
+  if (datetime.size() == 0 || datetime.size() == datetime.null_count()) {
     return cudf::make_fixed_width_column(
       datetime.type(), size, cudf::mask_state::ALL_NULL, stream, mr);
   }
 
   return truncate_dispatcher(datetime, format, size, stream, mr);
-}
-
-std::unique_ptr<cudf::scalar> truncate(cudf::scalar const& datetime,
-                                       cudf::scalar const& format,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
-{
-  check_types(datetime, format);
-
-  if (!datetime.is_valid() || !format.is_valid()) {
-    return cudf::make_timestamp_scalar(datetime.type(), stream, mr);
-  }
-
-  auto output_col = truncate_dispatcher(datetime, format, 1, stream, mr);
-  return cudf::get_element(output_col->view(), 0, stream, mr);
 }
 
 }  // namespace detail
@@ -457,26 +430,8 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
   return detail::truncate(datetime, format, stream, mr);
 }
 
-std::unique_ptr<cudf::column> truncate(cudf::scalar const& datetime,
-                                       cudf::column_view const& format,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return detail::truncate(datetime, format, stream, mr);
-}
-
 std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
-                                       cudf::scalar const& format,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return detail::truncate(datetime, format, stream, mr);
-}
-
-std::unique_ptr<cudf::scalar> truncate(cudf::scalar const& datetime,
-                                       cudf::scalar const& format,
+                                       std::string const& format,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {

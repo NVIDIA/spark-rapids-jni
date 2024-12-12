@@ -37,20 +37,8 @@ std::unique_ptr<cudf::column> truncate(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 std::unique_ptr<cudf::column> truncate(
-  cudf::scalar const& datetime,
-  cudf::column_view const& format,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> truncate(
   cudf::column_view const& datetime,
-  cudf::scalar const& format,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::scalar> truncate(
-  cudf::scalar const& datetime,
-  cudf::scalar const& format,
+  std::string const& format,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
