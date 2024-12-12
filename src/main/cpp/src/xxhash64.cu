@@ -34,7 +34,7 @@ namespace {
 using hash_value_type = int64_t;
 using half_size_type  = int32_t;
 
-constexpr int MAX_NESTED_DEPTH = 8;
+constexpr int MAX_STACK_DEPTH = 8;
 
 constexpr __device__ inline int64_t rotate_bits_left_signed(hash_value_type h, int8_t r)
 {
@@ -451,7 +451,7 @@ class device_row_hasher {
       // The default constructor of `col_stack_frame` is deleted, so it can not allocate an array
       // of `col_stack_frame` directly.
       // Instead leverage the byte array to create the col_stack_frame array.
-      alignas(col_stack_frame) char stack_wrapper[sizeof(col_stack_frame) * MAX_NESTED_DEPTH];
+      alignas(col_stack_frame) char stack_wrapper[sizeof(col_stack_frame) * MAX_STACK_DEPTH];
       auto col_stack = reinterpret_cast<col_stack_frame*>(stack_wrapper);
       int stack_size = 0;
 
@@ -535,11 +535,11 @@ void check_nested_depth(cudf::table_view const& input)
 
   for (auto i = 0; i < input.num_columns(); i++) {
     cudf::column_view const& col = input.column(i);
-    CUDF_EXPECTS(get_nested_depth(col) <= MAX_NESTED_DEPTH,
+    CUDF_EXPECTS(get_nested_depth(col) <= MAX_STACK_DEPTH,
                  "The " + std::to_string(i) +
                    "-th column exceeds the maximum allowed nested depth. " +
                    "Current depth: " + std::to_string(get_nested_depth(col)) + ", " +
-                   "Maximum allowed depth: " + std::to_string(MAX_NESTED_DEPTH));
+                   "Maximum allowed depth: " + std::to_string(MAX_STACK_DEPTH));
   }
 }
 
