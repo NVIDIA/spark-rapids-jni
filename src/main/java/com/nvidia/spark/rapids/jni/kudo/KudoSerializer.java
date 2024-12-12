@@ -167,11 +167,17 @@ public class KudoSerializer {
 
   private final Schema schema;
   private final int flattenedColumnCount;
+  private final boolean measureCopyBufferTime;
 
   public KudoSerializer(Schema schema) {
+    this(schema, false);
+  }
+
+  public KudoSerializer(Schema schema, boolean measureCopyBufferTime) {
     requireNonNull(schema, "schema is null");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
+    this.measureCopyBufferTime = measureCopyBufferTime;
   }
 
   /**
@@ -323,8 +329,9 @@ public class KudoSerializer {
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
-      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType,
-          out, metrics);
+      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset,
+          numRows, bufferType,
+          out, metrics, measureCopyBufferTime);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
