@@ -28,7 +28,7 @@ public class RegexRewriteUtils {
  * a literal string followed by a range of characters in the range of start to end, with at least
  * len characters.
  *
- * @param strings Column of strings to check for literal.
+ * @param input Column of strings to check for literal.
  * @param literal UTF-8 encoded string to check in strings column.
  * @param len Minimum number of characters to check after the literal.
  * @param start Minimum UTF-8 codepoint value to check for in the range.
@@ -37,7 +37,7 @@ public class RegexRewriteUtils {
  */
   public static ColumnVector literalRangePattern(ColumnVector input, Scalar literal, int len, int start, int end) {
     assert(input.getType().equals(DType.STRING)) : "column must be a String";
-    return new ColumnVector(literalRangePattern(input.getNativeView(), CudfAccessor.getScalarHandle(literal), len, start, end));
+    return new ColumnVector(literalRangePattern(input.getNativeView(), literal.getScalarHandle(), len, start, end));
   }
 
   private static native long literalRangePattern(long input, long literal, int len, int start, int end);
