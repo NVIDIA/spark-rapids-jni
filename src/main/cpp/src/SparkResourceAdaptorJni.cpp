@@ -300,7 +300,6 @@ class full_thread_state {
   // time)
   long time_retry_running_nanos = 0;
   std::chrono::time_point<std::chrono::steady_clock> block_start;
-  long gpu_memory_allocated_bytes = 0;
 
   // metrics for the current thread
   task_metrics metrics;
@@ -891,6 +890,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   std::condition_variable task_has_woken_condition;
   std::map<long, full_thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
+  long gpu_memory_allocated_bytes = 0;
+
   // Metrics are a little complicated. Spark reports metrics at a task level
   // but we track and collect them at a thread level. The life time of a thread
   // and a task are not tied to each other, and a thread can work on things for
@@ -1376,10 +1377,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           // num_bytes is likely not padded, which could cause slight inaccuracies
           // but for now it shouldn't matter for watermark purposes
           if (!is_for_cpu) {
-            thread->second.gpu_memory_allocated_bytes += num_bytes;
+            gpu_memory_allocated_bytes += num_bytes;
             thread->second.metrics.gpu_max_memory_allocated =
-              std::max(thread->second.metrics.gpu_max_memory_allocated,
-                       thread->second.gpu_memory_allocated_bytes);
+              std::max(thread->second.metrics.gpu_max_memory_allocated, gpu_memory_allocated_bytes);
           }
           break;
         default: break;
@@ -1780,6 +1780,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const thread = threads.find(tid);
     if (thread != threads.end()) {
       log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
+      if (!is_for_cpu) { gpu_memory_allocated_bytes -= num_bytes; }
     } else {
       log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
     }
@@ -1802,7 +1803,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (is_for_cpu == t_state.is_cpu_alloc) {
               transition(t_state, thread_state::THREAD_ALLOC_FREE);
             }
-            if (!is_for_cpu) { t_state.gpu_memory_allocated_bytes -= num_bytes; }
             break;
           default: break;
         }

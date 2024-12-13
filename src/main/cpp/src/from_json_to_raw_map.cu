@@ -15,19 +15,22 @@
  */
 
 #include "from_json_to_raw_map_debug.cuh"
+#include "json_utils.hpp"
 
-#include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
-#include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/utilities/cuda_memcpy.hpp>
+#include <cudf/detail/valid_if.cuh>
+#include <cudf/io/detail/json.hpp>
 #include <cudf/io/detail/tokenize_json.hpp>
-#include <cudf/strings/detail/combine.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
-#include <cudf/strings/string_view.hpp>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/utilities/memory_resource.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/device_buffer.hpp>
+#include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_radix_sort.cuh>
@@ -35,7 +38,6 @@
 #include <thrust/binary_search.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
-#include <thrust/find.h>
 #include <thrust/for_each.h>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -45,7 +47,6 @@
 #include <thrust/scan.h>
 #include <thrust/sequence.h>
 #include <thrust/transform.h>
-#include <thrust/transform_reduce.h>
 
 #include <limits>
 
@@ -55,104 +56,56 @@ using namespace cudf::io::json;
 
 namespace {
 
-// Unify the input json strings by:
-// 1. Append one comma character (',') to the end of each input string, except the last one.
-// 2. Concatenate all input strings into one string.
-// 3. Add a pair of bracket characters ('[' and ']') to the beginning and the end of the output.
-rmm::device_uvector<char> unify_json_strings(cudf::strings_column_view const& input,
-                                             rmm::cuda_stream_view stream)
+std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
 {
-  if (input.is_empty()) {
-    return cudf::detail::make_device_uvector_async<char>(
-      std::vector<char>{'[', ']'}, stream, rmm::mr::get_current_device_resource());
-  }
-
-  auto const d_strings  = cudf::column_device_view::create(input.parent(), stream);
-  auto const chars_size = input.chars_size(stream);
-  auto const output_size =
-    2l +                                            // two extra bracket characters '[' and ']'
-    static_cast<int64_t>(chars_size) +
-    static_cast<int64_t>(input.size() - 1) +        // append `,` character between input rows
-    static_cast<int64_t>(input.null_count()) * 2l;  // replace null with "{}"
-  // TODO: This assertion eventually needs to be removed.
-  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
-  CUDF_EXPECTS(output_size <= static_cast<int64_t>(std::numeric_limits<cudf::size_type>::max()),
-               "The input json column is too large and causes overflow.");
-
-  auto const joined_input = cudf::strings::detail::join_strings(
-    input,
-    cudf::string_scalar(","),   // append `,` character between the input rows
-    cudf::string_scalar("{}"),  // replacement for null rows
-    stream,
-    rmm::mr::get_current_device_resource());
-  auto const joined_input_scv        = cudf::strings_column_view{*joined_input};
-  auto const joined_input_size_bytes = joined_input_scv.chars_size(stream);
-  // TODO: This assertion requires a stream synchronization, may want to remove at some point.
-  // See https://github.com/NVIDIA/spark-rapids-jni/issues/1707
-  CUDF_EXPECTS(joined_input_size_bytes + 2 == output_size, "Incorrect output size computation.");
-
-  // We want to concatenate 3 strings: "[" + joined_input + "]".
-  // For efficiency, let's use memcpy instead of `cudf::strings::detail::concatenate`.
-  auto output = rmm::device_uvector<char>(joined_input_size_bytes + 2, stream);
-  CUDF_CUDA_TRY(cudaMemsetAsync(output.data(), static_cast<int>('['), 1, stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(output.data() + 1,
-                                joined_input_scv.chars_begin(stream),
-                                joined_input_size_bytes,
-                                cudaMemcpyDefault,
-                                stream.value()));
-  CUDF_CUDA_TRY(cudaMemsetAsync(
-    output.data() + joined_input_size_bytes + 1, static_cast<int>(']'), 1, stream.value()));
-
-#ifdef DEBUG_FROM_JSON
-  print_debug<char, char>(output, "Processed json string", "", stream);
-#endif
-  return output;
+  auto keys   = cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
+  auto values = cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
+  std::vector<std::unique_ptr<cudf::column>> out_keys_vals;
+  out_keys_vals.emplace_back(std::move(keys));
+  out_keys_vals.emplace_back(std::move(values));
+  auto child =
+    cudf::make_structs_column(0, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
+  auto offsets = cudf::make_empty_column(cudf::data_type(cudf::type_id::INT32));
+  return cudf::make_lists_column(
+    0, std::move(offsets), std::move(child), 0, rmm::device_buffer{}, stream, mr);
 }
 
-// Check and throw exception if there is any parsing error.
-void throw_if_error(rmm::device_uvector<char> const& input_json,
-                    rmm::device_uvector<PdaTokenT> const& tokens,
-                    rmm::device_uvector<SymbolOffsetT> const& token_indices,
-                    rmm::cuda_stream_view stream)
+// Concatenating all input strings into one string, for which each input string is appended by a
+// delimiter character that does not exist in the input column.
+std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_strings(
+  cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
 {
-  auto const error_count =
-    thrust::count(rmm::exec_policy(stream), tokens.begin(), tokens.end(), token_t::ErrorBegin);
+  auto const default_mr = cudf::get_current_device_resource();
+  auto [concatenated_buff, delimiter, should_be_nullified] =
+    concat_json(input, /*nullify_invalid_rows*/ true, stream, default_mr);
 
-  if (error_count > 0) {
-    auto const error_location =
-      thrust::find(rmm::exec_policy(stream), tokens.begin(), tokens.end(), token_t::ErrorBegin);
-    SymbolOffsetT error_index;
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(&error_index,
-                      token_indices.data() + thrust::distance(tokens.begin(), error_location),
-                      sizeof(SymbolOffsetT),
-                      cudaMemcpyDeviceToHost,
-                      stream.value()));
-    stream.synchronize();
-
-    constexpr SymbolOffsetT extension = 10u;
-
-    // Warning: SymbolOffsetT is unsigned type thus we need to be careful with subtractions.
-    auto const begin_print_idx =
-      error_index > extension ? error_index - extension : SymbolOffsetT{0};
-    auto const end_print_idx =
-      std::min(error_index + extension, static_cast<SymbolOffsetT>(input_json.size()));
-    auto const print_size   = end_print_idx - begin_print_idx;
-    auto const h_input_json = cudf::detail::make_host_vector_sync(
-      cudf::device_span<char const>{input_json.data() + begin_print_idx, print_size}, stream);
-
-    std::cerr << "Substring in the range [" + std::to_string(begin_print_idx) + ", " +
-                   std::to_string(end_print_idx) + "]" + " of the input (invalid) json:\n";
-    std::cerr << std::string(h_input_json.data(), h_input_json.size()) << std::endl;
-
-    CUDF_FAIL("JSON Parser encountered an invalid format at location " +
-              std::to_string(error_index));
+  if (concatenated_buff->size() == 0) {
+    return {std::move(*concatenated_buff), delimiter, std::move(should_be_nullified)};
   }
+
+  // Append the delimiter to the end of the concatenated buffer.
+  // This is to fix a bug when the last string is invalid
+  // (https://github.com/rapidsai/cudf/issues/16999).
+  // The bug was fixed in libcudf's JSON reader by the same way like this.
+  auto unified_buff = rmm::device_buffer(concatenated_buff->size() + 1, stream, default_mr);
+  CUDF_CUDA_TRY(cudaMemcpyAsync(unified_buff.data(),
+                                concatenated_buff->data(),
+                                concatenated_buff->size(),
+                                cudaMemcpyDefault,
+                                stream));
+  cudf::detail::cuda_memcpy_async(
+    cudf::device_span<char>(static_cast<char*>(unified_buff.data()) + concatenated_buff->size(),
+                            1u),
+    cudf::host_span<char const>(&delimiter, 1, false),
+    stream);
+
+  return {std::move(unified_buff), delimiter, std::move(should_be_nullified)};
 }
 
 // Check if a token is a json node.
 struct is_node {
-  __host__ __device__ bool operator()(PdaTokenT const token) const
+  __host__ __device__ bool operator()(PdaTokenT token) const
   {
     switch (token) {
       case token_t::StructBegin:
@@ -170,8 +123,8 @@ struct is_node {
 // The top json node (top json object level) has level 0.
 // Each row in the input column should have levels starting from 1.
 // This is copied from cudf's `json_tree.cu`.
-rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
-                                                    rmm::device_uvector<PdaTokenT> const& tokens,
+rmm::device_uvector<TreeDepthT> compute_node_levels(std::size_t num_nodes,
+                                                    cudf::device_span<PdaTokenT const> tokens,
                                                     rmm::cuda_stream_view stream)
 {
   auto token_levels = rmm::device_uvector<TreeDepthT>(tokens.size(), stream);
@@ -204,8 +157,10 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
       [does_push, does_pop] __device__(PdaTokenT const token) -> cudf::size_type {
         return does_push(token) - does_pop(token);
       }));
-  thrust::exclusive_scan(
-    rmm::exec_policy(stream), push_pop_it, push_pop_it + tokens.size(), token_levels.begin());
+  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
+                         push_pop_it,
+                         push_pop_it + tokens.size(),
+                         token_levels.begin());
 
   auto node_levels    = rmm::device_uvector<TreeDepthT>(num_nodes, stream);
   auto const copy_end = cudf::detail::copy_if_safe(token_levels.begin(),
@@ -215,7 +170,7 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
                                                    is_node{},
                                                    stream);
   CUDF_EXPECTS(thrust::distance(node_levels.begin(), copy_end) == num_nodes,
-               "Node level count mismatch");
+               "Node level count mismatch.");
 
 #ifdef DEBUG_FROM_JSON
   print_debug(node_levels, "Node levels", ", ", stream);
@@ -225,7 +180,7 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(int64_t num_nodes,
 
 // Compute the map from nodes to their indices in the list of all tokens.
 rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
-  int64_t num_nodes, rmm::device_uvector<PdaTokenT> const& tokens, rmm::cuda_stream_view stream)
+  std::size_t num_nodes, cudf::device_span<PdaTokenT const> tokens, rmm::cuda_stream_view stream)
 {
   auto node_token_ids   = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
@@ -236,7 +191,7 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
                                                    is_node{},
                                                    stream);
   CUDF_EXPECTS(thrust::distance(node_token_ids.begin(), copy_end) == num_nodes,
-               "Invalid computation for node-to-token-index map");
+               "Invalid computation for node-to-token-index map.");
 
 #ifdef DEBUG_FROM_JSON
   print_map_debug(node_token_ids, "Node-to-token-index map", stream);
@@ -247,7 +202,7 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
 // This is copied from cudf's `json_tree.cu`.
 template <typename KeyType, typename IndexType = cudf::size_type>
 std::pair<rmm::device_uvector<KeyType>, rmm::device_uvector<IndexType>> stable_sorted_key_order(
-  rmm::device_uvector<KeyType> const& keys, rmm::cuda_stream_view stream)
+  cudf::device_span<KeyType const> keys, rmm::cuda_stream_view stream)
 {
   // Buffers used for storing intermediate results during sorting.
   rmm::device_uvector<KeyType> keys_buffer1(keys.size(), stream);
@@ -257,8 +212,8 @@ std::pair<rmm::device_uvector<KeyType>, rmm::device_uvector<IndexType>> stable_s
   cub::DoubleBuffer<KeyType> keys_buffer(keys_buffer1.data(), keys_buffer2.data());
   cub::DoubleBuffer<IndexType> order_buffer(order_buffer1.data(), order_buffer2.data());
 
-  thrust::copy(rmm::exec_policy(stream), keys.begin(), keys.end(), keys_buffer1.begin());
-  thrust::sequence(rmm::exec_policy(stream), order_buffer1.begin(), order_buffer1.end());
+  thrust::copy(rmm::exec_policy_nosync(stream), keys.begin(), keys.end(), keys_buffer1.begin());
+  thrust::sequence(rmm::exec_policy_nosync(stream), order_buffer1.begin(), order_buffer1.end());
 
   size_t temp_storage_bytes = 0;
   cub::DeviceRadixSort::SortPairs(
@@ -280,15 +235,15 @@ std::pair<rmm::device_uvector<KeyType>, rmm::device_uvector<IndexType>> stable_s
 }
 
 // This is copied from cudf's `json_tree.cu`.
-void propagate_parent_to_siblings(rmm::device_uvector<TreeDepthT> const& node_levels,
-                                  rmm::device_uvector<NodeIndexT>& parent_node_ids,
+void propagate_parent_to_siblings(cudf::device_span<TreeDepthT const> node_levels,
+                                  cudf::device_span<NodeIndexT> parent_node_ids,
                                   rmm::cuda_stream_view stream)
 {
   auto const [sorted_node_levels, sorted_order] = stable_sorted_key_order(node_levels, stream);
 
   // Instead of gather, using permutation_iterator, which is ~17% faster.
   thrust::inclusive_scan_by_key(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     sorted_node_levels.begin(),
     sorted_node_levels.end(),
     thrust::make_permutation_iterator(parent_node_ids.begin(), sorted_order.begin()),
@@ -299,13 +254,12 @@ void propagate_parent_to_siblings(rmm::device_uvector<TreeDepthT> const& node_le
 
 // This is copied from cudf's `json_tree.cu`.
 rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
-  int64_t num_nodes,
-  rmm::device_uvector<PdaTokenT> const& tokens,
-  rmm::device_uvector<NodeIndexT> const& node_token_ids,
+  cudf::device_span<PdaTokenT const> tokens,
+  cudf::device_span<NodeIndexT const> node_token_ids,
   rmm::cuda_stream_view stream)
 {
-  auto const first_childs_parent_token_id = cuda::proclaim_return_type<NodeIndexT>(
-    [tokens = tokens.begin()] __device__(auto i) -> NodeIndexT {
+  auto const first_childs_parent_token_id =
+    cuda::proclaim_return_type<NodeIndexT>([tokens] __device__(auto i) -> NodeIndexT {
       if (i <= 0) { return -1; }
       if (tokens[i - 1] == token_t::StructBegin || tokens[i - 1] == token_t::ListBegin) {
         return i - 1;
@@ -319,9 +273,10 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
       }
     });
 
+  auto const num_nodes = node_token_ids.size();
   auto parent_node_ids = rmm::device_uvector<NodeIndexT>(num_nodes, stream);
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     node_token_ids.begin(),
     node_token_ids.end(),
     parent_node_ids.begin(),
@@ -345,17 +300,18 @@ rmm::device_uvector<NodeIndexT> compute_parent_node_ids(
   return parent_node_ids;
 }
 
+// Special values to denote if a node is a key or value to extract for the output.
 constexpr int8_t key_sentinel{1};
 constexpr int8_t value_sentinel{2};
 
 // Check for each node if it is a key or a value field.
 rmm::device_uvector<int8_t> check_key_or_value_nodes(
-  rmm::device_uvector<NodeIndexT> const& parent_node_ids, rmm::cuda_stream_view stream)
+  cudf::device_span<NodeIndexT const> parent_node_ids, rmm::cuda_stream_view stream)
 {
   auto key_or_value       = rmm::device_uvector<int8_t>(parent_node_ids.size(), stream);
   auto const transform_it = thrust::counting_iterator<int>(0);
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     transform_it,
     transform_it + parent_node_ids.size(),
     key_or_value.begin(),
@@ -363,11 +319,11 @@ rmm::device_uvector<int8_t> check_key_or_value_nodes(
       [key_sentinel   = key_sentinel,
        value_sentinel = value_sentinel,
        parent_ids     = parent_node_ids.begin()] __device__(auto const node_id) -> int8_t {
-        if (parent_ids[node_id] > 0) {
+        if (parent_ids[node_id] >= 0) {
           auto const grand_parent = parent_ids[parent_ids[node_id]];
-          if (grand_parent == 0) {
+          if (grand_parent < 0) {
             return key_sentinel;
-          } else if (parent_ids[grand_parent] == 0) {
+          } else if (parent_ids[grand_parent] < 0) {
             return value_sentinel;
           }
         }
@@ -381,10 +337,10 @@ rmm::device_uvector<int8_t> check_key_or_value_nodes(
   return key_or_value;
 }
 
-// Convert token indices to node ranges for each valid node.
+// Convert token positions to node ranges for each valid node.
 struct node_ranges_fn {
   cudf::device_span<PdaTokenT const> tokens;
-  cudf::device_span<SymbolOffsetT const> token_indices;
+  cudf::device_span<SymbolOffsetT const> token_positions;
   cudf::device_span<NodeIndexT const> node_token_ids;
   cudf::device_span<NodeIndexT const> parent_node_ids;
   cudf::device_span<int8_t const> key_or_value;
@@ -431,7 +387,7 @@ struct node_ranges_fn {
         };
       });
 
-    auto const get_token_index = cuda::proclaim_return_type<SymbolOffsetT>(
+    auto const get_token_position = cuda::proclaim_return_type<SymbolOffsetT>(
       [include_quote_char = include_quote_char] __device__(PdaTokenT const token,
                                                            SymbolOffsetT const token_index) {
         constexpr SymbolOffsetT quote_char_size = 1;
@@ -456,18 +412,18 @@ struct node_ranges_fn {
     cudf_assert(is_begin_of_section(token) && "Invalid node category.");
 
     // The section from the original JSON input that this token demarcates.
-    auto const range_begin = get_token_index(token, token_indices[token_idx]);
+    auto const range_begin = get_token_position(token, token_positions[token_idx]);
     auto range_end         = range_begin + 1;  // non-leaf, non-field nodes ignore this value.
     if ((token_idx + 1) < tokens.size() && end_of_partner(token) == tokens[token_idx + 1]) {
       // Update the range_end for this pair of tokens
-      range_end = get_token_index(tokens[token_idx + 1], token_indices[token_idx + 1]);
+      range_end = get_token_position(tokens[token_idx + 1], token_positions[token_idx + 1]);
     } else {
       auto nested_range_value = nested_node_to_value(token);  // iterate until this is zero
       auto end_idx            = token_idx + 1;
       while (end_idx < tokens.size()) {
         nested_range_value += nested_node_to_value(tokens[end_idx]);
         if (nested_range_value == 0) {
-          range_end = get_token_index(tokens[end_idx], token_indices[end_idx]) + 1;
+          range_end = get_token_position(tokens[end_idx], token_positions[end_idx]) + 1;
           break;
         }
         ++end_idx;
@@ -479,26 +435,26 @@ struct node_ranges_fn {
   }
 };
 
-// Compute index range for each node.
+// Compute position range for each node.
 // These ranges identify positions to extract nodes from the unified json string.
 rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ranges(
-  int64_t num_nodes,
-  rmm::device_uvector<PdaTokenT> const& tokens,
-  rmm::device_uvector<SymbolOffsetT> const& token_indices,
-  rmm::device_uvector<NodeIndexT> const& node_token_ids,
-  rmm::device_uvector<NodeIndexT> const& parent_node_ids,
-  rmm::device_uvector<int8_t> const& key_or_value,
+  cudf::device_span<PdaTokenT const> tokens,
+  cudf::device_span<SymbolOffsetT const> token_positions,
+  cudf::device_span<NodeIndexT const> node_token_ids,
+  cudf::device_span<NodeIndexT const> parent_node_ids,
+  cudf::device_span<int8_t const> key_or_value,
   rmm::cuda_stream_view stream)
 {
+  auto const num_nodes = node_token_ids.size();
   auto node_ranges =
     rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream);
   auto const transform_it = thrust::counting_iterator<int>(0);
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     transform_it,
     transform_it + num_nodes,
     node_ranges.begin(),
-    node_ranges_fn{tokens, token_indices, node_token_ids, parent_node_ids, key_or_value});
+    node_ranges_fn{tokens, token_positions, node_token_ids, parent_node_ids, key_or_value});
 
 #ifdef DEBUG_FROM_JSON
   print_pair_debug(node_ranges, "Node ranges", stream);
@@ -510,14 +466,14 @@ rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> compute_node_ran
 // This both calculates the output size and executes the substring.
 // No bound check is performed, assuming that the substring bounds are all valid.
 struct substring_fn {
-  cudf::device_span<char const> const d_string;
-  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> const d_ranges;
+  cudf::device_span<char const> d_string;
+  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> d_ranges;
 
   cudf::size_type* d_sizes;
   char* d_chars;
   cudf::detail::input_offsetalator d_offsets;
 
-  __device__ void operator()(cudf::size_type const idx)
+  __device__ void operator()(cudf::size_type idx)
   {
     auto const range = d_ranges[idx];
     auto const size  = range.second - range.first;
@@ -531,52 +487,40 @@ struct substring_fn {
 
 // Extract key-value string pairs from the input json string.
 std::unique_ptr<cudf::column> extract_keys_or_values(
-  bool extract_key,
-  int64_t num_nodes,
-  rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>> const& node_ranges,
-  rmm::device_uvector<int8_t> const& key_or_value,
-  rmm::device_uvector<char> const& unified_json_buff,
+  int8_t key_value_sentinel,
+  cudf::device_span<thrust::pair<SymbolOffsetT, SymbolOffsetT> const> node_ranges,
+  cudf::device_span<int8_t const> key_or_value,
+  cudf::device_span<char const> input_json,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  auto const is_key = cuda::proclaim_return_type<bool>(
-    [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
-      return key_or_value[node_id] == key_sentinel;
+  auto const is_key_or_value = cuda::proclaim_return_type<bool>(
+    [key_or_value, key_value_sentinel] __device__(auto const node_id) {
+      return key_or_value[node_id] == key_value_sentinel;
     });
 
-  auto const is_value = cuda::proclaim_return_type<bool>(
-    [key_or_value = key_or_value.begin()] __device__(auto const node_id) {
-      return key_or_value[node_id] == value_sentinel;
-    });
-
-  auto extract_ranges =
-    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(num_nodes, stream, mr);
-  auto const stencil_it  = thrust::make_counting_iterator(0);
-  auto const range_end   = extract_key ? cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                                  node_ranges.end(),
-                                                                  stencil_it,
-                                                                  extract_ranges.begin(),
-                                                                  is_key,
-                                                                  stream)
-                                       : cudf::detail::copy_if_safe(node_ranges.begin(),
-                                                                  node_ranges.end(),
-                                                                  stencil_it,
-                                                                  extract_ranges.begin(),
-                                                                  is_value,
-                                                                  stream);
-  auto const num_extract = thrust::distance(extract_ranges.begin(), range_end);
+  auto extracted_ranges =
+    rmm::device_uvector<thrust::pair<SymbolOffsetT, SymbolOffsetT>>(node_ranges.size(), stream, mr);
+  auto const range_end   = cudf::detail::copy_if_safe(node_ranges.begin(),
+                                                    node_ranges.end(),
+                                                    thrust::make_counting_iterator(0),
+                                                    extracted_ranges.begin(),
+                                                    is_key_or_value,
+                                                    stream);
+  auto const num_extract = thrust::distance(extracted_ranges.begin(), range_end);
+  if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
-    substring_fn{unified_json_buff, extract_ranges}, num_extract, stream, mr);
+    substring_fn{input_json, extracted_ranges}, num_extract, stream, mr);
   return cudf::make_strings_column(
     num_extract, std::move(offsets), chars.release(), 0, rmm::device_buffer{});
 }
 
 // Compute the offsets for the final lists of Struct<String,String>.
-rmm::device_uvector<cudf::size_type> compute_list_offsets(
+std::unique_ptr<cudf::column> compute_list_offsets(
   cudf::size_type n_lists,
-  rmm::device_uvector<NodeIndexT> const& parent_node_ids,
-  rmm::device_uvector<int8_t> const& key_or_value,
+  cudf::device_span<NodeIndexT const> parent_node_ids,
+  cudf::device_span<int8_t const> key_or_value,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -584,15 +528,15 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
   // These object nodes are given as one row of the input json strings column.
   auto node_child_counts = rmm::device_uvector<NodeIndexT>(parent_node_ids.size(), stream);
 
-  // For the nodes having parent_id == 0 (they are json object given by one input row), set their
-  // child counts to zero. Otherwise, set child counts to `-1` (a sentinel number).
+  // For the nodes having parent_id < 0 (they are json object given by one input row), set their
+  // child counts to zero. Otherwise, set child counts to a negative sentinel number.
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     parent_node_ids.begin(),
     parent_node_ids.end(),
     node_child_counts.begin(),
     cuda::proclaim_return_type<NodeIndexT>([] __device__(auto const parent_id) -> NodeIndexT {
-      return parent_id == 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
+      return parent_id < 0 ? 0 : std::numeric_limits<NodeIndexT>::lowest();
     }));
 
   auto const is_key = cuda::proclaim_return_type<bool>(
@@ -602,7 +546,7 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
 
   // Count the number of keys for each json object using `atomicAdd`.
   auto const transform_it = thrust::counting_iterator<int>(0);
-  thrust::for_each(rmm::exec_policy(stream),
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    transform_it,
                    transform_it + parent_node_ids.size(),
                    [is_key,
@@ -630,73 +574,206 @@ rmm::device_uvector<cudf::size_type> compute_list_offsets(
   print_debug(list_offsets, "Output list sizes (except the last one)", ", ", stream);
 #endif
 
-  thrust::exclusive_scan(
-    rmm::exec_policy(stream), list_offsets.begin(), list_offsets.end(), list_offsets.begin());
+  thrust::exclusive_scan(rmm::exec_policy_nosync(stream),
+                         list_offsets.begin(),
+                         list_offsets.end(),
+                         list_offsets.begin());
 #ifdef DEBUG_FROM_JSON
   print_debug(list_offsets, "Output list offsets", ", ", stream);
 #endif
-  return list_offsets;
+  return std::make_unique<cudf::column>(std::move(list_offsets), rmm::device_buffer{}, 0);
+}
+
+// If a JSON line is invalid, the tokens corresponding to that line are output as
+// [StructBegin, StructEnd] but their locations in the unified JSON string are all set to 0.
+struct is_invalid_struct_begin {
+  cudf::device_span<PdaTokenT const> tokens;
+  cudf::device_span<NodeIndexT const> node_token_ids;
+  cudf::device_span<SymbolOffsetT const> token_positions;
+
+  __device__ bool operator()(int node_idx) const
+  {
+    auto const node_token_id = node_token_ids[node_idx];
+    auto const node_token    = tokens[node_token_id];
+    if (node_token != token_t::StructBegin) { return false; }
+
+    // The next token in the token stream after node_token.
+    // Since the token stream has been post process, there should always be the more token.
+    auto const next_token = tokens[node_token_id + 1];
+    if (next_token != token_t::StructEnd) { return false; }
+
+    return token_positions[node_token_id] == 0 && token_positions[node_token_id + 1] == 0;
+  }
+};
+
+// A line begin with a StructBegin token which does not have parent.
+struct is_line_begin {
+  cudf::device_span<PdaTokenT const> tokens;
+  cudf::device_span<NodeIndexT const> node_token_ids;
+  cudf::device_span<NodeIndexT const> parent_node_ids;
+
+  __device__ bool operator()(int node_idx) const
+  {
+    return tokens[node_token_ids[node_idx]] == token_t::StructBegin &&
+           parent_node_ids[node_idx] < 0;
+  }
+};
+
+std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
+  cudf::size_type num_rows,
+  std::unique_ptr<cudf::column> const& should_be_nullified,
+  cudf::device_span<PdaTokenT const> tokens,
+  cudf::device_span<SymbolOffsetT const> token_positions,
+  cudf::device_span<NodeIndexT const> node_token_ids,
+  cudf::device_span<NodeIndexT const> parent_node_ids,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
+{
+  auto const num_nodes = node_token_ids.size();
+
+  // To store indices of the StructBegin nodes that are detected as of invalid JSON objects.
+  rmm::device_uvector<NodeIndexT> invalid_indices(num_nodes, stream);
+
+  auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
+  auto const invalid_copy_end =
+    cudf::detail::copy_if_safe(node_id_it,
+                               node_id_it + node_token_ids.size(),
+                               invalid_indices.begin(),
+                               is_invalid_struct_begin{tokens, node_token_ids, token_positions},
+                               stream);
+  auto const num_invalid = thrust::distance(invalid_indices.begin(), invalid_copy_end);
+#ifdef DEBUG_FROM_JSON
+  print_debug(invalid_indices,
+              "Invalid StructBegin nodes' indices (size = " + std::to_string(num_invalid) + ")",
+              ", ",
+              stream);
+#endif
+
+  // In addition to `should_be_nullified` which identified the null and empty rows,
+  // we also need to identify the rows containing invalid JSON objects.
+  if (num_invalid > 0) {
+    // Build a list of StructBegin tokens that start a line.
+    // We must have such list having size equal to the number of original input JSON strings.
+    rmm::device_uvector<NodeIndexT> line_begin_indices(num_nodes, stream);
+    auto const line_begin_copy_end =
+      cudf::detail::copy_if_safe(node_id_it,
+                                 node_id_it + node_token_ids.size(),
+                                 line_begin_indices.begin(),
+                                 is_line_begin{tokens, node_token_ids, parent_node_ids},
+                                 stream);
+    auto const num_line_begin = thrust::distance(line_begin_indices.begin(), line_begin_copy_end);
+    CUDF_EXPECTS(num_line_begin == num_rows, "Incorrect count of JSON objects.");
+#ifdef DEBUG_FROM_JSON
+    print_debug(line_begin_indices,
+                "Line begin StructBegin indices (size = " + std::to_string(num_line_begin) + ")",
+                ", ",
+                stream);
+#endif
+
+    // Scatter the indices of the invalid StructBegin nodes into `should_be_nullified`.
+    thrust::for_each(rmm::exec_policy_nosync(stream),
+                     invalid_indices.begin(),
+                     invalid_indices.begin() + num_invalid,
+                     [should_be_nullified = should_be_nullified->mutable_view().begin<bool>(),
+                      line_begin_indices  = line_begin_indices.begin(),
+                      num_rows] __device__(auto node_idx) {
+                       auto const row_idx = thrust::lower_bound(thrust::seq,
+                                                                line_begin_indices,
+                                                                line_begin_indices + num_rows,
+                                                                node_idx) -
+                                            line_begin_indices;
+                       should_be_nullified[row_idx] = true;
+                     });
+  }
+
+  auto const valid_it          = should_be_nullified->view().begin<bool>();
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    valid_it, valid_it + should_be_nullified->size(), thrust::logical_not{}, stream, mr);
+  return {null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr}, null_count};
 }
 
 }  // namespace
 
 std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view const& input,
+                                                   bool normalize_single_quotes,
+                                                   bool allow_leading_zeros,
+                                                   bool allow_nonnumeric_numbers,
+                                                   bool allow_unquoted_control,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  // Firstly, concatenate all the input json strings into one giant input json string.
+  if (input.is_empty()) { return make_empty_map(stream, mr); }
+
+  // Firstly, concatenate all the input json strings into one buffer.
   // When testing/debugging, the output can be validated using
   // https://jsonformatter.curiousconcept.com.
-  auto const unified_json_buff = unify_json_strings(input, stream);
+  auto [concat_json_buff, delimiter, should_be_nullified] = unify_json_strings(input, stream);
+  auto concat_buff_wrapper =
+    cudf::io::datasource::owning_buffer<rmm::device_buffer>(std::move(concat_json_buff));
+  if (normalize_single_quotes) {
+    cudf::io::json::detail::normalize_single_quotes(
+      concat_buff_wrapper, delimiter, stream, cudf::get_current_device_resource_ref());
+  }
+  auto const preprocessed_input = cudf::device_span<char const>(
+    reinterpret_cast<char const*>(concat_buff_wrapper.data()), concat_buff_wrapper.size());
 
   // Tokenize the input json strings.
   static_assert(sizeof(SymbolT) == sizeof(char),
                 "Invalid internal data for nested json tokenizer.");
-  auto const [tokens, token_indices] = cudf::io::json::detail::get_token_stream(
-    cudf::device_span<char const>{unified_json_buff.data(), unified_json_buff.size()},
-    cudf::io::json_reader_options{},
+  auto const [tokens, token_positions] = cudf::io::json::detail::get_token_stream(
+    preprocessed_input,
+    cudf::io::json_reader_options_builder{}
+      .lines(true)
+      .normalize_whitespace(false)  // don't need it
+      .experimental(true)
+      .mixed_types_as_string(true)
+      .recovery_mode(cudf::io::json_recovery_mode_t::RECOVER_WITH_NULL)
+      .strict_validation(true)
+      // specifying parameters
+      .delimiter(delimiter)
+      .numeric_leading_zeros(allow_leading_zeros)
+      .nonnumeric_numbers(allow_nonnumeric_numbers)
+      .unquoted_control_chars(allow_unquoted_control)
+      .build(),
     stream,
-    rmm::mr::get_current_device_resource());
+    cudf::get_current_device_resource());
 
 #ifdef DEBUG_FROM_JSON
   print_debug(tokens, "Tokens", ", ", stream);
-  print_debug(token_indices, "Token indices", ", ", stream);
+  print_debug(token_positions, "Token positions", ", ", stream);
+  std::cerr << "normalize_single_quotes: " << normalize_single_quotes << std::endl;
+  std::cerr << "allow_leading_zeros: " << allow_leading_zeros << std::endl;
+  std::cerr << "allow_nonnumeric_numbers: " << allow_nonnumeric_numbers << std::endl;
+  std::cerr << "allow_unquoted_control: " << allow_unquoted_control << std::endl;
 #endif
 
-  // Make sure there is no error during parsing.
-  throw_if_error(unified_json_buff, tokens, token_indices, stream);
-
   auto const num_nodes =
-    thrust::count_if(rmm::exec_policy(stream), tokens.begin(), tokens.end(), is_node{});
+    thrust::count_if(rmm::exec_policy_nosync(stream), tokens.begin(), tokens.end(), is_node{});
 
   // Compute the map from nodes to their indices in the list of all tokens.
   auto const node_token_ids = compute_node_to_token_index_map(num_nodes, tokens, stream);
 
   // A map from each node to the index of its parent node.
-  auto const parent_node_ids = compute_parent_node_ids(num_nodes, tokens, node_token_ids, stream);
+  auto const parent_node_ids = compute_parent_node_ids(tokens, node_token_ids, stream);
 
   // Check for each node if it is a map key or a map value to extract.
-  auto const key_or_value_node = check_key_or_value_nodes(parent_node_ids, stream);
+  auto const is_key_or_value_node = check_key_or_value_nodes(parent_node_ids, stream);
 
   // Compute index range for each node.
   // These ranges identify positions to extract nodes from the unified json string.
   auto const node_ranges = compute_node_ranges(
-    num_nodes, tokens, token_indices, node_token_ids, parent_node_ids, key_or_value_node, stream);
-
-  //
-  // From below are variables for returning output.
-  //
+    tokens, token_positions, node_token_ids, parent_node_ids, is_key_or_value_node, stream);
 
   auto extracted_keys = extract_keys_or_values(
-    true /*key*/, num_nodes, node_ranges, key_or_value_node, unified_json_buff, stream, mr);
+    key_sentinel, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
   auto extracted_values = extract_keys_or_values(
-    false /*value*/, num_nodes, node_ranges, key_or_value_node, unified_json_buff, stream, mr);
+    value_sentinel, node_ranges, is_key_or_value_node, preprocessed_input, stream, mr);
   CUDF_EXPECTS(extracted_keys->size() == extracted_values->size(),
                "Invalid key-value pair extraction.");
 
   // Compute the offsets of the final output lists column.
   auto list_offsets =
-    compute_list_offsets(input.size(), parent_node_ids, key_or_value_node, stream, mr);
+    compute_list_offsets(input.size(), parent_node_ids, is_key_or_value_node, stream, mr);
 
 #ifdef DEBUG_FROM_JSON
   print_output_spark_map(list_offsets, extracted_keys, extracted_values, stream);
@@ -709,15 +786,27 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
   auto structs_col = cudf::make_structs_column(
     num_pairs, std::move(out_keys_vals), 0, rmm::device_buffer{}, stream, mr);
 
-  auto offsets = std::make_unique<cudf::column>(std::move(list_offsets), rmm::device_buffer{}, 0);
+  // Do not use `cudf::make_lists_column` since we do not need to call `purge_nonempty_nulls`
+  // on the children columns as they do not have non-empty nulls.
+  std::vector<std::unique_ptr<cudf::column>> list_children;
+  list_children.emplace_back(std::move(list_offsets));
+  list_children.emplace_back(std::move(structs_col));
 
-  return cudf::make_lists_column(input.size(),
-                                 std::move(offsets),
-                                 std::move(structs_col),
-                                 input.null_count(),
-                                 cudf::detail::copy_bitmask(input.parent(), stream, mr),
-                                 stream,
-                                 mr);
+  auto [null_mask, null_count] = create_null_mask(input.size(),
+                                                  should_be_nullified,
+                                                  tokens,
+                                                  token_positions,
+                                                  node_token_ids,
+                                                  parent_node_ids,
+                                                  stream,
+                                                  mr);
+
+  return std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::LIST},
+                                        input.size(),
+                                        rmm::device_buffer{},
+                                        std::move(null_mask),
+                                        null_count,
+                                        std::move(list_children));
 }
 
 }  // namespace spark_rapids_jni
