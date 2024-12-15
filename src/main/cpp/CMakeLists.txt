@@ -193,6 +193,7 @@ add_library(
   src/DateTimeRebaseJni.cpp
   src/DecimalUtilsJni.cpp
   src/GpuTimeZoneDBJni.cpp
+  src/HLLPPHostUDFJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
@@ -205,7 +206,6 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
-  src/HLLPP.cu
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
@@ -219,6 +219,8 @@ add_library(
   src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
+  src/hllpp_host_udf.cu
+  src/hllpp.cu
   src/json_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
