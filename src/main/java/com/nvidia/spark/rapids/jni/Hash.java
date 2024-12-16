@@ -22,14 +22,14 @@ import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
+  static {
+    NativeDepsLoader.loadNativeDeps();
+  }
+
   // there doesn't appear to be a useful constant in spark to reference. this could break.
   static final long DEFAULT_XXHASH64_SEED = 42;
 
   public static final int MAX_STACK_DEPTH = getMaxStackDepth();
-
-  static {
-    NativeDepsLoader.loadNativeDeps();
-  }
 
   /**
    * Create a new vector containing spark's 32-bit murmur3 hash of each row in the table.
