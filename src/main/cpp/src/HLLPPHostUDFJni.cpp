@@ -20,28 +20,22 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_createHLLPPHostUDF(
-    JNIEnv *env, jclass, jint agg_type, int precision) {
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_createHLLPPHostUDF(
+  JNIEnv* env, jclass, jint agg_type, int precision)
+{
   try {
     cudf::jni::auto_set_device(env);
     auto udf_ptr = [&] {
       // The value of agg_type must be sync with
       // `HLLPPHostUDF.java#AggregationType`.
       switch (agg_type) {
-      case 0:
-        return spark_rapids_jni::create_hllpp_reduction_host_udf(precision);
-      case 1:
-        return spark_rapids_jni::create_hllpp_reduction_merge_host_udf(
-            precision);
-      case 2:
-        return spark_rapids_jni::create_hllpp_groupby_host_udf(precision);
-      default:
-        return spark_rapids_jni::create_hllpp_groupby_merge_host_udf(precision);
+        case 0: return spark_rapids_jni::create_hllpp_reduction_host_udf(precision);
+        case 1: return spark_rapids_jni::create_hllpp_reduction_merge_host_udf(precision);
+        case 2: return spark_rapids_jni::create_hllpp_groupby_host_udf(precision);
+        default: return spark_rapids_jni::create_hllpp_groupby_merge_host_udf(precision);
       }
     }();
-    CUDF_EXPECTS(udf_ptr != nullptr,
-                 "Invalid HyperLogLogPlusPlus(HLLPP) UDF instance.");
+    CUDF_EXPECTS(udf_ptr != nullptr, "Invalid HyperLogLogPlusPlus(HLLPP) UDF instance.");
 
     return reinterpret_cast<jlong>(udf_ptr.release());
   }
@@ -49,18 +43,19 @@ Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_createHLLPPHostUDF(
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_estimateDistinctValueFromSketches(
-    JNIEnv *env, jclass, jlong sketches, jint precision) {
+Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_estimateDistinctValueFromSketches(JNIEnv* env,
+                                                                                jclass,
+                                                                                jlong sketches,
+                                                                                jint precision)
+{
   JNI_NULL_CHECK(env, sketches, "Sketch column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
-    auto const sketch_view =
-        reinterpret_cast<cudf::column_view const *>(sketches);
+    auto const sketch_view = reinterpret_cast<cudf::column_view const*>(sketches);
     return cudf::jni::ptr_as_jlong(
-        spark_rapids_jni::estimate_from_hll_sketches(*sketch_view, precision)
-            .release());
+      spark_rapids_jni::estimate_from_hll_sketches(*sketch_view, precision).release());
   }
   CATCH_STD(env, 0);
 }
 
-} // extern "C"
+}  // extern "C"

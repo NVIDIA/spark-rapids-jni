@@ -52,10 +52,12 @@ constexpr int MAX_PRECISION = 18;
  * a struct column with multiple long columns which is consistent with Spark.
  */
 std::unique_ptr<cudf::column> group_hyper_log_log_plus_plus(
-    cudf::column_view const &input, int64_t const num_groups,
-    cudf::device_span<cudf::size_type const> group_lables,
-    int64_t const precision, rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr);
+  cudf::column_view const& input,
+  int64_t const num_groups,
+  cudf::device_span<cudf::size_type const> group_lables,
+  int64_t const precision,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 /**
  * Merge HyperLogLogPlusPlus(HLLPP) sketches in the same group.
@@ -63,19 +65,22 @@ std::unique_ptr<cudf::column> group_hyper_log_log_plus_plus(
  * Spark.
  */
 std::unique_ptr<cudf::column> group_merge_hyper_log_log_plus_plus(
-    cudf::column_view const &input, int64_t const num_groups,
-    cudf::device_span<cudf::size_type const> group_lables,
-    int64_t const precision, rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr);
+  cudf::column_view const& input,
+  int64_t const num_groups,
+  cudf::device_span<cudf::size_type const> group_lables,
+  int64_t const precision,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 /**
  * Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)
  * sketches from hash codes, and merge all the sketches into one sketch, output
  * is a struct scalar with multiple long values.
  */
-std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(
-    cudf::column_view const &input, int64_t const precision,
-    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr);
+std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(cudf::column_view const& input,
+                                                             int64_t const precision,
+                                                             rmm::cuda_stream_view stream,
+                                                             rmm::device_async_resource_ref mr);
 
 /**
  * Merge all HyperLogLogPlusPlus(HLLPP) sketches in the input column into one
@@ -83,8 +88,10 @@ std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(
  * consistent with Spark. Output is a struct scalar with multiple long values.
  */
 std::unique_ptr<cudf::scalar> reduce_merge_hyper_log_log_plus_plus(
-    cudf::column_view const &input, int64_t const precision,
-    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr);
+  cudf::column_view const& input,
+  int64_t const precision,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr);
 
 /**
  * Estimate count distinct values for the input which contains
@@ -93,8 +100,9 @@ std::unique_ptr<cudf::scalar> reduce_merge_hyper_log_log_plus_plus(
  * for null values when doing APPROX_COUNT_DISTINCT.
  */
 std::unique_ptr<cudf::column> estimate_from_hll_sketches(
-    cudf::column_view const &input, int precision,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  cudf::column_view const& input,
+  int precision,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
