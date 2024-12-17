@@ -197,7 +197,6 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
-  src/HLLPPJni.cpp
   src/JSONUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
