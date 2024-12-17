@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "datetime_rebase.hpp"
+#include "datetime_utils.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGregorianToJulian(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseGregorianToJulian(
   JNIEnv* env, jclass, jlong input)
 {
   JNI_NULL_CHECK(env, input, "input column is null", 0);
@@ -33,7 +33,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseGr
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseJulianToGregorian(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseJulianToGregorian(
   JNIEnv* env, jclass, jlong input)
 {
   JNI_NULL_CHECK(env, input, "input column is null", 0);
@@ -42,6 +42,24 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeRebase_rebaseJu
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(input);
     auto output         = spark_rapids_jni::rebase_julian_to_gregorian(*input_cv);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncate(JNIEnv* env,
+                                                                                jclass,
+                                                                                jlong datetime,
+                                                                                jlong format)
+{
+  JNI_NULL_CHECK(env, datetime, "datetime column is null", 0);
+  JNI_NULL_CHECK(env, format, "format column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
+    auto const format_cv   = reinterpret_cast<cudf::column_view const*>(format);
+    auto output            = spark_rapids_jni::truncate(*datetime_cv, *format_cv);
     return reinterpret_cast<jlong>(output.release());
   }
   CATCH_STD(env, 0);

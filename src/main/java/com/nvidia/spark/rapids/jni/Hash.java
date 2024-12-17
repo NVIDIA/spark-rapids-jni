@@ -75,7 +75,6 @@ public class Hash {
       assert columns[i] != null : "Column vectors passed may not be null";
       assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
-      assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
       columnViews[i] = columns[i].getNativeView(); 
     }
     return new ColumnVector(xxhash64(seed, columnViews));
@@ -96,7 +95,6 @@ public class Hash {
       assert columns[i] != null : "Column vectors passed may not be null";
       assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
-      assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
       columnViews[i] = columns[i].getNativeView();
     }
     return new ColumnVector(hiveHash(columnViews));

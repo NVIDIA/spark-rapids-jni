@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,29 @@
  * limitations under the License.
  */
 
-#include <cudf/column/column_view.hpp>
+package com.nvidia.spark.rapids.jni;
 
-namespace spark_rapids_jni {
+/**
+ * A utility class for holding a pair of values.
+ */
+public class Pair<K, V> {
+    private final K left;
+    private final V right;
 
-std::unique_ptr<cudf::column> rebase_gregorian_to_julian(cudf::column_view const& input);
+    public Pair(K left, V right) {
+        this.left = left;
+        this.right = right;
+    }
 
-std::unique_ptr<cudf::column> rebase_julian_to_gregorian(cudf::column_view const& input);
+    public K getLeft() {
+        return left;
+    }
 
-}  // namespace spark_rapids_jni
+    public V getRight() {
+        return right;
+    }
+
+    public static <K, V> Pair<K, V> of(K left, V right) {
+        return new Pair<>(left, right);
+    }
+}

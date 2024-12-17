@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.20.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.28.6 FATAL_ERROR)
 
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.10.00
+  VERSION 25.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -98,6 +98,7 @@ set_property(
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
 
 # Set a default build type if none was specified
 rapids_cmake_build_type("Release")
@@ -189,11 +190,12 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
-  src/DateTimeRebaseJni.cpp
+  src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
+  src/HostTableJni.cpp
   src/JSONUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
@@ -205,15 +207,18 @@ add_library(
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
-  src/format_float.cu
   src/cast_float_to_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
+  src/datetime_truncate.cu
   src/decimal_utils.cu
+  src/format_float.cu
   src/from_json_to_raw_map.cu
+  src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
+  src/json_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
@@ -295,7 +300,6 @@ add_dependencies(cudfjnistub spark_rapids_jni)
 # * cuFile JNI -------------------------------------------------------------------------------------
 
 if(USE_GDS)
-  include(${CUDF_DIR}/cpp/cmake/Modules/FindcuFile.cmake)
   find_library(CUFILEJNI_LIB "libcufilejni.a" REQUIRED NO_DEFAULT_PATH
     HINTS "${CUDFJNI_BUILD_DIR}"
   )
@@ -307,6 +311,12 @@ if(USE_GDS)
                # set target compile options
                CXX_STANDARD 17
                CXX_STANDARD_REQUIRED ON
+               CXX_EXTENSIONS ON
+               CUDA_STANDARD 17
+               CUDA_STANDARD_REQUIRED ON
+               POSITION_INDEPENDENT_CODE ON
+               INTERFACE_POSITION_INDEPENDENT_CODE ON
+               CUDA_RUNTIME_LIBRARY Static
   )
   target_link_libraries(
     cufilejni PRIVATE
@@ -314,7 +324,7 @@ if(USE_GDS)
       ${CUFILEJNI_LIB}
     -Wl,--no-whole-archive
     spark_rapids_jni
-    ${cuFile_LIBRARIES}
+    CUDA::cuFile_static
   )
   rapids_cuda_set_runtime(cufilejni USE_STATIC ON)
 endif()

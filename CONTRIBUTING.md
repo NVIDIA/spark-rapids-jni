@@ -165,7 +165,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-24.10/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-25.02/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
@@ -235,12 +235,12 @@ and build inside WSL2, e.g.
 ### Testing
 Java tests are in the `src/test` directory and c++ tests are in the `src/main/cpp/tests` directory.
 The c++ tests are built with the `-DBUILD_TESTS` command line option and will build into the
-`target/cmake-build/gtests/` directory. Due to building inside the docker container, it is possible
+`target/jni/cmake-build/gtests/` directory. Due to building inside the docker container, it is possible
 that the host environment does not match the container well enough to run these executables, resulting
 in errors finding libraries. The script `build/run-in-docker` was created to help with this
 situation. A test can be run directly using this script or the script can be run without any
 arguments to get into an interactive shell inside the container.
-```build/run-in-docker target/cmake-build/gtests/ROW_CONVERSION```
+```build/run-in-docker target/jni/cmake-build/gtests/ROW_CONVERSION```
 
 #### Testing with Compute Sanitizer
 [Compute Sanitizer](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html) is a
@@ -311,12 +311,12 @@ in the cuDF [CONTRIBUTING](thirdparty/cudf/CONTRIBUTING.md) guide.
 ### Benchmarks
 Benchmarks exist for c++ benchmarks using NVBench and are in the `src/main/cpp/benchmarks` directory.
 To build these benchmarks requires the `-DBUILD_BENCHMARKS` build option. Once built, the benchmarks
-can be found in the `target/cmake-build/benchmarks/` directory. Due to building inside the docker
+can be found in the `target/jni/cmake-build/benchmarks/` directory. Due to building inside the docker
 container, it is possible that the host environment does not match the container well enough to
 run these executables, resulting in errors finding libraries. The script `build/run-in-docker`
 was created to help with this situation. A benchmark can be run directly using this script or the
 script can be run without any arguments to get into an interactive shell inside the container.
-```build/run-in-docker target/cmake-build/benchmarks/ROW_CONVERSION_BENCH```
+```build/run-in-docker target/jni/cmake-build/benchmarks/ROW_CONVERSION_BENCH```
 ## Code contributions
 
 ### Your first issue

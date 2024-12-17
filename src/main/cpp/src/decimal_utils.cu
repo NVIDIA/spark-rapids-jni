@@ -21,7 +21,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/valid_if.cuh>
-#include <cudf/fixed_point/floating_conversion.hpp>
+#include <cudf/fixed_point/detail/floating_conversion.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>

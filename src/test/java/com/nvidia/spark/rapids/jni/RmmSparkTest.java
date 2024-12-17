@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -360,7 +360,7 @@ public class RmmSparkTest {
       assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
-      assertEquals(ALIGNMENT * 2, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
+      assertEquals(ALIGNMENT, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
 
       // Verify that injecting OOM does not cause the block to actually happen
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
@@ -815,6 +815,11 @@ public class RmmSparkTest {
 
             // Now do the GPU frees
             firstGpuAlloc.freeAndWait();
+            secondGpuAlloc.waitForAlloc();
+            secondGpuAlloc.freeAndWait();
+          }
+          // Do one more alloc after freeing on same task to show the max allocation metric is unimpacted
+          try (AllocOnAnotherThread secondGpuAlloc = new GpuAllocOnAnotherThread(taskThree, FIVE_MB)) {
             secondGpuAlloc.waitForAlloc();
             secondGpuAlloc.freeAndWait();
           }

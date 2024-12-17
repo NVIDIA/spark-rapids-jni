@@ -5,32 +5,22 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e21d607157218540cd7c45461213fb96adf720b7",
+      "git_tag" : "05e019afe53f9b0e4454cbd822f9bdda18df49bb",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
         {
-          "file" : "${current_json_dir}/cccl_symbol_visibility.diff",
-          "fixed_in" : "2.6",
-          "issue" : "Correct symbol visibility issues in libcudacxx [https://github.com/NVIDIA/cccl/pull/1832/]"
-        },
-        {
-          "file" : "${current_json_dir}/thrust_disable_64bit_dispatching.diff",
-          "fixed_in" : "",
-          "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
-        },
-        {
-          "file" : "${current_json_dir}/thrust_faster_sort_compile_times.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
         },
         {
-          "file" : "${current_json_dir}/thrust_faster_scan_compile_times.diff",
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_scan_compile_times.diff",
           "fixed_in" : "",
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "version" : "2.5.0"
+      "version" : "2.7.0"
     },
     "GTest" : 
     {
@@ -39,14 +29,6 @@
       "git_tag" : "b796f7d44681514f58a683a3a71ff17c94edb0c1",
       "git_url" : "https://github.com/google/googletest.git",
       "version" : "1.13.0"
-    },
-    "KvikIO" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "44b3f97a20db697adbcde2c222a2174561c12ddd",
-      "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "24.10"
     },
     "bs_thread_pool" : 
     {
@@ -60,7 +42,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "d3477661d771e0d6fd22259bf6dd6f8c64a7401c",
+      "git_tag" : "dc0f9fc20c2a544e53099e640a681b347532391a",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -103,12 +85,28 @@
       "git_url" : "https://github.com/rapidsai/jitify.git",
       "version" : "2.0.0"
     },
+    "kvikio" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "d49ed59b77e37effa912b8546226111f4c154c18",
+      "git_url" : "https://github.com/rapidsai/kvikio.git",
+      "version" : "25.02"
+    },
     "nanoarrow" : 
     {
       "always_download" : true,
       "git_shallow" : false,
       "git_tag" : "1e2664a70ec14907409cadcceb14d79b9670bcdb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
+      "patches" : 
+      [
+        {
+          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/nanoarrow_clang_tidy_compliance.diff",
+          "fixed_in" : "",
+          "issue" : "https://github.com/apache/arrow-nanoarrow/issues/537"
+        }
+      ],
       "version" : "0.6.0.dev"
     },
     "nvcomp" : 
@@ -119,15 +117,15 @@
       "git_url" : "https://github.com/NVIDIA/nvcomp.git",
       "proprietary_binary" : 
       {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp-linux-sbsa-${version}-cuda${cuda-toolkit-version-mapping}.tar.gz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/${version}/local_installers/nvcomp-linux-x86_64-${version}-cuda${cuda-toolkit-version-mapping}.tar.gz"
+        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-sbsa/nvcomp-linux-sbsa-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz",
+        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-x86_64/nvcomp-linux-x86_64-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz"
       },
       "proprietary_binary_cuda_version_mapping" : 
       {
-        "11" : "11.x",
-        "12" : "12.x"
+        "11" : "11",
+        "12" : "12"
       },
-      "version" : "4.0.1"
+      "version" : "4.1.0.6"
     },
     "nvtx3" : 
     {
@@ -141,9 +139,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ab6e2961d7b8f833f688775e941c4e2ed2bd4d8a",
+      "git_tag" : "c3841ddfd312f65db69c1e28aa2d6c11a034f80c",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "24.10"
+      "version" : "25.02"
     },
     "spdlog" : 
     {
