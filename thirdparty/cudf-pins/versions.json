@@ -5,20 +5,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e21d607157218540cd7c45461213fb96adf720b7",
+      "git_tag" : "05e019afe53f9b0e4454cbd822f9bdda18df49bb",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
-        {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/cccl_symbol_visibility.diff",
-          "fixed_in" : "2.6",
-          "issue" : "Correct symbol visibility issues in libcudacxx [https://github.com/NVIDIA/cccl/pull/1832/]"
-        },
-        {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_disable_64bit_dispatching.diff",
-          "fixed_in" : "",
-          "issue" : "Remove 64bit dispatching as not needed by libcudf and results in compiling twice as many kernels [https://github.com/rapidsai/cudf/pull/11437]"
-        },
         {
           "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
@@ -30,7 +20,7 @@
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
-      "version" : "2.5.0"
+      "version" : "2.7.0"
     },
     "GTest" : 
     {
@@ -52,7 +42,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "dc0f9fc20c2a544e53099e640a681b347532391a",
+      "git_tag" : "096346b739da3fb1d9c3b402190c0a3a7e554440",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -99,7 +89,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e82574ba3787d5c6b1d1cd3f6aba02b52b233f45",
+      "git_tag" : "288535770abbe950ab8ec655d44f5aa9d6704cea",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.02"
     },
@@ -109,14 +99,6 @@
       "git_shallow" : false,
       "git_tag" : "1e2664a70ec14907409cadcceb14d79b9670bcdb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
-      "patches" : 
-      [
-        {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/nanoarrow_clang_tidy_compliance.diff",
-          "fixed_in" : "",
-          "issue" : "https://github.com/apache/arrow-nanoarrow/issues/537"
-        }
-      ],
       "version" : "0.6.0.dev"
     },
     "nvcomp" : 
@@ -145,11 +127,19 @@
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
       "version" : "3.1.0"
     },
+    "rapids_logger" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55",
+      "git_url" : "https://github.com/rapidsai/rapids-logger.git",
+      "version" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55"
+    },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c9c6039ab71f91fb41376abea7ec36b8a2563de1",
+      "git_tag" : "1af03eb55ce51a376c3df2dc0cdf3c81738b2dd6",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.02"
     },

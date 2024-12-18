@@ -16,18 +16,17 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
+
 import ai.rapids.cudf.BufferType;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.HostMemoryBuffer;
 import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
-
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
-
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
 
 /**
  * This class visits a list of columns and serialize one of the buffers (validity, offset, or data) into with kudo
@@ -48,13 +47,16 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
   private final DataWriter writer;
 
   private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
+  private final WriteMetrics metrics;
   private long totalDataLen;
 
-  SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer) {
+  SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer,
+                         WriteMetrics metrics) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.bufferType = bufferType;
     this.writer = writer;
     this.sliceInfos.addLast(root);
+    this.metrics = metrics;
     this.totalDataLen = 0;
   }
 
@@ -153,28 +155,26 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     }
   }
 
-  private long copySlicedValidity(HostColumnVectorCore column, SliceInfo sliceInfo) throws IOException {
+  private long copySlicedValidity(HostColumnVectorCore column, SliceInfo sliceInfo)
+      throws IOException {
     if (column.getValidity() != null && sliceInfo.getRowCount() > 0) {
       HostMemoryBuffer buff = column.getValidity();
       long len = sliceInfo.getValidityBufferInfo().getBufferLength();
-      writer.copyDataFrom(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(),
-          len);
-      return padForHostAlignment(writer, len);
+      return copyBufferAndPadForHost(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
     } else {
       return 0;
     }
   }
 
-  private long copySlicedOffset(HostColumnVectorCore column, SliceInfo sliceInfo) throws IOException {
+  private long copySlicedOffset(HostColumnVectorCore column, SliceInfo sliceInfo)
+      throws IOException {
     if (sliceInfo.rowCount <= 0 || column.getOffsets() == null) {
       // Don't copy anything, there are no rows
       return 0;
     }
     long bytesToCopy = (sliceInfo.rowCount + 1) * Integer.BYTES;
     long srcOffset = sliceInfo.offset * Integer.BYTES;
-    HostMemoryBuffer buff = column.getOffsets();
-    writer.copyDataFrom(buff, srcOffset, bytesToCopy);
-    return padForHostAlignment(writer, bytesToCopy);
+    return copyBufferAndPadForHost(column.getOffsets(), srcOffset, bytesToCopy);
   }
 
   private long copySlicedData(HostColumnVectorCore column, SliceInfo sliceInfo) throws IOException {
@@ -182,7 +182,8 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
       DType type = column.getType();
       if (type.equals(DType.STRING)) {
         long startByteOffset = column.getOffsets().getInt(sliceInfo.offset * Integer.BYTES);
-        long endByteOffset = column.getOffsets().getInt((sliceInfo.offset + sliceInfo.rowCount) * Integer.BYTES);
+        long endByteOffset =
+            column.getOffsets().getInt((sliceInfo.offset + sliceInfo.rowCount) * Integer.BYTES);
         long bytesToCopy = endByteOffset - startByteOffset;
         if (column.getData() == null) {
           if (bytesToCopy != 0) {
@@ -192,19 +193,26 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
           return 0;
         } else {
-          writer.copyDataFrom(column.getData(), startByteOffset, bytesToCopy);
-          return padForHostAlignment(writer, bytesToCopy);
+          return copyBufferAndPadForHost(column.getData(), startByteOffset, bytesToCopy);
         }
       } else if (type.getSizeInBytes() > 0) {
         long bytesToCopy = sliceInfo.rowCount * type.getSizeInBytes();
         long srcOffset = sliceInfo.offset * type.getSizeInBytes();
-        writer.copyDataFrom(column.getData(), srcOffset, bytesToCopy);
-        return padForHostAlignment(writer, bytesToCopy);
+        return copyBufferAndPadForHost(column.getData(), srcOffset, bytesToCopy);
       } else {
         return 0;
       }
     } else {
       return 0;
     }
+  }
+
+  private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)
+      throws IOException {
+    long now = System.nanoTime();
+    writer.copyDataFrom(buffer, offset, length);
+    long ret = padForHostAlignment(writer, length);
+    metrics.addCopyBufferTime(System.nanoTime() - now);
+    return ret;
   }
 }
