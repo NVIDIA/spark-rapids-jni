@@ -23,7 +23,7 @@ import ai.rapids.cudf.NativeDepsLoader;
 /**
  * HyperLogLogPlusPlus(HLLPP) host UDF aggregation utils
  */
-public class HLLPPHostUDF {
+public class HyperLogLogPlusPlusHostUDF {
   static {
     NativeDepsLoader.loadNativeDeps();
   }

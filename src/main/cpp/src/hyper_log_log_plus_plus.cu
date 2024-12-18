@@ -55,8 +55,9 @@ namespace {
  */
 __device__ inline int get_register_value(int64_t const ten_registers, int reg_idx)
 {
-  int64_t shift_mask = MASK << (REGISTER_VALUE_BITS * reg_idx);
-  int64_t v          = (ten_registers & shift_mask) >> (REGISTER_VALUE_BITS * reg_idx);
+  auto const shift_bits = REGISTER_VALUE_BITS * reg_idx;
+  auto const shift_mask = MASK << shift_bits;
+  auto const v          = (ten_registers & shift_mask) >> shift_bit;
   return static_cast<int>(v);
 }
 
@@ -418,7 +419,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
   auto num_long_cols      = num_registers_per_sketch / REGISTERS_PER_LONG + 1;
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(
-      cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::ALL_VALID, stream, mr);
+      cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::UNALLOCATED, stream, mr);
   });
   auto children =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
@@ -609,7 +610,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   // create output columns
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(
-      cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::ALL_VALID, stream, mr);
+      cudf::data_type{cudf::type_id::INT64}, num_groups, cudf::mask_state::UNALLOCATED, stream, mr);
   });
   auto results =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
@@ -705,7 +706,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64},
                                      1 /**num_groups*/,
-                                     cudf::mask_state::ALL_VALID,
+                                     cudf::mask_state::UNALLOCATED,
                                      stream,
                                      mr);
   });
@@ -773,7 +774,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
     return cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT64},
                                      1 /** num_rows */,
-                                     cudf::mask_state::ALL_VALID,
+                                     cudf::mask_state::UNALLOCATED,
                                      stream,
                                      mr);
   });
@@ -814,13 +815,13 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
 }
 
 struct estimate_fn {
-  cudf::device_span<int64_t const*> sketch_longs;
-  int const precision;
-  int64_t* const out;
+  cudf::device_span<int64_t const*> sketches;
+  int64_t* out;
+  int precision;
 
   __device__ void operator()(cudf::size_type const idx) const
   {
-    auto const num_regs = 1ull << precision;
+    auto const num_regs = 1 << precision;
     double sum          = 0;
     int zeroes          = 0;
 
@@ -828,7 +829,7 @@ struct estimate_fn {
       // each long contains 10 register values
       int long_col_idx    = reg_idx / REGISTERS_PER_LONG;
       int reg_idx_in_long = reg_idx % REGISTERS_PER_LONG;
-      int reg             = get_register_value(sketch_longs[long_col_idx][idx], reg_idx_in_long);
+      int reg             = get_register_value(sketches[long_col_idx][idx], reg_idx_in_long);
       sum += double{1} / static_cast<double>(1ull << reg);
       zeroes += reg == 0;
     }
@@ -848,7 +849,7 @@ std::unique_ptr<cudf::column> group_hyper_log_log_plus_plus(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision >= 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
   auto adjust_precision = precision > MAX_PRECISION ? MAX_PRECISION : precision;
   return group_hllpp(input, num_groups, group_lables, adjust_precision, stream, mr);
 }
@@ -861,7 +862,7 @@ std::unique_ptr<cudf::column> group_merge_hyper_log_log_plus_plus(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision >= 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT,
                "HyperLogLogPlusPlus buffer type must be a STRUCT of long columns.");
   for (auto i = 0; i < input.num_children(); i++) {
@@ -880,7 +881,7 @@ std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(cudf::column_view c
                                                              rmm::cuda_stream_view stream,
                                                              rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision >= 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
   auto adjust_precision = precision > MAX_PRECISION ? MAX_PRECISION : precision;
   return reduce_hllpp(input, adjust_precision, stream, mr);
 }
@@ -891,7 +892,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hyper_log_log_plus_plus(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision >= 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT,
                "HyperLogLogPlusPlus buffer type must be a STRUCT of long columns.");
   for (auto i = 0; i < input.num_children(); i++) {
@@ -910,13 +911,21 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
                                                          rmm::cuda_stream_view stream,
                                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision is bigger than 4.");
+  CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::STRUCT,
+               "HyperLogLogPlusPlus buffer type must be a STRUCT of long columns.");
+  for (auto i = 0; i < input.num_children(); i++) {
+    CUDF_EXPECTS(input.child(i).type().id() == cudf::type_id::INT64,
+                 "HyperLogLogPlusPlus buffer type must be a STRUCT of long columns.");
+  }
   auto const input_iter = cudf::detail::make_counting_transform_iterator(
     0, [&](int i) { return input.child(i).begin<int64_t>(); });
-  auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + input.num_children());
-  auto d_inputs   = cudf::detail::make_device_uvector_async(input_cols, stream, mr);
-  auto result     = cudf::make_numeric_column(
-    cudf::data_type{cudf::type_id::INT64}, input.size(), cudf::mask_state::ALL_VALID, stream);
+  auto const h_input_ptrs =
+    std::vector<int64_t const*>(input_iter, input_iter + input.num_children());
+  auto d_inputs = cudf::detail::make_device_uvector_async(
+    h_input_ptrs, stream, cudf::get_current_device_resource_ref());
+  auto result = cudf::make_numeric_column(
+    cudf::data_type{cudf::type_id::INT64}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
   // evaluate from struct<long, ..., long>
   thrust::for_each_n(rmm::exec_policy_nosync(stream),
                      thrust::make_counting_iterator(0),

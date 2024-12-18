@@ -13,9 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-#include "hllpp.hpp"
-#include "hllpp_host_udf.hpp"
+#include "hyper_log_log_plus_plus.hpp"
+#include "hyper_log_log_plus_plus_host_udf.hpp"
 
 #include <cudf/aggregation.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -126,7 +125,8 @@ struct hllpp_udf : cudf::host_udf_base {
                                        std::move(children),
                                        0,                     // null count
                                        rmm::device_buffer{},  // null mask
-                                       stream);
+                                       stream,
+                                       mr);
     }
   }
 

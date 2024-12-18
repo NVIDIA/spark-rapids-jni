@@ -15,19 +15,22 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "hllpp.hpp"
-#include "hllpp_host_udf.hpp"
+#include "hyper_log_log_plus_plus.hpp"
+#include "hyper_log_log_plus_plus_host_udf.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_createHLLPPHostUDF(
-  JNIEnv* env, jclass, jint agg_type, int precision)
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(JNIEnv* env,
+                                                                               jclass,
+                                                                               jint agg_type,
+                                                                               int precision)
 {
   try {
     cudf::jni::auto_set_device(env);
     auto udf_ptr = [&] {
       // The value of agg_type must be sync with
-      // `HLLPPHostUDF.java#AggregationType`.
+      // `HyperLogLogPlusPlusHostUDF.java#AggregationType`.
       switch (agg_type) {
         case 0: return spark_rapids_jni::create_hllpp_reduction_host_udf(precision);
         case 1: return spark_rapids_jni::create_hllpp_reduction_merge_host_udf(precision);
@@ -43,10 +46,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_createHLLP
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_HLLPPHostUDF_estimateDistinctValueFromSketches(JNIEnv* env,
-                                                                                jclass,
-                                                                                jlong sketches,
-                                                                                jint precision)
+Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_estimateDistinctValueFromSketches(
+  JNIEnv* env, jclass, jlong sketches, jint precision)
 {
   JNI_NULL_CHECK(env, sketches, "Sketch column is null", 0);
   try {
