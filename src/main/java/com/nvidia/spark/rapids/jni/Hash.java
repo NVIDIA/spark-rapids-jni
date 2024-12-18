@@ -22,12 +22,14 @@ import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
-  // there doesn't appear to be a useful constant in spark to reference. this could break.
-  static final long DEFAULT_XXHASH64_SEED = 42;
-
   static {
     NativeDepsLoader.loadNativeDeps();
   }
+
+  // there doesn't appear to be a useful constant in spark to reference. this could break.
+  static final long DEFAULT_XXHASH64_SEED = 42;
+
+  public static final int MAX_STACK_DEPTH = getMaxStackDepth();
 
   /**
    * Create a new vector containing spark's 32-bit murmur3 hash of each row in the table.
@@ -75,7 +77,6 @@ public class Hash {
       assert columns[i] != null : "Column vectors passed may not be null";
       assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
-      assert !columns[i].getType().isNestedType() : "Unsupported column type Nested";
       columnViews[i] = columns[i].getNativeView(); 
     }
     return new ColumnVector(xxhash64(seed, columnViews));
@@ -100,6 +101,8 @@ public class Hash {
     }
     return new ColumnVector(hiveHash(columnViews));
   }
+
+  private static native int getMaxStackDepth();
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
   
