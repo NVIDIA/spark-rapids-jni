@@ -190,6 +190,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/AggregationUtilsJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
@@ -227,6 +228,7 @@ add_library(
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
   src/substring_index.cu
+  src/test_host_udf_agg.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
