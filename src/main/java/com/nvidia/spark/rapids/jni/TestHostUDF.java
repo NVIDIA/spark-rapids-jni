@@ -17,10 +17,27 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.NativeDepsLoader;
+import ai.rapids.cudf.Aggregation;
 
-public class AggregationUtils {
+// A new host UDF implementation must extend Aggregation.HostUDFWrapper,
+// and override the hashCode and equals methods.
+public class TestHostUDF extends Aggregation.HostUDFWrapper {
   static {
     NativeDepsLoader.loadNativeDeps();
+  }
+
+  TestHostUDF(long udfNativeHandle) {
+    super(udfNativeHandle);
+  }
+
+  @Override
+  public int hashCode() {
+    return 12345;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    return obj instanceof TestHostUDF;
   }
 
   public enum AggregationType {
@@ -45,8 +62,8 @@ public class AggregationUtils {
    * new ai.rapids.cudf.HostUDFAggregation(udfAndHash[0], udfAndHash[1]);
    * ```
    */
-  public static long createTestHostUDF(AggregationType type) {
-    return createNativeTestHostUDF(type.nativeId);
+  public static TestHostUDF createTestHostUDF(AggregationType type) {
+    return new TestHostUDF(createNativeTestHostUDF(type.nativeId));
   }
 
   private static native long createNativeTestHostUDF(int type);
