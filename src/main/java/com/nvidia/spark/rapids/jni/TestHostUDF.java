@@ -17,11 +17,11 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.NativeDepsLoader;
-import ai.rapids.cudf.Aggregation;
+import ai.rapids.cudf.HostUDFWrapper;
 
 // A new host UDF implementation must extend Aggregation.HostUDFWrapper,
 // and override the hashCode and equals methods.
-public class TestHostUDF extends Aggregation.HostUDFWrapper {
+public class TestHostUDF extends HostUDFWrapper {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
