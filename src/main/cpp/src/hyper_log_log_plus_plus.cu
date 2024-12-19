@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 #include "hash.hpp"
-#include "hllpp.hpp"
+#include "hyper_log_log_plus_plus.hpp"
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -57,7 +57,7 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
 {
   auto const shift_bits = REGISTER_VALUE_BITS * reg_idx;
   auto const shift_mask = MASK << shift_bits;
-  auto const v          = (ten_registers & shift_mask) >> shift_bit;
+  auto const v          = (ten_registers & shift_mask) >> shift_bits;
   return static_cast<int>(v);
 }
 
@@ -930,7 +930,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
   thrust::for_each_n(rmm::exec_policy_nosync(stream),
                      thrust::make_counting_iterator(0),
                      input.size(),
-                     estimate_fn{d_inputs, precision, result->mutable_view().data<int64_t>()});
+                     estimate_fn{d_inputs, result->mutable_view().data<int64_t>(), precision});
   return result;
 }
 
