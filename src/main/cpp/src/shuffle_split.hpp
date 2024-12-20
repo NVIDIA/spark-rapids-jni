@@ -102,7 +102,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(cudf::tabl
  * @return A cudf table
  */
 std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& metadata,
-                                              cudf::device_span<int8_t const> partitions,
+                                              cudf::device_span<uint8_t const> partitions,
                                               cudf::device_span<size_t const> partition_offsets,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr);

@@ -30,7 +30,7 @@ void run_split(cudf::table_view const& tbl, std::vector<cudf::size_type> const& 
                                                                       cudf::get_default_stream(),
                                                                       cudf::get_current_device_resource());
   auto result = spark_rapids_jni::shuffle_assemble(split_metadata,
-                                                   {static_cast<int8_t*>(split_data.partitions->data()), split_data.partitions->size()},
+                                                   {static_cast<uint8_t*>(split_data.partitions->data()), split_data.partitions->size()},
                                                    split_data.offsets,
                                                    cudf::get_default_stream(),
                                                    cudf::get_current_device_resource());
@@ -127,4 +127,14 @@ TEST_F(ShuffleSplitTests, Struct)
                           static_cast<cudf::column_view>(col1)}};
     run_split(tbl, {10, 100, 2756, 7777});
   }
+}
+
+TEST_F(ShuffleSplitTests, ShortNulls)
+{
+  cudf::test::fixed_width_column_wrapper<int> col0( 
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31},
+    {1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0,  1,  1,  1,  1,  1,  0,  0,  0,  0,  1,  1,  0,  0,  1,  1,  1,  1,  1,  1,  0,  1});
+
+  cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
+  run_split(tbl, {2});
 }
