@@ -51,16 +51,7 @@ public class TestHostUDF extends HostUDFWrapper {
   }
 
   /**
-   * Create a test host UDF for testing purposes.
-   *<p/>
-   * This will return two values: the first is the pointer to the host UDF, and the second is the
-   * hash code of the host UDF.
-   *<p/>
-   * To create a host UDF aggregation, do this:
-   * ```
-   * long[] udfAndHash = AggregationUtils.createTestHostUDF();
-   * new ai.rapids.cudf.HostUDFAggregation(udfAndHash[0], udfAndHash[1]);
-   * ```
+   * Create a test host UDF wrapper for testing purposes.
    */
   public static TestHostUDF createTestHostUDF(AggregationType type) {
     return new TestHostUDF(createNativeTestHostUDF(type.nativeId));
