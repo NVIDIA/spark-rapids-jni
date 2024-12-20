@@ -21,6 +21,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/iterator.cuh>
+#include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/lists/lists_column_view.hpp>
@@ -90,6 +91,8 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
  * In this way, we can save memory usage, cache less intermidate sketches
  * (num_hashs / num_hashs_per_thread) sketches.
  * num_threads = div_round_up(num_hashs, num_hashs_per_thread).
+ *
+ * Note: Must exclude null hash values from computing HLLPP sketches.
  *
  * e.g.: num_registers_per_sketch = 512 and num_hashs_per_thread = 4;
  *
@@ -181,11 +184,15 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
   for (auto hash_idx = hash_first; hash_idx < hash_end; hash_idx++) {
     cudf::size_type curr_group = group_lables[hash_idx];
 
-    // cast to unsigned, then >> will shift without preserve the sign bit.
-    uint64_t const hash = static_cast<uint64_t>(hashs.element<int64_t>(hash_idx));
-    auto const reg_idx  = hash >> idx_shift;
-    int const reg_v =
-      static_cast<int>(cuda::std::countl_zero((hash << precision) | w_padding) + 1ULL);
+    int reg_idx = 0;  // init value for null hash
+    int reg_v   = 0;  // init value for null hash
+    if (!hashs.is_null(hash_idx)) {
+      // cast to unsigned, then >> will shift without preserve the sign bit.
+      uint64_t const hash = static_cast<uint64_t>(hashs.element<int64_t>(hash_idx));
+      reg_idx             = hash >> idx_shift;
+      // get the leading zeros
+      reg_v = static_cast<int>(cuda::std::countl_zero((hash << precision) | w_padding) + 1ULL);
+    }
 
     if (curr_group == prev_group) {
       // still in the same group, update the max value
@@ -390,7 +397,8 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
       // 1. compute all the hashs
       auto input_table_view = cudf::table_view{{input}};
       auto hash_col         = xxhash64(input_table_view, SEED, stream, mr);
-      auto d_hashs          = cudf::column_device_view::create(hash_col->view(), stream);
+      hash_col->set_null_mask(cudf::detail::copy_bitmask(input, stream, mr), input.null_count());
+      auto d_hashs = cudf::column_device_view::create(hash_col->view(), stream);
 
       // 2. execute partial group by
       int64_t num_blocks_p1 =
@@ -659,13 +667,16 @@ CUDF_KERNEL void reduce_hllpp_kernel(cudf::column_device_view hashs,
 
   // update max reg value for the reg index
   for (int i = tid; i < num_hashs; i += block_size) {
-    uint64_t const hash = static_cast<uint64_t>(hashs.element<int64_t>(i));
-    // use unsigned int to avoid insert 1 for the highest bit when do right
-    // shift
-    uint64_t const reg_idx = hash >> idx_shift;
-    // get the leading zeros
-    int const reg_v =
-      static_cast<int>(cuda::std::countl_zero((hash << precision) | w_padding) + 1ULL);
+    int reg_idx = 0;  // init value for null hash
+    int reg_v   = 0;  // init value for null hash
+    if (!hashs.is_null(i)) {
+      // cast to unsigned, then >> will shift without preserve the sign bit.
+      uint64_t const hash = static_cast<uint64_t>(hashs.element<int64_t>(i));
+      reg_idx             = hash >> idx_shift;
+      // get the leading zeros
+      reg_v = static_cast<int>(cuda::std::countl_zero((hash << precision) | w_padding) + 1ULL);
+    }
+
     cuda::atomic_ref<int32_t, cuda::thread_scope_block> register_ref(shared_data[reg_idx]);
     register_ref.fetch_max(reg_v, cuda::memory_order_relaxed);
   }
@@ -699,7 +710,8 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
   // 1. compute all the hashs
   auto input_table_view = cudf::table_view{{input}};
   auto hash_col         = xxhash64(input_table_view, SEED, stream, mr);
-  auto d_hashs          = cudf::column_device_view::create(hash_col->view(), stream);
+  hash_col->set_null_mask(cudf::detail::copy_bitmask(input, stream, mr), input.null_count());
+  auto d_hashs = cudf::column_device_view::create(hash_col->view(), stream);
 
   // 2. generate long columns, the size of each long column is 1
   auto num_long_cols      = num_registers_per_sketch / REGISTERS_PER_LONG + 1;
