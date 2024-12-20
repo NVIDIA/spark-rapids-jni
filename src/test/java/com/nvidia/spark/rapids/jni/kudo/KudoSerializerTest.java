@@ -39,7 +39,8 @@ public class KudoSerializerTest {
   public void testSerializeAndDeserializeTable() {
     try(Table expected = buildTestTable()) {
       int rowCount = toIntExact(expected.getRowCount());
-      for (int sliceSize = 1; sliceSize <= rowCount; sliceSize++) {
+      IntStream sliceSizes = IntStream.range(1, rowCount + 1);
+      for (int sliceSize: sliceSizes.toArray()) {
         List<TableSlice> tableSlices = new ArrayList<>();
         for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), expected));
