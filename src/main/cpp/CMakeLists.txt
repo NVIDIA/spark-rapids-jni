@@ -199,6 +199,7 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
+  src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
@@ -221,6 +222,9 @@ add_library(
   src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
+  src/hive_hash.cu
+  src/hyper_log_log_plus_plus.cu
+  src/hyper_log_log_plus_plus_host_udf.cu
   src/json_utils.cu
   src/murmur_hash.cu
   src/parse_uri.cu
@@ -230,7 +234,6 @@ add_library(
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
-  src/hive_hash.cu
   src/zorder.cu
 )
 
