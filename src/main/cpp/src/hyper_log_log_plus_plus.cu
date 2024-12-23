@@ -98,7 +98,7 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
  *
  * Input is hashs, compute and get pair: register index -> register value
  *
- *   reg_index, reg_value, group_lable
+ *   reg_index, reg_value, group_label
  * [
  * ---------- segment 0 begin --------------------------
  *    (0,            1),          g0
@@ -123,7 +123,7 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
  * ]
  * Output e.g.:
  *
- * group_lables_thread_cache:
+ * group_labels_thread_cache:
  * [
  *   g1
  *   g1
@@ -138,7 +138,7 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
  *    512 values: [0, 8, 0, ... ] // register values for group 1
  * ]
  * Has num_threads rows, each row is corresponding to
- * `group_lables_thread_cache`
+ * `group_labels_thread_cache`
  *
  * registers_output_cache:
  * [
@@ -153,11 +153,11 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
 template <int num_hashs_per_thread>
 CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
   cudf::column_device_view hashs,
-  cudf::device_span<cudf::size_type const> group_lables,
+  cudf::device_span<cudf::size_type const> group_labels,
   int64_t const precision,                          // num of bits for register addressing, e.g.: 9
   int* const registers_output_cache,                // num is num_groups * num_registers_per_sketch
   int* const registers_thread_cache,                // num is num_threads * num_registers_per_sketch
-  cudf::size_type* const group_lables_thread_cache  // save the group lables for each thread
+  cudf::size_type* const group_labels_thread_cache  // save the group labels for each thread
 )
 {
   auto const tid          = cudf::detail::grid_1d::global_thread_id();
@@ -180,9 +180,9 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
     sketch_ptr[i] = 0;
   }
 
-  cudf::size_type prev_group = group_lables[hash_first];
+  cudf::size_type prev_group = group_labels[hash_first];
   for (auto hash_idx = hash_first; hash_idx < hash_end; hash_idx++) {
-    cudf::size_type curr_group = group_lables[hash_idx];
+    cudf::size_type curr_group = group_labels[hash_idx];
 
     int reg_idx = 0;  // init value for null hash
     int reg_v   = 0;  // init value for null hash
@@ -216,7 +216,7 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
         }
       } else {
         // not the last segment, probe one item forward.
-        if (curr_group != group_lables[hash_idx + 1]) {
+        if (curr_group != group_labels[hash_idx + 1]) {
           // meets a new group by checking the next item in the next segment
           for (auto i = 0; i < num_registers_per_sketch; i++) {
             registers_output_cache[curr_group * num_registers_per_sketch + i] = sketch_ptr[i];
@@ -228,8 +228,8 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
     prev_group = curr_group;
   }
 
-  // save the group lable for this thread
-  group_lables_thread_cache[tid] = group_lables[hash_end - 1];
+  // save the group label for this thread
+  group_labels_thread_cache[tid] = group_labels[hash_end - 1];
 }
 
 /*
@@ -242,7 +242,7 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
  *
  * Input e.g.:
  *
- * group_lables_thread_cache:
+ * group_labels_thread_cache:
  * [
  *   g0
  *   g0
@@ -261,7 +261,7 @@ CUDF_KERNEL void partial_group_sketches_from_hashs_kernel(
  *    r0_gN, r1_gN, r2_gN, r3_gN, ... , r511_gN // register values for group N
  * ]
  * Has num_threads rows, each row is corresponding to
- * `group_lables_thread_cache`
+ * `group_labels_thread_cache`
  *
  * registers_output_cache:
  * [
@@ -280,7 +280,7 @@ CUDF_KERNEL void merge_sketches_vertically(int64_t num_sketches,
                                            int64_t num_registers_per_sketch,
                                            int* const registers_output_cache,
                                            int const* const registers_thread_cache,
-                                           cudf::size_type const* const group_lables_thread_cache)
+                                           cudf::size_type const* const group_labels_thread_cache)
 {
   __shared__ int8_t shared_data[block_size];
   auto const tid = cudf::detail::grid_1d::global_thread_id();
@@ -288,9 +288,9 @@ CUDF_KERNEL void merge_sketches_vertically(int64_t num_sketches,
 
   // register idx is tid
   shared_data[shared_idx] = static_cast<int8_t>(0);
-  int prev_group          = group_lables_thread_cache[0];
+  int prev_group          = group_labels_thread_cache[0];
   for (auto i = 0; i < num_sketches; i++) {
-    int curr_group = group_lables_thread_cache[i];
+    int curr_group = group_labels_thread_cache[i];
     int8_t curr_reg_v =
       static_cast<int8_t>(registers_thread_cache[i * num_registers_per_sketch + tid]);
     if (curr_group == prev_group) {
@@ -372,7 +372,7 @@ CUDF_KERNEL void compact_kernel(int64_t const num_groups,
 
 std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
                                           int64_t const num_groups,
-                                          cudf::device_span<cudf::size_type const> group_lables,
+                                          cudf::device_span<cudf::size_type const> group_labels,
                                           int64_t const precision,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
@@ -387,10 +387,10 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
     rmm::device_uvector<int32_t>(num_groups * num_registers_per_sketch, stream, mr);
 
   {  // add this block to release `registers_thread_cache` and
-    // `group_lables_thread_cache`
+    // `group_labels_thread_cache`
     auto registers_thread_cache = rmm::device_uvector<int32_t>(
       num_threads_partial_kernel * num_registers_per_sketch, stream, mr);
-    auto group_lables_thread_cache =
+    auto group_labels_thread_cache =
       rmm::device_uvector<int32_t>(num_threads_partial_kernel, stream, mr);
 
     {  // add this block to release `hash_col`
@@ -405,11 +405,11 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
         cudf::util::div_rounding_up_safe(num_threads_partial_kernel, block_size);
       partial_group_sketches_from_hashs_kernel<num_hashs_per_thread>
         <<<num_blocks_p1, block_size, 0, stream.value()>>>(*d_hashs,
-                                                           group_lables,
+                                                           group_labels,
                                                            precision,
                                                            sketches_output.begin(),
                                                            registers_thread_cache.begin(),
-                                                           group_lables_thread_cache.begin());
+                                                           group_labels_thread_cache.begin());
     }
     // 3. merge the intermidate result
     auto num_merge_threads = num_registers_per_sketch;
@@ -420,7 +420,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
         num_registers_per_sketch,
         sketches_output.begin(),
         registers_thread_cache.begin(),
-        group_lables_thread_cache.begin());
+        group_labels_thread_cache.begin());
   }
 
   // 4. create output columns
@@ -485,13 +485,13 @@ CUDF_KERNEL void partial_group_long_sketches_kernel(
   int64_t const num_threads_per_col,
   int64_t const num_registers_per_sketch,
   int64_t const num_groups,
-  cudf::device_span<cudf::size_type const> group_lables,
+  cudf::device_span<cudf::size_type const> group_labels,
   // num_groups * num_registers_per_sketch integers
   int* const registers_output_cache,
   // num_threads * num_registers_per_sketch integers
   int* const registers_thread_cache,
   // num_threads integers
-  cudf::size_type* const group_lables_thread_cache)
+  cudf::size_type* const group_labels_thread_cache)
 {
   auto const tid           = cudf::detail::grid_1d::global_thread_id();
   auto const num_long_cols = sketches_input.size();
@@ -511,11 +511,11 @@ CUDF_KERNEL void partial_group_long_sketches_kernel(
   if (long_idx == num_long_cols - 1) { num_regs = num_registers_per_sketch % REGISTERS_PER_LONG; }
 
   for (auto i = 0; i < num_regs; i++) {
-    cudf::size_type prev_group = group_lables[sketch_first];
+    cudf::size_type prev_group = group_labels[sketch_first];
     int max_reg_v              = 0;
     int reg_idx_in_sketch      = long_idx * REGISTERS_PER_LONG + i;
     for (auto sketch_idx = sketch_first; sketch_idx < sketch_end; sketch_idx++) {
-      cudf::size_type curr_group = group_lables[sketch_idx];
+      cudf::size_type curr_group = group_labels[sketch_idx];
       int curr_reg_v             = get_register_value(longs_ptr[sketch_idx], i);
       if (curr_group == prev_group) {
         // still in the same group, update the max value
@@ -537,7 +537,7 @@ CUDF_KERNEL void partial_group_long_sketches_kernel(
           registers_output_cache[output_idx_curr] = max_reg_v;
           max_reg_v                               = curr_reg_v;
         } else {
-          if (curr_group != group_lables[sketch_idx + 1]) {
+          if (curr_group != group_labels[sketch_idx + 1]) {
             // look the first item in the next segment
             registers_output_cache[output_idx_curr] = max_reg_v;
             max_reg_v                               = curr_reg_v;
@@ -553,7 +553,7 @@ CUDF_KERNEL void partial_group_long_sketches_kernel(
   }
 
   if (long_idx == 0) {
-    group_lables_thread_cache[thread_idx_in_cols] = group_lables[sketch_end - 1];
+    group_labels_thread_cache[thread_idx_in_cols] = group_labels[sketch_end - 1];
   }
 }
 
@@ -564,7 +564,7 @@ CUDF_KERNEL void partial_group_long_sketches_kernel(
 std::unique_ptr<cudf::column> group_merge_hllpp(
   cudf::column_view const& hll_input,  // struct<long, ..., long> column
   int64_t const num_groups,
-  cudf::device_span<cudf::size_type const> group_lables,
+  cudf::device_span<cudf::size_type const> group_labels,
   int64_t const precision,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -584,7 +584,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   {
     auto registers_thread_cache =
       rmm::device_uvector<int32_t>(num_registers_per_sketch * num_threads_phase1, stream, mr);
-    auto group_lables_thread_cache =
+    auto group_labels_thread_cache =
       rmm::device_uvector<int32_t>(num_threads_per_col_phase1, stream, mr);
 
     cudf::structs_column_view scv(hll_input);
@@ -599,10 +599,10 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
                                                       num_threads_per_col_phase1,
                                                       num_registers_per_sketch,
                                                       num_groups,
-                                                      group_lables,
+                                                      group_labels,
                                                       registers_output_cache.begin(),
                                                       registers_thread_cache.begin(),
-                                                      group_lables_thread_cache.begin());
+                                                      group_labels_thread_cache.begin());
     auto const num_phase2_threads = num_registers_per_sketch;
     auto const num_phase2_blocks = cudf::util::div_rounding_up_safe(num_phase2_threads, block_size);
     // 2nd kernel: vertical merge
@@ -612,7 +612,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
         num_registers_per_sketch,
         registers_output_cache.begin(),
         registers_thread_cache.begin(),
-        group_lables_thread_cache.begin());
+        group_labels_thread_cache.begin());
   }
 
   // create output columns
@@ -856,20 +856,20 @@ struct estimate_fn {
 std::unique_ptr<cudf::column> group_hyper_log_log_plus_plus(
   cudf::column_view const& input,
   int64_t const num_groups,
-  cudf::device_span<cudf::size_type const> group_lables,
+  cudf::device_span<cudf::size_type const> group_labels,
   int64_t const precision,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(precision >= 4, "HyperLogLogPlusPlus requires precision bigger than 4.");
   auto adjust_precision = precision > MAX_PRECISION ? MAX_PRECISION : precision;
-  return group_hllpp(input, num_groups, group_lables, adjust_precision, stream, mr);
+  return group_hllpp(input, num_groups, group_labels, adjust_precision, stream, mr);
 }
 
 std::unique_ptr<cudf::column> group_merge_hyper_log_log_plus_plus(
   cudf::column_view const& input,
   int64_t const num_groups,
-  cudf::device_span<cudf::size_type const> group_lables,
+  cudf::device_span<cudf::size_type const> group_labels,
   int64_t const precision,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -885,7 +885,7 @@ std::unique_ptr<cudf::column> group_merge_hyper_log_log_plus_plus(
   auto expected_num_longs = (1 << adjust_precision) / REGISTERS_PER_LONG + 1;
   CUDF_EXPECTS(input.num_children() == expected_num_longs,
                "The num of long columns in input is incorrect.");
-  return group_merge_hllpp(input, num_groups, group_lables, adjust_precision, stream, mr);
+  return group_merge_hllpp(input, num_groups, group_labels, adjust_precision, stream, mr);
 }
 
 std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(cudf::column_view const& input,

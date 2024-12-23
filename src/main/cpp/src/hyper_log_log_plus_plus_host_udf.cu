@@ -82,15 +82,15 @@ struct hllpp_udf : cudf::host_udf_base {
       auto const group_offsets = std::get<cudf::device_span<cudf::size_type const>>(
         udf_input.at(groupby_data_attribute::GROUP_OFFSETS));
       int num_groups          = group_offsets.size() - 1;
-      auto const group_lables = std::get<cudf::device_span<cudf::size_type const>>(
+      auto const group_labels = std::get<cudf::device_span<cudf::size_type const>>(
         udf_input.at(groupby_data_attribute::GROUP_LABELS));
       if (is_merge) {
         // group by intermidate result, group_values are struct of long columns
         return spark_rapids_jni::group_merge_hyper_log_log_plus_plus(
-          group_values, num_groups, group_lables, precision, stream, mr);
+          group_values, num_groups, group_labels, precision, stream, mr);
       } else {
         return spark_rapids_jni::group_hyper_log_log_plus_plus(
-          group_values, num_groups, group_lables, precision, stream, mr);
+          group_values, num_groups, group_labels, precision, stream, mr);
       }
     }
   }
