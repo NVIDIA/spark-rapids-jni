@@ -534,17 +534,19 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   // `nested_column_map` has the same size as `input.num_columns()`, and it maps the column index in
   // `input` to the index in `flattened_column_views`
   std::vector<cudf::size_type> nested_column_map;
-  // Construct the `flattened_column_views` by level order traversal
+
   for (auto i = 0; i < input.num_columns(); i++) {
-    cudf::column_view col = input.column(i);
-    if (col.type().id() == cudf::type_id::LIST || col.type().id() == cudf::type_id::STRUCT) {
+    auto const& root_col = input.column(i);
+    if (root_col.type().id() == cudf::type_id::LIST ||
+        root_col.type().id() == cudf::type_id::STRUCT) {
+      // Construct the `flattened_column_views` by level order traversal
       nested_column_map.push_back(flattened_column_views.size());
-      flattened_column_views.push_back(col);
+      flattened_column_views.push_back(root_col);
       // flattened_column_views[idx] is the next column to process
       for (auto idx = nested_column_map.back();
            idx < static_cast<cudf::size_type>(flattened_column_views.size());
            idx++) {
-        col = flattened_column_views[idx];
+        auto const col = flattened_column_views[idx];
         if (col.type().id() == cudf::type_id::LIST) {
           first_child_index.push_back(flattened_column_views.size());
           flattened_column_views.push_back(cudf::lists_column_view(col).offsets());
