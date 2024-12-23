@@ -166,7 +166,7 @@ class hive_device_row_hasher {
                                           cudf::table_device_view t,
                                           cudf::column_device_view* flattened_column_views,
                                           cudf::size_type* first_child_index,
-                                          cudf::size_type* nested_column_map)
+                                          cudf::size_type* nested_column_map) noexcept
     : _check_nulls{check_nulls},
       _table{t},
       _flattened_column_views{flattened_column_views},
