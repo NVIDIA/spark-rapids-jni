@@ -81,5 +81,8 @@ ConfigureBench(BLOOM_FILTER_BENCH
 ConfigureBench(GET_JSON_OBJECT_BENCH
   get_json_object.cu)
 
+ConfigureBench(HASH_BENCH
+  hash.cu)
+
 ConfigureBench(PARSE_URI_BENCH
   parse_uri.cpp)
