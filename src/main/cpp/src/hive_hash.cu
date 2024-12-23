@@ -192,11 +192,11 @@ class hive_device_row_hasher {
       HIVE_INIT_HASH,
       cuda::proclaim_return_type<hive_hash_value_t>(
         [row_index,
-         nulls                  = this->_check_nulls,
-         table                  = this->_table,
-         flattened_column_views = this->_flattened_column_views,
-         first_child_index      = this->_first_child_index,
-         nested_column_map = this->_nested_column_map] __device__(auto hash, auto const& column) {
+         nulls                  = _check_nulls,
+         table                  = _table,
+         flattened_column_views = _flattened_column_views,
+         first_child_index      = _first_child_index,
+         nested_column_map      = _nested_column_map] __device__(auto hash, auto const& column) {
           cudf::size_type col_idx = &column - table.begin();
           auto cur_hash           = cudf::type_dispatcher(
             column.type(),
@@ -250,7 +250,7 @@ class hive_device_row_hasher {
       __device__ col_stack_frame() = default;
 
       __device__ col_stack_frame(cudf::size_type col_idx, cudf::size_type row_idx)
-        : _col_idx(col_idx), _row_idx(row_idx), _cur_hash(HIVE_INIT_HASH), _idx_to_process(0)
+        : _col_idx(col_idx), _row_idx(row_idx), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
       {
       }
 
@@ -392,8 +392,8 @@ class hive_device_row_hasher {
     __device__ hive_hash_value_t operator()(cudf::column_device_view const& col,
                                             cudf::size_type row_index) const noexcept
     {
-      cudf::size_type curr_col_idx = _nested_column_map[this->_col_idx];
-      cudf::size_type curr_row_idx = row_index;
+      auto curr_col_idx = _nested_column_map[_col_idx];
+      auto curr_row_idx = row_index;
 
       col_stack_frame col_stack[MAX_STACK_DEPTH];
       int stack_size          = 0;
