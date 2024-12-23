@@ -56,7 +56,7 @@ static void xxhash64(nvbench::state& state)
   state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
 }
 
-NVBENCH_BENCH(xxhash64)
+NVBENCH_BENCH(hash)
   .set_name("hash")
   .add_int64_axis("size_bytes", {50'000'000, 100'000'000, 250'000'000,500'000'000, 1'000'000'000}); // 50MB, 100MB, 250MB, 500MB, 1GB
   //.add_int64_axis("list_depth", {1, 2, 4});
