@@ -566,17 +566,9 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
     }
   }
 
-  std::vector<cudf::column_device_view> device_flattened_column_views;
-  device_flattened_column_views.reserve(flattened_column_views.size());
-
-  std::transform(
-    flattened_column_views.begin(),
-    flattened_column_views.end(),
-    std::back_inserter(device_flattened_column_views),
-    [&stream](auto const& col) { return *cudf::column_device_view::create(col, stream); });
-
-  auto flattened_column_device_views =
-    cudf::detail::make_device_uvector_async(device_flattened_column_views, stream, mr);
+  [[maybe_unused]] auto [device_view_owners, flattened_column_device_views] =
+    cudf::contiguous_copy_column_device_views<cudf::column_device_view>(flattened_column_views,
+                                                                        stream);
   auto first_child_index_view =
     cudf::detail::make_device_uvector_async(first_child_index, stream, mr);
   auto nested_column_map_view =
@@ -588,15 +580,14 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   stream.synchronize();
 
   // Compute the hash value for each row
-  thrust::tabulate(
-    rmm::exec_policy(stream),
-    output_view.begin<hive_hash_value_t>(),
-    output_view.end<hive_hash_value_t>(),
-    hive_device_row_hasher<hive_hash_function, bool>(nullable,
-                                                     *input_view,
-                                                     flattened_column_device_views.data(),
-                                                     first_child_index_view.data(),
-                                                     nested_column_map_view.data()));
+  thrust::tabulate(rmm::exec_policy(stream),
+                   output_view.begin<hive_hash_value_t>(),
+                   output_view.end<hive_hash_value_t>(),
+                   hive_device_row_hasher<hive_hash_function, bool>(nullable,
+                                                                    *input_view,
+                                                                    flattened_column_device_views,
+                                                                    first_child_index_view.data(),
+                                                                    nested_column_map_view.data()));
 
   return output;
 }
