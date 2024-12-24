@@ -197,8 +197,8 @@ class hive_device_row_hasher {
          flattened_column_views = _flattened_column_views,
          first_child_index      = _first_child_index,
          nested_column_map      = _nested_column_map] __device__(auto hash, auto const& column) {
-          cudf::size_type col_idx = &column - table.begin();
-          auto cur_hash           = cudf::type_dispatcher(
+          auto col_idx  = &column - table.begin();
+          auto cur_hash = cudf::type_dispatcher(
             column.type(),
             element_hasher_adapter{
               nulls, col_idx, flattened_column_views, first_child_index, nested_column_map},
@@ -430,9 +430,9 @@ class hive_device_row_hasher {
           }
         } else if (curr_col.type().id() == cudf::type_id::LIST) {
           // Get the child column of the list column
-          auto offset_col_idx      = _first_child_index[curr_col_idx];
-          auto child_col_idx       = offset_col_idx + 1;
-          auto const& offsets_col  = _flattened_column_views[offset_col_idx];
+          auto offsets_col_idx     = _first_child_index[curr_col_idx];
+          auto child_col_idx       = offsets_col_idx + 1;
+          auto const& offsets_col  = _flattened_column_views[offsets_col_idx];
           auto const& child_col    = _flattened_column_views[child_col_idx];
           auto child_row_idx_begin = offsets_col.element<cudf::size_type>(curr_row_idx);
           auto child_row_idx_end   = offsets_col.element<cudf::size_type>(curr_row_idx + 1);
@@ -569,10 +569,11 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   std::vector<cudf::column_device_view> device_flattened_column_views;
   device_flattened_column_views.reserve(flattened_column_views.size());
 
-  for (auto const& col : flattened_column_views) {
-    auto const device_view = cudf::column_device_view::create(col, stream);
-    device_flattened_column_views.push_back(*device_view);
-  }
+  std::transform(
+    flattened_column_views.begin(),
+    flattened_column_views.end(),
+    std::back_inserter(device_flattened_column_views),
+    [&stream](auto const& col) { return *cudf::column_device_view::create(col, stream); });
 
   auto flattened_column_device_views =
     cudf::detail::make_device_uvector_async(device_flattened_column_views, stream, mr);
@@ -580,11 +581,11 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
     cudf::detail::make_device_uvector_async(first_child_index, stream, mr);
   auto nested_column_map_view =
     cudf::detail::make_device_uvector_async(nested_column_map, stream, mr);
-  stream.synchronize();
 
   bool const nullable   = has_nested_nulls(input);
   auto const input_view = cudf::table_device_view::create(input, stream);
   auto output_view      = output->mutable_view();
+  stream.synchronize();
 
   // Compute the hash value for each row
   thrust::tabulate(
