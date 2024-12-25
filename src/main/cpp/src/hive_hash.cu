@@ -241,7 +241,7 @@ class hive_device_row_hasher {
      */
     struct col_stack_frame {
      private:
-      cudf::size_type _col_idx;     // the column has only one row
+      cudf::size_type _col_idx;     // the column index in the flattened array
       cudf::size_type _row_idx;     // the index of the row in the column
       int _idx_to_process;          // the index of child or element to process next
       hive_hash_value_t _cur_hash;  // current hash value of the column
