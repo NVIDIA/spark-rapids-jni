@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,27 +28,38 @@ constexpr auto max_width = 10;
 
 static void hash(nvbench::state& state)
 {
-  std::size_t const size_bytes = static_cast<cudf::size_type>(state.get_int64("size_bytes"));
-  // cudf::size_type const list_depth = static_cast<cudf::size_type>(state.get_int64("list_depth"));
+  auto const size_bytes = static_cast<std::size_t>(state.get_int64("size_bytes"));
+  auto const max_depth  = static_cast<cudf::size_type>(state.get_int64("max_depth"));
 
-  data_profile const table_profile =
-    data_profile_builder()
-      .no_validity()
-      //.distribution(cudf::type_id::LIST, distribution_id::NORMAL, min_width, max_width)
-      //.list_depth(list_depth)
-      //.list_type(cudf::type_id::INT32);
-      .struct_types(std::vector<cudf::type_id>{
-        cudf::type_id::BOOL8, cudf::type_id::INT32, cudf::type_id::FLOAT32});
-
-  auto const input_table = create_random_table(
-    std::vector<cudf::type_id>{cudf::type_id::STRUCT}, table_size_bytes{size_bytes}, table_profile);
+  auto const bench_structs = true;
+  auto const input_table   = [&] {
+    if (bench_structs) {
+      data_profile const table_profile =
+        data_profile_builder().no_validity().struct_depth(max_depth).struct_types(
+          std::vector<cudf::type_id>{
+            cudf::type_id::INT32, cudf::type_id::FLOAT32, cudf::type_id::STRING});
+      return create_random_table(
+        {cudf::type_id::STRUCT}, table_size_bytes{size_bytes}, table_profile);
+    } else {
+      data_profile const table_profile =
+        data_profile_builder()
+          .no_validity()
+          .distribution(cudf::type_id::STRING, distribution_id::NORMAL, min_width, max_width)
+          .distribution(cudf::type_id::LIST, distribution_id::NORMAL, min_width, max_width)
+          .list_depth(max_depth)
+          .list_type(cudf::type_id::STRING);
+      return create_random_table(
+        {cudf::type_id::LIST}, table_size_bytes{size_bytes}, table_profile);
+    }
+  }();
 
   auto const stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
   state.exec(nvbench::exec_tag::timer | nvbench::exec_tag::sync,
              [&](nvbench::launch& launch, auto& timer) {
                timer.start();
-               auto const output = spark_rapids_jni::hive_hash(*input_table);
+               // `hive_hash` can be substituted with other hash functions
+               spark_rapids_jni::hive_hash(*input_table);
                stream.synchronize();
                timer.stop();
              });
@@ -57,11 +68,8 @@ static void hash(nvbench::state& state)
   state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
 }
 
-NVBENCH_BENCH(hash).set_name("hash").add_int64_axis(
-  "size_bytes",
-  {50'000'000,
-   100'000'000,
-   250'000'000,
-   500'000'000,
-   1'000'000'000});  // 50MB, 100MB, 250MB, 500MB, 1GB
-//.add_int64_axis("list_depth", {1, 2, 4});
+NVBENCH_BENCH(hash)
+  .set_name("hash")
+  .add_int64_axis("size_bytes",
+                  {50'000'000, 100'000'000, 500'000'000, 1'000'000'000})  // 50MB, 100MB, 500MB, 1GB
+  .add_int64_axis("max_depth", {1, 2, 4, 8});
