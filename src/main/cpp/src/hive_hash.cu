@@ -591,7 +591,8 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
                                                                     first_child_index_view.data(),
                                                                     nested_column_map_view.data()));
 
-  // Ensure that the output is ready before returning
+  // Push data from host vectors `first_child_index` and `nested_column_map` to device
+  // before they are destroyed.
   stream.synchronize();
   return output;
 }
