@@ -569,10 +569,10 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   [[maybe_unused]] auto [device_view_owners, flattened_column_device_views] =
     cudf::contiguous_copy_column_device_views<cudf::column_device_view>(flattened_column_views,
                                                                         stream);
-  auto first_child_index_view =
-    cudf::detail::make_device_uvector_async(first_child_index, stream, cudf::get_current_device_resource_ref());
-  auto nested_column_map_view =
-    cudf::detail::make_device_uvector_async(nested_column_map, stream, cudf::get_current_device_resource_ref());
+  auto first_child_index_view = cudf::detail::make_device_uvector_async(
+    first_child_index, stream, cudf::get_current_device_resource_ref());
+  auto nested_column_map_view = cudf::detail::make_device_uvector_async(
+    nested_column_map, stream, cudf::get_current_device_resource_ref());
 
   bool const nullable   = has_nested_nulls(input);
   auto const input_view = cudf::table_device_view::create(input, stream);
