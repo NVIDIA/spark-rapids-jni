@@ -249,9 +249,12 @@ class hive_device_row_hasher {
      public:
       __device__ col_stack_frame() = default;
 
-      __device__ col_stack_frame(cudf::size_type col_idx, cudf::size_type row_idx)
-        : _col_idx(col_idx), _row_idx(row_idx), _idx_to_process(0), _cur_hash(HIVE_INIT_HASH)
+      __device__ void init(cudf::size_type col_idx, cudf::size_type row_idx)
       {
+        _col_idx        = col_idx;
+        _row_idx        = row_idx;
+        _idx_to_process = 0;
+        _cur_hash       = HIVE_INIT_HASH;
       }
 
       __device__ void update_cur_hash(hive_hash_value_t hash)
@@ -396,8 +399,8 @@ class hive_device_row_hasher {
       auto curr_row_idx = row_index;
 
       col_stack_frame col_stack[MAX_STACK_DEPTH];
-      int stack_size          = 0;
-      col_stack[stack_size++] = col_stack_frame(curr_col_idx, curr_row_idx);
+      int stack_size = 0;
+      col_stack[stack_size++].init(curr_col_idx, curr_row_idx);
 
       while (stack_size > 0) {
         col_stack_frame& top = col_stack[stack_size - 1];
@@ -423,7 +426,7 @@ class hive_device_row_hasher {
                     child_col.type(), this->hash_functor, child_col, curr_row_idx);
                 top.update_cur_hash(child_hash);
               } else {
-                col_stack[stack_size++] = col_stack_frame(child_col_idx, curr_row_idx);
+                col_stack[stack_size++].init(child_col_idx, curr_row_idx);
                 break;
               }
             }
@@ -456,8 +459,8 @@ class hive_device_row_hasher {
               if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
             } else {
               // Push the next element into the stack
-              col_stack[stack_size++] = col_stack_frame(
-                child_col_idx, child_row_idx_begin + top.get_and_inc_idx_to_process());
+              col_stack[stack_size++].init(child_col_idx,
+                                           child_row_idx_begin + top.get_and_inc_idx_to_process());
             }
           }
         }
