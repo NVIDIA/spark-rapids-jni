@@ -570,14 +570,13 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
     cudf::contiguous_copy_column_device_views<cudf::column_device_view>(flattened_column_views,
                                                                         stream);
   auto first_child_index_view =
-    cudf::detail::make_device_uvector_async(first_child_index, stream, mr);
+    cudf::detail::make_device_uvector_async(first_child_index, stream, cudf::get_current_device_resource_ref());
   auto nested_column_map_view =
-    cudf::detail::make_device_uvector_async(nested_column_map, stream, mr);
+    cudf::detail::make_device_uvector_async(nested_column_map, stream, cudf::get_current_device_resource_ref());
 
   bool const nullable   = has_nested_nulls(input);
   auto const input_view = cudf::table_device_view::create(input, stream);
   auto output_view      = output->mutable_view();
-  stream.synchronize();
 
   // Compute the hash value for each row
   thrust::tabulate(rmm::exec_policy_nosync(stream),
@@ -589,6 +588,8 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
                                                                     first_child_index_view.data(),
                                                                     nested_column_map_view.data()));
 
+  // Ensure that the output is ready before returning
+  stream.synchronize();
   return output;
 }
 
