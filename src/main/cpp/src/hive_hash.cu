@@ -191,13 +191,7 @@ class hive_device_row_hasher {
       _table.end(),
       HIVE_INIT_HASH,
       cuda::proclaim_return_type<hive_hash_value_t>(
-        [row_index,
-         nulls                  = _check_nulls,
-         table                  = _table,
-         flattened_column_views = _flattened_column_views,
-         first_child_index      = _first_child_index,
-         nested_column_map      = _nested_column_map] __device__(auto hash, auto const& column) {
-          auto col_idx  = &column - table.begin();
+        [=] __device__(auto const hash, auto const col_idx) {
           auto cur_hash = cudf::type_dispatcher(
             column.type(),
             element_hasher_adapter{
