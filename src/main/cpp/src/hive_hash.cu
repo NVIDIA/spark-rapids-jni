@@ -542,7 +542,7 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
     if (root_col.type().id() == cudf::type_id::LIST ||
         root_col.type().id() == cudf::type_id::STRUCT) {
       // Construct the `flattened_column_views` by level order traversal
-      nested_column_map.push_back(flattened_column_views.size());
+      nested_column_map.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
       flattened_column_views.push_back(root_col);
       // flattened_column_views[idx] is the next column to process
       for (auto idx = nested_column_map.back();
