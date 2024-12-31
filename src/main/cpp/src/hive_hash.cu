@@ -554,7 +554,7 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
           flattened_column_views.push_back(cudf::lists_column_view(col).offsets());
           flattened_column_views.push_back(cudf::lists_column_view(col).get_sliced_child(stream));
         } else if (col.type().id() == cudf::type_id::STRUCT) {
-          first_child_index.push_back(flattened_column_views.size());
+          first_child_index.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
           for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
             flattened_column_views.push_back(
               cudf::structs_column_view(col).get_sliced_child(child_idx, stream));
