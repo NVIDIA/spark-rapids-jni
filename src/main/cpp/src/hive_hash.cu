@@ -534,14 +534,15 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
            idx++) {
         auto const col = flattened_column_views[idx];
         if (col.type().id() == cudf::type_id::LIST) {
+          auto const list_col = cudf::lists_column_view(col);
           first_child_index.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
-          flattened_column_views.push_back(cudf::lists_column_view(col).offsets());
-          flattened_column_views.push_back(cudf::lists_column_view(col).get_sliced_child(stream));
+          flattened_column_views.push_back(list_col.offsets());
+          flattened_column_views.push_back(list_col.get_sliced_child(stream));
         } else if (col.type().id() == cudf::type_id::STRUCT) {
+          auto const struct_col = cudf::structs_column_view(col);
           first_child_index.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
           for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
-            flattened_column_views.push_back(
-              cudf::structs_column_view(col).get_sliced_child(child_idx, stream));
+            flattened_column_views.push_back(struct_col.get_sliced_child(child_idx, stream));
           }
         } else {
           first_child_index.push_back(-1);
