@@ -60,7 +60,6 @@ static void hash(nvbench::state& state)
                timer.start();
                // `hive_hash` can be substituted with other hash functions
                spark_rapids_jni::hive_hash(*input_table);
-               stream.synchronize();
                timer.stop();
              });
 
