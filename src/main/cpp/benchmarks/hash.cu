@@ -63,7 +63,6 @@ static void hash(nvbench::state& state)
                timer.stop();
              });
 
-  auto const time = state.get_summary("nv/cold/time/gpu/mean").get_float64("value");
   state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
 }
 
