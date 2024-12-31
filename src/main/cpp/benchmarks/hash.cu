@@ -55,14 +55,10 @@ static void hash(nvbench::state& state)
 
   auto const stream = cudf::get_default_stream();
   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.value()));
-  state.exec(nvbench::exec_tag::timer | nvbench::exec_tag::sync,
-             [&](nvbench::launch& launch, auto& timer) {
-               timer.start();
-               // `hive_hash` can be substituted with other hash functions
-               spark_rapids_jni::hive_hash(*input_table);
-               timer.stop();
-             });
-
+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
+    // `hive_hash` can be substituted with other hash functions
+    spark_rapids_jni::hive_hash(*input_table);
+  });
   state.add_global_memory_reads<nvbench::int8_t>(size_bytes);
 }
 
