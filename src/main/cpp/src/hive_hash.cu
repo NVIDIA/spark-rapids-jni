@@ -386,7 +386,7 @@ class hive_device_row_hasher {
      * @note This function is only enabled for nested column types.
      */
     template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
-    __device__ hive_hash_value_t operator()(cudf::column_device_view const& col,
+    __device__ hive_hash_value_t operator()(cudf::column_device_view const&,
                                             cudf::size_type row_index) const noexcept
     {
       auto curr_col_idx = _nested_column_map[_col_idx];
