@@ -721,6 +721,23 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
                                       parent_num_children);
     auto filter = pruner.filter_schema(meta->schema, ignore_case);
 
+    if (filter.schema_map.empty()) {
+      // Possibly still filter row groups by offset, so rowCount is correct
+      std::vector<parquet::format::RowGroup> filtered_row_groups;
+      if (part_length >= 0) {
+        filtered_row_groups = rapids::jni::filter_groups(
+        *meta, part_offset, part_length);
+      }
+      meta->row_groups = std::move(filtered_row_groups);
+      // Clear schema => physically 0 columns remain
+      meta->schema.clear();
+      //meta->__isset.schema = true;
+      // (We keep meta->num_rows unset or derived from row groups at read time.)
+
+      // Return the pruned metadata
+      return cudf::jni::release_as_jlong(meta);
+    }
+
     // start by filtering the schema and the chunks
     std::size_t new_schema_size = filter.schema_map.size();
     std::vector<parquet::format::SchemaElement> new_schema(new_schema_size);
