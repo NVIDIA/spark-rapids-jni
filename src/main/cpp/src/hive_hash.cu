@@ -39,6 +39,12 @@ using hive_hash_value_t = int32_t;
 constexpr hive_hash_value_t HIVE_HASH_FACTOR = 31;
 constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
 
+struct col_info {
+  cudf::type_id type_id;
+  cudf::size_type nested_num_children_or_basic_col_idx;  // Number of children for nested types, or
+                                                         // col_idx in `basic_cdvs` for basic types
+};
+
 hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
 
 hive_hash_value_t __device__ inline compute_long(int64_t key)
@@ -164,14 +170,14 @@ class hive_device_row_hasher {
  public:
   CUDF_HOST_DEVICE hive_device_row_hasher(Nullate check_nulls,
                                           cudf::table_device_view t,
-                                          cudf::column_device_view* flattened_column_views,
-                                          cudf::size_type* first_child_index,
-                                          cudf::size_type* nested_column_map) noexcept
+                                          cudf::column_device_view* basic_cdvs,
+                                          cudf::size_type* column_map,
+                                          col_info* col_infos) noexcept
     : _check_nulls{check_nulls},
       _table{t},
-      _flattened_column_views{flattened_column_views},
-      _first_child_index{first_child_index},
-      _nested_column_map{nested_column_map}
+      _basic_cdvs{basic_cdvs},
+      _column_map{column_map},
+      _col_infos{col_infos}
   {
     // Error out if passed an unsupported hash_function
     static_assert(std::is_base_of_v<hive_hash_function<int>, hash_function<int>>,
@@ -381,7 +387,8 @@ class hive_device_row_hasher {
     __device__ hive_hash_value_t operator()(cudf::column_device_view const&,
                                             cudf::size_type row_index) const noexcept
     {
-      auto curr_col_idx = _parent._nested_column_map[_col_idx];
+      auto curr_col_idx = _parent._column_map[_col_idx];
+      auto next_col_idx = curr_col_idx;
       auto curr_row_idx = row_index;
 
       col_stack_frame col_stack[MAX_STACK_DEPTH];
@@ -389,24 +396,27 @@ class hive_device_row_hasher {
       col_stack[stack_size++].init(curr_col_idx, curr_row_idx);
 
       while (stack_size > 0) {
-        col_stack_frame& top = col_stack[stack_size - 1];
-        curr_col_idx         = top.get_col_idx();
-        curr_row_idx         = top.get_row_idx();
-        auto const& curr_col = _parent._flattened_column_views[curr_col_idx];
+        col_stack_frame& top      = col_stack[stack_size - 1];
+        curr_col_idx              = top.get_col_idx();
+        curr_row_idx              = top.get_row_idx();
+        auto const& curr_col_info = _parent._col_infos[curr_col_idx];
         // Do not pop it until it is processed. The definition of `processed` is:
         // - For structs, it is when all child columns are processed.
         // - For lists, it is when all elements in the list are processed.
-        if (curr_col.type().id() == cudf::type_id::STRUCT) {
-          if (top.get_idx_to_process() == curr_col.num_child_columns()) {
+        if (curr_col_info.type_id == cudf::type_id::STRUCT) {
+          if (top.get_idx_to_process() == curr_col_info.nested_num_children_or_basic_col_idx) {
             if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
           } else {
-            while (top.get_idx_to_process() < curr_col.num_child_columns()) {
-              auto idx              = top.get_and_inc_idx_to_process();
-              auto child_col_idx    = _parent._first_child_index[curr_col_idx] + idx;
-              auto const& child_col = _parent._flattened_column_views[child_col_idx];
+            if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
+            while (top.get_idx_to_process() < curr_col_info.nested_num_children_or_basic_col_idx) {
+              top.get_and_inc_idx_to_process();
+              auto child_col_idx     = next_col_idx++;
+              auto const& child_info = _parent._col_infos[child_col_idx];
               // If the child is of primitive type, accumulate child hash into struct hash
-              if (child_col.type().id() != cudf::type_id::LIST &&
-                  child_col.type().id() != cudf::type_id::STRUCT) {
+              if (child_info.type_id != cudf::type_id::LIST &&
+                  child_info.type_id != cudf::type_id::STRUCT) {
+                auto const& child_col =
+                  _parent._basic_cdvs[child_info.nested_num_children_or_basic_col_idx];
                 auto child_hash =
                   cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
                     child_col.type(), this->hash_functor, child_col, curr_row_idx);
@@ -417,18 +427,21 @@ class hive_device_row_hasher {
               }
             }
           }
-        } else if (curr_col.type().id() == cudf::type_id::LIST) {
+        } else if (curr_col_info.type_id == cudf::type_id::LIST) {
           // Get the child column of the list column
-          auto offsets_col_idx     = _parent._first_child_index[curr_col_idx];
-          auto child_col_idx       = offsets_col_idx + 1;
-          auto const& offsets_col  = _parent._flattened_column_views[offsets_col_idx];
-          auto const& child_col    = _parent._flattened_column_views[child_col_idx];
-          auto child_row_idx_begin = offsets_col.element<cudf::size_type>(curr_row_idx);
-          auto child_row_idx_end   = offsets_col.element<cudf::size_type>(curr_row_idx + 1);
+          auto offsets_col_idx       = curr_col_idx + 1;
+          auto child_col_idx         = curr_col_idx + 2;
+          auto const& offsets_col    = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
+                                                          .nested_num_children_or_basic_col_idx];
+          auto const& child_col_info = _parent._col_infos[child_col_idx];
+          auto child_row_idx_begin   = offsets_col.element<cudf::size_type>(curr_row_idx);
+          auto child_row_idx_end     = offsets_col.element<cudf::size_type>(curr_row_idx + 1);
 
           // If the child column is of primitive type, directly compute the hash value of the list
-          if (child_col.type().id() != cudf::type_id::LIST &&
-              child_col.type().id() != cudf::type_id::STRUCT) {
+          if (child_col_info.type_id != cudf::type_id::LIST &&
+              child_col_info.type_id != cudf::type_id::STRUCT) {
+            auto const& child_col =
+              _parent._basic_cdvs[child_col_info.nested_num_children_or_basic_col_idx];
             auto single_level_list_hash = cudf::detail::accumulate(
               thrust::counting_iterator(child_row_idx_begin),
               thrust::counting_iterator(child_row_idx_end),
@@ -439,7 +452,10 @@ class hive_device_row_hasher {
                 return HIVE_HASH_FACTOR * hash + cur_hash;
               });
             top.update_cur_hash(single_level_list_hash);
-            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+            if (--stack_size > 0) {
+              col_stack[stack_size - 1].update_cur_hash(top.get_hash());
+              next_col_idx = curr_col_idx + 3;
+            }
           } else {
             if (top.get_idx_to_process() == child_row_idx_end - child_row_idx_begin) {
               if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
@@ -462,9 +478,9 @@ class hive_device_row_hasher {
 
   Nullate const _check_nulls;
   cudf::table_device_view const _table;
-  cudf::column_device_view* _flattened_column_views;
-  cudf::size_type* _first_child_index;
-  cudf::size_type* _nested_column_map;
+  cudf::column_device_view* _basic_cdvs;
+  cudf::size_type* _column_map;
+  col_info* _col_infos;
 };
 
 void check_nested_depth(cudf::table_view const& input)
@@ -496,6 +512,45 @@ void check_nested_depth(cudf::table_view const& input)
   }
 }
 
+void flatten_table(std::vector<col_info>& col_infos,
+                   std::vector<cudf::column_view>& basic_cvs,
+                   cudf::table_view const& input,
+                   std::vector<cudf::size_type>& column_map,
+                   rmm::cuda_stream_view const& stream)
+{
+  using column_processer_fn_t = std::function<void(std::vector<col_info>&,
+                                                   std::vector<cudf::column_view>&,
+                                                   cudf::column_view const&,
+                                                   rmm::cuda_stream_view const&)>;
+  // Pre-order traversal
+  column_processer_fn_t flatten_column = [&](std::vector<col_info>& col_infos,
+                                             std::vector<cudf::column_view>& basic_cvs,
+                                             cudf::column_view const& col,
+                                             rmm::cuda_stream_view const& stream) {
+    auto type_id = col.type().id();
+    if (type_id == cudf::type_id::LIST) {
+      col_infos.push_back(col_info{type_id, col.num_children()});
+      auto const list_col = cudf::lists_column_view(col);
+      flatten_column(col_infos, basic_cvs, list_col.offsets(), stream);
+      flatten_column(col_infos, basic_cvs, list_col.get_sliced_child(stream), stream);
+    } else if (type_id == cudf::type_id::STRUCT) {
+      col_infos.push_back(col_info{type_id, col.num_children()});
+      auto const struct_col = cudf::structs_column_view(col);
+      for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
+        flatten_column(
+          col_infos, basic_cvs, struct_col.get_sliced_child(child_idx, stream), stream);
+      }
+    } else {
+      col_infos.push_back(col_info{type_id, static_cast<cudf::size_type>(basic_cvs.size())});
+      basic_cvs.push_back(col);
+    }
+  };
+
+  for (auto const& root_col : input) {
+    column_map.push_back(static_cast<cudf::size_type>(col_infos.size()));
+    flatten_column(col_infos, basic_cvs, root_col, stream);
+  }
+}
 }  // namespace
 
 std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
@@ -513,69 +568,37 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
 
   check_nested_depth(input);
 
-  // `flattened_column_views` only contains nested columns and columns that result from flattening
-  // nested columns
-  std::vector<cudf::column_view> flattened_column_views;
-  // `first_child_index` has the same size as `flattened_column_views`
-  std::vector<cudf::size_type> first_child_index;
-  // `nested_column_map` has the same size as `input.num_columns()`, and it maps the column index in
-  // `input` to the index in `flattened_column_views`
-  std::vector<cudf::size_type> nested_column_map;
+  // `basic_cvs` contains column_views of all basic columns in `input` and basic columns that result
+  // from flattening nested columns
+  std::vector<cudf::column_view> basic_cvs;
+  // `column_map` maps the column index in `input` to the index in `col_infos`
+  std::vector<cudf::size_type> column_map;
+  // `col_infos` contains information of all columns in `input` and columns that result from
+  // flattening nested columns
+  std::vector<col_info> col_infos;
 
-  for (auto const& root_col : input) {
-    if (root_col.type().id() == cudf::type_id::LIST ||
-        root_col.type().id() == cudf::type_id::STRUCT) {
-      // Construct the `flattened_column_views` by level order traversal
-      nested_column_map.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
-      flattened_column_views.push_back(root_col);
-      // flattened_column_views[idx] is the next column to process
-      for (auto idx = nested_column_map.back();
-           idx < static_cast<cudf::size_type>(flattened_column_views.size());
-           idx++) {
-        auto const col = flattened_column_views[idx];
-        if (col.type().id() == cudf::type_id::LIST) {
-          auto const list_col = cudf::lists_column_view(col);
-          first_child_index.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
-          flattened_column_views.push_back(list_col.offsets());
-          flattened_column_views.push_back(list_col.get_sliced_child(stream));
-        } else if (col.type().id() == cudf::type_id::STRUCT) {
-          auto const struct_col = cudf::structs_column_view(col);
-          first_child_index.push_back(static_cast<cudf::size_type>(flattened_column_views.size()));
-          for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
-            flattened_column_views.push_back(struct_col.get_sliced_child(child_idx, stream));
-          }
-        } else {
-          first_child_index.push_back(-1);
-        }
-      }
-    } else {
-      nested_column_map.push_back(-1);
-    }
-  }
+  flatten_table(col_infos, basic_cvs, input, column_map, stream);
 
-  [[maybe_unused]] auto [device_view_owners, flattened_column_device_views] =
-    cudf::contiguous_copy_column_device_views<cudf::column_device_view>(flattened_column_views,
-                                                                        stream);
-  auto first_child_index_view = cudf::detail::make_device_uvector_async(
-    first_child_index, stream, cudf::get_current_device_resource_ref());
-  auto nested_column_map_view = cudf::detail::make_device_uvector_async(
-    nested_column_map, stream, cudf::get_current_device_resource_ref());
+  [[maybe_unused]] auto [device_view_owners, basic_cdvs] =
+    cudf::contiguous_copy_column_device_views<cudf::column_device_view>(basic_cvs, stream);
+  auto col_infos_view = cudf::detail::make_device_uvector_async(
+    col_infos, stream, cudf::get_current_device_resource_ref());
+  auto column_map_view = cudf::detail::make_device_uvector_async(
+    column_map, stream, cudf::get_current_device_resource_ref());
 
   bool const nullable   = has_nested_nulls(input);
   auto const input_view = cudf::table_device_view::create(input, stream);
   auto output_view      = output->mutable_view();
 
   // Compute the hash value for each row
-  thrust::tabulate(rmm::exec_policy_nosync(stream),
-                   output_view.begin<hive_hash_value_t>(),
-                   output_view.end<hive_hash_value_t>(),
-                   hive_device_row_hasher<hive_hash_function, bool>(nullable,
-                                                                    *input_view,
-                                                                    flattened_column_device_views,
-                                                                    first_child_index_view.data(),
-                                                                    nested_column_map_view.data()));
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream),
+    output_view.begin<hive_hash_value_t>(),
+    output_view.end<hive_hash_value_t>(),
+    hive_device_row_hasher<hive_hash_function, bool>(
+      nullable, *input_view, basic_cdvs, column_map_view.data(), col_infos_view.data()));
 
-  // Push data from host vectors `first_child_index` and `nested_column_map` to device
+  // Push data from host vectors `first_child_index` and `column_map` to device
   // before they are destroyed.
   stream.synchronize();
   return output;
