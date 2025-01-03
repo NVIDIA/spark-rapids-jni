@@ -234,13 +234,6 @@ class hive_device_row_hasher {
       return this->hash_functor.template operator()<T>(col, row_index);
     }
 
-    template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
-    __device__ hive_hash_value_t operator()(cudf::column_device_view const&,
-                                            cudf::size_type) const noexcept
-    {
-      CUDF_UNREACHABLE("Invalid execution path for nested types.");
-    }
-
     /**
      * @brief A structure to keep track of the computation for nested types.
      */
