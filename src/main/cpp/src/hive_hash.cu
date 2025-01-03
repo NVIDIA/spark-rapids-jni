@@ -204,7 +204,8 @@ class hive_device_row_hasher {
           auto const col_hash =
             (col_info.type_id == cudf::type_id::LIST || col_info.type_id == cudf::type_id::STRUCT)
               ? hash_adapter.hash_nested(col_index, row_index)
-              : cudf::type_dispatcher(cudf::data_type{col_info.type_id},
+              : cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                  cudf::data_type{col_info.type_id},
                                       hash_adapter,
                                       _basic_cdvs[col_info.nested_num_children_or_basic_col_idx],
                                       row_index);
