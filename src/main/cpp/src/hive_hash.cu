@@ -41,8 +41,9 @@ constexpr hive_hash_value_t HIVE_INIT_HASH   = 0;
 
 struct col_info {
   cudf::type_id type_id;
-  cudf::size_type nested_num_children_or_basic_col_idx;  // Number of children for nested types, or
-                                                         // col_idx in `basic_cdvs` for basic types
+  cudf::size_type
+    nested_num_children_or_basic_col_idx;  // Number of children for nested types, or column index
+                                           // in `basic_cdvs` for basic types
 };
 
 hive_hash_value_t __device__ inline compute_int(int32_t key) { return key; }
@@ -168,16 +169,16 @@ hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_us>::oper
 template <template <typename> class hash_function, typename Nullate>
 class hive_device_row_hasher {
  public:
-  CUDF_HOST_DEVICE hive_device_row_hasher(Nullate check_nulls,
-                                          cudf::table_device_view t,
-                                          cudf::column_device_view* basic_cdvs,
-                                          cudf::size_type* column_map,
-                                          col_info* col_infos) noexcept
+  hive_device_row_hasher(Nullate check_nulls,
+                         cudf::column_device_view* basic_cdvs,
+                         cudf::size_type* column_map,
+                         col_info* col_infos,
+                         cudf::size_type num_columns) noexcept
     : _check_nulls{check_nulls},
-      _table{t},
       _basic_cdvs{basic_cdvs},
       _column_map{column_map},
-      _col_infos{col_infos}
+      _col_infos{col_infos},
+      _num_columns{num_columns}
   {
     // Error out if passed an unsupported hash_function
     static_assert(std::is_base_of_v<hive_hash_function<int>, hash_function<int>>,
@@ -190,18 +191,25 @@ class hive_device_row_hasher {
    * @param row_index The row index to compute the hash value of
    * @return The hash value of the row
    */
-  __device__ auto operator()(cudf::size_type row_index) const noexcept
+  __device__ hive_hash_value_t operator()(cudf::size_type row_index) const noexcept
   {
+    auto const hash_adapter = element_hasher_adapter{_check_nulls, *this};
     return cudf::detail::accumulate(
       thrust::make_counting_iterator(0),
-      thrust::make_counting_iterator(_table.num_columns()),
+      thrust::make_counting_iterator(_num_columns),
       HIVE_INIT_HASH,
-      cuda::proclaim_return_type<hive_hash_value_t>([=] __device__(auto hash, auto const col_idx) {
-        auto const& column = _table.column(col_idx);
-        auto cur_hash      = cudf::type_dispatcher(
-          column.type(), element_hasher_adapter{_check_nulls, col_idx, *this}, column, row_index);
-        return HIVE_HASH_FACTOR * hash + cur_hash;
-      }));
+      cuda::proclaim_return_type<hive_hash_value_t>(
+        [=] __device__(auto const hash, auto const col_index) {
+          auto const col_info = _col_infos[_column_map[col_index]];
+          auto const col_hash =
+            (col_info.type_id == cudf::type_id::LIST || col_info.type_id == cudf::type_id::STRUCT)
+              ? hash_adapter.hash_nested(col_index, row_index)
+              : cudf::type_dispatcher(cudf::data_type{col_info.type_id},
+                                      hash_adapter,
+                                      _basic_cdvs[col_info.nested_num_children_or_basic_col_idx],
+                                      row_index);
+          return HIVE_HASH_FACTOR * hash + col_hash;
+        }));
   }
 
  private:
@@ -213,11 +221,8 @@ class hive_device_row_hasher {
     using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
 
     __device__ element_hasher_adapter(Nullate check_nulls,
-                                      cudf::size_type col_idx,
                                       hive_device_row_hasher const& parent) noexcept
-      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH},
-        _col_idx{col_idx},
-        _parent{parent}
+      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH}, _parent{parent}
     {
     }
 
@@ -226,6 +231,13 @@ class hive_device_row_hasher {
                                             cudf::size_type row_index) const noexcept
     {
       return this->hash_functor.template operator()<T>(col, row_index);
+    }
+
+    template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
+    __device__ hive_hash_value_t operator()(cudf::column_device_view const&,
+                                            cudf::size_type) const noexcept
+    {
+      CUDF_UNREACHABLE("Invalid execution path for nested types.");
     }
 
     /**
@@ -241,9 +253,9 @@ class hive_device_row_hasher {
      public:
       __device__ col_stack_frame() = default;
 
-      __device__ void init(cudf::size_type col_idx, cudf::size_type row_idx)
+      __device__ void init(cudf::size_type col_index, cudf::size_type row_idx)
       {
-        _col_idx        = col_idx;
+        _col_idx        = col_index;
         _row_idx        = row_idx;
         _idx_to_process = 0;
         _cur_hash       = HIVE_INIT_HASH;
@@ -376,18 +388,15 @@ class hive_device_row_hasher {
      * If the child column is of primitive type, the hash value of the list column can be directly
      * computed.
      *
-     * @tparam T The type of the column.
-     * @param col The column device view.
-     * @param row_index The index of the row to compute the hash for.
-     * @return The computed hive hash value.
-     *
-     * @note This function is only enabled for nested column types.
+     * @tparam T The type of the column
+     * @param col_index The index of the column in the original input table
+     * @param row_index The index of the row to compute the hash for
+     * @return The computed hive hash value
      */
-    template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
-    __device__ hive_hash_value_t operator()(cudf::column_device_view const&,
-                                            cudf::size_type row_index) const noexcept
+    __device__ hive_hash_value_t hash_nested(cudf::size_type col_index,
+                                             cudf::size_type row_index) const noexcept
     {
-      auto curr_col_idx = _parent._column_map[_col_idx];
+      auto curr_col_idx = _parent._column_map[col_index];
       auto next_col_idx = curr_col_idx;
       auto curr_row_idx = row_index;
 
@@ -396,10 +405,10 @@ class hive_device_row_hasher {
       col_stack[stack_size++].init(curr_col_idx, curr_row_idx);
 
       while (stack_size > 0) {
-        col_stack_frame& top      = col_stack[stack_size - 1];
-        curr_col_idx              = top.get_col_idx();
-        curr_row_idx              = top.get_row_idx();
-        auto const& curr_col_info = _parent._col_infos[curr_col_idx];
+        col_stack_frame& top     = col_stack[stack_size - 1];
+        curr_col_idx             = top.get_col_idx();
+        curr_row_idx             = top.get_row_idx();
+        auto const curr_col_info = _parent._col_infos[curr_col_idx];
         // Do not pop it until it is processed. The definition of `processed` is:
         // - For structs, it is when all child columns are processed.
         // - For lists, it is when all elements in the list are processed.
@@ -410,14 +419,14 @@ class hive_device_row_hasher {
             if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
             while (top.get_idx_to_process() < curr_col_info.nested_num_children_or_basic_col_idx) {
               top.get_and_inc_idx_to_process();
-              auto child_col_idx     = next_col_idx++;
-              auto const& child_info = _parent._col_infos[child_col_idx];
+              auto const child_col_idx = next_col_idx++;
+              auto const child_info    = _parent._col_infos[child_col_idx];
               // If the child is of primitive type, accumulate child hash into struct hash
               if (child_info.type_id != cudf::type_id::LIST &&
                   child_info.type_id != cudf::type_id::STRUCT) {
-                auto const& child_col =
+                auto const child_col =
                   _parent._basic_cdvs[child_info.nested_num_children_or_basic_col_idx];
-                auto child_hash =
+                auto const child_hash =
                   cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
                     child_col.type(), this->hash_functor, child_col, curr_row_idx);
                 top.update_cur_hash(child_hash);
@@ -429,20 +438,22 @@ class hive_device_row_hasher {
           }
         } else if (curr_col_info.type_id == cudf::type_id::LIST) {
           // Get the child column of the list column
-          auto offsets_col_idx       = curr_col_idx + 1;
-          auto child_col_idx         = curr_col_idx + 2;
-          auto const& offsets_col    = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
-                                                          .nested_num_children_or_basic_col_idx];
-          auto const& child_col_info = _parent._col_infos[child_col_idx];
-          auto child_row_idx_begin   = offsets_col.element<cudf::size_type>(curr_row_idx);
-          auto child_row_idx_end     = offsets_col.element<cudf::size_type>(curr_row_idx + 1);
+          auto const offsets_col_idx = curr_col_idx + 1;
+          auto const child_col_idx   = curr_col_idx + 2;
+          auto const offsets_col     = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
+                                                         .nested_num_children_or_basic_col_idx];
+          auto const child_col_info  = _parent._col_infos[child_col_idx];
+          auto const child_row_idx_begin =
+            offsets_col.template element<cudf::size_type>(curr_row_idx);
+          auto const child_row_idx_end =
+            offsets_col.template element<cudf::size_type>(curr_row_idx + 1);
 
           // If the child column is of primitive type, directly compute the hash value of the list
           if (child_col_info.type_id != cudf::type_id::LIST &&
               child_col_info.type_id != cudf::type_id::STRUCT) {
-            auto const& child_col =
+            auto const child_col =
               _parent._basic_cdvs[child_col_info.nested_num_children_or_basic_col_idx];
-            auto single_level_list_hash = cudf::detail::accumulate(
+            auto const single_level_list_hash = cudf::detail::accumulate(
               thrust::counting_iterator(child_row_idx_begin),
               thrust::counting_iterator(child_row_idx_end),
               HIVE_INIT_HASH,
@@ -471,16 +482,15 @@ class hive_device_row_hasher {
     }
 
    private:
-    hash_functor_t const hash_functor;
-    cudf::size_type const _col_idx;
+    hash_functor_t hash_functor;
     hive_device_row_hasher const& _parent;
   };
 
-  Nullate const _check_nulls;
-  cudf::table_device_view const _table;
+  Nullate _check_nulls;
   cudf::column_device_view* _basic_cdvs;
   cudf::size_type* _column_map;
   col_info* _col_infos;
+  cudf::size_type _num_columns;
 };
 
 void check_nested_depth(cudf::table_view const& input)
@@ -491,15 +501,16 @@ void check_nested_depth(cudf::table_view const& input)
     if (col.type().id() == cudf::type_id::LIST) {
       auto const child_col = cudf::lists_column_view(col).child();
       return 1 + get_nested_depth(child_col);
-    } else if (col.type().id() == cudf::type_id::STRUCT) {
+    }
+    if (col.type().id() == cudf::type_id::STRUCT) {
       int max_child_depth = 0;
       for (auto child = col.child_begin(); child != col.child_end(); ++child) {
         max_child_depth = std::max(max_child_depth, get_nested_depth(*child));
       }
       return 1 + max_child_depth;
-    } else {  // Primitive type
-      return 0;
     }
+    // Primitive type
+    return 0;
   };
 
   for (auto i = 0; i < input.num_columns(); i++) {
@@ -518,27 +529,21 @@ void flatten_table(std::vector<col_info>& col_infos,
                    std::vector<cudf::size_type>& column_map,
                    rmm::cuda_stream_view const& stream)
 {
-  using column_processer_fn_t = std::function<void(std::vector<col_info>&,
-                                                   std::vector<cudf::column_view>&,
-                                                   cudf::column_view const&,
-                                                   rmm::cuda_stream_view const&)>;
+  using column_processer_fn_t = std::function<void(cudf::column_view const&)>;
+
   // Pre-order traversal
-  column_processer_fn_t flatten_column = [&](std::vector<col_info>& col_infos,
-                                             std::vector<cudf::column_view>& basic_cvs,
-                                             cudf::column_view const& col,
-                                             rmm::cuda_stream_view const& stream) {
-    auto type_id = col.type().id();
+  column_processer_fn_t flatten_column = [&](cudf::column_view const& col) {
+    auto const type_id = col.type().id();
     if (type_id == cudf::type_id::LIST) {
       col_infos.push_back(col_info{type_id, col.num_children()});
       auto const list_col = cudf::lists_column_view(col);
-      flatten_column(col_infos, basic_cvs, list_col.offsets(), stream);
-      flatten_column(col_infos, basic_cvs, list_col.get_sliced_child(stream), stream);
+      flatten_column(list_col.offsets());
+      flatten_column(list_col.get_sliced_child(stream));
     } else if (type_id == cudf::type_id::STRUCT) {
       col_infos.push_back(col_info{type_id, col.num_children()});
       auto const struct_col = cudf::structs_column_view(col);
       for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
-        flatten_column(
-          col_infos, basic_cvs, struct_col.get_sliced_child(child_idx, stream), stream);
+        flatten_column(struct_col.get_sliced_child(child_idx, stream));
       }
     } else {
       col_infos.push_back(col_info{type_id, static_cast<cudf::size_type>(basic_cvs.size())});
@@ -548,9 +553,10 @@ void flatten_table(std::vector<col_info>& col_infos,
 
   for (auto const& root_col : input) {
     column_map.push_back(static_cast<cudf::size_type>(col_infos.size()));
-    flatten_column(col_infos, basic_cvs, root_col, stream);
+    flatten_column(root_col);
   }
 }
+
 }  // namespace
 
 std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
@@ -586,20 +592,18 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   auto column_map_view = cudf::detail::make_device_uvector_async(
     column_map, stream, cudf::get_current_device_resource_ref());
 
-  bool const nullable   = has_nested_nulls(input);
-  auto const input_view = cudf::table_device_view::create(input, stream);
-  auto output_view      = output->mutable_view();
+  bool const nullable = has_nested_nulls(input);
+  auto output_view    = output->mutable_view();
 
   // Compute the hash value for each row
   thrust::tabulate(
     rmm::exec_policy_nosync(stream),
     output_view.begin<hive_hash_value_t>(),
     output_view.end<hive_hash_value_t>(),
-    hive_device_row_hasher<hive_hash_function, bool>(
-      nullable, *input_view, basic_cdvs, column_map_view.data(), col_infos_view.data()));
+    hive_device_row_hasher<hive_hash_function, bool>{
+      nullable, basic_cdvs, column_map_view.data(), col_infos_view.data(), input.num_columns()});
 
-  // Push data from host vectors `first_child_index` and `column_map` to device
-  // before they are destroyed.
+  // Push data from host vectors to device before they are destroyed at the end of this function.
   stream.synchronize();
   return output;
 }
