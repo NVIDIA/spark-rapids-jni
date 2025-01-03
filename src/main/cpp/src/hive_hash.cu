@@ -388,7 +388,6 @@ class hive_device_row_hasher {
      * If the child column is of primitive type, the hash value of the list column can be directly
      * computed.
      *
-     * @tparam T The type of the column
      * @param col_index The index of the column in the original input table
      * @param row_index The index of the row to compute the hash for
      * @return The computed hive hash value
