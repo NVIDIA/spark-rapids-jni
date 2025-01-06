@@ -389,18 +389,17 @@ class hive_device_row_hasher {
     __device__ hive_hash_value_t hash_nested(cudf::size_type col_index,
                                              cudf::size_type row_index) const noexcept
     {
-      auto curr_col_idx = _parent._column_map[col_index];
-      auto next_col_idx = curr_col_idx;
-      auto curr_row_idx = row_index;
+      auto const flattened_idx = _parent._column_map[col_index];
+      auto next_col_idx        = flattened_idx + 1;
 
       col_stack_frame col_stack[MAX_STACK_DEPTH];
       int stack_size = 0;
-      col_stack[stack_size++].init(curr_col_idx, curr_row_idx);
+      col_stack[stack_size++].init(flattened_idx, row_index);
 
       while (stack_size > 0) {
         col_stack_frame& top     = col_stack[stack_size - 1];
-        curr_col_idx             = top.get_col_idx();
-        curr_row_idx             = top.get_row_idx();
+        auto const curr_col_idx  = top.get_col_idx();
+        auto const curr_row_idx  = top.get_row_idx();
         auto const curr_col_info = _parent._col_infos[curr_col_idx];
         // Do not pop it until it is processed. The definition of `processed` is:
         // - For structs, it is when all child columns are processed.
@@ -409,6 +408,7 @@ class hive_device_row_hasher {
           if (top.get_idx_to_process() == curr_col_info.nested_num_children_or_basic_col_idx) {
             if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
           } else {
+            // Reset `next_col_idx` to keep track of the struct's children index.
             if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
             while (top.get_idx_to_process() < curr_col_info.nested_num_children_or_basic_col_idx) {
               top.get_and_inc_idx_to_process();
@@ -433,9 +433,15 @@ class hive_device_row_hasher {
           // Get the child column of the list column
           auto const offsets_col_idx = curr_col_idx + 1;
           auto const child_col_idx   = curr_col_idx + 2;
-          auto const offsets_col     = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
+
+          // Move `next_col_idx` forward pass the current lists column.
+          // Children of a lists column always stay next to it and are not tracked by this.
+          if (next_col_idx <= child_col_idx) { next_col_idx = child_col_idx + 1; }
+
+          auto const offsets_col = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
                                                          .nested_num_children_or_basic_col_idx];
-          auto const child_col_info  = _parent._col_infos[child_col_idx];
+
+          auto const child_col_info = _parent._col_infos[child_col_idx];
           auto const child_row_idx_begin =
             offsets_col.template element<cudf::size_type>(curr_row_idx);
           auto const child_row_idx_end =
@@ -456,10 +462,7 @@ class hive_device_row_hasher {
                 return HIVE_HASH_FACTOR * hash + cur_hash;
               });
             top.update_cur_hash(single_level_list_hash);
-            if (--stack_size > 0) {
-              col_stack[stack_size - 1].update_cur_hash(top.get_hash());
-              next_col_idx = curr_col_idx + 3;
-            }
+            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
           } else {
             if (top.get_idx_to_process() == child_row_idx_end - child_row_idx_begin) {
               if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
