@@ -131,15 +131,15 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55",
-      "git_url" : "https://github.com/rapidsai/rapids-logger.git",
-      "version" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55"
+      "git_tag" : "98cb4d232dc4612f80d462a0a7bc5490dbc22399",
+      "git_url" : "https://github.com/rapidsai/rapids-logger",
+      "version" : "0.1.0"
     },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "ba35f8e68afa5983d1e5ee1a4dd78cd844c53481",
+      "git_tag" : "b4c43c5fd03cf93fd935343a4e8b2ccfa763afdb",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.02"
     },
