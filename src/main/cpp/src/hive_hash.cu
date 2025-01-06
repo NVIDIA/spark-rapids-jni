@@ -200,10 +200,11 @@ class hive_device_row_hasher {
       HIVE_INIT_HASH,
       cuda::proclaim_return_type<hive_hash_value_t>(
         [=] __device__(auto const hash, auto const col_index) {
-          auto const col_info = _col_infos[_column_map[col_index]];
+          auto const flattened_index = _column_map[col_index];
+          auto const col_info        = _col_infos[flattened_index];
           auto const col_hash =
             (col_info.type_id == cudf::type_id::LIST || col_info.type_id == cudf::type_id::STRUCT)
-              ? hash_adapter.hash_nested(col_index, row_index)
+              ? hash_adapter.hash_nested(flattened_index, row_index)
               : cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
                   cudf::data_type{col_info.type_id},
                   hash_adapter,
@@ -382,19 +383,18 @@ class hive_device_row_hasher {
      * If the child column is of primitive type, the hash value of the list column can be directly
      * computed.
      *
-     * @param col_index The index of the column in the original input table
+     * @param flattened_index The index of the column in the flattened array
      * @param row_index The index of the row to compute the hash for
      * @return The computed hive hash value
      */
-    __device__ hive_hash_value_t hash_nested(cudf::size_type col_index,
+    __device__ hive_hash_value_t hash_nested(cudf::size_type flattened_index,
                                              cudf::size_type row_index) const noexcept
     {
-      auto const flattened_idx = _parent._column_map[col_index];
-      auto next_col_idx        = flattened_idx + 1;
+      auto next_col_idx = flattened_index + 1;
 
       col_stack_frame col_stack[MAX_STACK_DEPTH];
       int stack_size = 0;
-      col_stack[stack_size++].init(flattened_idx, row_index);
+      col_stack[stack_size++].init(flattened_index, row_index);
 
       while (stack_size > 0) {
         col_stack_frame& top     = col_stack[stack_size - 1];
@@ -531,24 +531,24 @@ void flatten_table(std::vector<col_info>& col_infos,
   column_processer_fn_t flatten_column = [&](cudf::column_view const& col) {
     auto const type_id = col.type().id();
     if (type_id == cudf::type_id::LIST) {
-      col_infos.push_back(col_info{type_id, col.num_children()});
+      col_infos.emplace_back(col_info{type_id, col.num_children()});
       auto const list_col = cudf::lists_column_view(col);
       flatten_column(list_col.offsets());
       flatten_column(list_col.get_sliced_child(stream));
     } else if (type_id == cudf::type_id::STRUCT) {
-      col_infos.push_back(col_info{type_id, col.num_children()});
+      col_infos.emplace_back(col_info{type_id, col.num_children()});
       auto const struct_col = cudf::structs_column_view(col);
       for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
         flatten_column(struct_col.get_sliced_child(child_idx, stream));
       }
     } else {
-      col_infos.push_back(col_info{type_id, static_cast<cudf::size_type>(basic_cvs.size())});
+      col_infos.emplace_back(col_info{type_id, static_cast<cudf::size_type>(basic_cvs.size())});
       basic_cvs.push_back(col);
     }
   };
 
   for (auto const& root_col : input) {
-    column_map.push_back(static_cast<cudf::size_type>(col_infos.size()));
+    column_map.emplace_back(static_cast<cudf::size_type>(col_infos.size()));
     flatten_column(root_col);
   }
 }
