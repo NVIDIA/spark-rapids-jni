@@ -205,7 +205,7 @@ class column_pruner {
 
     int num_children = get_num_children(struct_schema_item);
 
-    // Save the current index (the position of this Struct in the full schema).
+    // Save the current index (the position of this struct in the full schema).
     // We'll need this to add it to the pruned schema map if it qualifies.
     int struct_index = current_input_schema_index;
 
@@ -232,7 +232,7 @@ class column_pruner {
 
       if (found != children.end()) {
 
-        // Record the current Size of schema_map before processing the child
+        // Record the current size of schema_map before processing the child
         // This helps determine if the child was retained after processing.
         std::size_t before_child_size = schema_map.size();
         found->second.filter_schema(schema,
@@ -251,12 +251,12 @@ class column_pruner {
           schema_num_children[struct_map_position]++;
         }
       } else {
-        // Skip non-matching children
+        // No match was found so skip the child
         skip(schema, current_input_schema_index, next_input_chunk_index);
       }
     }
 
-    // If the below condition is true, it means none of this Struct's children
+    // If the below condition is true, it means none of this struct's children
     // were included. We should remove it from `schema_map` and `schema_num_children`.
     if (matched_children_count == 0) {
         schema_map.pop_back();
