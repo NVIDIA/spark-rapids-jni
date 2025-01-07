@@ -213,7 +213,7 @@ class column_pruner {
     // But we might remove it later if no children match. This ensures parent-before-children
     // ordering in schema_map.
     schema_map.push_back(struct_index);
-    schema_num_children.push_back(0); // Placeholder for child count
+    schema_num_children.push_back(0);  // Placeholder for child count
 
     // This is necessary to update the child count accurately.
     // Since we just added a new element to schema_num_children, its position is the last index.
@@ -231,7 +231,6 @@ class column_pruner {
       auto found       = children.find(name);
 
       if (found != children.end()) {
-
         // Record the current size of schema_map before processing the child
         // This helps determine if the child was retained after processing.
         std::size_t before_child_size = schema_map.size();
@@ -259,8 +258,8 @@ class column_pruner {
     // If the below condition is true, it means none of this struct's children
     // were included. We should remove it from `schema_map` and `schema_num_children`.
     if (matched_children_count == 0) {
-        schema_map.pop_back();
-        schema_num_children.pop_back();
+      schema_map.pop_back();
+      schema_num_children.pop_back();
     }
   }
 
