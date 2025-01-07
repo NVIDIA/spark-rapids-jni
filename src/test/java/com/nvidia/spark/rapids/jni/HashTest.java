@@ -856,12 +856,18 @@ public class HashTest {
          ColumnView structContainsEmptyList = ColumnView.makeStructView(int1, emptyListCV, int2);
          ColumnView structContainsNoChild = ColumnVector.makeStructView(1);
          ColumnView nestedStruct = ColumnView.makeStructView(int1, structContainsNoChild, int2);
+         ColumnVector nestedListCV = ColumnVector.fromLists(
+             new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
+             Arrays.asList(Collections.singletonList(1), null, Collections.singletonList(2)));
          ColumnVector result1 = Hash.hiveHash(new ColumnView[]{structContainsEmptyList});
          ColumnVector result2 = Hash.hiveHash(new ColumnView[]{nestedStruct});
+         ColumnVector result3 = Hash.hiveHash(new ColumnView[]{nestedListCV});
          ColumnVector expected1 = ColumnVector.fromInts(963);
-         ColumnVector expected2 = ColumnVector.fromInts(963)) {
+         ColumnVector expected2 = ColumnVector.fromInts(963);
+         ColumnVector expected3 = ColumnVector.fromInts(963)) {
       assertColumnsAreEqual(expected1, result1);
       assertColumnsAreEqual(expected2, result2);
+      assertColumnsAreEqual(expected3, result3);
     }
   }
 
