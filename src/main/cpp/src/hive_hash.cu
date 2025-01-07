@@ -169,12 +169,15 @@ hive_hash_value_t __device__ inline hive_hash_function<cudf::timestamp_us>::oper
 template <template <typename> class hash_function, typename Nullate>
 class hive_device_row_hasher {
  public:
+  using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
+
   hive_device_row_hasher(Nullate check_nulls,
                          cudf::column_device_view* basic_cdvs,
                          cudf::size_type* column_map,
                          col_info* col_infos,
                          cudf::size_type num_columns) noexcept
     : _check_nulls{check_nulls},
+      _hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH},
       _basic_cdvs{basic_cdvs},
       _column_map{column_map},
       _col_infos{col_infos},
@@ -193,296 +196,268 @@ class hive_device_row_hasher {
    */
   __device__ hive_hash_value_t operator()(cudf::size_type row_index) const noexcept
   {
-    auto const hash_adapter = element_hasher_adapter{_check_nulls, *this};
     return cudf::detail::accumulate(
       thrust::make_counting_iterator(0),
       thrust::make_counting_iterator(_num_columns),
       HIVE_INIT_HASH,
-      cuda::proclaim_return_type<hive_hash_value_t>(
-        [=] __device__(auto const hash, auto const col_index) {
-          auto const flattened_index = _column_map[col_index];
-          auto const col_info        = _col_infos[flattened_index];
-          auto const col_hash =
-            (col_info.type_id == cudf::type_id::LIST || col_info.type_id == cudf::type_id::STRUCT)
-              ? hash_adapter.hash_nested(flattened_index, row_index)
-              : cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                  cudf::data_type{col_info.type_id},
-                  hash_adapter,
-                  _basic_cdvs[col_info.nested_num_children_or_basic_col_idx],
-                  row_index);
-          return HIVE_HASH_FACTOR * hash + col_hash;
-        }));
+      [=] __device__(auto const hash, auto const col_index) {
+        auto const flattened_index = _column_map[col_index];
+        auto const col_info        = _col_infos[flattened_index];
+        auto const col_hash =
+          (col_info.type_id == cudf::type_id::LIST || col_info.type_id == cudf::type_id::STRUCT)
+            ? hash_nested(flattened_index, row_index)
+            : cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                cudf::data_type{col_info.type_id},
+                _hash_functor,
+                _basic_cdvs[col_info.nested_num_children_or_basic_col_idx],
+                row_index);
+        return HIVE_HASH_FACTOR * hash + col_hash;
+      });
   }
 
  private:
   /**
-   * @brief Computes the hash value of an element in the given column.
+   * @brief A structure to keep track of the computation for nested types.
    */
-  class element_hasher_adapter {
+  struct col_stack_frame {
+   private:
+    cudf::size_type _col_idx;     // the column index in the flattened array
+    cudf::size_type _row_idx;     // the index of the row in the column
+    int _idx_to_process;          // the index of child or element to process next
+    hive_hash_value_t _cur_hash;  // current hash value of the column
+
    public:
-    using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
+    __device__ col_stack_frame() = default;
 
-    __device__ element_hasher_adapter(Nullate check_nulls,
-                                      hive_device_row_hasher const& parent) noexcept
-      : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH}, _parent{parent}
+    __device__ void init(cudf::size_type col_index, cudf::size_type row_idx)
     {
+      _col_idx        = col_index;
+      _row_idx        = row_idx;
+      _idx_to_process = 0;
+      _cur_hash       = HIVE_INIT_HASH;
     }
 
-    template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
-    __device__ hive_hash_value_t operator()(cudf::column_device_view const& col,
-                                            cudf::size_type row_index) const noexcept
+    __device__ void update_cur_hash(hive_hash_value_t hash)
     {
-      return this->hash_functor.template operator()<T>(col, row_index);
+      _cur_hash = _cur_hash * HIVE_HASH_FACTOR + hash;
     }
 
-    /**
-     * @brief A structure to keep track of the computation for nested types.
-     */
-    struct col_stack_frame {
-     private:
-      cudf::size_type _col_idx;     // the column index in the flattened array
-      cudf::size_type _row_idx;     // the index of the row in the column
-      int _idx_to_process;          // the index of child or element to process next
-      hive_hash_value_t _cur_hash;  // current hash value of the column
+    __device__ hive_hash_value_t get_hash() const { return _cur_hash; }
 
-     public:
-      __device__ col_stack_frame() = default;
+    __device__ int get_and_inc_idx_to_process() { return _idx_to_process++; }
 
-      __device__ void init(cudf::size_type col_index, cudf::size_type row_idx)
-      {
-        _col_idx        = col_index;
-        _row_idx        = row_idx;
-        _idx_to_process = 0;
-        _cur_hash       = HIVE_INIT_HASH;
-      }
+    __device__ int get_idx_to_process() const { return _idx_to_process; }
 
-      __device__ void update_cur_hash(hive_hash_value_t hash)
-      {
-        _cur_hash = _cur_hash * HIVE_HASH_FACTOR + hash;
-      }
+    __device__ cudf::size_type get_col_idx() const { return _col_idx; }
 
-      __device__ hive_hash_value_t get_hash() const { return _cur_hash; }
+    __device__ cudf::size_type get_row_idx() const { return _row_idx; }
+  };
 
-      __device__ int get_and_inc_idx_to_process() { return _idx_to_process++; }
+  /**
+   * @brief Functor to compute the hive hash value for a nested column.
+   *
+   * This functor produces the same result as "HiveHash" in Spark for structs and lists.
+   * The pseudocode of Spark's HiveHash function for structs is as follows:
+   *
+   * hive_hash_value_t hive_hash(NestedType element) {
+   *    hive_hash_value_t hash = HIVE_INIT_HASH;
+   *    for (int i = 0; i < element.num_child(); i++) {
+   *        hash = hash * HIVE_HASH_FACTOR + hive_hash(element.get_child(i));
+   *    }
+   *    return hash;
+   * }
+   *
+   * In the cases of lists, the hash value is computed by a similar way but we iterate through the
+   * list elements instead of through the child columns' elements.
+   *
+   * This functor uses a stack to simulate the recursive process of the above pseudocode.
+   * When an element is popped from the stack, it means that the hash value of it has been
+   * computed. Therefore, we should update the parent's `cur_hash` upon popping the element.
+   *
+   * The algorithm is as follows:
+   *
+   * 1. Initialize the stack and push the root column into the stack.
+   * 2. While the stack is not empty:
+   *    a. Get the top element of the stack. Don't pop it until it is processed.
+   *    b. If the column is a structs column:
+   *        i.  If all child columns are processed, pop the element and update `cur_hash` of its
+   *            parent column.
+   *        ii. Otherwise, process the next child column.
+   *    c. If the column is a lists column, process it by a similar way as structs column but
+   *       iterating through the list elements instead of child columns' elements.
+   * 3. Return the hash value of the root column.
+   *
+   * For example, consider the following nested column: `Struct<Struct<int, float>, decimal>`
+   *
+   *      S1
+   *     / \
+   *    S2  d
+   *   / \
+   *  i   f
+   *
+   * - First, S1 is pushed into the stack. Then, S2 is pushed into the stack.
+   * - S2's hash value can be computed directly because its children are of primitive types.
+   *   When S2 is popped, S1's `cur_hash` is updated to S2's hash value.
+   * - Now the top of the stack is S1. The next child to process is d. S1's `cur_hash` is updated
+   *   to `hash(S2) * HIVE_HASH_FACTOR + hash(d)`, which is the hash value of S1.
+   * - When S1 is popped, the hash value of the root column is returned.
+   *
+   * As lists columns have a different interface from structs columns, we need to handle them
+   * separately.
+   *
+   * For example, consider that the input column is of type `List<List<int>>`.
+   * Assume that the element at `row_index` is: [[1, 0], null, [2, null]]
+   * Since the stack_frame should contain a column that consists of only one row, the input column
+   * should be sliced. The sliced column is noted as L1 here.
+   *
+   *     L1
+   *     |
+   *     L2
+   *     |
+   *     i
+   *
+   * List level L1:
+   * |Index|      List<list<int>>    |
+   * |-----|-------------------------|
+   * |0    |[[1, 0], null, [2, null]]|
+   * length: 1
+   * Offsets: 0, 3
+   *
+   * List level L2:
+   * |Index|List<int>|
+   * |-----|---------|
+   * |0    |[1, 0]   |
+   * |1    |null     |
+   * |2    |[2, null]|
+   * length: 3
+   * Offsets: 0, 2, 2, 4
+   * null_mask: 101
+   *
+   * Int level i:
+   * |Index|int |
+   * |-----|----|
+   * |0    |1   |
+   * |1    |0   |
+   * |2    |2   |
+   * |3    |null|
+   * length: 4
+   * null_mask: 0111
+   *
+   * Since the underlying data loses the null information of the top-level list column, computing
+   * hash values using the underlying data merely can yield different results compared to Spark.
+   * For example, [[1, 0], [2, null]] has the same underlying data as [[1, 0], null, [2, null]].
+   * However, they have different hive hash values, as null values affect the hash value.
+   *
+   * And sublist structure factors in the hash value. For example, [[1, 0], [2]] and [[1], [0, 2]]
+   * have different hive hash values.
+   *
+   * The computation process for lists columns in this solution is as follows:
+   *            L1              List<list<int>>
+   *            |
+   *            L2              List<int>
+   *      /     |     \
+   *    L2[0] L2[1] L2[2]       int
+   *     |            |
+   *    i1           i2         int
+   *
+   * Note: L2、i1、i2 are all temporary columns, which would not be pushed into the stack.
+   * If the child column is of primitive type, the hash value of the list column can be directly
+   * computed.
+   *
+   * @param flattened_index The index of the column in the flattened array
+   * @param row_index The index of the row to compute the hash for
+   * @return The computed hive hash value
+   */
+  __device__ hive_hash_value_t hash_nested(cudf::size_type flattened_index,
+                                           cudf::size_type row_index) const noexcept
+  {
+    auto next_col_idx = flattened_index + 1;
 
-      __device__ int get_idx_to_process() const { return _idx_to_process; }
+    col_stack_frame col_stack[MAX_STACK_DEPTH];
+    int stack_size = 0;
+    col_stack[stack_size++].init(flattened_index, row_index);
 
-      __device__ cudf::size_type get_col_idx() const { return _col_idx; }
-
-      __device__ cudf::size_type get_row_idx() const { return _row_idx; }
-    };
-
-    /**
-     * @brief Functor to compute the hive hash value for a nested column.
-     *
-     * This functor produces the same result as "HiveHash" in Spark for structs and lists.
-     * The pseudocode of Spark's HiveHash function for structs is as follows:
-     *
-     * hive_hash_value_t hive_hash(NestedType element) {
-     *    hive_hash_value_t hash = HIVE_INIT_HASH;
-     *    for (int i = 0; i < element.num_child(); i++) {
-     *        hash = hash * HIVE_HASH_FACTOR + hive_hash(element.get_child(i));
-     *    }
-     *    return hash;
-     * }
-     *
-     * In the cases of lists, the hash value is computed by a similar way but we iterate through the
-     * list elements instead of through the child columns' elements.
-     *
-     * This functor uses a stack to simulate the recursive process of the above pseudocode.
-     * When an element is popped from the stack, it means that the hash value of it has been
-     * computed. Therefore, we should update the parent's `cur_hash` upon popping the element.
-     *
-     * The algorithm is as follows:
-     *
-     * 1. Initialize the stack and push the root column into the stack.
-     * 2. While the stack is not empty:
-     *    a. Get the top element of the stack. Don't pop it until it is processed.
-     *    b. If the column is a structs column:
-     *        i.  If all child columns are processed, pop the element and update `cur_hash` of its
-     *            parent column.
-     *        ii. Otherwise, process the next child column.
-     *    c. If the column is a lists column, process it by a similar way as structs column but
-     *       iterating through the list elements instead of child columns' elements.
-     * 3. Return the hash value of the root column.
-     *
-     * For example, consider the following nested column: `Struct<Struct<int, float>, decimal>`
-     *
-     *      S1
-     *     / \
-     *    S2  d
-     *   / \
-     *  i   f
-     *
-     * - First, S1 is pushed into the stack. Then, S2 is pushed into the stack.
-     * - S2's hash value can be computed directly because its children are of primitive types.
-     *   When S2 is popped, S1's `cur_hash` is updated to S2's hash value.
-     * - Now the top of the stack is S1. The next child to process is d. S1's `cur_hash` is updated
-     *   to `hash(S2) * HIVE_HASH_FACTOR + hash(d)`, which is the hash value of S1.
-     * - When S1 is popped, the hash value of the root column is returned.
-     *
-     * As lists columns have a different interface from structs columns, we need to handle them
-     * separately.
-     *
-     * For example, consider that the input column is of type `List<List<int>>`.
-     * Assume that the element at `row_index` is: [[1, 0], null, [2, null]]
-     * Since the stack_frame should contain a column that consists of only one row, the input column
-     * should be sliced. The sliced column is noted as L1 here.
-     *
-     *     L1
-     *     |
-     *     L2
-     *     |
-     *     i
-     *
-     * List level L1:
-     * |Index|      List<list<int>>    |
-     * |-----|-------------------------|
-     * |0    |[[1, 0], null, [2, null]]|
-     * length: 1
-     * Offsets: 0, 3
-     *
-     * List level L2:
-     * |Index|List<int>|
-     * |-----|---------|
-     * |0    |[1, 0]   |
-     * |1    |null     |
-     * |2    |[2, null]|
-     * length: 3
-     * Offsets: 0, 2, 2, 4
-     * null_mask: 101
-     *
-     * Int level i:
-     * |Index|int |
-     * |-----|----|
-     * |0    |1   |
-     * |1    |0   |
-     * |2    |2   |
-     * |3    |null|
-     * length: 4
-     * null_mask: 0111
-     *
-     * Since the underlying data loses the null information of the top-level list column, computing
-     * hash values using the underlying data merely can yield different results compared to Spark.
-     * For example, [[1, 0], [2, null]] has the same underlying data as [[1, 0], null, [2, null]].
-     * However, they have different hive hash values, as null values affect the hash value.
-     *
-     * And sublist structure factors in the hash value. For example, [[1, 0], [2]] and [[1], [0, 2]]
-     * have different hive hash values.
-     *
-     * The computation process for lists columns in this solution is as follows:
-     *            L1              List<list<int>>
-     *            |
-     *            L2              List<int>
-     *      /     |     \
-     *    L2[0] L2[1] L2[2]       int
-     *     |            |
-     *    i1           i2         int
-     *
-     * Note: L2、i1、i2 are all temporary columns, which would not be pushed into the stack.
-     * If the child column is of primitive type, the hash value of the list column can be directly
-     * computed.
-     *
-     * @param flattened_index The index of the column in the flattened array
-     * @param row_index The index of the row to compute the hash for
-     * @return The computed hive hash value
-     */
-    __device__ hive_hash_value_t hash_nested(cudf::size_type flattened_index,
-                                             cudf::size_type row_index) const noexcept
-    {
-      auto next_col_idx = flattened_index + 1;
-
-      col_stack_frame col_stack[MAX_STACK_DEPTH];
-      int stack_size = 0;
-      col_stack[stack_size++].init(flattened_index, row_index);
-
-      while (stack_size > 0) {
-        col_stack_frame& top     = col_stack[stack_size - 1];
-        auto const curr_col_idx  = top.get_col_idx();
-        auto const curr_row_idx  = top.get_row_idx();
-        auto const curr_col_info = _parent._col_infos[curr_col_idx];
-        // Do not pop it until it is processed. The definition of `processed` is:
-        // - For structs, it is when all child columns are processed.
-        // - For lists, it is when all elements in the list are processed.
-        if (curr_col_info.type_id == cudf::type_id::STRUCT) {
-          if (top.get_idx_to_process() == curr_col_info.nested_num_children_or_basic_col_idx) {
-            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
-          } else {
-            // Reset `next_col_idx` to keep track of the struct's children index.
-            if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
-            while (top.get_idx_to_process() < curr_col_info.nested_num_children_or_basic_col_idx) {
-              top.get_and_inc_idx_to_process();
-              auto const child_col_idx = next_col_idx++;
-              auto const child_info    = _parent._col_infos[child_col_idx];
-              // If the child is of primitive type, accumulate child hash into struct hash
-              if (child_info.type_id != cudf::type_id::LIST &&
-                  child_info.type_id != cudf::type_id::STRUCT) {
-                auto const child_col =
-                  _parent._basic_cdvs[child_info.nested_num_children_or_basic_col_idx];
-                auto const child_hash =
-                  cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                    child_col.type(), this->hash_functor, child_col, curr_row_idx);
-                top.update_cur_hash(child_hash);
-              } else {
-                col_stack[stack_size++].init(child_col_idx, curr_row_idx);
-                break;
-              }
-            }
-          }
-        } else if (curr_col_info.type_id == cudf::type_id::LIST) {
-          // Get the child column of the list column
-          auto const offsets_col_idx = curr_col_idx + 1;
-          auto const child_col_idx   = curr_col_idx + 2;
-
-          // Move `next_col_idx` forward pass the current lists column.
-          // Children of a lists column always stay next to it and are not tracked by this.
-          if (next_col_idx <= child_col_idx) { next_col_idx = child_col_idx + 1; }
-
-          auto const offsets_col = _parent._basic_cdvs[_parent._col_infos[offsets_col_idx]
-                                                         .nested_num_children_or_basic_col_idx];
-
-          auto const child_col_info = _parent._col_infos[child_col_idx];
-          auto const child_row_idx_begin =
-            offsets_col.template element<cudf::size_type>(curr_row_idx);
-          auto const child_row_idx_end =
-            offsets_col.template element<cudf::size_type>(curr_row_idx + 1);
-
-          // If the child column is of primitive type, directly compute the hash value of the list
-          if (child_col_info.type_id != cudf::type_id::LIST &&
-              child_col_info.type_id != cudf::type_id::STRUCT) {
-            auto const child_col =
-              _parent._basic_cdvs[child_col_info.nested_num_children_or_basic_col_idx];
-            auto const single_level_list_hash = cudf::detail::accumulate(
-              thrust::counting_iterator(child_row_idx_begin),
-              thrust::counting_iterator(child_row_idx_end),
-              HIVE_INIT_HASH,
-              [child_col, hasher = this->hash_functor] __device__(auto hash, auto element_index) {
-                auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                  child_col.type(), hasher, child_col, element_index);
-                return HIVE_HASH_FACTOR * hash + cur_hash;
-              });
-            top.update_cur_hash(single_level_list_hash);
-            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
-          } else {
-            if (top.get_idx_to_process() == child_row_idx_end - child_row_idx_begin) {
-              if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+    while (stack_size > 0) {
+      col_stack_frame& top     = col_stack[stack_size - 1];
+      auto const curr_col_idx  = top.get_col_idx();
+      auto const curr_row_idx  = top.get_row_idx();
+      auto const curr_col_info = _col_infos[curr_col_idx];
+      // Do not pop it until it is processed. The definition of `processed` is:
+      // - For structs, it is when all child columns are processed.
+      // - For lists, it is when all elements in the list are processed.
+      if (curr_col_info.type_id == cudf::type_id::STRUCT) {
+        if (top.get_idx_to_process() == curr_col_info.nested_num_children_or_basic_col_idx) {
+          if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+        } else {
+          // Reset `next_col_idx` to keep track of the struct's children index.
+          if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
+          while (top.get_idx_to_process() < curr_col_info.nested_num_children_or_basic_col_idx) {
+            top.get_and_inc_idx_to_process();
+            auto const child_col_idx = next_col_idx++;
+            auto const child_info    = _col_infos[child_col_idx];
+            // If the child is of primitive type, accumulate child hash into struct hash
+            if (child_info.type_id != cudf::type_id::LIST &&
+                child_info.type_id != cudf::type_id::STRUCT) {
+              auto const child_col = _basic_cdvs[child_info.nested_num_children_or_basic_col_idx];
+              auto const child_hash =
+                cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                  child_col.type(), _hash_functor, child_col, curr_row_idx);
+              top.update_cur_hash(child_hash);
             } else {
-              // Push the next element into the stack
-              col_stack[stack_size++].init(child_col_idx,
-                                           child_row_idx_begin + top.get_and_inc_idx_to_process());
+              col_stack[stack_size++].init(child_col_idx, curr_row_idx);
+              break;
             }
           }
         }
-      }
-      return col_stack[0].get_hash();
-    }
+      } else if (curr_col_info.type_id == cudf::type_id::LIST) {
+        // Get the child column of the list column
+        auto const offsets_col_idx = curr_col_idx + 1;
+        auto const child_col_idx   = curr_col_idx + 2;
 
-   private:
-    hash_functor_t hash_functor;
-    hive_device_row_hasher const& _parent;
-  };
+        // Move `next_col_idx` forward pass the current lists column.
+        // Children of a lists column always stay next to it and are not tracked by this.
+        if (next_col_idx <= child_col_idx) { next_col_idx = child_col_idx + 1; }
+
+        auto const offsets_col =
+          _basic_cdvs[_col_infos[offsets_col_idx].nested_num_children_or_basic_col_idx];
+
+        auto const child_col_info = _col_infos[child_col_idx];
+        auto const child_row_idx_begin =
+          offsets_col.template element<cudf::size_type>(curr_row_idx);
+        auto const child_row_idx_end =
+          offsets_col.template element<cudf::size_type>(curr_row_idx + 1);
+
+        // If the child column is of primitive type, directly compute the hash value of the list
+        if (child_col_info.type_id != cudf::type_id::LIST &&
+            child_col_info.type_id != cudf::type_id::STRUCT) {
+          auto const child_col = _basic_cdvs[child_col_info.nested_num_children_or_basic_col_idx];
+          auto const single_level_list_hash = cudf::detail::accumulate(
+            thrust::counting_iterator(child_row_idx_begin),
+            thrust::counting_iterator(child_row_idx_end),
+            HIVE_INIT_HASH,
+            [child_col, hasher = _hash_functor] __device__(auto hash, auto element_index) {
+              auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                child_col.type(), hasher, child_col, element_index);
+              return HIVE_HASH_FACTOR * hash + cur_hash;
+            });
+          top.update_cur_hash(single_level_list_hash);
+          if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+        } else {
+          if (top.get_idx_to_process() == child_row_idx_end - child_row_idx_begin) {
+            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+          } else {
+            // Push the next element into the stack
+            col_stack[stack_size++].init(child_col_idx,
+                                         child_row_idx_begin + top.get_and_inc_idx_to_process());
+          }
+        }
+      }
+    }
+    return col_stack[0].get_hash();
+  }
 
   Nullate _check_nulls;
+  hash_functor_t _hash_functor;
   cudf::column_device_view* _basic_cdvs;
   cudf::size_type* _column_map;
   col_info* _col_infos;
