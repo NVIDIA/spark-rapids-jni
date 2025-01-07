@@ -233,7 +233,7 @@ class column_pruner {
       if (found != children.end()) {
         // Record the current size of schema_map before processing the child
         // This helps determine if the child was retained after processing.
-        std::size_t before_child_size = schema_map.size();
+        auto const before_child_size = schema_map.size();
         found->second.filter_schema(schema,
                                     ignore_case,
                                     current_input_schema_index,
@@ -250,7 +250,7 @@ class column_pruner {
           schema_num_children[struct_map_position]++;
         }
       } else {
-        // No match was found so skip the child
+        // No match was found so skip the child.
         skip(schema, current_input_schema_index, next_input_chunk_index);
       }
     }
