@@ -131,8 +131,8 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "98cb4d232dc4612f80d462a0a7bc5490dbc22399",
-      "git_url" : "https://github.com/rapidsai/rapids-logger",
+      "git_tag" : "8968ab3337f31c845d4e3bf6c55ae89242ded22b",
+      "git_url" : "https://github.com/rapidsai/rapids-logger.git",
       "version" : "0.1.0"
     },
     "rmm" : 
