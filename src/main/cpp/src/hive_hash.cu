@@ -158,7 +158,7 @@ struct col_info {
   // Column type id.
   cudf::type_id type_id;
 
-  // Store the the upper bound of number of elements for lists column, or the upper bound of
+  // Store the upper bound of number of elements for lists column, or the upper bound of
   // number of children for structs column, or column index in `basic_cdvs` for basic types.
   cudf::size_type upper_bound_idx_or_basic_col_idx;
 };
