@@ -30,15 +30,16 @@ import static java.util.Objects.requireNonNull;
  */
 public class KudoHostMergeResult implements AutoCloseable {
   private final Schema schema;
-  private final List<ColumnViewInfo> columnInfoList;
+  private final ColumnViewInfo[] columnInfoList;
   private HostMemoryBuffer hostBuf;
 
-  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
+  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, ColumnViewInfo[] columnInfoList) {
     requireNonNull(schema, "schema is null");
     requireNonNull(columnInfoList, "columnInfoList is null");
-    ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
-        "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
-            ", flattened schema size: " + schema.getFlattenedColumnNames().length);
+    ensure(schema.getFlattenedColumnNames().length == columnInfoList.length, () ->
+        "Column offsets size does not match flattened schema size, column offsets size: " +
+                columnInfoList.length + ", flattened schema size: " +
+                schema.getFlattenedColumnNames().length);
     this.schema = schema;
     this.columnInfoList = columnInfoList;
     this.hostBuf = requireNonNull(hostBuf, "hostBuf is null");

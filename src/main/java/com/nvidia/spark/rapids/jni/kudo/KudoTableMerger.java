@@ -71,7 +71,7 @@ class KudoTableMerger extends MultiKudoTableVisitor<Void, Void, KudoHostMergeRes
 
   @Override
   protected KudoHostMergeResult doVisitTopSchema(Schema schema, List<Void> children) {
-    return new KudoHostMergeResult(schema, buffer, colViewInfoList);
+    return new KudoHostMergeResult(schema, buffer, colViewInfoList.toArray(new ColumnViewInfo[0]));
   }
 
   @Override

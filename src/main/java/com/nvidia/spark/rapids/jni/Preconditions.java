@@ -67,4 +67,11 @@ public class Preconditions {
         }
         return value;
     }
+
+    public static long ensurePositive(long value, String name) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(name + " must be positive, but was " + value);
+        }
+        return value;
+    }
 }

@@ -54,6 +54,14 @@ class ColumnOffsetInfo {
   }
 
   /**
+   * Gen length of validity buffer offset.
+   * @return The return value is undetermined if the validity buffer is not present, otherwise actual length.
+   */
+  long getValidityBufferLen() {
+    return validityBufferLen;
+  }
+
+  /**
    * Get a view of the validity buffer from underlying buffer.
    * @param baseAddress the base address of underlying buffer.
    * @return null if the validity buffer is not present, otherwise a view of the buffer.
@@ -71,6 +79,14 @@ class ColumnOffsetInfo {
    */
   long getOffset() {
     return offset;
+  }
+
+  /**
+   * Get length of offset buffer.
+   * @return The return value is undetermined if the offset buffer is not preset, other actual length.
+   */
+  long getOffsetBufferLen() {
+    return offsetBufferLen;
   }
 
   /**
@@ -111,11 +127,13 @@ class ColumnOffsetInfo {
 
   @Override
   public String toString() {
-    return "ColumnOffsets{" +
+    return "ColumnOffsetInfo{" +
         "validity=" + validity +
+        ", validityBufferLen=" + validityBufferLen +
         ", offset=" + offset +
+        ", offsetBufferLen=" + offsetBufferLen +
         ", data=" + data +
-        ", dataLen=" + dataBufferLen +
+        ", dataBufferLen=" + dataBufferLen +
         '}';
   }
 }
