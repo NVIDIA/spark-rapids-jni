@@ -847,6 +847,25 @@ public class HashTest {
   }
 
   @Test
+  void testHiveHashCornerCases() {
+    try (ColumnVector emptyListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Collections.emptyList());
+         ColumnVector int1 = ColumnVector.fromBoxedInts(1);
+         ColumnVector int2 = ColumnVector.fromBoxedInts(2);
+         ColumnView structContainsEmptyList = ColumnView.makeStructView(int1, emptyListCV, int2);
+         ColumnView structContainsNoChild = ColumnVector.makeStructView(1);
+         ColumnView nestedStruct = ColumnView.makeStructView(int1, structContainsNoChild, int2);
+         ColumnVector result1 = Hash.hiveHash(new ColumnView[]{structContainsEmptyList});
+         ColumnVector result2 = Hash.hiveHash(new ColumnView[]{nestedStruct});
+         ColumnVector expected1 = ColumnVector.fromInts(963);
+         ColumnVector expected2 = ColumnVector.fromInts(963)) {
+      assertColumnsAreEqual(expected1, result1);
+      assertColumnsAreEqual(expected2, result2);
+    }
+  }
+
+  @Test
   void testHiveHashNestedDepthExceedsLimit() {
     try (ColumnVector nestedIntListCV = ColumnVector.fromLists(
             new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
