@@ -129,12 +129,60 @@ TEST_F(ShuffleSplitTests, Struct)
   }
 }
 
+TEST_F(ShuffleSplitTests, Nulls)
+{
+  cudf::size_type const num_rows = 10000;
+  auto iter = thrust::make_counting_iterator(0);
+  auto validity = cudf::detail::make_counting_transform_iterator(0, [](cudf::size_type i){
+    return i % 3;
+  });
+  
+  cudf::test::fixed_width_column_wrapper<int> col(iter, iter + num_rows, validity);
+  cudf::table_view tbl{{static_cast<cudf::column_view>(col)}};
+  run_split(tbl, {3});
+}
+
 TEST_F(ShuffleSplitTests, ShortNulls)
 {
-  cudf::test::fixed_width_column_wrapper<int> col0( 
-    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31},
-    {1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0,  1,  1,  1,  1,  1,  0,  0,  0,  0,  1,  1,  0,  0,  1,  1,  1,  1,  1,  1,  0,  1});
+  // one full 32 bit validity word
+  {
+    cudf::test::fixed_width_column_wrapper<int> col( 
+      {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31},
+      {1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0,  1,  1,  1,  1,  1,  0,  0,  0,  0,  1,  1,  0,  0,  1,  1,  1,  1,  1,  1,  0,  1});
 
-  cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
-  run_split(tbl, {2});
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col)}};
+    
+    // try each bit seperately
+    for(int idx=0; idx<static_cast<cudf::column_view>(col).size(); idx++){
+      run_split(tbl, {idx});
+    }
+    // all bits in the first byte
+    run_split(tbl, {0, 1, 2, 3, 4, 5, 6, 7, 8});
+    // all bits in the entire word
+    run_split(tbl, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31});
+
+    // misc
+    run_split(tbl, {});
+    run_split(tbl, {2, 5, 18, 30});
+    run_split(tbl, {8, 16, 24});
+    run_split(tbl, {0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30});
+  }
+
+  // less than one word
+  {
+    cudf::test::fixed_width_column_wrapper<int> col( 
+      {0, 1, 2, 3, 4, 5, 6},
+      {1, 1, 1, 0, 0, 0, 0});
+
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col)}};
+        
+    for(int idx=0; idx<static_cast<cudf::column_view>(col).size(); idx++){
+      run_split(tbl, {idx});
+    }
+    
+    run_split(tbl, {});
+    run_split(tbl, {0, 1, 2, 3, 4, 5});
+    run_split(tbl, {2, 5});
+    run_split(tbl, {0, 2, 4});
+  }
 }

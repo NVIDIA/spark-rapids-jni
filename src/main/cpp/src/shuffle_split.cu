@@ -916,7 +916,7 @@ __global__ void pack_per_partition_data_kernel(uint8_t* out_buffer,
     size_type partition_num_rows = 0;
     if(col_index < columns_per_partition){
       partition_num_rows = split_indices[partition_index+1] - split_indices[partition_index];
-      //printf("CBI: %d %d %d\n", (int)partition_index, (int)col_index, (int)partition_num_rows);
+      // printf("CBI: %d %d %d\n", (int)partition_index, (int)col_index, (int)partition_num_rows);
     }
     pheader->num_rows = partition_num_rows;
 
@@ -932,7 +932,7 @@ __global__ void pack_per_partition_data_kernel(uint8_t* out_buffer,
   // padded out to >= 4 bytes.  
   bitmask_type mask = __ballot_sync(0xffffffff, col_index < columns_per_partition ? flattened_col_has_validity[col_index] : 0);
   if((col_index % cudf::detail::warp_size == 0) && col_index < columns_per_partition){
-    //printf("HV: %d : %d, %d, %d\n", (int)(col_index / cudf::detail::warp_size), (int)mask, (int)col_index, (int)tid);
+    // printf("HV: %d : %d, %d, %d\n", (int)(col_index / cudf::detail::warp_size), (int)mask, (int)col_index, (int)tid);
     has_validity[col_index / cudf::detail::warp_size] = mask;
   }
 }
@@ -1016,7 +1016,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(cudf::tabl
                                                                       rmm::cuda_stream_view stream,
                                                                       rmm::device_async_resource_ref mr)
 {
-    // for now, we don't allow strings or lists
+  // for now, we don't allow strings or lists
   CUDF_EXPECTS(std::all_of(input.begin(), input.end(), [](cudf::column_view const& col){
     return col.type().id() != cudf::type_id::STRING && col.type().id() != cudf::type_id::LIST; }), "Unsupported column type (for now)");
 
@@ -1232,7 +1232,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(cudf::tabl
       std::size_t const bytes =
         static_cast<std::size_t>(num_elements) * static_cast<std::size_t>(element_size);
       
-      //printf("P: %d %d %lu %d %d\n", partition_index, src_buf_index, bytes, (int)num_rows, (int)num_elements);
+      // printf("P: %d %d %lu %d %d\n", partition_index, src_buf_index, bytes, (int)num_rows, (int)num_elements);
 
       return dst_buf_info{bytes,
                           btype,
@@ -1476,7 +1476,11 @@ struct assemble_batch {
   size_t              size;     // bytes
   bool                is_validity;
   int value_shift;              // amount to shift values down by (for offset buffers)
-  int src_bit_shift;            // source bit (right) shift
+  int src_bit_shift;            // source bit (right) shift. easy way to think about this is
+                                // 'the number of rows at the beginning of the buffer to ignore'.
+                                // we need to ignore them because the split-copy happens at 
+                                // byte boundaries, not bit/row boundaries. so we may have 
+                                // irrelevant rows at the very beginning.
   int dst_bit_shift;            // dest bit (left) shift
   size_type validity_row_count; // only valid for validity buffers
   size_type* valid_count;       // (output) validity count for this block of work
@@ -1549,7 +1553,11 @@ struct assemble_buffer_functor {
 private:
   rmm::device_buffer alloc_validity(size_type num_rows)
   {
-    return rmm::device_buffer(bitmask_allocation_size_bytes(num_rows, split_align), stream, mr);
+    auto res = rmm::device_buffer(bitmask_allocation_size_bytes(num_rows, split_align), stream, mr);
+    // necessary because of the way the validity copy step works (use of atomicOr instead of stores for copy endpoints). 
+    // TODO: think of a way to eliminate.
+    cudaMemsetAsync(res.data(), 0, res.size(), stream);
+    return res;
   }
 };
 
@@ -1806,7 +1814,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
       bitmask_type const*const has_validity_buf = reinterpret_cast<bitmask_type const*>(partitions + partition_offsets[partition_index] + sizeof(partition_header));
       auto const col_index = i / num_partitions;
       
-      int has_validity = has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
+      // int has_validity = has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
       // printf("HVV: %d, %d, %d, %d, %d\n", (int)partition_index, (int)partition_offsets[partition_index], (int)sizeof(partition_header), (int)col_index, (int)has_validity);
       
       return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
@@ -1829,7 +1837,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
   } 
   */ 
 
-  //print_span(cudf::device_span<size_t const>(partition_offsets));
+  // print_span(cudf::device_span<size_t const>(partition_offsets));
 
   // compute overall row count
   auto row_count_values = cudf::detail::make_counting_transform_iterator(0,
@@ -2180,7 +2188,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                            row_count_iter,
                            row_count_iter + num_partitions,
                            partition_row_indices.begin());
-    //print_span(cudf::device_span<size_type const>{partition_row_indices});
+    // print_span(cudf::device_span<size_type const>{partition_row_indices});
 
     // generate unpadded sizes of the source buffers
     auto const num_column_instances = column_instance_info.size();
@@ -2208,7 +2216,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                             &src_sizes_unpadded[offset_buf_index],
                             &src_sizes_unpadded[data_buf_index]);
     });
-    //print_span(cudf::device_span<size_t const>{src_sizes_unpadded});
+    // print_span(cudf::device_span<size_t const>{src_sizes_unpadded});
         
     // scan to source offsets, by partition
     auto partition_keys = cudf::detail::make_counting_transform_iterator(0, cuda::proclaim_return_type<size_t>([buffers_per_partition] __device__ (size_t i){
@@ -2219,7 +2227,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                                   partition_keys + num_src_buffers,
                                   src_sizes_unpadded.begin(),
                                   src_offsets.begin());
-    //print_span(cudf::device_span<size_t const>{src_offsets});
+    // print_span(cudf::device_span<size_t const>{src_offsets});
     
     // adjust the source offsets:
     // - add metadata offset
@@ -2264,7 +2272,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
             ((int*)(partitions + src_offsets[data_buf_index]))[0]);
             */
     });
-    //print_span(cudf::device_span<size_t const>{src_offsets});
+    // print_span(cudf::device_span<size_t const>{src_offsets});
 
     // compute: generate destination buffer offsets
     // NOTE: dst_offsets is arranged in destination buffer order, not source buffer order.
@@ -2279,13 +2287,12 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
       // printf("DS(%d): dst_buf_index(%d) partition_index(%d) src_buf_index(%d) %lu\n", (int)i, (int)dst_buf_index, (int)partition_index, (int)src_buf_index, src_sizes_unpadded[src_buf_index]);
       return src_sizes_unpadded[src_buf_index];
     }));
-    // dst_offsets is arranged
     thrust::exclusive_scan_by_key(rmm::exec_policy(stream, temp_mr),
                                   dst_buf_key,
                                   dst_buf_key + num_src_buffers,
                                   size_iter,
                                   dst_offsets.begin());
-    //print_span(cudf::device_span<size_t const>{dst_offsets});    
+    // print_span(cudf::device_span<size_t const>{dst_offsets});    
 
     // for validity, we need to do a little more work. our destination positions are defined by bit position,
     // not byte position. so round down into the nearest starting bitmask word. note that this implies we will
@@ -2307,10 +2314,10 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
         auto const validity_buf_index = (col_index * 3) + (partition_index * buffers_per_partition);        
         auto const dst_offset_index = src_buf_to_dst_offset(validity_buf_index, partition_index);
         dst_offsets[dst_offset_index] = (partition_row_indices[partition_index] / 32) * sizeof(bitmask_type);
-        // printf("VBI(%d) : %lu\n", dst_offset_index, dst_offsets[dst_offset_index]);
+        // printf("VBI(%lu) : %lu\n", dst_offset_index, dst_offsets[dst_offset_index]);
       }
     });
-    //print_span(cudf::device_span<size_t const>{dst_offsets});
+    // print_span(cudf::device_span<size_t const>{dst_offsets});
   }
   
   // generate copy batches ------------------------------------
@@ -2352,8 +2359,8 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
 
                                          partition_header const*const pheader = reinterpret_cast<partition_header const*>(partitions + partition_offsets[partition_index]);
                                          auto const validity_rows_per_batch = desired_assemble_batch_size * 8;
-                                         auto const validity_row_index = batch_index * validity_rows_per_batch;
-                                         auto const validity_row_count = min(pheader->num_rows - validity_row_index, validity_rows_per_batch);
+                                         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
+                                         auto const validity_row_count = min(pheader->num_rows - validity_batch_row_index, validity_rows_per_batch);
                                          // since the initial split copy is done on simple byte boundaries, the first bit we want to copy may not
                                          // be the first bit in the source buffer. so we need to shift right by these leading bits.
                                          // for example, the partition may start at row 3. but in that case, we will have started copying from 
@@ -2365,7 +2372,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                                          auto& cinfo = column_info[col_index];
                                          
                                          /*
-                                         printf("ET: partition_index=%lu, partition_row_index=%d, src_buf_index=%lu, dst_buf_index=%lu, dst_offset_index=%lu, batch_index=%lu, is_validity=%d, src_offset=%lu, dst_offset=%lu bytes=%lu validity_row_count=%lu, src_bit_shift=%d, dst_bit_shift = %d, col_index = %d\n", 
+                                         printf("ET: partition_index=%lu, partition_row_index=%d, src_buf_index=%lu, dst_buf_index=%lu, dst_offset_index=%lu, batch_index=%lu, is_validity=%d, src_offset=%lu, dst_offset=%lu bytes=%lu validity_row_count=%lu, src_bit_shift=%d, dst_bit_shift = %d, col_index = %lu\n", 
                                            partition_index,
                                            partition_row_indices[partition_index],
                                            src_buf_index,
@@ -2387,10 +2394,10 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                                           dst_buffers[dst_buf_index] + dst_offset + batch_offset,
                                           bytes,
                                           src_buf_index % 3 == 0,   // is_validity
-                                          0,          // TODO: handle offsets
+                                          0,                        // TODO: handle offsets
                                           src_bit_shift,
                                           dst_bit_shift,
-                                          validity_row_count,
+                                          static_cast<size_type>(validity_row_count),
                                           &cinfo.valid_count};
                                          }),
                                        stream,
@@ -2409,126 +2416,163 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     return;
   }
   
-  __shared__ bitmask_type prev_word[block_size - 1];
+  __shared__ bitmask_type prev_word[block_size];
 
   // note that in several cases here, we are reading past the end of the actual input buffer. but this is safe
   // because we are always guaranteed final padding of partitions out to 8 bytes.
   
   // how many leading misaligned bytes we have
-  int const leading_bytes = min(batch.size, (4 - (reinterpret_cast<uint64_t>(batch.src) % 4)) % 4);
+  int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4)) % 4;
   int remaining_rows = batch.validity_row_count;
-
+  
   /*
   if(threadIdx.x == 0){
     printf("A (%d): src(%lu), dst(%lu), batch_size(%lu) leading_bytes(%d) remaining_rows(%d) src_bit_shift(%d) dst_bit_shift(%d)\n", batch_index, (uint64_t)(batch.src), (uint64_t)(batch.dst), batch.size, leading_bytes, remaining_rows, batch.src_bit_shift, batch.dst_bit_shift);
   }
   */
 
-  // handle the first word.
-  // - it needs to be stored using an atomic because another copy could be modifying the same destination word.
   // - if the address is misaligned, load byte-by-byte and only store up to that many bits/rows off instead of a full 32  
-  int rows_in_batch = min(remaining_rows, leading_bytes != 0 ? (leading_bytes * 8) : 32);
+  // handle the leading (misaligned) bytes in the source
+  // Note: src_bit_shift effectively means "how many rows at the beginning should we ignore", so we subtract that from
+  // the amount of rows that are actually in the bytes that we've read.
+  int rows_in_batch = min(remaining_rows, leading_bytes != 0 ? (leading_bytes * 8) - batch.src_bit_shift 
+                                                             : 32 - batch.src_bit_shift);
   remaining_rows -= rows_in_batch;
 
   size_type valid_count = 0;
-
-  // thread 0 does all the work for the first dst word.
+  
+  // thread 0 does all the work for the leading (unaligned) bytes in the source
   if(threadIdx.x == 0){
     //printf("B (%d): rows_in_batch(%d) remaining_rows(%d)\n", batch_index, rows_in_batch, remaining_rows);
 
     bitmask_type word = leading_bytes != 0 ? (batch.src[0] | (batch.src[1] << 8) | (batch.src[2] << 16) | (batch.src[3] << 24))
                                             : (reinterpret_cast<bitmask_type const*>(batch.src))[0];
     bitmask_type const relevant_row_mask = ((1 << rows_in_batch) - 1);
-    //printf("C(%d): word(0x%x) shifted(0x%x) mask(0x%x): shifted_masked(0x%x)\n", batch_index, word, word >> batch.src_bit_shift, relevant_row_mask, (word >> batch.src_bit_shift) & relevant_row_mask);
+    // printf("C(%d): word(0x%x) shifted(0x%x) mask(0x%x): shifted_masked(0x%x)\n", batch_index, word, word >> batch.src_bit_shift, relevant_row_mask, (word >> batch.src_bit_shift) & relevant_row_mask);
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
     word = (word >> batch.src_bit_shift) & relevant_row_mask;
     // any bits that are not being stored in the current dest word get overflowed to the next copy
-    prev_word[0] = word >> (32 - batch.dst_bit_shift);    
+    prev_word[0] = word >> (32 - batch.dst_bit_shift);
     // shift to the final destination bit position.
     word <<= batch.dst_bit_shift;
     // count and store
     valid_count += __popc(word);
-    //printf("D(%d): prev_word(0x%x) valid_count(%d) dst(%lu)\n", batch_index, prev_word[0], valid_count, batch.dst);
+    // printf("D(%d): prev_word(0x%x) valid_count(%d, %d) dst(%lu) word(0x%x)\n", batch_index, prev_word[0], __popc(word), valid_count, batch.dst, word);
+    // use an atomic because we could be overlapping with another copy
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }
   if(remaining_rows == 0){
     if(threadIdx.x == 0){
       atomicAdd(batch.valid_count, valid_count);
-      //printf("E(%d): valid_count(%d 0x%x)\n", batch_index, valid_count, (uint64_t)batch.valid_count);
+      // printf("E(%d): valid_count(%d)\n", batch_index, valid_count);
     }
     return;
   }
 
-  // copy the remaining words, which will now be aligned at both the src and dst buffers.
+  // src and dst pointers. src will be word-aligned now
   auto src = reinterpret_cast<bitmask_type const*>(batch.src + leading_bytes);
-  // note : dst_bit_shift is just how many leading rows/bits there are in the current dst word
-  auto dst = reinterpret_cast<bitmask_type*>(batch.dst) + ((rows_in_batch + batch.dst_bit_shift) / 32);
-
-  auto const src_bit_shift = batch.src_bit_shift;
-  // adjust dst_bit_shift to account for the leading rows we've processed
-  auto const dst_bit_shift = (batch.dst_bit_shift + rows_in_batch) % 32;
-  auto remaining_words = (remaining_rows + 31) / 32;
+  auto dst = reinterpret_cast<bitmask_type*>(batch.dst);
+  
+  // compute a new bit_shift.
+  // - src_bit_shift is now irrelevant because we have skipped past any leading irrelevant bits in the input 
+  // - the amount we have to dst shift is simply incremented by the number of rows we've processed.
+  auto const bit_shift = (batch.dst_bit_shift + rows_in_batch) % 32;
+  auto remaining_words = (remaining_rows + 31) / 32;  
   /*
   if(threadIdx.x == 0){
-    printf("F(%d): remaining_words(%d), dst_bit_shift(%d)\n", (int)batch_index, (int)remaining_words, (int)dst_bit_shift);
-  }
+    printf("F(%d): src(%lu), dst(%lu), remaining_words(%d), bit_shift(%d)\n", (int)batch_index, (uint64_t)src, (uint64_t)dst, (int)remaining_words, (int)bit_shift);
+  }  
   */
 
-  // copy the remaining words. the last word will also have to be stored via an atomicOr
-  auto const rows_per_batch = blockDim.x * 32;
-  int word_index = threadIdx.x;
-  int words_in_batch;
-  do {
-    __syncthreads();
+  // we can still be anywhere in the destination buffer, so any stores to either the first or last
+  // destination words (where other copies may be happening at the same time) need to use atomicOr.
+  auto store_word = [last_word_index = remaining_words - 1, dst] __device__ (int i, uint32_t val){
+    if(i == 0 || i == last_word_index){
+      atomicOr(dst + i, val);
+    } else {
+      dst[i] = val;
+    }
+  };
 
+  // copy the remaining words
+  auto const rows_per_batch = blockDim.x * 32;  
+  int src_word_index = threadIdx.x;
+  auto const num_leading_words = ((rows_in_batch + batch.dst_bit_shift) / 32);
+  int dst_word_index = threadIdx.x + num_leading_words; // NOTE: we may still be at destination word 0
+  int words_in_batch;
+  bitmask_type cur, prev;
+  do {
     words_in_batch = min(block_size, remaining_words);
     rows_in_batch = min(remaining_rows, rows_per_batch);
 
-    if(word_index < words_in_batch){
-      //printf("K(%d %d): word_index(%d), words_in_batch(%d), src(%lu), dst(%lu)\n", batch_index, threadIdx.x, (int)word_index, (int)words_in_batch, (uint64_t)src, (uint64_t)dst);
-      // the trailing bits from the previous source word that need to get merged with the leading bits
-      // of the current source word.
+    __syncthreads();
+    if(threadIdx.x < words_in_batch){
+      // load current word, strip down to exactly the number of rows this thread is dealing with
       auto const thread_num_rows = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
-      bitmask_type const cur = (src[word_index] >> src_bit_shift) & relevant_row_mask;
-      bitmask_type const prev = prev_word[threadIdx.x];
+      cur = (src[src_word_index] & relevant_row_mask);
       valid_count += __popc(cur);
-      //printf("L(%d, %d, %d) : rows(%d), mask(0x%x), cur(0x%x), prev(0x%x), valid_count(%d)\n", batch_index, threadIdx.x, word_index, thread_num_rows, relevant_row_mask, cur, prev, valid_count);
-      
-      if(threadIdx.x > 0){
-        prev_word[threadIdx.x - 1] = cur >> (32 - dst_bit_shift);
-      }
-      
-      // last word must be stored with an atomic
-      auto const word = (cur << dst_bit_shift) | prev;
-      if(word_index == remaining_words - 1){
-        atomicOr(dst + word_index, word);
-      } else {
-        dst[word_index] = word;
-      }
-    } 
-    word_index += words_in_batch;
+
+      // bounce our trailing bits off shared memory. for example, if bit_shift is
+      // 27, we are only storing the first 5 bits at the top of the current destination. The
+      // trailing 27 bits become the -leading- 27 bits for the next word.
+      //
+      // dst_bit_shift = 27;
+      // src:      00000000000000000000000000011111
+      // 
+      // dst[0] =  11111xxxxxxxxxxxxxxxxxxxxxxxxxxx
+      // dst[1] =  xxxx0000000000000000000000000000
+      //
+      prev = cur >> (32 - bit_shift);
+      // the trailing bits the last thread goes to the 0th thread for the next iteration of the loop, so don't
+      // write it until the end of the loop, otherwise we'll inadvertently blow away the 0th thread's correct value
+      if(threadIdx.x < words_in_batch - 1){
+        prev_word[threadIdx.x + 1] = prev;
+      }      
+      /*
+      printf("L(%d, %d, %d, %d) : rows(%d), src(0x%x) -> mask(0x%x), cur(0x%x), valid_count(%d %d), prev(0x%x)\n", 
+        batch_index, threadIdx.x, src_word_index, dst_word_index, 
+        thread_num_rows, src[src_word_index], relevant_row_mask, cur, __popc(cur), valid_count, prev);      
+        */
+    }
+    __syncthreads();
+    if(threadIdx.x < words_in_batch){
+      // construct final word from cur leading bits and prev trailing bits
+      auto const word = (cur << bit_shift) | prev_word[threadIdx.x];
+      store_word(dst_word_index, word);    
+      /*  
+      printf("LL(%d, %d, %d, %d) : word(0x%x), prev(0x%x)\n",
+        batch_index, threadIdx.x, src_word_index, dst_word_index, 
+        word, prev_word[threadIdx.x]);        
+        */
+    }
+    __syncthreads();
+    // store the final trailing bits at the beginning for the next iteration
+    if(threadIdx.x == words_in_batch - 1){
+      prev_word[0] = prev;
+    }
+    src_word_index += words_in_batch;
+    dst_word_index += words_in_batch;
     remaining_words -= words_in_batch;
     remaining_rows -= rows_in_batch;
   } while (remaining_words > 0);
-  
-  // trailing bits. always write this using atomicOr, even if we have no bit shift because we may not be writing a full
-  // 32 bit word.
-  /*
-  if(threadIdx.x == words_in_batch - 1){
-    printf("Y(%d): word_index(%d) prev_word(0x%x)\n", (int)batch_index, word_index, prev_word[threadIdx.x]);
-    valid_count += __popc(prev_word[threadIdx.x]);
-    atomicOr(dst + word_index, prev_word[threadIdx.x]);
-  }
-  */
 
-  // store valid count for the entire block
+  // final trailing bits.
+  if(threadIdx.x == 0){
+    /*
+    printf("LLE(%d, %d, %d) : prev(0x%x)\n",
+        batch_index, threadIdx.x, dst_word_index, prev_word[threadIdx.x]);
+        */
+    store_word(dst_word_index, prev_word[0]);
+  }
+
+  // add the valid count for the entire block to the count for the entire buffer.
   using block_reduce = cub::BlockReduce<cudf::size_type, block_size>;
   __shared__ typename block_reduce::TempStorage temp_storage;
   valid_count = block_reduce(temp_storage).Sum(valid_count);
   if(threadIdx.x == 0){
-    // printf("Z(%d): valid_count(%d 0x%x)\n", batch_index, valid_count, (uint64_t)batch.valid_count);
+    // printf("Z(%d): valid_count(%d)\n", batch_index, valid_count);
     atomicAdd(batch.valid_count, valid_count);
   }
 }
@@ -2621,7 +2665,7 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
 
   // copy the data. also updates valid_count in column_info
   assemble_copy(batches, column_info, h_column_info, stream);
-
+  
   // build the final table while the gpu is performing the copy
   auto ret = build_table(h_column_info, dst_buffers, stream, mr);
   stream.synchronize();
