@@ -448,6 +448,8 @@ class hive_device_row_hasher {
               if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
                 col_stack[stack_size++].init(
                   child_col_idx, curr_row_idx, child_idx_begin, child_info);
+              } else {
+                top.update_cur_hash(HIVE_INIT_HASH);
               }
               break;
             }
@@ -499,6 +501,8 @@ class hive_device_row_hasher {
             if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
               col_stack[stack_size++].init(
                 child_col_idx, top.get_idx_to_process(), child_idx_begin, child_info);
+            } else {
+              top.update_cur_hash(HIVE_INIT_HASH);
             }
             top.get_and_inc_idx_to_process();
           }
