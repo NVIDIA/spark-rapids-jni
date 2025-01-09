@@ -401,116 +401,137 @@ class hive_device_row_hasher {
     }
     if (curr_col_info.upper_bound_idx_or_basic_col_idx == curr_idx_begin) { return HIVE_INIT_HASH; }
 
+    // Do not pop it until it is processed. The definition of `processed` is:
+    // - For structs, it is when all child columns are processed.
+    // - For lists, it is when all elements in the list are processed.
     col_stack[stack_size++].init(flattened_index, row_index, curr_idx_begin, curr_col_info);
-
     while (stack_size > 0) {
-      col_stack_frame& top     = col_stack[stack_size - 1];
-      auto const curr_col_idx  = top.get_col_idx();
-      auto const curr_row_idx  = top.get_row_idx();
-      auto const curr_col_info = top.get_col_info();
-      // Do not pop it until it is processed. The definition of `processed` is:
-      // - For structs, it is when all child columns are processed.
-      // - For lists, it is when all elements in the list are processed.
-      if (curr_col_info.type_id == cudf::type_id::STRUCT) {
-        if (top.get_idx_to_process() == curr_col_info.upper_bound_idx_or_basic_col_idx) {
-          if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
-        } else {
-          // Reset `next_col_idx` to keep track of the struct's children index.
-          if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
-
-          while (top.get_idx_to_process() < curr_col_info.upper_bound_idx_or_basic_col_idx) {
-            top.get_and_inc_idx_to_process();
-            auto const child_col_idx = next_col_idx++;
-            auto child_info          = _col_infos[child_col_idx];
-            // If the child is of primitive type, accumulate child hash into struct hash
-            if (child_info.type_id != cudf::type_id::LIST &&
-                child_info.type_id != cudf::type_id::STRUCT) {
-              auto const child_col = _basic_cdvs[child_info.upper_bound_idx_or_basic_col_idx];
-              auto const child_hash =
-                cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                  child_col.type(), _hash_functor, child_col, curr_row_idx);
-              top.update_cur_hash(child_hash);
-            } else {
-              cudf::size_type child_idx_begin = 0;
-              if (child_info.type_id == cudf::type_id::LIST) {
-                auto const child_offsets_col_idx = child_col_idx + 1;
-                auto const child_offsets =
-                  _basic_cdvs[_col_infos[child_offsets_col_idx].upper_bound_idx_or_basic_col_idx];
-                child_idx_begin = child_offsets.template element<cudf::size_type>(curr_row_idx);
-                child_info.upper_bound_idx_or_basic_col_idx =
-                  child_offsets.template element<cudf::size_type>(curr_row_idx + 1);
-
-                // Ignore this child if it does not have any element.
-                if (child_info.upper_bound_idx_or_basic_col_idx == child_idx_begin) {
-                  next_col_idx += 2;
-                }
-              }
-              if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
-                col_stack[stack_size++].init(
-                  child_col_idx, curr_row_idx, child_idx_begin, child_info);
-              } else {
-                top.update_cur_hash(HIVE_INIT_HASH);
-              }
-              break;
-            }
-          }
-        }
-      } else if (curr_col_info.type_id == cudf::type_id::LIST) {
-        auto const child_col_idx = curr_col_idx + 2;
-        auto child_info          = _col_infos[child_col_idx];
-
-        // Move `next_col_idx` forward pass the current lists column.
-        // Children of a lists column always stay next to it and are not tracked by this.
-        if (next_col_idx <= child_col_idx) { next_col_idx = child_col_idx + 1; }
-
-        // If the child column is of primitive type, directly compute the hash value of the list
-        if (child_info.type_id != cudf::type_id::LIST &&
-            child_info.type_id != cudf::type_id::STRUCT) {
-          auto const child_col = _basic_cdvs[child_info.upper_bound_idx_or_basic_col_idx];
-          auto const single_level_list_hash = cudf::detail::accumulate(
-            thrust::make_counting_iterator(top.get_idx_to_process()),
-            thrust::make_counting_iterator(curr_col_info.upper_bound_idx_or_basic_col_idx),
-            HIVE_INIT_HASH,
-            [child_col, hasher = _hash_functor] __device__(auto hash, auto element_index) {
-              auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                child_col.type(), hasher, child_col, element_index);
-              return HIVE_HASH_FACTOR * hash + cur_hash;
-            });
-          top.update_cur_hash(single_level_list_hash);
-          if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
-        } else {
-          if (top.get_idx_to_process() == curr_col_info.upper_bound_idx_or_basic_col_idx) {
-            if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
-          } else {
-            // Push the next element into the stack
-            cudf::size_type child_idx_begin = 0;
-            if (child_info.type_id == cudf::type_id::LIST) {
-              auto const child_offsets_col_idx = child_col_idx + 1;
-              auto const child_offsets =
-                _basic_cdvs[_col_infos[child_offsets_col_idx].upper_bound_idx_or_basic_col_idx];
-              child_idx_begin =
-                child_offsets.template element<cudf::size_type>(top.get_idx_to_process());
-              child_info.upper_bound_idx_or_basic_col_idx =
-                child_offsets.template element<cudf::size_type>(top.get_idx_to_process() + 1);
-
-              // Ignore this child if it does not have any element.
-              if (child_info.upper_bound_idx_or_basic_col_idx == child_idx_begin) {
-                next_col_idx += 2;
-              }
-            }
-            if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
-              col_stack[stack_size++].init(
-                child_col_idx, top.get_idx_to_process(), child_idx_begin, child_info);
-            } else {
-              top.update_cur_hash(HIVE_INIT_HASH);
-            }
-            top.get_and_inc_idx_to_process();
-          }
-        }
+      auto const& top        = col_stack[stack_size - 1];
+      auto const col_type_id = top.get_col_info().type_id;
+      switch (col_type_id) {
+        case cudf::type_id::STRUCT: hash_struct(col_stack, stack_size, next_col_idx); break;
+        case cudf::type_id::LIST: hash_list(col_stack, stack_size, next_col_idx); break;
+        default: CUDF_UNREACHABLE("Invalid column nested type.");
       }
     }
 
     return col_stack[0].get_hash();
+  }
+
+  __device__ inline void hash_struct(col_stack_frame* col_stack,
+                                     int& stack_size,
+                                     cudf::size_type& next_col_idx) const
+  {
+    col_stack_frame& top     = col_stack[stack_size - 1];
+    auto const curr_col_idx  = top.get_col_idx();
+    auto const curr_row_idx  = top.get_row_idx();
+    auto const curr_col_info = top.get_col_info();
+
+    if (top.get_idx_to_process() == curr_col_info.upper_bound_idx_or_basic_col_idx) {
+      if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+      return;
+    }
+
+    // Reset `next_col_idx` to keep track of the struct's children index.
+    if (top.get_idx_to_process() == 0) { next_col_idx = curr_col_idx + 1; }
+
+    while (top.get_idx_to_process() < curr_col_info.upper_bound_idx_or_basic_col_idx) {
+      top.get_and_inc_idx_to_process();
+      auto const child_col_idx = next_col_idx++;
+      auto child_info          = _col_infos[child_col_idx];
+
+      // If the child is of primitive type, accumulate child hash into struct hash.
+      if (child_info.type_id != cudf::type_id::LIST &&
+          child_info.type_id != cudf::type_id::STRUCT) {
+        auto const child_col  = _basic_cdvs[child_info.upper_bound_idx_or_basic_col_idx];
+        auto const child_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+          child_col.type(), _hash_functor, child_col, curr_row_idx);
+        top.update_cur_hash(child_hash);
+        continue;  // done with the current child, process the next child
+      }
+
+      cudf::size_type child_idx_begin = 0;
+      if (child_info.type_id == cudf::type_id::LIST) {
+        auto const child_offsets_col_idx = child_col_idx + 1;
+        auto const child_offsets =
+          _basic_cdvs[_col_infos[child_offsets_col_idx].upper_bound_idx_or_basic_col_idx];
+        child_idx_begin = child_offsets.template element<cudf::size_type>(curr_row_idx);
+        child_info.upper_bound_idx_or_basic_col_idx =
+          child_offsets.template element<cudf::size_type>(curr_row_idx + 1);
+
+        // Will not process this child if it does not have any element.
+        if (child_info.upper_bound_idx_or_basic_col_idx == child_idx_begin) { next_col_idx += 2; }
+      }
+      // Only push the current child onto the stack if it is not empty.
+      if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
+        col_stack[stack_size++].init(child_col_idx, curr_row_idx, child_idx_begin, child_info);
+        return;  // will continue processing the current nested child as top of the stack
+      }
+
+      // The current nested child is empty so just move on to the next child.
+      top.update_cur_hash(HIVE_INIT_HASH);
+    }  // end while() for processing struct children
+  }
+
+  __device__ inline void hash_list(col_stack_frame* col_stack,
+                                   int& stack_size,
+                                   cudf::size_type& next_col_idx) const
+  {
+    col_stack_frame& top     = col_stack[stack_size - 1];
+    auto const curr_col_idx  = top.get_col_idx();
+    auto const curr_row_idx  = top.get_row_idx();
+    auto const curr_col_info = top.get_col_info();
+    auto const child_col_idx = curr_col_idx + 2;
+    auto child_info          = _col_infos[child_col_idx];
+
+    // Move `next_col_idx` forward pass the current lists column.
+    // Children of a lists column always stay next to it and are not tracked by this.
+    if (next_col_idx <= child_col_idx) { next_col_idx = child_col_idx + 1; }
+
+    // If the child column is of primitive type, directly compute the hash value of the list.
+    if (child_info.type_id != cudf::type_id::LIST && child_info.type_id != cudf::type_id::STRUCT) {
+      auto const child_col              = _basic_cdvs[child_info.upper_bound_idx_or_basic_col_idx];
+      auto const single_level_list_hash = cudf::detail::accumulate(
+        thrust::make_counting_iterator(top.get_idx_to_process()),
+        thrust::make_counting_iterator(curr_col_info.upper_bound_idx_or_basic_col_idx),
+        HIVE_INIT_HASH,
+        [child_col, hasher = _hash_functor] __device__(auto hash, auto element_index) {
+          auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+            child_col.type(), hasher, child_col, element_index);
+          return HIVE_HASH_FACTOR * hash + cur_hash;
+        });
+      top.update_cur_hash(single_level_list_hash);
+      if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+      return;  // done processing the current lists column
+    }
+
+    if (top.get_idx_to_process() == curr_col_info.upper_bound_idx_or_basic_col_idx) {
+      if (--stack_size > 0) { col_stack[stack_size - 1].update_cur_hash(top.get_hash()); }
+      return;  // done processing the current lists column
+    }
+
+    // Push the next list element onto the stack.
+    cudf::size_type child_idx_begin = 0;
+    if (child_info.type_id == cudf::type_id::LIST) {
+      auto const child_offsets_col_idx = child_col_idx + 1;
+      auto const child_offsets =
+        _basic_cdvs[_col_infos[child_offsets_col_idx].upper_bound_idx_or_basic_col_idx];
+      child_idx_begin = child_offsets.template element<cudf::size_type>(top.get_idx_to_process());
+      child_info.upper_bound_idx_or_basic_col_idx =
+        child_offsets.template element<cudf::size_type>(top.get_idx_to_process() + 1);
+
+      // Will not process this child if it does not have any element.
+      if (child_info.upper_bound_idx_or_basic_col_idx == child_idx_begin) { next_col_idx += 2; }
+    }
+    // Only push the current element onto the stack if it is not empty.
+    if (child_info.upper_bound_idx_or_basic_col_idx > child_idx_begin) {
+      col_stack[stack_size++].init(
+        child_col_idx, top.get_idx_to_process(), child_idx_begin, child_info);
+    } else {
+      // The current nested element is empty so do not need to process any further.
+      top.update_cur_hash(HIVE_INIT_HASH);
+    }
+    top.get_and_inc_idx_to_process();
   }
 
   Nullate _check_nulls;
