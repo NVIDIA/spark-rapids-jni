@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -204,13 +204,23 @@ class column_pruner {
     if (is_leaf) { throw std::runtime_error("Found a leaf node, but expected to find a struct"); }
 
     int num_children = get_num_children(struct_schema_item);
-    // Now that everything looks good add ourselves into the maps, and move to the next entry to
-    // look at.
-    schema_map.push_back(current_input_schema_index);
-    // We will update the num_children each time we find one...
-    int our_num_children_index = schema_num_children.size();
-    schema_num_children.push_back(0);
+
+    // Save the current index (the position of this struct in the full schema).
+    // We'll need this to add it to the pruned schema map if it qualifies.
+    int struct_index = current_input_schema_index;
+
+    // We add the Struct to schema_map (with a placeholder for child count).
+    // But we might remove it later if no children match. This ensures parent-before-children
+    // ordering in schema_map.
+    schema_map.push_back(struct_index);
+    schema_num_children.push_back(0);  // Placeholder for child count
+
+    // This is necessary to update the child count accurately.
+    // Since we just added a new element to schema_num_children, its position is the last index.
+    int struct_map_position = schema_num_children.size() - 1;
+    // Move to first child
     ++current_input_schema_index;
+    int matched_children_count = 0;
 
     // For a STRUCT we want to look for all of the children that match the name and let each of them
     // handle updating things themselves.
@@ -221,9 +231,9 @@ class column_pruner {
       auto found       = children.find(name);
 
       if (found != children.end()) {
-        // found a match so update the number of children that passed the filter and ask it to
-        // filter itself.
-        ++schema_num_children[our_num_children_index];
+        // Record the current size of schema_map before processing the child
+        // This helps determine if the child was retained after processing.
+        auto const before_child_size = schema_map.size();
         found->second.filter_schema(schema,
                                     ignore_case,
                                     current_input_schema_index,
@@ -231,10 +241,25 @@ class column_pruner {
                                     chunk_map,
                                     schema_map,
                                     schema_num_children);
+
+        // If the size of schema_map has increased, it means that child was successfully
+        // included
+        if (schema_map.size() > before_child_size) {
+          ++matched_children_count;
+          // Update the child count for the struct
+          schema_num_children[struct_map_position]++;
+        }
       } else {
         // No match was found so skip the child.
         skip(schema, current_input_schema_index, next_input_chunk_index);
       }
+    }
+
+    // If the below condition is true, it means none of this struct's children
+    // were included. We should remove it from `schema_map` and `schema_num_children`.
+    if (matched_children_count == 0) {
+      schema_map.pop_back();
+      schema_num_children.pop_back();
     }
   }
 
