@@ -93,7 +93,7 @@ struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
   }
 
   /**
-   * @brief create an empty struct scalar
+   * @brief Create an empty column when the input is empty.
    */
   [[nodiscard]] output_type get_empty_output(
     [[maybe_unused]] std::optional<cudf::data_type> output_dtype,
@@ -106,25 +106,12 @@ struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
       0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-
-    if constexpr (std::is_same_v<cudf_aggregation, cudf::reduce_aggregation>) {
-      // reduce
-      auto host_results_view_iter = thrust::make_transform_iterator(
-        children.begin(), [](auto const& results_column) { return results_column->view(); });
-      auto views      = std::vector<cudf::column_view>(host_results_view_iter,
-                                                  host_results_view_iter + num_long_cols);
-      auto table_view = cudf::table_view{views};
-      auto table      = cudf::table(table_view);
-      return std::make_unique<cudf::struct_scalar>(std::move(table), true, stream, mr);
-    } else {
-      // groupby
-      return cudf::make_structs_column(0,
-                                       std::move(children),
-                                       0,                     // null count
-                                       rmm::device_buffer{},  // null mask
-                                       stream,
-                                       mr);
-    }
+    return cudf::make_structs_column(0,
+                                      std::move(children),
+                                      0,                     // null count
+                                      rmm::device_buffer{},  // null mask
+                                      stream,
+                                      mr);
   }
 
   [[nodiscard]] bool is_equal(host_udf_base const& other) const override
