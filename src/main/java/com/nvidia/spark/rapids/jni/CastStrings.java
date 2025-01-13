@@ -111,6 +111,10 @@ public class CastStrings {
     return new ColumnVector(fromDecimal(cv.getNativeView()));
   }
 
+  public static ColumnVector fromLongToBinary(ColumnView cv) {
+    return new ColumnVector(fromLongToBinary(cv.getNativeView()));
+  }
+
   /**
    * Convert a string column to a given floating-point type column.
    *
@@ -160,6 +164,7 @@ public class CastStrings {
   private static native long fromDecimal(long nativeColumnView);
   private static native long fromFloatWithFormat(long nativeColumnView, int digits);
   private static native long fromFloat(long nativeColumnView);
+  private static native long fromLongToBinary(long nativeColumnView);
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);

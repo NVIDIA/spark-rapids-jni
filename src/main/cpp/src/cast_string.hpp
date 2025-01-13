@@ -133,4 +133,9 @@ std::unique_ptr<cudf::column> decimal_to_non_ansi_string(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
+std::unique_ptr<cudf::column> long_to_binary_string(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

@@ -156,6 +156,21 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
   CATCH_CAST_EXCEPTION(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromLongToBinary(
+  JNIEnv* env, jclass, jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::long_to_binary_string(cv, cudf::get_default_stream()));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersWithBase(
   JNIEnv* env, jclass, jlong input_column, jint base, jboolean ansi_enabled, jint j_dtype)
 {
