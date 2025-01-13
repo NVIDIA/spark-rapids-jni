@@ -35,7 +35,8 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(J
         case 0: return spark_rapids_jni::create_hllpp_reduction_host_udf(precision);
         case 1: return spark_rapids_jni::create_hllpp_reduction_merge_host_udf(precision);
         case 2: return spark_rapids_jni::create_hllpp_groupby_host_udf(precision);
-        default: return spark_rapids_jni::create_hllpp_groupby_merge_host_udf(precision);
+        case 3: return spark_rapids_jni::create_hllpp_groupby_merge_host_udf(precision);
+        default: CUDF_FAIL("Invalid aggregation type.");
       }
     }();
     CUDF_EXPECTS(udf_ptr != nullptr, "Invalid HyperLogLogPlusPlus(HLLPP) UDF instance.");

@@ -40,10 +40,7 @@ namespace spark_rapids_jni {
 namespace {
 
 template <typename cudf_aggregation>
-struct hllpp_udf : cudf::host_udf_base {
-  static_assert(std::is_same_v<cudf_aggregation, cudf::reduce_aggregation> ||
-                std::is_same_v<cudf_aggregation, cudf::groupby_aggregation>);
-
+struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
   hllpp_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
 
   [[nodiscard]] input_data_attributes get_required_data() const override
