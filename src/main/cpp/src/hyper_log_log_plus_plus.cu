@@ -383,15 +383,17 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
   int64_t num_threads_partial_kernel =
     cudf::util::div_rounding_up_safe(input.size(), num_hashs_per_thread);
 
-  auto sketches_output =
-    rmm::device_uvector<int32_t>(num_groups * num_registers_per_sketch, stream, mr);
+  auto sketches_output = rmm::device_uvector<int32_t>(
+    num_groups * num_registers_per_sketch, stream, cudf::get_current_device_resource_ref());
 
   {  // add this block to release `registers_thread_cache` and
     // `group_labels_thread_cache`
-    auto registers_thread_cache = rmm::device_uvector<int32_t>(
-      num_threads_partial_kernel * num_registers_per_sketch, stream, mr);
-    auto group_labels_thread_cache =
-      rmm::device_uvector<int32_t>(num_threads_partial_kernel, stream, mr);
+    auto registers_thread_cache =
+      rmm::device_uvector<int32_t>(num_threads_partial_kernel * num_registers_per_sketch,
+                                   stream,
+                                   cudf::get_current_device_resource_ref());
+    auto group_labels_thread_cache = rmm::device_uvector<int32_t>(
+      num_threads_partial_kernel, stream, cudf::get_current_device_resource_ref());
 
     {  // add this block to release `hash_col`
       // 1. compute all the hashs
@@ -577,21 +579,24 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
 
   int64_t num_threads_per_col_phase1 =
     cudf::util::div_rounding_up_safe(num_sketches, num_longs_per_threads);
-  int64_t num_threads_phase1 = num_threads_per_col_phase1 * num_long_cols;
-  int64_t num_blocks         = cudf::util::div_rounding_up_safe(num_threads_phase1, block_size);
-  auto registers_output_cache =
-    rmm::device_uvector<int32_t>(num_registers_per_sketch * num_groups, stream, mr);
+  int64_t num_threads_phase1  = num_threads_per_col_phase1 * num_long_cols;
+  int64_t num_blocks          = cudf::util::div_rounding_up_safe(num_threads_phase1, block_size);
+  auto registers_output_cache = rmm::device_uvector<int32_t>(
+    num_registers_per_sketch * num_groups, stream, cudf::get_current_device_resource_ref());
   {
     auto registers_thread_cache =
-      rmm::device_uvector<int32_t>(num_registers_per_sketch * num_threads_phase1, stream, mr);
-    auto group_labels_thread_cache =
-      rmm::device_uvector<int32_t>(num_threads_per_col_phase1, stream, mr);
+      rmm::device_uvector<int32_t>(num_registers_per_sketch * num_threads_phase1,
+                                   stream,
+                                   cudf::get_current_device_resource_ref());
+    auto group_labels_thread_cache = rmm::device_uvector<int32_t>(
+      num_threads_per_col_phase1, stream, cudf::get_current_device_resource_ref());
 
     cudf::structs_column_view scv(hll_input);
     auto const input_iter = cudf::detail::make_counting_transform_iterator(
       0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
     auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
-    auto d_inputs   = cudf::detail::make_device_uvector_async(input_cols, stream, mr);
+    auto d_inputs   = cudf::detail::make_device_uvector_async(
+      input_cols, stream, cudf::get_current_device_resource_ref());
     // 1st kernel: partially group
     partial_group_long_sketches_kernel<num_longs_per_threads>
       <<<num_blocks, block_size, 0, stream.value()>>>(d_inputs,
@@ -731,7 +736,8 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
       });
     auto host_results_pointers =
       std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-    return cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
+    return cudf::detail::make_device_uvector_async(
+      host_results_pointers, stream, cudf::get_current_device_resource_ref());
   }();
 
   // 2. reduce and generate compacted long values
@@ -780,7 +786,8 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   auto const input_iter = cudf::detail::make_counting_transform_iterator(
     0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
   auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
-  auto d_inputs   = cudf::detail::make_device_uvector_async(input_cols, stream, mr);
+  auto d_inputs   = cudf::detail::make_device_uvector_async(
+    input_cols, stream, cudf::get_current_device_resource_ref());
 
   // create one row output
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
@@ -806,7 +813,8 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   auto num_threads             = num_registers_per_sketch;
   constexpr int64_t block_size = 256;
   auto num_blocks              = cudf::util::div_rounding_up_safe(num_threads, block_size);
-  auto output_cache            = rmm::device_uvector<int32_t>(num_registers_per_sketch, stream, mr);
+  auto output_cache            = rmm::device_uvector<int32_t>(
+    num_registers_per_sketch, stream, cudf::get_current_device_resource_ref());
   reduce_merge_hll_kernel_vertically<<<num_blocks, block_size, 0, stream.value()>>>(
     d_inputs, input.size(), num_registers_per_sketch, output_cache.begin());
 
