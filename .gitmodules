@@ -2,3 +2,4 @@
 	path = thirdparty/cudf
 	url = https://github.com/rapidsai/cudf.git
 	branch = branch-25.02
+

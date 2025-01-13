@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ struct bloom_filter_header {
   int num_longs;
 };
 constexpr int bloom_filter_header_size = sizeof(bloom_filter_header);
+
 
 /**
  * @brief Create an empty bloom filter of the specified size in (64 bit) longs with using

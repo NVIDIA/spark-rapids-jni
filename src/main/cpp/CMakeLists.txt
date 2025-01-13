@@ -65,6 +65,7 @@ option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
 option(BUILD_FAULTINJ "Configure CMake to build fault injection" ON)
 option(BUILD_PROFILER "Configure CMake to build profiler" ON)
 
+
 message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
