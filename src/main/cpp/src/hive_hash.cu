@@ -547,59 +547,32 @@ class hive_device_row_hasher {
   cudf::size_type _num_columns;
 };
 
-void check_nested_depth(cudf::table_view const& input)
+void flatten_table_and_check_depth(std::vector<col_info>& col_infos,
+                                   std::vector<cudf::column_view>& basic_cvs,
+                                   cudf::table_view const& input,
+                                   std::vector<cudf::size_type>& column_map,
+                                   rmm::cuda_stream_view const& stream)
 {
-  using column_checker_fn_t = std::function<int(cudf::column_view const&)>;
-
-  column_checker_fn_t get_nested_depth = [&](cudf::column_view const& col) {
-    if (col.type().id() == cudf::type_id::LIST) {
-      auto const child_col = cudf::lists_column_view(col).child();
-      return 1 + get_nested_depth(child_col);
-    }
-    if (col.type().id() == cudf::type_id::STRUCT) {
-      int max_child_depth = 0;
-      for (auto child = col.child_begin(); child != col.child_end(); ++child) {
-        max_child_depth = std::max(max_child_depth, get_nested_depth(*child));
-      }
-      return 1 + max_child_depth;
-    }
-    // Primitive type
-    return 0;
-  };
-
-  for (auto i = 0; i < input.num_columns(); i++) {
-    cudf::column_view const& col = input.column(i);
-    CUDF_EXPECTS(get_nested_depth(col) <= MAX_STACK_DEPTH,
-                 "The " + std::to_string(i) +
-                   "-th column exceeds the maximum allowed nested depth. " +
-                   "Current depth: " + std::to_string(get_nested_depth(col)) + ", " +
-                   "Maximum allowed depth: " + std::to_string(MAX_STACK_DEPTH));
-  }
-}
-
-void flatten_table(std::vector<col_info>& col_infos,
-                   std::vector<cudf::column_view>& basic_cvs,
-                   cudf::table_view const& input,
-                   std::vector<cudf::size_type>& column_map,
-                   rmm::cuda_stream_view const& stream)
-{
-  using column_processer_fn_t = std::function<void(cudf::column_view const&)>;
+  using column_processer_fn_t = std::function<void(cudf::column_view const&, int)>;
 
   // Pre-order traversal
-  column_processer_fn_t flatten_column = [&](cudf::column_view const& col) {
+  column_processer_fn_t flatten_column_and_check_depth = [&](cudf::column_view const& col,
+                                                             int depth) {
+    CUDF_EXPECTS(depth <= MAX_STACK_DEPTH,
+                 "Exceeds the maximum allowed stack depth: " + std::to_string(MAX_STACK_DEPTH));
     auto const type_id = col.type().id();
     if (type_id == cudf::type_id::LIST) {
       // Nested size will be updated separately for each row.
       col_infos.emplace_back(type_id, -1);
       auto const list_col = cudf::lists_column_view(col);
-      flatten_column(list_col.offsets());
-      flatten_column(list_col.get_sliced_child(stream));
+      flatten_column_and_check_depth(list_col.offsets(), depth + 1);
+      flatten_column_and_check_depth(list_col.get_sliced_child(stream), depth + 1);
     } else if (type_id == cudf::type_id::STRUCT) {
       // Nested size for struct columns is number of children.
       col_infos.emplace_back(type_id, col.num_children());
       auto const struct_col = cudf::structs_column_view(col);
       for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
-        flatten_column(struct_col.get_sliced_child(child_idx, stream));
+        flatten_column_and_check_depth(struct_col.get_sliced_child(child_idx, stream), depth + 1);
       }
     } else {
       col_infos.emplace_back(type_id, static_cast<cudf::size_type>(basic_cvs.size()));
@@ -609,7 +582,7 @@ void flatten_table(std::vector<col_info>& col_infos,
 
   for (auto const& root_col : input) {
     column_map.emplace_back(static_cast<cudf::size_type>(col_infos.size()));
-    flatten_column(root_col);
+    flatten_column_and_check_depth(root_col, 0);
   }
 }
 
@@ -628,8 +601,6 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   // Return early if there's nothing to hash
   if (input.num_columns() == 0 || input.num_rows() == 0) { return output; }
 
-  check_nested_depth(input);
-
   // `basic_cvs` contains column_views of all basic columns in `input` and basic columns that result
   // from flattening nested columns
   std::vector<cudf::column_view> basic_cvs;
@@ -639,7 +610,7 @@ std::unique_ptr<cudf::column> hive_hash(cudf::table_view const& input,
   // flattening nested columns
   std::vector<col_info> col_infos;
 
-  flatten_table(col_infos, basic_cvs, input, column_map, stream);
+  flatten_table_and_check_depth(col_infos, basic_cvs, input, column_map, stream);
 
   [[maybe_unused]] auto [device_view_owners, basic_cdvs] =
     cudf::contiguous_copy_column_device_views<cudf::column_device_view>(basic_cvs, stream);
