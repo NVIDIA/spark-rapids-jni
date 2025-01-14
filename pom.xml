@@ -40,6 +40,7 @@
   </licenses>
   <scm>
     <connection>scm:git:https://github.com/NVIDIA/spark-rapids-jni.git</connection>
+    
     <developerConnection>scm:git:git@github.com:NVIDIA/spark-rapids-jni.git</developerConnection>
     <tag>HEAD</tag>
     <url>https://github.com/NVIDIA/spark-rapids-jni</url>
