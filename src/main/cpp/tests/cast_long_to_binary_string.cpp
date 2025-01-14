@@ -31,12 +31,18 @@ struct LongToBinaryStringTests : public cudf::test::BaseFixture {};
 
 TEST_F(LongToBinaryStringTests, FromLongToBinary)
 {
-  auto const longs = cudf::test::fixed_width_column_wrapper<int64_t>{0L, 1L, 10L, -0L, -1L};
+  auto const longs = cudf::test::fixed_width_column_wrapper<int64_t>{
+    0L, 1L, 10L, -1L, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min()};
 
   auto results = spark_rapids_jni::long_to_binary_string(longs, cudf::get_default_stream());
 
   auto const expected = cudf::test::strings_column_wrapper{
-    "0", "1", "1010", "0", "1111111111111111111111111111111111111111111111111111111111111111"};
+    "0",
+    "1",
+    "1010",
+    "1111111111111111111111111111111111111111111111111111111111111111",
+    "111111111111111111111111111111111111111111111111111111111111111",
+    "1000000000000000000000000000000000000000000000000000000000000000"};
 
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected, verbosity);
 }

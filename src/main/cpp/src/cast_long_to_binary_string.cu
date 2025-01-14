@@ -41,9 +41,7 @@ struct long_to_binary_string_fn {
 
   __device__ cudf::size_type compute_output_size(LongType value)
   {
-    auto const size = 64 - __clzll(value);
-    // If the value is 0, the size should be 1
-    return size > 0 ? size : 1;
+    return max(64 - __clzll(value), 1);  // If the value is 0, the output size should be 1
   }
 
   __device__ void long_to_binary_string(cudf::size_type idx)
