@@ -161,6 +161,13 @@ struct col_info {
   // Store the upper bound of number of elements for lists column, or the upper bound of
   // number of children for structs column, or column index in `basic_cdvs` for basic types.
   cudf::size_type upper_bound_idx_or_basic_col_idx;
+
+  col_info() = default;
+
+  col_info(cudf::type_id type_id, cudf::size_type upper_bound_idx_or_basic_col_idx)
+    : type_id{type_id}, upper_bound_idx_or_basic_col_idx{upper_bound_idx_or_basic_col_idx}
+  {
+  }
 };
 
 /**
@@ -181,8 +188,7 @@ class hive_device_row_hasher {
                          cudf::size_type* column_map,
                          col_info* col_infos,
                          cudf::size_type num_columns) noexcept
-    : _check_nulls{check_nulls},
-      _hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH},
+    : _hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH},
       _basic_cdvs{basic_cdvs},
       _column_map{column_map},
       _col_infos{col_infos},
@@ -534,7 +540,6 @@ class hive_device_row_hasher {
     top.get_and_inc_idx_to_process();
   }
 
-  Nullate _check_nulls;
   hash_functor_t _hash_functor;
   cudf::column_device_view* _basic_cdvs;
   cudf::size_type* _column_map;
@@ -585,19 +590,19 @@ void flatten_table(std::vector<col_info>& col_infos,
     auto const type_id = col.type().id();
     if (type_id == cudf::type_id::LIST) {
       // Nested size will be updated separately for each row.
-      col_infos.emplace_back(col_info{type_id, -1});
+      col_infos.emplace_back(type_id, -1);
       auto const list_col = cudf::lists_column_view(col);
       flatten_column(list_col.offsets());
       flatten_column(list_col.get_sliced_child(stream));
     } else if (type_id == cudf::type_id::STRUCT) {
       // Nested size for struct columns is number of children.
-      col_infos.emplace_back(col_info{type_id, col.num_children()});
+      col_infos.emplace_back(type_id, col.num_children());
       auto const struct_col = cudf::structs_column_view(col);
       for (auto child_idx = 0; child_idx < col.num_children(); child_idx++) {
         flatten_column(struct_col.get_sliced_child(child_idx, stream));
       }
     } else {
-      col_infos.emplace_back(col_info{type_id, static_cast<cudf::size_type>(basic_cvs.size())});
+      col_infos.emplace_back(type_id, static_cast<cudf::size_type>(basic_cvs.size()));
       basic_cvs.push_back(col);
     }
   };
