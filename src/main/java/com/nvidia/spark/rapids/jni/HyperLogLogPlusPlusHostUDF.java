@@ -16,16 +16,38 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.util.Objects;
+
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
+import ai.rapids.cudf.HostUDFWrapper;
 import ai.rapids.cudf.NativeDepsLoader;
 
 /**
  * HyperLogLogPlusPlus(HLLPP) host UDF aggregation utils
  */
-public class HyperLogLogPlusPlusHostUDF {
+public class HyperLogLogPlusPlusHostUDF extends HostUDFWrapper {
   static {
     NativeDepsLoader.loadNativeDeps();
+  }
+
+  public HyperLogLogPlusPlusHostUDF(AggregationType type, int precision) {
+    super(createHLLPPHostUDF(type, precision));
+    this.type = type;
+    this.precision = precision;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(this.getClass().getName(), type, precision);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    HyperLogLogPlusPlusHostUDF other = (HyperLogLogPlusPlusHostUDF) o;
+    return type == other.type && precision == other.precision;
   }
 
   /**
@@ -71,7 +93,7 @@ public class HyperLogLogPlusPlusHostUDF {
   /**
    * Create a HyperLogLogPlusPlus(HLLPP) host UDF
    */
-  public static long createHLLPPHostUDF(AggregationType type, int precision) {
+  private static long createHLLPPHostUDF(AggregationType type, int precision) {
     return createHLLPPHostUDF(type.nativeId, precision);
   }
 
@@ -102,4 +124,19 @@ public class HyperLogLogPlusPlusHostUDF {
 
   private static native long estimateDistinctValueFromSketches(long inputHandle, int precision);
 
+  private AggregationType type;
+  private int precision;
+
+  /**
+   * TODO: move this to cuDF HostUDFWrapper
+   */
+  @Override
+  public void close() throws Exception {
+    close(udfNativeHandle);
+  }
+
+  /**
+   * TODO: move this to cuDF HostUDFWrapper
+   */
+  static native void close(long ptr);
 }

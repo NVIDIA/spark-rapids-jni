@@ -60,4 +60,14 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_estimateDistinctValu
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_close(
+  JNIEnv* env, jclass class_object, jlong ptr)
+try {
+  cudf::jni::auto_set_device(env);
+  auto to_del = reinterpret_cast<cudf::host_udf_base*>(ptr);
+  delete to_del;
+}
+CATCH_STD(env, );
+}
+
 }  // extern "C"
