@@ -39,56 +39,46 @@ namespace spark_rapids_jni {
 
 namespace {
 
-template <typename cudf_aggregation>
 struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
   hllpp_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
 
-  [[nodiscard]] input_data_attributes get_required_data() const override
+  /**
+   * Perform the main groupby computation for HLLPP UDF
+   */
+  [[nodiscard]] output_type operator()(rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr) const override
   {
-    if constexpr (std::is_same_v<cudf_aggregation, cudf::reduce_aggregation>) {
-      return {reduction_data_attribute::INPUT_VALUES};
+    // groupby
+    auto const& group_values = get_grouped_values();
+    if (group_values.size() == 0) { return get_empty_output(std::nullopt, stream, mr); }
+    int num_groups          = get_num_groups();
+    auto const group_labels = get_group_labels();
+    if (is_merge) {
+      // group by intermidate result, group_values are struct of long columns
+      return spark_rapids_jni::group_merge_hyper_log_log_plus_plus(
+        group_values, num_groups, group_labels, precision, stream, mr);
     } else {
-      return {groupby_data_attribute::GROUPED_VALUES,
-              groupby_data_attribute::GROUP_OFFSETS,
-              groupby_data_attribute::GROUP_LABELS};
+      return spark_rapids_jni::group_hyper_log_log_plus_plus(
+        group_values, num_groups, group_labels, precision, stream, mr);
     }
   }
 
-  [[nodiscard]] output_type operator()(host_udf_input const& udf_input,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr) const override
+  /**
+   * Perform the main reduce computation for HLLPP UDF
+   */
+  std::unique_ptr<scalar> operator()(
+    column_view const& input,
+    data_type,                                           /** output_dtype is useless */
+    std::optional<std::reference_wrapper<scalar const>>, /** init is useless */
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr) const override
   {
-    if constexpr (std::is_same_v<cudf_aggregation, cudf::reduce_aggregation>) {
-      // reduce
-      auto const& input_values =
-        std::get<cudf::column_view>(udf_input.at(reduction_data_attribute::INPUT_VALUES));
-      if (input_values.size() == 0) { return get_empty_output(std::nullopt, stream, mr); }
-      if (is_merge) {
-        // reduce intermidate result, input_values are struct of long columns
-        return spark_rapids_jni::reduce_merge_hyper_log_log_plus_plus(
-          input_values, precision, stream, mr);
-      } else {
-        return spark_rapids_jni::reduce_hyper_log_log_plus_plus(
-          input_values, precision, stream, mr);
-      }
+    if (input.size() == 0) { return get_empty_output(std::nullopt, stream, mr); }
+    if (is_merge) {
+      // reduce intermidate result, input are struct of long columns
+      return spark_rapids_jni::reduce_merge_hyper_log_log_plus_plus(input, precision, stream, mr);
     } else {
-      // groupby
-      auto const& group_values =
-        std::get<cudf::column_view>(udf_input.at(groupby_data_attribute::GROUPED_VALUES));
-      if (group_values.size() == 0) { return get_empty_output(std::nullopt, stream, mr); }
-      auto const group_offsets = std::get<cudf::device_span<cudf::size_type const>>(
-        udf_input.at(groupby_data_attribute::GROUP_OFFSETS));
-      int num_groups          = group_offsets.size() - 1;
-      auto const group_labels = std::get<cudf::device_span<cudf::size_type const>>(
-        udf_input.at(groupby_data_attribute::GROUP_LABELS));
-      if (is_merge) {
-        // group by intermidate result, group_values are struct of long columns
-        return spark_rapids_jni::group_merge_hyper_log_log_plus_plus(
-          group_values, num_groups, group_labels, precision, stream, mr);
-      } else {
-        return spark_rapids_jni::group_hyper_log_log_plus_plus(
-          group_values, num_groups, group_labels, precision, stream, mr);
-      }
+      return spark_rapids_jni::reduce_hyper_log_log_plus_plus(input, precision, stream, mr);
     }
   }
 
@@ -107,17 +97,17 @@ struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
     return cudf::make_structs_column(0,
-                                      std::move(children),
-                                      0,                     // null count
-                                      rmm::device_buffer{},  // null mask
-                                      stream,
-                                      mr);
+                                     std::move(children),
+                                     0,                     // null count
+                                     rmm::device_buffer{},  // null mask
+                                     stream,
+                                     mr);
   }
 
   [[nodiscard]] bool is_equal(host_udf_base const& other) const override
   {
     auto o = dynamic_cast<hllpp_udf const*>(&other);
-    return o != nullptr && o->precision == this->precision;
+    return o != nullptr && o->precision == this->precision && o->is_merge == this->is_merge;
   }
 
   [[nodiscard]] std::size_t do_hash() const override
@@ -138,22 +128,22 @@ struct hllpp_udf : cudf::groupby_host_udf, cudf::reduce_host_udf {
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_host_udf(int precision)
 {
-  return std::make_unique<hllpp_udf<cudf::reduce_aggregation>>(precision, /*is_merge*/ false);
+  return std::make_unique<hllpp_udf>(precision, /*is_merge*/ false);
 }
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_merge_host_udf(int precision)
 {
-  return std::make_unique<hllpp_udf<cudf::reduce_aggregation>>(precision, /*is_merge*/ true);
+  return std::make_unique<hllpp_udf>(precision, /*is_merge*/ true);
 }
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_host_udf(int precision)
 {
-  return std::make_unique<hllpp_udf<cudf::groupby_aggregation>>(precision, /*is_merge*/ false);
+  return std::make_unique<hllpp_udf>(precision, /*is_merge*/ false);
 }
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_merge_host_udf(int precision)
 {
-  return std::make_unique<hllpp_udf<cudf::groupby_aggregation>>(precision, /*is_merge*/ true);
+  return std::make_unique<hllpp_udf>(precision, /*is_merge*/ true);
 }
 
 }  // namespace spark_rapids_jni
