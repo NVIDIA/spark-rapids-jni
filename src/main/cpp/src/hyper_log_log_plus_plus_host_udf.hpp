@@ -20,12 +20,12 @@
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_reduction_host_udf(int precision);
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_merge_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_reduction_merge_host_udf(int precision);
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_groupby_host_udf(int precision);
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_merge_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_groupby_merge_host_udf(int precision);
 
 }  // namespace spark_rapids_jni

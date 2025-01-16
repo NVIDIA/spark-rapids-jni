@@ -41,7 +41,7 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(J
     }();
     CUDF_EXPECTS(udf_ptr != nullptr, "Invalid HyperLogLogPlusPlus(HLLPP) UDF instance.");
 
-    return reinterpret_cast<jlong>(udf_ptr.release());
+    return reinterpret_cast<jlong>(udf_ptr);
   }
   CATCH_STD(env, 0);
 }

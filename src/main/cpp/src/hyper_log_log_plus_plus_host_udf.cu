@@ -154,24 +154,24 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
 
 }  // namespace
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_host_udf(int precision)
+cudf::host_udf_base* create_hllpp_reduction_host_udf(int precision)
 {
-  return std::make_unique<hllpp_reduct_udf>(precision, /*is_merge*/ false);
+  return new hllpp_reduct_udf(precision, /*is_merge*/ false);
 }
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_merge_host_udf(int precision)
+cudf::host_udf_base* create_hllpp_reduction_merge_host_udf(int precision)
 {
-  return std::make_unique<hllpp_reduct_udf>(precision, /*is_merge*/ true);
+  return new hllpp_reduct_udf(precision, /*is_merge*/ true);
 }
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_host_udf(int precision)
+cudf::host_udf_base* create_hllpp_groupby_host_udf(int precision)
 {
-  return std::make_unique<hllpp_groupby_udf>(precision, /*is_merge*/ false);
+  return new hllpp_groupby_udf(precision, /*is_merge*/ false);
 }
 
-std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_merge_host_udf(int precision)
+cudf::host_udf_base* create_hllpp_groupby_merge_host_udf(int precision)
 {
-  return std::make_unique<hllpp_groupby_udf>(precision, /*is_merge*/ true);
+  return new hllpp_groupby_udf(precision, /*is_merge*/ true);
 }
 
 }  // namespace spark_rapids_jni
