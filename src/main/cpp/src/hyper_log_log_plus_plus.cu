@@ -449,7 +449,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results = cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
+  auto d_results = cudf::detail::make_device_uvector_sync(host_results_pointers, stream, mr);
 
   auto result = cudf::make_structs_column(num_groups,
                                           std::move(children),
@@ -604,7 +604,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
     auto const input_iter = cudf::detail::make_counting_transform_iterator(
       0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
     auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
-    auto d_inputs   = cudf::detail::make_device_uvector_async(
+    auto d_inputs   = cudf::detail::make_device_uvector_sync(
       input_cols, stream, cudf::get_current_device_resource_ref());
     // 1st kernel: partially group
     partial_group_long_sketches_kernel<num_longs_per_threads>
@@ -644,7 +644,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + results.size());
   auto d_sketches_output =
-    cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
+    cudf::detail::make_device_uvector_sync(host_results_pointers, stream, mr);
 
   // 3rd kernel: compact
   auto num_phase3_threads = num_groups * num_long_cols;
@@ -745,7 +745,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results = cudf::detail::make_device_uvector_async(
+  auto d_results = cudf::detail::make_device_uvector_sync(
     host_results_pointers, stream, cudf::get_current_device_resource_ref());
 
   // 2. reduce and generate compacted long values
@@ -794,7 +794,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   auto const input_iter = cudf::detail::make_counting_transform_iterator(
     0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
   auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
-  auto d_inputs   = cudf::detail::make_device_uvector_async(
+  auto d_inputs   = cudf::detail::make_device_uvector_sync(
     input_cols, stream, cudf::get_current_device_resource_ref());
 
   // create one row output
@@ -814,7 +814,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results = cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
+  auto d_results = cudf::detail::make_device_uvector_sync(host_results_pointers, stream, mr);
 
   // execute merge kernel
   auto num_threads             = num_registers_per_sketch;
@@ -949,7 +949,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
     0, [&](int i) { return input.child(i).begin<int64_t>(); });
   auto const h_input_ptrs =
     std::vector<int64_t const*>(input_iter, input_iter + input.num_children());
-  auto d_inputs = cudf::detail::make_device_uvector_async(
+  auto d_inputs = cudf::detail::make_device_uvector_sync(
     h_input_ptrs, stream, cudf::get_current_device_resource_ref());
   auto result = cudf::make_numeric_column(
     cudf::data_type{cudf::type_id::INT64}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
