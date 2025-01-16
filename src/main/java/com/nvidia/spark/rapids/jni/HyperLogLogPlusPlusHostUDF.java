@@ -73,7 +73,7 @@
       * sketch. Input is a struct column with multiple long columns which is
       * consistent with Spark. Output is a struct scalar with multiple long values.
       */
-     ReductionMERGE(1),
+     ReductionMerge(1),
  
      /**
       * Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)

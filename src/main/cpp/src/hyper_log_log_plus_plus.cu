@@ -656,7 +656,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
 }
 
 /**
- * Launch only 1 block, uses max 1M(2^18 *sizeof(int)) shared memory.
+ * @brief Launch only 1 block, uses max 1M(2^18 *sizeof(int)) shared memory.
  * For each hash, get a pair: (register index, register value).
  * Use shared memory to speedup the fetch max atomic operation.
  */
