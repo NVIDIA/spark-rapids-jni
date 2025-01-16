@@ -17,23 +17,16 @@
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
 
-#include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/column/column_view.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
-#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/structs/structs_column_view.hpp>
-#include <cudf/table/table_device_view.cuh>
-#include <cudf/types.hpp>
-#include <cudf/utilities/memory_resource.hpp>
+#include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
@@ -43,13 +36,27 @@
 #include <cuda/std/bit>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/iterator/transform_iterator.h>
-#include <thrust/reverse.h>
-#include <thrust/tabulate.h>
 
 namespace spark_rapids_jni {
 
 namespace {
+
+/**
+ * @brief The seed used for the XXHash64 hash function.
+ * It's consistent with Spark
+ */
+constexpr int64_t SEED = 42L;
+
+/**
+ * @brief 6 binary MASK bits: 111-111
+ */
+constexpr uint64_t MASK = (1L << REGISTER_VALUE_BITS) - 1L;
+
+/**
+ * @brief The maximum precision that can be used for the HLLPP algorithm.
+ * If input precision is bigger than 18, then use 18.
+ */
+constexpr int MAX_PRECISION = 18;
 
 /**
  * @brief Get register value from a long which contains 10 register values,
@@ -67,17 +74,18 @@ __device__ inline int get_register_value(int64_t const ten_registers, int reg_id
  * @brief Computes HLLPP sketches(register values) from hash values and
  * partially merge the sketches.
  *
+ * Tried to use `reduce_by_key`, but it uses too much of memory, so give up using `reduce_by_key`.
+ * More details:
  * `reduce_by_key` uses num_rows_input intermidate cache:
  * https://github.com/NVIDIA/thrust/blob/2.1.0/thrust/system/detail/generic/reduce_by_key.inl#L112
- *
  * // scan the values by flag
  * thrust::detail::temporary_array<ValueType,ExecutionPolicy>
  * scanned_values(exec, n);
- *
  * Each sketch contains multiple integers, by default 512 integers(precision is
- * 9), num_rows_input * 512 is huge, so this function uses a differrent approach
- * to use less intermidate cache. New approach uses 2 phase merges: partial
- * merge and final merge
+ * 9), num_rows_input * 512 is huge.
+ *
+ * This function uses a differrent approach to use less intermidate cache.
+ * It uses 2 phase merges: partial merge and final merge
  *
  * This function splits input into multiple segments with each segment has
  * num_hashs_per_thread items. The input is sorted by group labels, each segment

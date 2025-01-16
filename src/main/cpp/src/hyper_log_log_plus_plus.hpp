@@ -25,7 +25,7 @@
 namespace spark_rapids_jni {
 
 /**
- * Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)
+ * @brief Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)
  * sketches from hash codes, and merge the sketches in the same group. Output is
  * a struct column with multiple long columns which is consistent with Spark.
  */
@@ -38,7 +38,7 @@ std::unique_ptr<cudf::column> group_hyper_log_log_plus_plus(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Merge HyperLogLogPlusPlus(HLLPP) sketches in the same group.
+ * @brief Merge HyperLogLogPlusPlus(HLLPP) sketches in the same group.
  * Input is a struct column with multiple long columns which is consistent with
  * Spark.
  */
@@ -51,7 +51,7 @@ std::unique_ptr<cudf::column> group_merge_hyper_log_log_plus_plus(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)
+ * @brief Compute hash codes for the input, generate HyperLogLogPlusPlus(HLLPP)
  * sketches from hash codes, and merge all the sketches into one sketch, output
  * is a struct scalar with multiple long values.
  */
@@ -62,7 +62,7 @@ std::unique_ptr<cudf::scalar> reduce_hyper_log_log_plus_plus(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Merge all HyperLogLogPlusPlus(HLLPP) sketches in the input column into one
+ * @brief Merge all HyperLogLogPlusPlus(HLLPP) sketches in the input column into one
  * sketch. Input is a struct column with multiple long columns which is
  * consistent with Spark. Output is a struct scalar with multiple long values.
  */
@@ -73,7 +73,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hyper_log_log_plus_plus(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Estimate count distinct values for the input which contains
+ * @brief Estimate count distinct values from HyperLogLogPlusPlus(HLLPP) sketches.
  * Input is a struct column with multiple long columns which is consistent with
  * Spark. Output is a long column with all values are not null. Spark returns 0
  * for null values when doing APPROX_COUNT_DISTINCT.

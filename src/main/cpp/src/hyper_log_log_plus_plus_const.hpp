@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 namespace spark_rapids_jni {
 
 /**
- * The number of bits that is required for a HLLPP register value.
+ * @brief The number of bits that is required for a HLLPP register value.
  *
  * This number is determined by the maximum number of leading binary zeros a
  * hashcode can produce. This is equal to the number of bits the hashcode
@@ -28,16 +28,10 @@ namespace spark_rapids_jni {
  */
 constexpr int REGISTER_VALUE_BITS = 6;
 
-// MASK binary 6 bits: 111-111
-constexpr uint64_t MASK = (1L << REGISTER_VALUE_BITS) - 1L;
-
-// This value is 10, one long stores 10 register values
+/**
+ * @brief The number of registers that can be stored in a single long.
+ * It's 64 / 6 = 10.
+ */
 constexpr int REGISTERS_PER_LONG = 64 / REGISTER_VALUE_BITS;
-
-// XXHash seed, consistent with Spark
-constexpr int64_t SEED = 42L;
-
-// max precision, if require a precision bigger than 18, then use 18.
-constexpr int MAX_PRECISION = 18;
 
 }  // namespace spark_rapids_jni

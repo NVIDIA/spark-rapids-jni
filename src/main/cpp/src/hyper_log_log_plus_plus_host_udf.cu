@@ -17,32 +17,15 @@
 #include "hyper_log_log_plus_plus_const.hpp"
 #include "hyper_log_log_plus_plus_host_udf.hpp"
 
-#include <cudf/aggregation.hpp>
-#include <cudf/aggregation/host_udf.hpp>
-#include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/aggregation/aggregation.hpp>
 #include <cudf/detail/iterator.cuh>
-#include <cudf/detail/valid_if.cuh>
-#include <cudf/groupby.hpp>
-#include <cudf/reduction.hpp>
-#include <cudf/scalar/scalar_factories.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
-
-#include <rmm/device_uvector.hpp>
-#include <rmm/exec_policy.hpp>
-
-#include <thrust/iterator/counting_iterator.h>
-#include <thrust/iterator/zip_iterator.h>
-#include <thrust/transform.h>
-#include <thrust/transform_reduce.h>
 
 namespace spark_rapids_jni {
 
 namespace {
 
-struct hllpp_agg_udf : cudf::groupby_host_udf {
-  hllpp_agg_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
+struct hllpp_groupby_udf : cudf::groupby_host_udf {
+  hllpp_groupby_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
 
   /**
    * Perform the main groupby computation for HLLPP UDF
@@ -50,8 +33,7 @@ struct hllpp_agg_udf : cudf::groupby_host_udf {
   [[nodiscard]] std::unique_ptr<cudf::column> operator()(
     rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const override
   {
-    // groupby
-    auto const& group_values = get_grouped_values();
+    auto const group_values = get_grouped_values();
     if (group_values.size() == 0) { return get_empty_output(stream, mr); }
     int num_groups          = get_num_groups();
     auto const group_labels = get_group_labels();
@@ -87,26 +69,48 @@ struct hllpp_agg_udf : cudf::groupby_host_udf {
 
   [[nodiscard]] bool is_equal(cudf::host_udf_base const& other) const override
   {
-    auto o = dynamic_cast<hllpp_agg_udf const*>(&other);
+    auto o = dynamic_cast<hllpp_groupby_udf const*>(&other);
     return o != nullptr && o->precision == this->precision && o->is_merge == this->is_merge;
   }
 
   [[nodiscard]] std::size_t do_hash() const override
   {
-    return 31 * (31 * std::hash<std::string>{}({"hllpp_agg_udf"}) + precision) + is_merge;
+    return 31 * (31 * std::hash<std::string>{}({"hllpp_groupby_udf"}) + precision) + is_merge;
   }
 
   [[nodiscard]] std::unique_ptr<cudf::host_udf_base> clone() const override
   {
-    return std::make_unique<hllpp_agg_udf>(precision, is_merge);
+    return std::make_unique<hllpp_groupby_udf>(precision, is_merge);
   }
 
+ private:
   int precision;
   bool is_merge;
 };
 
 struct hllpp_reduct_udf : cudf::reduce_host_udf {
   hllpp_reduct_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
+
+  /**
+   * @brief Create an empty scalar when the input is empty.
+   */
+  std::unique_ptr<cudf::scalar> get_empty_scalar(rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr) const
+  {
+    int num_registers       = 1 << precision;
+    int num_long_cols       = num_registers / REGISTERS_PER_LONG + 1;
+    auto const results_iter = cudf::detail::make_counting_transform_iterator(
+      0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
+    auto children =
+      std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
+    auto host_results_view_iter = thrust::make_transform_iterator(
+      children.begin(), [](auto const& results_column) { return results_column->view(); });
+    auto views      = std::vector<cudf::column_view>(host_results_view_iter,
+                                                host_results_view_iter + num_long_cols);
+    auto table_view = cudf::table_view{views};
+    auto table      = cudf::table(table_view);
+    return std::make_unique<cudf::struct_scalar>(std::move(table), true, stream, mr);
+  }
 
   /**
    * Perform the main reduce computation for HLLPP UDF
@@ -118,8 +122,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr) const override
   {
-    CUDF_EXPECTS(input.size() > 0,
-                 "Hyper Log Log Plus Plus reduction requires input is not empty!");
+    if (input.size() == 0) { return get_empty_scalar(stream, mr); }
     if (is_merge) {
       // reduce intermidate result, input are struct of long columns
       return spark_rapids_jni::reduce_merge_hyper_log_log_plus_plus(input, precision, stream, mr);
@@ -144,6 +147,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
     return std::make_unique<hllpp_reduct_udf>(precision, is_merge);
   }
 
+ private:
   int precision;
   bool is_merge;
 };
@@ -162,12 +166,12 @@ std::unique_ptr<cudf::host_udf_base> create_hllpp_reduction_merge_host_udf(int p
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_host_udf(int precision)
 {
-  return std::make_unique<hllpp_agg_udf>(precision, /*is_merge*/ false);
+  return std::make_unique<hllpp_groupby_udf>(precision, /*is_merge*/ false);
 }
 
 std::unique_ptr<cudf::host_udf_base> create_hllpp_groupby_merge_host_udf(int precision)
 {
-  return std::make_unique<hllpp_agg_udf>(precision, /*is_merge*/ true);
+  return std::make_unique<hllpp_groupby_udf>(precision, /*is_merge*/ true);
 }
 
 }  // namespace spark_rapids_jni

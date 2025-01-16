@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <cudf/aggregation.hpp>
+#include <cudf/aggregation/host_udf.hpp>
 
 namespace spark_rapids_jni {
 

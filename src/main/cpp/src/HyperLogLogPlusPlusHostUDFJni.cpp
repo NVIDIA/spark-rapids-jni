@@ -18,8 +18,6 @@
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_host_udf.hpp"
 
-#include <cudf/aggregation/host_udf.hpp>
-
 extern "C" {
 
 JNIEXPORT jlong JNICALL
@@ -66,7 +64,6 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostU
   JNIEnv* env, jclass class_object, jlong ptr)
 {
   try {
-    cudf::jni::auto_set_device(env);
     auto to_del = reinterpret_cast<cudf::host_udf_base*>(ptr);
     delete to_del;
   }
