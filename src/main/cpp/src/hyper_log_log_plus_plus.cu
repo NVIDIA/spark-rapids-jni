@@ -442,15 +442,15 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
   });
   auto children =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-  auto d_results = [&] {
-    auto host_results_pointer_iter =
-      thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
-        return results_column->mutable_view().template data<int64_t>();
-      });
-    auto host_results_pointers =
-      std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-    return cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
-  }();
+
+  auto host_results_pointer_iter =
+    thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
+      return results_column->mutable_view().template data<int64_t>();
+    });
+  auto host_results_pointers =
+    std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
+  auto d_results = cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
+
   auto result = cudf::make_structs_column(num_groups,
                                           std::move(children),
                                           0,                     // null count
@@ -636,15 +636,15 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   });
   auto results =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-  auto d_sketches_output = [&] {
-    auto host_results_pointer_iter =
-      thrust::make_transform_iterator(results.begin(), [](auto const& results_column) {
-        return results_column->mutable_view().template data<int64_t>();
-      });
-    auto host_results_pointers =
-      std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + results.size());
-    return cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
-  }();
+
+  auto host_results_pointer_iter =
+    thrust::make_transform_iterator(results.begin(), [](auto const& results_column) {
+      return results_column->mutable_view().template data<int64_t>();
+    });
+  auto host_results_pointers =
+    std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + results.size());
+  auto d_sketches_output =
+    cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
 
   // 3rd kernel: compact
   auto num_phase3_threads = num_groups * num_long_cols;
@@ -738,16 +738,15 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
   });
   auto children =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-  auto d_results = [&] {
-    auto host_results_pointer_iter =
-      thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
-        return results_column->mutable_view().template data<int64_t>();
-      });
-    auto host_results_pointers =
-      std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-    return cudf::detail::make_device_uvector_async(
-      host_results_pointers, stream, cudf::get_current_device_resource_ref());
-  }();
+
+  auto host_results_pointer_iter =
+    thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
+      return results_column->mutable_view().template data<int64_t>();
+    });
+  auto host_results_pointers =
+    std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
+  auto d_results = cudf::detail::make_device_uvector_async(
+    host_results_pointers, stream, cudf::get_current_device_resource_ref());
 
   // 2. reduce and generate compacted long values
   constexpr int64_t block_size = 256;
@@ -808,15 +807,14 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
   });
   auto children =
     std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-  auto d_results = [&] {
-    auto host_results_pointer_iter =
-      thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
-        return results_column->mutable_view().template data<int64_t>();
-      });
-    auto host_results_pointers =
-      std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-    return cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
-  }();
+
+  auto host_results_pointer_iter =
+    thrust::make_transform_iterator(children.begin(), [](auto const& results_column) {
+      return results_column->mutable_view().template data<int64_t>();
+    });
+  auto host_results_pointers =
+    std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
+  auto d_results = cudf::detail::make_device_uvector_async(host_results_pointers, stream, mr);
 
   // execute merge kernel
   auto num_threads             = num_registers_per_sketch;
