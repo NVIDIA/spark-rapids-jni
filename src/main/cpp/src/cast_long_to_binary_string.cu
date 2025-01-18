@@ -41,7 +41,7 @@ struct long_to_binary_string_fn {
     auto const value = d_longs.element<int64_t>(idx);
     char* d_buffer   = d_chars + d_offsets[idx];
     for (auto i = d_sizes[idx] - 1; i >= 0; --i) {
-      *d_buffer++ = '0' + ((value & (1LL << i)) >> i);
+      *d_buffer++ = '0' + ((value & (1UL << i)) >> i);
     }
   }
 
