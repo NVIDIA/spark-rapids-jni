@@ -127,7 +127,7 @@ std::unique_ptr<cudf::column> make_struct_column_from_scalars(
     d_col_ptrs, scalars.size(), num_longs_in_scalar, d_output);
 
   // create struct column
-  return cudf::make_structs_column(scalars.size(),  // num_rows
+  return cudf::make_structs_column(scalars.size(),        // num_rows
                                    std::move(children),
                                    0,                     // null count
                                    rmm::device_buffer{},  // null mask
