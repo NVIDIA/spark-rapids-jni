@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -269,6 +269,18 @@ public class CastStringsTest {
       } finally {
         result.forEach(ColumnVector::close);
       }
+    }
+  }
+
+  @Test
+  void castFromLongToBinaryStringTest() {
+    try (ColumnVector v0 = ColumnVector.fromBoxedLongs(null, 0L, 1L, 10L, -1L, Long.MAX_VALUE, Long.MIN_VALUE);
+         ColumnVector result = CastStrings.fromLongToBinary(v0);
+         ColumnVector expected = ColumnVector.fromStrings(null, "0", "1", "1010",
+         "1111111111111111111111111111111111111111111111111111111111111111",
+         "111111111111111111111111111111111111111111111111111111111111111",
+         "1000000000000000000000000000000000000000000000000000000000000000")) {
+          AssertUtils.assertColumnsAreEqual(expected, result);
     }
   }
 
