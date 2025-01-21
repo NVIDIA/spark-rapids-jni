@@ -61,9 +61,9 @@ CUDF_KERNEL void long_to_binary_string_kernel(cudf::column_device_view d_longs,
   auto const first_byte_index    = lane_idx * num_bits_per_thread;
 
   char* d_buffer = d_chars + d_offsets[row_idx];
-  for (auto i = 0; i < num_bits_per_thread; ++i) {
-    auto const byte_index = first_byte_index + i;
-    if (byte_index >= str_len) { return; }
+  for (auto byte_index = first_byte_index;
+       byte_index < first_byte_index + num_bits_per_thread && byte_index < str_len;
+       ++byte_index) {
     auto const num_shifts = str_len - 1 - byte_index;
     d_buffer[byte_index]  = '0' + ((value & (1UL << num_shifts)) >> num_shifts);
   }
