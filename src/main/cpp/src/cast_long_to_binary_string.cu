@@ -43,10 +43,10 @@ CUDF_KERNEL void compute_output_size_kernel(cudf::column_device_view d_longs,
   d_sizes[tid] = max(1, 64 - __clzll(d_longs.element<int64_t>(tid)));
 }
 
+template <int num_threads_per_row>
 CUDF_KERNEL void long_to_binary_string_kernel(cudf::column_device_view d_longs,
                                               char* d_chars,
-                                              cudf::detail::input_offsetalator d_offsets,
-                                              cudf::size_type num_threads_per_row)
+                                              cudf::detail::input_offsetalator d_offsets)
 {
   auto const tid     = cudf::detail::grid_1d::global_thread_id();
   auto const row_idx = tid / num_threads_per_row;
@@ -55,10 +55,10 @@ CUDF_KERNEL void long_to_binary_string_kernel(cudf::column_device_view d_longs,
   auto const str_len = d_offsets[row_idx + 1] - d_offsets[row_idx];
   if (str_len == 0) { return; }
 
-  auto const value               = d_longs.element<int64_t>(row_idx);
-  auto const lane_idx            = tid % num_threads_per_row;
-  auto const num_bits_per_thread = 64 / num_threads_per_row;
-  auto const first_byte_index    = lane_idx * num_bits_per_thread;
+  constexpr int num_bits_per_thread = 64 / num_threads_per_row;
+  auto const value                  = d_longs.element<int64_t>(row_idx);
+  auto const lane_idx               = tid % num_threads_per_row;
+  auto const first_byte_index       = lane_idx * num_bits_per_thread;
 
   char* d_buffer = d_chars + d_offsets[row_idx];
   for (auto byte_index = first_byte_index;
@@ -103,11 +103,11 @@ std::unique_ptr<cudf::column> long_to_binary_string(cudf::column_view const& inp
   char* d_chars = chars.data();
 
   // Fill in the chars data
-  auto constexpr num_threads_per_row = 32;
+  constexpr int num_threads_per_row = 32;
   auto new_grid = cudf::detail::grid_1d{strings_count * num_threads_per_row, block_size};
   if (bytes > 0) {
-    long_to_binary_string_kernel<<<new_grid.num_blocks, block_size, 0, stream.value()>>>(
-      *d_column, d_chars, d_offsets, num_threads_per_row);
+    long_to_binary_string_kernel<num_threads_per_row>
+      <<<new_grid.num_blocks, block_size, 0, stream.value()>>>(*d_column, d_chars, d_offsets);
   }
 
   return cudf::make_strings_column(input.size(),
