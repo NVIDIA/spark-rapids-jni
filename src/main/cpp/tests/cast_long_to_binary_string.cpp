@@ -32,7 +32,7 @@ struct LongToBinaryStringTests : public cudf::test::BaseFixture {};
 TEST_F(LongToBinaryStringTests, FromLongToBinary)
 {
   auto const longs = cudf::test::fixed_width_column_wrapper<int64_t>{
-    0LL, 1LL, 10LL, -1LL, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min()};
+    0, 1, 10, -1, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min()};
 
   auto results = spark_rapids_jni::long_to_binary_string(longs, cudf::get_default_stream());
 
