@@ -51,7 +51,7 @@ CUDF_KERNEL void compute_output_size_kernel(cudf::column_device_view d_longs,
  * `bit_index` begins from LSB to MSB, and `char_index` equals to `str_len - 1 - bit_index`.
  *
  * For example, if `num_threads_per_row` is 32, then each thread processes 2 bits of the long.
- * Suppose the input is 25L, which is 0b 0000...0001_1001, and the output size should be 5.
+ * Suppose the input is 25, which is 0b 0000...0001_1001, and the output size should be 5.
  *
  * lane  0 handles bit_indices [ 0,  1], write '1' to char_index 4 and '0' to char_index 3
  * lane  1 handles bit_indices [ 2,  3], write '0' to char_index 2 and '1' to char_index 1
