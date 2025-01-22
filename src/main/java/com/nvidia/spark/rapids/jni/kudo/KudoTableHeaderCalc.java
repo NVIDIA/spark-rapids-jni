@@ -35,7 +35,7 @@ import static java.lang.Math.toIntExact;
  * {@link HostColumnsVisitor}.
  * </p>
  */
-class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
+class KudoTableHeaderCalc implements HostColumnsVisitor {
   private final SliceInfo root;
   private final int numFlattenedCols;
   private final byte[] bitset;
@@ -66,7 +66,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
   }
 
   @Override
-  public Void visitStruct(HostColumnVectorCore col, List<Void> children) {
+  public void visitStruct(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
     long validityBufferLength = 0;
@@ -78,11 +78,10 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
     totalDataLen += validityBufferLength;
     this.setHasValidity(col.hasValidityVector());
-    return null;
   }
 
   @Override
-  public Void preVisitList(HostColumnVectorCore col) {
+  public void preVisitList(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
 
@@ -114,19 +113,16 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
     }
 
     sliceInfos.addLast(current);
-    return null;
   }
 
   @Override
-  public Void visitList(HostColumnVectorCore col, Void preVisitResult, Void childResult) {
+  public void visitList(HostColumnVectorCore col) {
     sliceInfos.removeLast();
-
-    return null;
   }
 
 
   @Override
-  public Void visit(HostColumnVectorCore col) {
+  public void visit(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.peekLast();
     long validityBufferLen = dataLenOfValidityBuffer(col, parent);
     long offsetBufferLen = dataLenOfOffsetBuffer(col, parent);
@@ -137,8 +133,6 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
     this.totalDataLen += validityBufferLen + offsetBufferLen + dataBufferLen;
 
     this.setHasValidity(col.hasValidityVector());
-
-    return null;
   }
 
   private void setHasValidity(boolean hasValidityBuffer) {
