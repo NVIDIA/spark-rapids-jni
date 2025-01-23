@@ -23,11 +23,47 @@
 
 namespace spark_rapids_jni {
 
+// TODO: this is duplicated from cudf because the cudf function is not marked as constexpr, so it cannot be called on the gpu
+// there is an issue filed against cudf to make is_fixed_point(cudf::data_type type) constexpr. Once that is done, we can 
+// remove this
+template <typename T>
+constexpr inline bool is_fixed_point()
+{
+  return std::is_same_v<numeric::decimal32, T> || std::is_same_v<numeric::decimal64, T> ||
+         std::is_same_v<numeric::decimal128, T> ||
+         std::is_same_v<numeric::fixed_point<int32_t, numeric::Radix::BASE_2>, T> ||
+         std::is_same_v<numeric::fixed_point<int64_t, numeric::Radix::BASE_2>, T> ||
+         std::is_same_v<numeric::fixed_point<__int128_t, numeric::Radix::BASE_2>, T>;
+}
+struct is_fixed_point_impl {
+  template <typename T>
+  constexpr bool operator()()
+  {
+    return is_fixed_point<T>();
+  }
+};
+constexpr bool is_fixed_point(cudf::data_type type) { return cudf::type_dispatcher(type, is_fixed_point_impl{}); }
+
+// per-column information, stored in the metadata header
 struct shuffle_split_col_data {
   cudf::type_id type;
+
+  shuffle_split_col_data(cudf::type_id _type, cudf::size_type _param) : type(_type), _num_children(_param) {}
+
+  constexpr cudf::size_type num_children() const
+  {
+    return spark_rapids_jni::is_fixed_point(cudf::data_type{type}) ? 0 : _num_children;
+  }
+  cudf::size_type scale() const
+  { 
+    CUDF_EXPECTS(!cudf::is_fixed_point(cudf::data_type{type}), "Unexpected call to scale() on a non-fixed-point type.");
+    return _scale;
+  }
+
+private:
   union {
-    cudf::size_type num_children;
-    cudf::size_type scale;
+    cudf::size_type _num_children;
+    cudf::size_type _scale;
   };
 };
 

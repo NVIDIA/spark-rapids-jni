@@ -861,7 +861,7 @@ __global__ void pack_per_partition_data_kernel(uint8_t* out_buffer,
     pheader->magic_number = magic;
     pheader->version = kudo_version;
 
-    pheader->offset = 0;  // TODO
+    pheader->offset = split_indices[partition_index];
 
     // it is possible to get in here with no columns -or- no rows.
     size_type partition_num_rows = 0;
@@ -938,8 +938,7 @@ void populate_column_data(shuffle_split_metadata& meta, InputIter begin, InputIt
     case cudf::type_id::DECIMAL32:
     case cudf::type_id::DECIMAL64:
     case cudf::type_id::DECIMAL128:
-      // TODO: scale.
-      meta.col_info.push_back({col.type().id(), 0});
+      meta.col_info.push_back({col.type().id(), col.type().scale()});
       break;
 
     default:
@@ -1230,7 +1229,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(cudf::tabl
   size_t dst_buf_total_size;
   cudaMemcpyAsync(&dst_buf_total_size, d_partition_offsets.begin() + num_partitions, sizeof(size_t), cudaMemcpyDeviceToHost, stream);
 
-  /*
+  /*  
   {
     std::vector<partition_size_info> h_partition_sizes(num_partitions);
     cudaMemcpy(h_partition_sizes.data(), d_partition_sizes, sizeof(partition_size_info) * num_partitions, cudaMemcpyDeviceToHost);
@@ -1587,9 +1586,9 @@ struct assemble_empty_column_functor {
   {
     // build children
     std::vector<std::unique_ptr<cudf::column>> children;
-    children.reserve(col->num_children);
+    children.reserve(col->num_children());
     auto next = col + 1;
-    for(size_type i=0; i<col->num_children; i++){
+    for(size_type i=0; i<col->num_children(); i++){
       next = cudf::type_dispatcher(cudf::data_type{next->type},
                                    assemble_empty_column_functor{stream, mr},
                                    next,
@@ -1661,7 +1660,7 @@ ColumnIter compute_max_depth_traverse(ColumnIter col, int depth, int& max_depth)
   auto start = col;
   col++;
   max_depth = max(max_depth, depth);
-  for(int idx=0; idx<start->num_children; idx++){
+  for(int idx=0; idx<start->num_children(); idx++){
     col = compute_max_depth_traverse(col, depth+1, max_depth);
   }
   return col;
@@ -1804,7 +1803,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
                         thrust::make_discard_iterator(),
                         assemble_column_info_has_validity_output_iter{column_info.begin()},
                         thrust::equal_to<size_type>{},
-                        thrust::logical_or<bool>{});
+                        thrust::logical_or<bool>{});  
   /*
   {
     auto h_column_info = cudf::detail::make_std_vector_sync(column_info, stream);
@@ -1826,9 +1825,9 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
     
     cinfo.type = metadata.type;
     cinfo.valid_count = 0;
-    cinfo.num_children = metadata.num_children;
+    cinfo.num_children = metadata.num_children();
   });
-  
+
   /*
   {
     auto h_column_info = cudf::detail::make_std_vector_sync(column_info, stream);
@@ -1876,7 +1875,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
     cinstance_info.type = metadata.type;
     cinstance_info.valid_count = 0;
     cinstance_info.num_chars = 0;
-    cinstance_info.num_children = metadata.num_children;
+    cinstance_info.num_children = metadata.num_children();
 
     // note that this will be incorrect for any columns that are children of offset columns. those values will be fixed up below.
     cinstance_info.num_rows = pheader->num_rows;
@@ -1965,7 +1964,6 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
                       column_info[i].num_rows = last_col_inst.row_index + last_col_inst.num_rows;
                       column_info[i].num_chars = last_col_inst.char_index + last_col_inst.num_chars;
                    });
-  
   /*
   {
     auto h_column_info = cudf::detail::make_std_vector_sync(column_info, stream);
@@ -2428,7 +2426,7 @@ std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>> 
                                            return 0;
                                          }();
 
-                                         /*                                        
+                                         /*
                                          printf("ET: partition_index=%lu, row_index=%d, char_index=%d, src_buf_index=%lu, dst_buf_index=%lu, dst_offset_index=%lu, batch_index=%lu, buffer_type=%d, src_offset=%lu, dst_offset=%lu bytes=%lu validity_row_count=%lu, offset_shift=%d, src_bit_shift=%d, dst_bit_shift = %d, col_index = %lu (%c%c%c)\n", 
                                            partition_index,
                                            row_index,
