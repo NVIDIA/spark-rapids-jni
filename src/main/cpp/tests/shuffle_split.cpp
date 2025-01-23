@@ -66,7 +66,7 @@ TEST_F(ShuffleSplitTests, Simple)
   }
 }
 
-TEST_F(ShuffleSplitTests, SimpleStrings)
+TEST_F(ShuffleSplitTests, Strings)
 {  
   {
     cudf::test::strings_column_wrapper col{{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}};
@@ -93,36 +93,16 @@ TEST_F(ShuffleSplitTests, SimpleStrings)
   }
 }
 
-TEST_F(ShuffleSplitTests, EmptySplits)
-{
-  cudf::size_type const num_rows = 100;
-  auto iter = thrust::make_counting_iterator(0);
-  cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<float> col1(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<int16_t> col2(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<int8_t> col3(iter, iter + num_rows);
+TEST_F(ShuffleSplitTests, Lists)
+{  
+  using lcw = cudf::test::lists_column_wrapper<uint64_t>;
+  lcw col0{{9, 8}, {7, 6, 5}, {}, {4}, {3, 2, 1, 0}, {20, 21, 22, 23, 24}, {}, {66, 666}, {123, 7}, {100, 101}};
+    
+  cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
 
-  cudf::table_view tbl{{static_cast<cudf::column_view>(col0),
-                          static_cast<cudf::column_view>(col1),
-                          static_cast<cudf::column_view>(col2),
-                          static_cast<cudf::column_view>(col3)}};
   run_split(tbl, {});
-}
-
-TEST_F(ShuffleSplitTests, EmptyInputs)
-{
-  cudf::size_type const num_rows = 0;
-  auto iter = thrust::make_counting_iterator(0);
-  cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<float> col1(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<int16_t> col2(iter, iter + num_rows);
-  cudf::test::fixed_width_column_wrapper<int8_t> col3(iter, iter + num_rows);
-
-  cudf::table_view tbl{{static_cast<cudf::column_view>(col0),
-                          static_cast<cudf::column_view>(col1),
-                          static_cast<cudf::column_view>(col2),
-                          static_cast<cudf::column_view>(col3)}};
-  run_split(tbl, {});
+  run_split(tbl, {1});
+  run_split(tbl, {1, 4});
 }
 
 TEST_F(ShuffleSplitTests, Struct)
@@ -212,4 +192,36 @@ TEST_F(ShuffleSplitTests, ShortNulls)
     run_split(tbl, {2, 5});
     run_split(tbl, {0, 2, 4});
   }
+}
+
+TEST_F(ShuffleSplitTests, EmptySplits)
+{
+  cudf::size_type const num_rows = 100;
+  auto iter = thrust::make_counting_iterator(0);
+  cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<float> col1(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<int16_t> col2(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<int8_t> col3(iter, iter + num_rows);
+
+  cudf::table_view tbl{{static_cast<cudf::column_view>(col0),
+                          static_cast<cudf::column_view>(col1),
+                          static_cast<cudf::column_view>(col2),
+                          static_cast<cudf::column_view>(col3)}};
+  run_split(tbl, {});
+}
+
+TEST_F(ShuffleSplitTests, EmptyInputs)
+{
+  cudf::size_type const num_rows = 0;
+  auto iter = thrust::make_counting_iterator(0);
+  cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<float> col1(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<int16_t> col2(iter, iter + num_rows);
+  cudf::test::fixed_width_column_wrapper<int8_t> col3(iter, iter + num_rows);
+
+  cudf::table_view tbl{{static_cast<cudf::column_view>(col0),
+                          static_cast<cudf::column_view>(col1),
+                          static_cast<cudf::column_view>(col2),
+                          static_cast<cudf::column_view>(col3)}};
+  run_split(tbl, {});
 }
