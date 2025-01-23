@@ -95,14 +95,29 @@ TEST_F(ShuffleSplitTests, Strings)
 
 TEST_F(ShuffleSplitTests, Lists)
 {  
-  using lcw = cudf::test::lists_column_wrapper<uint64_t>;
-  lcw col0{{9, 8}, {7, 6, 5}, {}, {4}, {3, 2, 1, 0}, {20, 21, 22, 23, 24}, {}, {66, 666}, {123, 7}, {100, 101}};
-    
-  cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
+  // list<uint64_t>
+  {
+    using lcw = cudf::test::lists_column_wrapper<uint64_t>;
+    lcw col0{{9, 8}, {7, 6, 5}, {}, {4}, {3, 2, 1, 0}, {20, 21, 22, 23, 24}, {}, {66, 666}, {123, 7}, {100, 101}};
+      
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
 
-  run_split(tbl, {});
-  run_split(tbl, {1});
-  run_split(tbl, {1, 4});
+    run_split(tbl, {});
+    run_split(tbl, {1});
+    run_split(tbl, {1, 4});
+  }
+
+  // list<list<uint64_t>
+  {
+    using lcw = cudf::test::lists_column_wrapper<uint64_t>;
+    lcw col0{ {{9, 8}, {7, 6, 5}}, {lcw{}, {4}}, {{3, 2, 1, 0}, {20, 21, 22, 23, 24}}, {lcw{}, {66, 666}}, {{123, 7}, {100, 101}}, {{1, 2, 4}, {8, 6, 5}}};
+    
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col0)}};
+
+    run_split(tbl, {});
+    run_split(tbl, {4});
+    run_split(tbl, {1, 4});
+  }
 }
 
 TEST_F(ShuffleSplitTests, Struct)
