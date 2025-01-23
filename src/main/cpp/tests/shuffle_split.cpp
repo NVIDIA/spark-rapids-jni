@@ -66,6 +66,33 @@ TEST_F(ShuffleSplitTests, Simple)
   }
 }
 
+TEST_F(ShuffleSplitTests, SimpleStrings)
+{  
+  {
+    cudf::test::strings_column_wrapper col{{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}};
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col)}};
+
+    run_split(tbl, {});
+    run_split(tbl, {1});
+    run_split(tbl, {1, 4});
+  }
+
+  {
+    cudf::test::strings_column_wrapper col0{{"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}};
+    cudf::test::strings_column_wrapper col1{{"blue", "green", "yellow", "red", "black", "white", "gray", "aquamarine", "mauve", "ultraviolet"}};
+    cudf::test::strings_column_wrapper col2{{"left", "up", "right", "down", "", "space", "", "delete", "end", "insert"}};
+    cudf::test::strings_column_wrapper col3{{"a", "b", "c", "de", "fg", "h", "i", "jk", "lmn", "opq"}};
+    cudf::table_view tbl{{static_cast<cudf::column_view>(col0),
+                          static_cast<cudf::column_view>(col1),
+                          static_cast<cudf::column_view>(col2),
+                          static_cast<cudf::column_view>(col3)}};
+
+    run_split(tbl, {});
+    run_split(tbl, {1});
+    run_split(tbl, {1, 4});
+  }
+}
+
 TEST_F(ShuffleSplitTests, EmptySplits)
 {
   cudf::size_type const num_rows = 100;
