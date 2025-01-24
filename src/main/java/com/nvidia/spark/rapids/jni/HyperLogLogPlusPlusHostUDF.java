@@ -53,7 +53,7 @@ public class HyperLogLogPlusPlusHostUDF extends HostUDFWrapper {
   }
 
   @Override
-  public boolean isEquals(Object o) {
+  public boolean isEqual(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     HyperLogLogPlusPlusHostUDF other = (HyperLogLogPlusPlusHostUDF) o;
@@ -127,4 +127,3 @@ public class HyperLogLogPlusPlusHostUDF extends HostUDFWrapper {
   private AggregationType type;
   private int precision;
 }
- 
