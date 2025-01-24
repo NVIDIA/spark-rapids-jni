@@ -28,52 +28,55 @@ namespace detail {
  */
 struct size_of_helper {
   template <typename T>
-  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && !std::is_same_v<T, cudf::string_view>, size_t>
-    operator()() const
+  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && !std::is_same_v<T, cudf::string_view>,
+                             size_t>
+  operator()() const
   {
     return 0;
   }
 
   template <typename T>
-  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && std::is_same_v<T, cudf::string_view>, size_t>
-    operator()() const
+  constexpr std::enable_if_t<!cudf::is_fixed_width<T>() && std::is_same_v<T, cudf::string_view>,
+                             size_t>
+  operator()() const
   {
     return sizeof(cudf::device_storage_type_t<int8_t>);
   }
 
   template <typename T>
-  constexpr std::enable_if_t<cudf::is_fixed_width<T>(), size_t> __device__ operator()() const noexcept
+  constexpr std::enable_if_t<cudf::is_fixed_width<T>(), size_t> __device__
+  operator()() const noexcept
   {
     return sizeof(cudf::device_storage_type_t<T>);
   }
 };
 
 /**
- * @brief Header for each partition. 
+ * @brief Header for each partition.
  */
 struct partition_header {
-  uint32_t    magic_number;
-  uint32_t    version;
-  uint64_t    offset;
-  uint64_t    num_rows;
-  uint64_t    validity_size;
-  uint64_t    offset_size;
-  uint64_t    data_size;
+  uint32_t magic_number;
+  uint32_t version;
+  uint64_t offset;
+  uint64_t num_rows;
+  uint64_t validity_size;
+  uint64_t offset_size;
+  uint64_t data_size;
 };
 
 // padding values for each validity type, as applied at the end of that data type
-// in each partition. so for example all of the grouped-together validity buffers for 
+// in each partition. so for example all of the grouped-together validity buffers for
 // a given partition will have a final 4 byte pad applied before the offset buffers begin
 constexpr size_t validity_pad = 4;
-constexpr size_t offset_pad = 8;
-constexpr size_t data_pad = 8;
+constexpr size_t offset_pad   = 8;
+constexpr size_t data_pad     = 8;
 
 /**
  * @brief Compute per-partition metadata size.
  */
 constexpr size_t compute_per_partition_metadata_size(size_t total_columns)
 {
-  auto const has_validity_length = (total_columns + 7) / 8; // has-validity bit per column
+  auto const has_validity_length = (total_columns + 7) / 8;  // has-validity bit per column
   return sizeof(partition_header) + has_validity_length;
 }
 
@@ -83,15 +86,11 @@ static constexpr std::size_t split_align = 64;
 
 /**
  * @brief Buffer type enum
- * 
+ *
  * Note: these values matter. Don't rearrange them.
  */
-enum class buffer_type {
-  VALIDITY = 0,
-  OFFSETS  = 1,
-  DATA     = 2
-};
+enum class buffer_type { VALIDITY = 0, OFFSETS = 1, DATA = 2 };
 
-} // namespace detail
+}  // namespace detail
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
