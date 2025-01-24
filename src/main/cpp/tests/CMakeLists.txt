@@ -58,6 +58,9 @@ ConfigureTest(FORMAT_FLOAT
 ConfigureTest(CAST_FLOAT_TO_STRING
     cast_float_to_string.cpp)
 
+ConfigureTest(CAST_LONG_TO_BINARY_STRING
+    cast_long_to_binary_string.cpp)
+
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
