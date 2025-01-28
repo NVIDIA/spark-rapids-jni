@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -106,7 +106,7 @@ struct dst_buf_info {
   int num_rows;  // # of rows to be copied(which may be different from num_elements in the case of
                  // validity or offset buffers)
 
-  int src_element_index;   // element index to start reading from from my associated source buffer
+  int src_element_index;   // element index to start reading from my associated source buffer
   std::size_t dst_offset;  // my offset into the per-partition allocation
   int value_shift;         // amount to shift values down by (for offset buffers)
   int bit_shift;           // # of bits to shift right by (for validity buffers)
@@ -123,7 +123,7 @@ struct dst_buf_info {
  * Copies a single partition of a source column buffer to a destination buffer. Shifts
  * element values by value_shift in the case of a buffer of offsets (value_shift will
  * only ever be > 0 in that case).  Shifts elements bitwise by bit_shift in the case of
- * a validity buffer (bif_shift will only ever be > 0 in that case).  This function assumes
+ * a validity buffer (bit_shift will only ever be > 0 in that case).  This function assumes
  * value_shift and bit_shift will never be > 0 at the same time.
  *
  * This function expects:
