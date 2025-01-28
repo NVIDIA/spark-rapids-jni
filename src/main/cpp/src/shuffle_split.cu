@@ -24,6 +24,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/hashing/detail/hash_functions.cuh>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
@@ -602,8 +603,7 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
                                                    int8_t const* flattened_col_has_validity,
                                                    partition_size_info const* partition_sizes)
 {
-  constexpr uint32_t magic        = 'ODUK';
-  constexpr uint32_t kudo_version = 1;
+  constexpr uint32_t magic = 0x4b554430;
 
   int const tid = threadIdx.x + (blockIdx.x * blockDim.x);
   auto const threads_per_partition =
@@ -618,22 +618,25 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
 
   // first thread in each partition stores constant stuff
   if (col_index == 0) {
-    pheader->magic_number = magic;
-    pheader->version      = kudo_version;
+    pheader->magic_number = cudf::hashing::detail::swap_endian(magic);
 
-    pheader->offset = split_indices[partition_index];
+    pheader->offset =
+      cudf::hashing::detail::swap_endian(static_cast<uint32_t>(split_indices[partition_index]));
 
     // it is possible to get in here with no columns -or- no rows.
-    size_type partition_num_rows = 0;
-    if (col_index < columns_per_partition) {
-      partition_num_rows = split_indices[partition_index + 1] - split_indices[partition_index];
-    }
-    pheader->num_rows = partition_num_rows;
+    auto const partition_num_rows =
+      col_index < columns_per_partition
+        ? split_indices[partition_index + 1] - split_indices[partition_index]
+        : 0;
+    pheader->num_rows =
+      cudf::hashing::detail::swap_endian(static_cast<uint32_t>(partition_num_rows));
 
-    auto const& psize      = partition_sizes[partition_index];
-    pheader->validity_size = psize.validity_size;
-    pheader->offset_size   = psize.offset_size;
-    pheader->data_size     = psize.data_size;
+    auto const& psize = partition_sizes[partition_index];
+    pheader->validity_size =
+      cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.validity_size));
+    pheader->offset_size =
+      cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.offset_size));
+    pheader->data_size = cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.data_size));
   }
 
   bitmask_type* has_validity =

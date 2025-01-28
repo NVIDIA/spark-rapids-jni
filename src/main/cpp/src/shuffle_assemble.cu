@@ -24,6 +24,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/hashing/detail/hash_functions.cuh>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
@@ -184,15 +185,16 @@ __global__ void compute_offset_child_row_counts(
   auto const partition_index            = blockIdx.x;
   partition_header const* const pheader = reinterpret_cast<partition_header const*>(
     partitions.begin() + partition_offsets[partition_index]);
-  size_t const offsets_begin = cudf::util::round_up_safe(
-    partition_offsets[partition_index] + per_partition_metadata_size + pheader->validity_size,
-    validity_pad);
+  size_t const offsets_begin =
+    cudf::util::round_up_safe(partition_offsets[partition_index] + per_partition_metadata_size +
+                                cudf::hashing::detail::swap_endian(pheader->validity_size),
+                              validity_pad);
   size_type const* offsets = reinterpret_cast<size_type const*>(partitions.begin() + offsets_begin);
 
   auto base_col_index = column_metadata.size() * partition_index;
   for (auto idx = 0; idx < offset_columns.size(); idx++) {
     // root column starts with the number of rows in the partition
-    auto num_rows           = pheader->num_rows;
+    auto num_rows           = cudf::hashing::detail::swap_endian(pheader->num_rows);
     auto col_index          = offset_columns[idx].first;
     auto const num_cols     = offset_columns[idx].second;
     auto col_instance_index = col_index + base_col_index;
@@ -358,7 +360,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
 
       // note that this will be incorrect for any columns that are children of offset columns. those
       // values will be fixed up below.
-      cinstance_info.num_rows = pheader->num_rows;
+      cinstance_info.num_rows = cudf::hashing::detail::swap_endian(pheader->num_rows);
     });
 
   // reconstruct row counts for columns and columns instances  ------------------------------
@@ -943,10 +945,9 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
        partition_offsets    = partition_offsets.begin(),
        partitions           = partitions.data(),
        per_partition_metadata_size] __device__(size_type i) {
-        auto const partition_index    = i / num_columns;
-        auto const partition_offset   = partition_offsets[partition_index];
-        auto const col_index          = i % num_columns;
-        auto const col_instance_index = (partition_index * num_columns) + col_index;
+        auto const partition_index  = i / num_columns;
+        auto const partition_offset = partition_offsets[partition_index];
+        auto const col_index        = i % num_columns;
 
         partition_header const* const pheader =
           reinterpret_cast<partition_header const*>(partitions + partition_offset);
@@ -958,16 +959,18 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const validity_section_offset = partition_offset + per_partition_metadata_size;
         src_offsets[validity_buf_index] += validity_section_offset;
 
+        auto const validity_size = cudf::hashing::detail::swap_endian(pheader->validity_size);
+        auto const offset_size   = cudf::hashing::detail::swap_endian(pheader->offset_size);
+
         auto const offset_section_offset =
-          cudf::util::round_up_safe(validity_section_offset + pheader->validity_size, validity_pad);
+          cudf::util::round_up_safe(validity_section_offset + validity_size, validity_pad);
         src_offsets[offset_buf_index] =
-          (src_offsets[offset_buf_index] - pheader->validity_size) + offset_section_offset;
+          (src_offsets[offset_buf_index] - validity_size) + offset_section_offset;
 
         auto const data_section_offset =
-          cudf::util::round_up_safe(offset_section_offset + pheader->offset_size, offset_pad);
+          cudf::util::round_up_safe(offset_section_offset + offset_size, offset_pad);
         src_offsets[data_buf_index] =
-          (src_offsets[data_buf_index] - (pheader->validity_size + pheader->offset_size)) +
-          data_section_offset;
+          (src_offsets[data_buf_index] - (validity_size + offset_size)) + data_section_offset;
       });
 
     // compute: destination buffer offsets. see note above about ordering of dst_offsets.
@@ -1112,7 +1115,8 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
-          min(pheader->num_rows - validity_batch_row_index, validity_rows_per_batch);
+          min(cudf::hashing::detail::swap_endian(pheader->num_rows) - validity_batch_row_index,
+              validity_rows_per_batch);
         // since the initial split copy is done on simple byte boundaries, the first bit we want to
         // copy may not be the first bit in the source buffer. so we need to shift right by these
         // leading bits. for example, the partition may start at row 3. but in that case, we will
