@@ -22,11 +22,28 @@ import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmWrappingDeviceMemoryResource;
 
+/**
+ * This is an internal class that provides an interface to a C++ spark_resource_adaptor class that
+ * provides the ability to roll back threads when OOMs happen and spill does not take care of it.
+ */
 public class SparkResourceAdaptor
     extends RmmWrappingDeviceMemoryResource<RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource>> {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
+  /*
+   * Please note that this class itself is not 100% thread safe. Most of the thread safety is handled
+   * by RmmSpark, as no one else should interact with this class directly. There are a few functions
+   * inside RmmSpark that cannot be called with a lock held. They try to protect against this being
+   * called after it is shut down, but they are not 100% perfect. This is by design as these methods
+   * might block internally until other methods are called to wake them up. A lock would put us in
+   * a deadlock situation. This is okay because RmmSpark will not set the event handler except at
+   * startup, which is guaranteed to be single threaded, and when shutting down, which is really only
+   * a concern in unit tests. We also need to protect ourselves internally from the watchdog thread.
+   * This will only ever call one method `checkAndBreakDeadlocks`, which can be called with a lock held.
+   * As such it is synchronized along with any method that accesses `handle` directly. The locks around
+   * handle do not eliminate any races. They are there to just make it much less likely.
+   */
 
   /**
    * How long does the SparkResourceAdaptor pool thread states as a watchdog to break up potential
@@ -36,7 +53,6 @@ public class SparkResourceAdaptor
       "ai.rapids.cudf.spark.rmmWatchdogPollingPeriod", 100);
 
   private long handle = 0;
-  private Thread watchDog;
 
   /**
    * Create a new tracking resource adaptor.
@@ -56,9 +72,10 @@ public class SparkResourceAdaptor
   public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped,
       String logLoc) {
     super(wrapped);
-    watchDog = new Thread(() -> {
+    // We are going to exit, so ignore the exception
+    Thread watchDog = new Thread(() -> {
       try {
-        while (handle > 0) {
+        while (isOpen()) {
           checkAndBreakDeadlocks();
           Thread.sleep(pollingPeriod);
         }
@@ -79,12 +96,12 @@ public class SparkResourceAdaptor
   }
 
   @Override
-  public long getHandle() {
+  public synchronized long getHandle() {
     return handle;
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
     if (handle != 0) {
       releaseAdaptor(handle);
       handle = 0;
@@ -93,7 +110,7 @@ public class SparkResourceAdaptor
   }
 
 
-  public boolean isOpen() {
+  public synchronized boolean isOpen() {
     return handle != 0;
   }
 
@@ -116,8 +133,13 @@ public class SparkResourceAdaptor
     endRetryBlock(getHandle(), threadId);
   }
 
-  public void checkAndBreakDeadlocks() {
-    checkAndBreakDeadlocks(getHandle());
+  public synchronized void checkAndBreakDeadlocks() {
+    // This is called from the watchdog thread, which does not have the same
+    // protections that we normally have from RmmSpark. So we synchronize this
+    // method and verify that the handle is still good before we call into native code.
+    if (isOpen()) {
+      checkAndBreakDeadlocks(getHandle());
+    }
   }
 
   /**
