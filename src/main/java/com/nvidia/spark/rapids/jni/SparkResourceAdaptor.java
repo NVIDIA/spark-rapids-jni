@@ -72,7 +72,6 @@ public class SparkResourceAdaptor
   public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped,
       String logLoc) {
     super(wrapped);
-    // We are going to exit, so ignore the exception
     Thread watchDog = new Thread(() -> {
       try {
         while (isOpen()) {
