@@ -106,55 +106,84 @@ struct assemble_column_info {
 OUTPUT_ITERATOR(assemble_column_info_has_validity_output_iter, assemble_column_info, has_validity);
 
 /**
- * @brief Helper function for computing the max depth of a column
+ * @brief Helper function for computing root offset columns and branching depth.
  */
 template <typename ColumnIter>
-ColumnIter compute_max_depth_traverse(ColumnIter col, int depth, int& max_depth)
+ColumnIter compute_root_offset_columns_traverse(ColumnIter input_begin,
+                                                ColumnIter col,
+                                                int depth,
+                                                int branch_depth,
+                                                std::vector<int>& out,
+                                                int& max_branch_depth)
 {
-  auto start = col;
-  col++;
-  max_depth = max(max_depth, depth);
-  for (int idx = 0; idx < start->num_children(); idx++) {
-    col = compute_max_depth_traverse(col, depth + 1, max_depth);
+  bool const is_struct = col->type == cudf::type_id::STRUCT;
+  if (col->type == cudf::type_id::STRING || col->type == cudf::type_id::LIST) {
+    // if we're at depth 0, store the column as a root
+    if (depth == 0) { out.push_back(static_cast<int>(std::distance(input_begin, col))); }
+    depth++;
   }
+  if (is_struct) {
+    branch_depth++;
+    max_branch_depth = max(branch_depth, max_branch_depth);
+  }
+
+  // recurse through structs and lists
+  if (col->type == cudf::type_id::STRUCT || col->type == cudf::type_id::LIST) {
+    auto const num_children = col->num_children();
+    col                     = std::next(col);
+    for (auto idx = 0; idx < num_children; idx++) {
+      col = compute_root_offset_columns_traverse(
+        input_begin, col, depth, branch_depth, out, max_branch_depth);
+    }
+  } else {
+    col = std::next(col);
+  }
+
+  depth--;
+  if (is_struct) { branch_depth--; }
+
   return col;
 }
 
 /**
  * @brief Computes the set of column indices for all root columns that contain offsets, and the
- * max depth of their hierarchies.
+ * max branch depth of their hierarchies.
  *
  * We need to do some extra processing on all columns that contain offsets, so we build a list
- * of all the 'root' columns which contain offsets and generate the max depth of all the hierarchies
- * within them.
+ * of all the 'root' columns which contain offsets and generate the max branch depth of all the
+ * hierarchies within them. 'root' does not necessarily imply a column at the top of the table
+ * hierarchy, it means any offset-based column that does not have any offset-based columns above it
+ * in the hierarchy. An example of this would be a list column inside of a struct.
  *
+ * A potential 'branch' occurs whenever we have a struct. For example, the struct has 10 rows, but
+ * it has two children which are lists. The number of rows for the children of list A is different
+ * than the number of rows for the children of list B. So as we finish processing list A and all of
+ * it's children, we need to pop back to the row count of the struct (10) before proceeding on to
+ * list B. Another example of this can be found in cudf::row_bit_count. This is all done on the gpu
+ * so we can't easily recurse, and we have to manually maintain our own stack of information.
  *
  * @param metadata Metadata for the input
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr User provided resource used for allocating the returned device memory
  *
- * @returns A vector containing the start index and number of child columns for a root offset
- * column, and the max depth of any hierarchy.
+ * @returns A vector containing the column index for all root offset columns, and the max branch
+ * depth of any hierarchy.
  */
-std::pair<rmm::device_uvector<thrust::pair<int, int>>, int>
-compute_root_offset_columns_and_max_depth(shuffle_split_metadata const& metadata,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr)
+std::pair<rmm::device_uvector<int>, int> compute_root_offset_columns_and_max_depth(
+  shuffle_split_metadata const& metadata,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
-  int max_depth = 0;
-  std::vector<thrust::pair<int, int>> root_offset_columns;
+  int max_branch_depth = 0;
+  std::vector<int> root_offset_columns;
   root_offset_columns.reserve(metadata.col_info.size());  // worst case
   auto col = metadata.col_info.begin();
   while (col != metadata.col_info.end()) {
-    auto end = compute_max_depth_traverse(col, 0, max_depth);
-    if (col->type == cudf::type_id::STRING || col->type == cudf::type_id::LIST) {
-      root_offset_columns.push_back(
-        {static_cast<int>(std::distance(metadata.col_info.begin(), col)),
-         static_cast<int>(std::distance(col, end))});
-    }
-    col = end;
+    col = compute_root_offset_columns_traverse(
+      metadata.col_info.begin(), col, 0, 0, root_offset_columns, max_branch_depth);
   }
-  return {cudf::detail::make_device_uvector_async(root_offset_columns, stream, mr), max_depth};
+  return {cudf::detail::make_device_uvector_async(root_offset_columns, stream, mr),
+          max_branch_depth};
 }
 
 /**
@@ -174,7 +203,7 @@ compute_root_offset_columns_and_max_depth(shuffle_split_metadata const& metadata
  *
  */
 __global__ void compute_offset_child_row_counts(
-  cudf::device_span<thrust::pair<int, int> const> offset_columns,
+  cudf::device_span<int const> offset_columns,
   cudf::device_span<shuffle_split_col_data const> column_metadata,
   cudf::device_span<assemble_column_info> column_instances,
   cudf::device_span<uint8_t const> partitions,
@@ -195,32 +224,59 @@ __global__ void compute_offset_child_row_counts(
   for (auto idx = 0; idx < offset_columns.size(); idx++) {
     // root column starts with the number of rows in the partition
     auto num_rows           = cudf::hashing::detail::swap_endian(pheader->num_rows);
-    auto col_index          = offset_columns[idx].first;
-    auto const num_cols     = offset_columns[idx].second;
+    auto col_index          = offset_columns[idx];
     auto col_instance_index = col_index + base_col_index;
 
-    int depth = 0;
-    for (auto c_idx = 0; c_idx < num_cols; c_idx++) {
-      auto const& meta  = column_metadata[col_index];
-      auto& col_inst    = column_instances[col_instance_index];
+    // note that cols_to_process grows as we traverse columns with children.
+    int cols_to_process = 1;
+    int c_idx           = 0;
+
+    // this doesn't technically need to be shared, but because we can compute the size on the host,
+    // it makes it much easier to size without hassle. also, since it's l1 cache it's faster.
+    //
+    extern __shared__ size_type rc_stack[];
+    int rc_stack_pos = -1;
+    do {
+      auto const& meta        = column_metadata[col_index];
+      auto& col_inst          = column_instances[col_instance_index];
+      auto const num_children = meta.num_children();
+
       col_inst.num_rows = num_rows;
+
       switch (meta.type) {
+        // lists change the row count and advance the offset buffer
+        case cudf::type_id::LIST: {
+          auto const last_num_rows = num_rows;
+          num_rows                 = offsets[num_rows] - offsets[0];
+          offsets += (last_num_rows + 1);
+        } break;
+        // structs are a branch point, so we record the current num_rows and how many children are
+        // left to be processed
+        case cudf::type_id::STRUCT:
+          rc_stack_pos++;
+          rc_stack[rc_stack_pos * 2]       = num_rows;
+          rc_stack[(rc_stack_pos * 2) + 1] = num_children;
+          break;
+        // all other types jump back up to the nearest struct/branch point, as they represent the
+        // end of a chain of children
         case cudf::type_id::STRING:
           col_inst.num_chars = offsets[num_rows] - offsets[0];
           offsets += (num_rows + 1);
-          depth--;
-          break;
-        case cudf::type_id::LIST: {
-          auto const last_num_rows = num_rows + 1;
-          num_rows                 = offsets[num_rows] - offsets[0];
-          offsets += last_num_rows;
-          depth++;
+          // fallthrough
+        default: {
+          if (rc_stack_pos >= 0) {
+            auto const num_children = --rc_stack[(rc_stack_pos * 2) + 1];
+            num_rows                = rc_stack[rc_stack_pos * 2];
+            if (num_children == 0) { rc_stack_pos--; }
+          }
         } break;
-        default: depth--; break;
       }
+
       col_index++;
       col_instance_index++;
-    }
+      cols_to_process += num_children;
+      c_idx++;
+    } while (c_idx < cols_to_process);
   }
 }
 
@@ -369,23 +425,36 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
   // TODO: the kudo format forces us to be less parallel here than we could be. maybe find a way
   // around that which doesn't grow size very much.
 
-  // get the indices of root offset columns and the max depth of any hierarchy
-  auto [root_offset_columns, max_depth] =
-    compute_root_offset_columns_and_max_depth(h_global_metadata, stream, temp_mr);
+  {
+    // get the indices of root offset columns and the max branch depth of any hierarchy
+    auto [root_offset_columns, max_branch_depth] =
+      compute_root_offset_columns_and_max_depth(h_global_metadata, stream, mr);
 
-  // parallelize by partition.
-  // unfortunately, there's no way to parallelize this at the column level. we don't know where the
-  // offsets start in the partition buffer for any given column, so we have to march through each
-  // partition linearly. to fix this, we'd have to change the kudo format in a way that would
-  // increase it's size. I'm doing this as a kernel instead of through thrust so that I can
-  // guarantee each partition is being marched by a seperate block to avoid thread divergence.
-  compute_offset_child_row_counts<<<num_partitions, 32, 0, stream.value()>>>(
-    root_offset_columns,
-    global_metadata,
-    column_instance_info,
-    partitions,
-    partition_offsets,
-    per_partition_metadata_size);
+    // each block needs to maintain a small stack of information of size max_depth when traversing
+    // the column hierarchy. we'll use dynamic shared memory to do it.
+    int const shmem_per_block = static_cast<int>(sizeof(size_type) * max_branch_depth * 2);
+    int device_id;
+    CUDF_CUDA_TRY(cudaGetDevice(&device_id));
+    int shmem_limit_per_block;
+    CUDF_CUDA_TRY(cudaDeviceGetAttribute(
+      &shmem_limit_per_block, cudaDevAttrMaxSharedMemoryPerBlock, device_id));
+    CUDF_EXPECTS(shmem_per_block <= shmem_limit_per_block,
+                 "Encountered a column hierarchy too complex for shuffle_assemble");
+
+    // parallelize by partition.
+    // unfortunately, there's no way to parallelize this at the column level. we don't know where
+    // the offsets start in the partition buffer for any given column, so we have to march through
+    // each partition linearly. to fix this, we'd have to change the kudo format in a way that would
+    // increase it's size. I'm doing this as a kernel instead of through thrust so that I can
+    // guarantee each partition is being marched by a seperate block to avoid thread divergence.
+    compute_offset_child_row_counts<<<num_partitions, 32, shmem_per_block, stream.value()>>>(
+      root_offset_columns,
+      global_metadata,
+      column_instance_info,
+      partitions,
+      partition_offsets,
+      per_partition_metadata_size);
+  }
 
   // returns column instance from index, in the order of 0->num_partitions, 0->num_columns
   auto col_instance_vertical = cuda::proclaim_return_type<assemble_column_info&>(

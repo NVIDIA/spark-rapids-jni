@@ -264,3 +264,100 @@ TEST_F(ShuffleSplitTests, EmptyInputs)
                         static_cast<cudf::column_view>(col3)}};
   run_split(tbl, {});
 }
+
+TEST_F(ShuffleSplitTests, NestedTypes)
+{
+  // struct<list, list, string>
+  {
+    using lcw = cudf::test::lists_column_wrapper<int64_t>;
+    lcw col0{{9, 8},
+             {7, 6, 5},
+             {},
+             {4},
+             {3, 2, 1, 0},
+             {20, 21, 22, 23, 24},
+             {},
+             {66, 666},
+             {123, 7},
+             {100, 101}};
+    lcw col1{{1, 2, 3},
+             {7},
+             {99, 100},
+             {4, 5, 6},
+             {3, 2, 1, 0},
+             {20, 21, 22, 23, 24},
+             {},
+             {66, 666},
+             {123, 7},
+             {100, 101, -1, -2, -3, -4 - 5, -6}};
+
+    cudf::test::strings_column_wrapper col2{
+      {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"}};
+
+    std::vector<std::unique_ptr<cudf::column>> struct_children;
+    struct_children.push_back(col0.release());
+    struct_children.push_back(col1.release());
+    struct_children.push_back(col2.release());
+    cudf::test::structs_column_wrapper struct_col(std::move(struct_children));
+
+    {
+      cudf::table_view tbl{{static_cast<cudf::column_view>(struct_col)}};
+      run_split(tbl, {});
+      run_split(tbl, {2});
+      run_split(tbl, {2, 4});
+    }
+  }
+
+  // list<struct<list, list>>
+  // this test specifically triggers an important case in the code: branching row counts caused
+  // by structs
+  {
+    // struct<list, list>
+    using lcw = cudf::test::lists_column_wrapper<int64_t>;
+    lcw col0{{9, 8},
+             {7, 6, 5},
+             {},
+             {4},
+             {3, 2, 1, 0},
+             {20, 21, 22, 23, 24},
+             {},
+             {66, 666},
+             {123, 7},
+             {100, 101},
+             {1, 1, 1},
+             {2},
+             {0},
+             {2256, 12, 224, 5},
+             {9, 9, 9, 9, 9},
+             {-1, -2}};
+    lcw col1{{1, 2, 3},
+             {7},
+             {99, 100},
+             {4, 5, 6},
+             {3, 2, 1, 0},
+             {20, 21, 22, 23, 24},
+             {1},
+             {66, 666},
+             {123, 7},
+             {100, 101, -1, -2, -3, -4 - 5, -6},
+             {},
+             {6, 5, 4, 3, 2, 1, 0},
+             {-10, 0, 1},
+             {0, 0, 0, 0},
+             {},
+             {0, 1, 0, 1, 0, 1}};
+    std::vector<std::unique_ptr<cudf::column>> struct_children;
+    struct_children.push_back(col0.release());
+    struct_children.push_back(col1.release());
+    cudf::test::structs_column_wrapper struct_col(std::move(struct_children));
+
+    // list<struct<list, list>>
+    cudf::test::fixed_width_column_wrapper<int> offsets{0, 2, 4, 6, 7, 9, 9, 12, 16};
+    auto list_col = cudf::make_lists_column(8, offsets.release(), struct_col.release(), 0, {});
+
+    cudf::table_view tbl{{*list_col}};
+    run_split(tbl, {});
+    run_split(tbl, {2});
+    run_split(tbl, {2, 4});
+  }
+}
