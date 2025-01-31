@@ -85,3 +85,5 @@ ConfigureTest(PARSE_URI
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
+ConfigureTest(SHUFFLE_SPLIT
+    shuffle_split.cpp)
