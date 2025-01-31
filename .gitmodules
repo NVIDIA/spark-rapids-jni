@@ -1,5 +1,4 @@
-# TODO: https://github.com/NVIDIA/spark-rapids-jni/issues/2792
 [submodule "thirdparty/cudf"]
 	path = thirdparty/cudf
 	url = https://github.com/rapidsai/cudf.git
-	branch = branch-25.02
+	branch = branch-25.04
