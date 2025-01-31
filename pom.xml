@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Copyright (c) 2022-2024, NVIDIA CORPORATION.
+  Copyright (c) 2022-2025, NVIDIA CORPORATION.
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -430,123 +430,36 @@
             </goals>
           </execution>
           <execution>
-            <id>build-libcudf</id>
-            <phase>validate</phase>
-            <configuration>
-              <target xmlns:if="ant:if">
-                <condition property="needConfigure">
-                  <or>
-                    <istrue value="${libcudf.build.configure}"/>
-                    <not>
-                      <available file="${libcudf.build.path}/CMakeCache.txt"/>
-                    </not>
-                  </or>
-                </condition>
-                <mkdir dir="${libcudf.install.path}"/>
-                <mkdir dir="${libcudf.build.path}"/>
-                <exec dir="${libcudf.build.path}"
-                      failonerror="true"
-                      executable="cmake"
-                      if:true="${needConfigure}">
-                  <arg value="${cudf.path}/cpp"/>
-                  <arg value="-DCMAKE_BUILD_TYPE=${CUDF_BUILD_TYPE}"/>
-                  <arg value="-DBUILD_SHARED_LIBS=OFF"/>
-                  <arg value="-DBUILD_TESTS=${BUILD_CUDF_TESTS}"/>
-                  <arg value="-DBUILD_BENCHMARKS=${BUILD_CUDF_BENCHMARKS}"/>
-                  <arg value="-DCMAKE_CUDA_ARCHITECTURES=${GPU_ARCHS}"/>
-                  <arg value="-DCMAKE_INSTALL_PREFIX=${libcudf.install.path}"/>
-                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=${libcudf.dependency.mode}"/>
-                  <arg value="-DCUDA_STATIC_CUFILE=ON"/>
-                  <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
-                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}" />
-                  <arg value="-DCUDF_LARGE_STRINGS_DISABLED=ON"/>
-                  <arg value="-DCUDF_KVIKIO_REMOTE_IO=OFF"/>
-                  <arg value="-DLIBCUDF_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
-                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}" />
-                  <arg value="-C=${cudf.pin.path}/setup.cmake"/>
-                </exec>
-                <exec dir="${libcudf.build.path}"
-                      failonerror="true"
-                      executable="cmake">
-                  <arg value="--build"/>
-                  <arg value="${libcudf.build.path}"/>
-                  <arg value="--target"/>
-                  <arg value="install"/>
-                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
-                </exec>
-              </target>
-            </configuration>
-            <goals>
-              <goal>run</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>build-libcudfjni</id>
+            <id>buildcpp</id>
             <phase>validate</phase>
             <configuration>
               <target>
-                <mkdir dir="${libcudfjni.build.path}"/>
-                <exec dir="${libcudfjni.build.path}"
+                <exec dir="${project.basedir}"
                       failonerror="true"
-                      executable="cmake">
-                  <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
-                  <env key="CUDF_ROOT" value="${cudf.path}"/>
-                  <arg value="${cudf.path}/java/src/main/native"/>
-                  <arg value="-DBUILD_SHARED_LIBS=OFF"/>
-                  <arg value="-DCUDA_STATIC_CUFILE=ON"/>
-                  <arg value="-DCUDA_STATIC_RUNTIME=ON"/>
-                  <arg value="-DCUDF_JNI_LIBCUDF_STATIC=ON"/>
-                  <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
-                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
-                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
-                  <arg value="-DUSE_GDS=${USE_GDS}"/>
-                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=pinned"/>
-                  <arg value="-C=${cudf.pin.path}/setup.cmake"/>
-                </exec>
-                <exec dir="${libcudfjni.build.path}"
-                      failonerror="true"
-                      executable="cmake">
-                  <arg value="--build"/>
-                  <arg value="${libcudfjni.build.path}"/>
-                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
-                </exec>
-              </target>
-            </configuration>
-            <goals>
-              <goal>run</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>build-sparkrapidsjni</id>
-            <phase>validate</phase>
-            <configuration>
-              <target>
-                <mkdir dir="${native.build.path}"/>
-                <exec dir="${native.build.path}"
-                      failonerror="true"
-                      executable="cmake">
-                  <env key="CUDF_CPP_BUILD_DIR" value="${libcudf.build.path}"/>
-                  <env key="CUDF_ROOT" value="${cudf.path}"/>
-                  <env key="CUDF_INSTALL_DIR" value="${libcudf.install.path}"/>
-                  <env key="CUDFJNI_BUILD_DIR" value="${libcudfjni.build.path}"/>
-                  <arg value="${basedir}/src/main/cpp"/>
-                  <arg value="-DGPU_ARCHS=${GPU_ARCHS}"/>
-                  <arg value="-DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
-                  <arg value="-DRMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL}"/>
-                  <arg value="-DUSE_GDS=${USE_GDS}"/>
-                  <arg value="-DBUILD_TESTS=${BUILD_TESTS}"/>
-                  <arg value="-DBUILD_BENCHMARKS=${BUILD_BENCHMARKS}"/>
-                  <arg value="-DBUILD_FAULTINJ=${BUILD_FAULTINJ}"/>
-                  <arg value="-DBUILD_PROFILER=${BUILD_PROFILER}"/>
-                  <arg value="-DCUDF_DEPENDENCY_PIN_MODE=pinned"/>
-                  <arg value="-C=${cudf.pin.path}/setup.cmake"/>
-                </exec>
-                <exec dir="${native.build.path}"
-                      failonerror="true"
-                      executable="cmake">
-                  <arg value="--build"/>
-                  <arg value="${native.build.path}"/>
-                  <arg value="-j${CPP_PARALLEL_LEVEL}"/>
+                      executable="build/buildcpp.sh">
+                  <env key="BUILD_BENCHMARKS" value="${BUILD_BENCHMARKS}"/>
+                  <env key="BUILD_CUDF_BENCHMARKS" value="${BUILD_CUDF_BENCHMARKS}"/>
+                  <env key="BUILD_CUDF_TESTS" value="${BUILD_CUDF_TESTS}"/>
+                  <env key="BUILD_FAULTINJ" value="${BUILD_FAULTINJ}"/>
+                  <env key="BUILD_PROFILER" value="${BUILD_PROFILER}"/>
+                  <env key="BUILD_TESTS" value="${BUILD_TESTS}"/>
+                  <env key="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
+                  <env key="CUDF_BUILD_TYPE" value="${CUDF_BUILD_TYPE}"/>
+                  <env key="CUDF_PATH" value="${cudf.path}"/>
+                  <env key="CUDF_PIN_PATH" value="${cudf.pin.path}"/>
+                  <env key="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                  <env key="FROM_MAVEN" value="true"/>
+                  <env key="GPU_ARCHS" value="${GPU_ARCHS}"/>
+                  <env key="LIBCUDF_BUILD_CONFIGURE" value="${libcudf.build.configure}"/>
+                  <env key="LIBCUDF_BUILD_PATH" value="${libcudf.build.path}"/>
+                  <env key="LIBCUDF_DEPENDENCY_MODE" value="${libcudf.dependency.mode}"/>
+                  <env key="LIBCUDF_INSTALL_PATH" value="${libcudf.install.path}"/>
+                  <env key="LIBCUDFJNI_BUILD_PATH" value="${libcudfjni.build.path}"/>
+                  <env key="PROJECT_BASE_DIR" value="${project.basedir}"/>
+                  <env key="PROJECT_BUILD_DIR" value="${project.build.directory}"/>
+                  <env key="SPARK_JNI_BUILD_PATH" value="${native.build.path}"/>
+                  <env key="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
+                  <env key="USE_GDS" value="${USE_GDS}"/>
                 </exec>
               </target>
             </configuration>

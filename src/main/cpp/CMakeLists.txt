@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022-2024, NVIDIA CORPORATION.
+# Copyright (c) 2022-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -132,6 +132,9 @@ include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
 # find CCCL
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
+# find spdlog
+include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+
 # JNI
 find_package(JNI REQUIRED)
 if(JNI_FOUND)
@@ -208,6 +211,7 @@ add_library(
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/cast_float_to_string.cu
+  src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
@@ -280,6 +284,7 @@ target_link_libraries(
     ${CUDFJNI_LIB}
     cudf::cudf
     nvtx3::nvtx3-cpp
+    spdlog::spdlog_header_only
   -Wl,--no-whole-archive
     ${ARROW_LIB}
     ${PARQUET_LIB}

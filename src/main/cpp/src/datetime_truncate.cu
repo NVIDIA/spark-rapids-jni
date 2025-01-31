@@ -28,11 +28,14 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/optional>
 #include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
-#include <thrust/optional.h>
+#include <thrust/pair.h>
 #include <thrust/transform.h>
+
+#include <type_traits>
 
 namespace spark_rapids_jni {
 
@@ -65,10 +68,14 @@ enum class truncation_format : uint8_t {
   INVALID
 };
 
-__device__ char to_upper(unsigned char const c) { return ('a' <= c && c <= 'z') ? c ^ 0x20 : c; }
+// Convert an ASCII character into uppercase.
+__host__ __device__ char to_upper(char const c)
+{
+  return ('a' <= c && c <= 'z') ? static_cast<char>(static_cast<unsigned int>(c ^ 0x20)) : c;
+}
 
 // Parse the truncation format from a string.
-__device__ truncation_format parse_format(cudf::string_view const format)
+__host__ __device__ truncation_format parse_format(char const* fmt_data, cudf::size_type fmt_size)
 {
   // This must be kept in sync with the `truncation_format` enum.
   char const* components[] = {"YEAR",
@@ -90,14 +97,12 @@ __device__ truncation_format parse_format(cudf::string_view const format)
   cudf::size_type constexpr comp_sizes[] = {4, 4, 2, 7, 5, 2, 3, 4, 3, 2, 4, 6, 6, 11, 11};
   auto constexpr num_components          = std::size(components);
 
-  auto const* in_ptr = reinterpret_cast<unsigned char const*>(format.data());
-  auto const in_len  = format.size_bytes();
   for (std::size_t comp_idx = 0; comp_idx < num_components; ++comp_idx) {
-    if (in_len != comp_sizes[comp_idx]) { continue; }
-    auto const* ptr = reinterpret_cast<unsigned char const*>(components[comp_idx]);
+    if (fmt_size != comp_sizes[comp_idx]) { continue; }
+    auto const* ptr = components[comp_idx];
     bool equal      = true;
-    for (cudf::size_type idx = 0; idx < in_len; ++idx) {
-      if (to_upper(in_ptr[idx]) != ptr[idx]) {
+    for (cudf::size_type idx = 0; idx < fmt_size; ++idx) {
+      if (to_upper(fmt_data[idx]) != ptr[idx]) {
         equal = false;
         break;
       }
@@ -133,13 +138,13 @@ __device__ inline cuda::std::chrono::sys_days trunc_to_monday(
 }
 
 template <typename Timestamp>
-__device__ inline thrust::optional<Timestamp> trunc_date(
+__device__ inline cuda::std::optional<Timestamp> trunc_date(
   cuda::std::chrono::sys_days const days_since_epoch,
   cuda::std::chrono::year_month_day const ymd,
-  truncation_format const trunc_comp)
+  truncation_format const fmt)
 {
   using namespace cuda::std::chrono;
-  switch (trunc_comp) {
+  switch (fmt) {
     case truncation_format::YEAR:
     case truncation_format::YYYY:
     case truncation_format::YY:
@@ -152,63 +157,86 @@ __device__ inline thrust::optional<Timestamp> trunc_date(
     case truncation_format::MON:
       return Timestamp{sys_days{year_month_day{ymd.year(), ymd.month(), day{1}}}};
     case truncation_format::WEEK: return Timestamp{trunc_to_monday(days_since_epoch)};
-    default: return thrust::nullopt;
+    default: return cuda::std::nullopt;
   }
 }
 
+// FormatDeviceT is either a `column_device_view` or `truncation_format`.
+template <typename FormatDeviceT>
 struct truncate_date_fn {
-  cudf::column_device_view datetime;
-  cudf::column_device_view format;
   using Timestamp = cudf::timestamp_D;
+  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  std::is_same_v<FormatDeviceT, truncation_format>,
+                "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
+
+  cudf::column_device_view datetime;
+  FormatDeviceT format;
 
   __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
-    auto const format_idx   = format.size() > 1 ? idx : 0;
-    if (datetime.is_null(datetime_idx) || format.is_null(format_idx)) {
-      return {Timestamp{}, false};
+    if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }
+    if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
+      if (format.is_null(idx)) { return {Timestamp{}, false}; }
     }
 
-    auto const fmt        = format.element<cudf::string_view>(format_idx);
-    auto const trunc_comp = parse_format(fmt);
-    if (trunc_comp == truncation_format::INVALID) { return {Timestamp{}, false}; }
+    truncation_format fmt{};
+    if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
+      auto const fmt_str = format.template element<cudf::string_view>(idx);
+      fmt                = parse_format(fmt_str.data(), fmt_str.size_bytes());
+    } else {
+      fmt = format;
+    }
+    if (fmt == truncation_format::INVALID) { return {Timestamp{}, false}; }
 
     using namespace cuda::std::chrono;
-    auto const ts               = datetime.element<Timestamp>(datetime_idx);
+    auto const ts               = datetime.template element<Timestamp>(datetime_idx);
     auto const days_since_epoch = floor<days>(ts);
     auto const ymd              = year_month_day(days_since_epoch);
 
-    auto const result = trunc_date<Timestamp>(days_since_epoch, ymd, trunc_comp);
+    auto const result = trunc_date<Timestamp>(days_since_epoch, ymd, fmt);
     return {result.value_or(Timestamp{}), result.has_value()};
   }
 };
 
+// FormatDeviceT is either a `column_device_view` or `truncation_format`.
+template <typename FormatDeviceT>
 struct truncate_timestamp_fn {
-  cudf::column_device_view datetime;
-  cudf::column_device_view format;
   using Timestamp = cudf::timestamp_us;
+  static_assert(std::is_same_v<FormatDeviceT, cudf::column_device_view> ||
+                  std::is_same_v<FormatDeviceT, truncation_format>,
+                "FormatDeviceT must be either 'cudf::column_device_view' or 'truncation_format'.");
+
+  cudf::column_device_view datetime;
+  FormatDeviceT format;
 
   __device__ inline thrust::pair<Timestamp, bool> operator()(cudf::size_type const idx) const
   {
     auto const datetime_idx = datetime.size() > 1 ? idx : 0;
-    auto const format_idx   = format.size() > 1 ? idx : 0;
-    if (datetime.is_null(datetime_idx) || format.is_null(format_idx)) {
-      return {Timestamp{}, false};
+    if (datetime.is_null(datetime_idx)) { return {Timestamp{}, false}; }
+    if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
+      if (format.is_null(idx)) { return {Timestamp{}, false}; }
     }
 
-    auto const fmt        = format.element<cudf::string_view>(format_idx);
-    auto const trunc_comp = parse_format(fmt);
-    if (trunc_comp == truncation_format::INVALID) { return {Timestamp{}, false}; }
+    truncation_format fmt{};
+    if constexpr (cuda::std::is_same_v<FormatDeviceT, cudf::column_device_view>) {
+      auto const fmt_str = format.template element<cudf::string_view>(idx);
+      fmt                = parse_format(fmt_str.data(), fmt_str.size_bytes());
+    } else {
+      fmt = format;
+    }
+    if (fmt == truncation_format::INVALID) { return {Timestamp{}, false}; }
 
-    auto const ts = datetime.element<Timestamp>(datetime_idx);
+    auto const ts = datetime.template element<Timestamp>(datetime_idx);
+
     // No truncation needed for microsecond timestamps.
-    if (trunc_comp == truncation_format::MICROSECOND) { return {ts, true}; }
+    if (fmt == truncation_format::MICROSECOND) { return {ts, true}; }
 
     // The components that are common for both date and timestamp: year, quarter, month, week.
     using namespace cuda::std::chrono;
     auto const days_since_epoch = floor<days>(ts);
     auto const ymd              = year_month_day(days_since_epoch);
-    if (auto const try_trunc_date = trunc_date<Timestamp>(days_since_epoch, ymd, trunc_comp);
+    if (auto const try_trunc_date = trunc_date<Timestamp>(days_since_epoch, ymd, fmt);
         try_trunc_date.has_value()) {
       return {try_trunc_date.value(), true};
     }
@@ -216,7 +244,7 @@ struct truncate_timestamp_fn {
     auto time_since_midnight = ts - days_since_epoch;
     if (time_since_midnight.count() < 0) { time_since_midnight += days(1); }
 
-    switch (trunc_comp) {
+    switch (fmt) {
       case truncation_format::DAY:
       case truncation_format::DD: return {Timestamp{sys_days{ymd}}, true};
       case truncation_format::HOUR:
@@ -232,56 +260,46 @@ struct truncate_timestamp_fn {
   }
 };
 
-std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
-                                       cudf::column_view const& format,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
+template <typename Timestamp, typename FormatT>
+std::unique_ptr<cudf::column> truncate_datetime(cudf::column_view const& datetime,
+                                                FormatT const& format,
+                                                cudf::size_type output_size,
+                                                rmm::cuda_stream_view stream,
+                                                rmm::device_async_resource_ref mr)
 {
-  auto const type_id = datetime.type().id();
-  CUDF_EXPECTS(
-    type_id == cudf::type_id::TIMESTAMP_DAYS || type_id == cudf::type_id::TIMESTAMP_MICROSECONDS,
-    "The input must be either day or microsecond timestamps.");
-  CUDF_EXPECTS(format.type().id() == cudf::type_id::STRING,
-               "The format column must be of string type.");
+  auto output = cudf::make_fixed_width_column(
+    datetime.type(), output_size, cudf::mask_state::UNALLOCATED, stream, mr);
+  auto validity = rmm::device_uvector<bool>(output_size, stream);
 
-  auto const size = std::max(datetime.size(), format.size());
-  if (datetime.size() == 0 || format.size() == 0 || datetime.size() == datetime.null_count() ||
-      format.size() == format.null_count()) {
-    return cudf::make_fixed_width_column(
-      datetime.type(), size, cudf::mask_state::ALL_NULL, stream, mr);
-  }
+  auto const input_it = thrust::make_counting_iterator(0);
+  auto const output_it =
+    thrust::make_zip_iterator(output->mutable_view().template begin<Timestamp>(), validity.begin());
+  auto const do_transform = [&](auto trunc_fn) {
+    thrust::transform(rmm::exec_policy_nosync(stream),
+                      input_it,
+                      input_it + output_size,
+                      output_it,
+                      std::move(trunc_fn));
+  };
 
-  if (datetime.size() != format.size() && datetime.size() > 1 && format.size() > 1) {
-    CUDF_FAIL(
-      "If input columns have different number of rows,"
-      " one of them must have exactly one row or empty.");
-  }
+  using FormatDeviceT = std::conditional_t<std::is_same_v<FormatT, cudf::column_view>,
+                                           cudf::column_device_view,
+                                           truncation_format>;
+  using TransformFunc = std::conditional_t<std::is_same_v<Timestamp, cudf::timestamp_D>,
+                                           truncate_date_fn<FormatDeviceT>,
+                                           truncate_timestamp_fn<FormatDeviceT>>;
 
   auto const d_datetime_ptr = cudf::column_device_view::create(datetime, stream);
-  auto const d_format_ptr   = cudf::column_device_view::create(format, stream);
-  auto const input_it       = thrust::make_counting_iterator(0);
-  auto output =
-    cudf::make_fixed_width_column(datetime.type(), size, cudf::mask_state::UNALLOCATED, stream, mr);
-  auto validity = rmm::device_uvector<bool>(size, stream);
-
-  if (type_id == cudf::type_id::TIMESTAMP_DAYS) {
-    using Timestamp = cudf::timestamp_D;
-    auto const output_it =
-      thrust::make_zip_iterator(output->mutable_view().begin<Timestamp>(), validity.begin());
-    thrust::transform(rmm::exec_policy_nosync(stream),
-                      input_it,
-                      input_it + size,
-                      output_it,
-                      truncate_date_fn{*d_datetime_ptr, *d_format_ptr});
+  if constexpr (std::is_same_v<FormatT, cudf::column_view>) {
+    auto const d_format_ptr = cudf::column_device_view::create(format, stream);
+    do_transform(TransformFunc{*d_datetime_ptr, *d_format_ptr});
   } else {
-    using Timestamp = cudf::timestamp_us;
-    auto const output_it =
-      thrust::make_zip_iterator(output->mutable_view().begin<Timestamp>(), validity.begin());
-    thrust::transform(rmm::exec_policy_nosync(stream),
-                      input_it,
-                      input_it + size,
-                      output_it,
-                      truncate_timestamp_fn{*d_datetime_ptr, *d_format_ptr});
+    auto const fmt = parse_format(format.data(), static_cast<cudf::size_type>(format.size()));
+    if (fmt == truncation_format::INVALID) {
+      return cudf::make_fixed_width_column(
+        datetime.type(), output_size, cudf::mask_state::ALL_NULL, stream, mr);
+    }
+    do_transform(TransformFunc{*d_datetime_ptr, fmt});
   }
 
   auto [null_mask, null_count] =
@@ -291,12 +309,83 @@ std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
   return output;
 }
 
+template <typename FormatT>
+std::unique_ptr<cudf::column> truncate_dispatcher(cudf::column_view const& datetime,
+                                                  FormatT const& format,
+                                                  cudf::size_type output_size,
+                                                  rmm::cuda_stream_view stream,
+                                                  rmm::device_async_resource_ref mr)
+{
+  if (datetime.type().id() == cudf::type_id::TIMESTAMP_DAYS) {
+    return truncate_datetime<cudf::timestamp_D, FormatT>(datetime, format, output_size, stream, mr);
+  }
+  return truncate_datetime<cudf::timestamp_us, FormatT>(datetime, format, output_size, stream, mr);
+}
+
+void check_type(cudf::column_view const& datetime)
+{
+  CUDF_EXPECTS(datetime.type().id() == cudf::type_id::TIMESTAMP_DAYS ||
+                 datetime.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
+               "The date/time input must be either day or microsecond timestamps.");
+}
+
+void check_types(cudf::column_view const& datetime, cudf::column_view const& format)
+{
+  check_type(datetime);
+  CUDF_EXPECTS(format.type().id() == cudf::type_id::STRING,
+               "The format input must be of string type.");
+}
+
 }  // namespace
+
+std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
+                                       cudf::column_view const& format,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  check_types(datetime, format);
+  CUDF_EXPECTS(datetime.size() == 1 || datetime.size() == format.size(),
+               "The input date/time column must have exactly one row or the same number of rows as "
+               "the format column.");
+  auto const size = format.size();
+  if (size == 0 || datetime.size() == datetime.null_count() ||
+      format.size() == format.null_count()) {
+    return cudf::make_fixed_width_column(
+      datetime.type(), size, cudf::mask_state::ALL_NULL, stream, mr);
+  }
+
+  return truncate_dispatcher(datetime, format, size, stream, mr);
+}
+
+std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
+                                       std::string const& format,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  check_type(datetime);
+
+  auto const size = datetime.size();
+  if (datetime.size() == 0 || datetime.size() == datetime.null_count()) {
+    return cudf::make_fixed_width_column(
+      datetime.type(), size, cudf::mask_state::ALL_NULL, stream, mr);
+  }
+
+  return truncate_dispatcher(datetime, format, size, stream, mr);
+}
 
 }  // namespace detail
 
 std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
                                        cudf::column_view const& format,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+  return detail::truncate(datetime, format, stream, mr);
+}
+
+std::unique_ptr<cudf::column> truncate(cudf::column_view const& datetime,
+                                       std::string const& format,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
