@@ -34,6 +34,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cub/device/device_memcpy.cuh>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
@@ -535,13 +536,22 @@ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad
 }
 
 /**
- * @brief Functor that fills in buffer sizes (validity, offsets, data) per column.
+ * @brief Functor that fills in source buffer sizes (validity, offsets, data) per column.
  *
  * This returns the size of the buffer -without- padding. Just the size of
  * the raw bytes containing the actual data.
  *
+ * Note that there is an odd edge case here. We may have a partition that contains 8 rows, which
+ * would translate to 1 byte of validity data. However, we copy from byte boundaries. So if this
+ * partition started at row index 2, we would need to account for those extra 2 bits that will be
+ * included in the buffer. So the source buffer will be 2 bytes (10 bits) even though the we are
+ * only using 8 bits of that data in the output. Therefore, ths size returned from this functor is
+ * only valid for -source- data.
+ *
  */
-struct assemble_buffer_size_functor {
+struct assemble_src_buffer_size_functor {
+  size_t const src_row_index;
+
   template <typename T, typename OutputIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
@@ -549,7 +559,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // no offsets for fixed width types
     *offsets_out = 0;
@@ -565,7 +576,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // offsets
     *offsets_out = sizeof(size_type) * (col.num_rows + 1);
@@ -581,7 +593,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // no offsets or data for structs
     *offsets_out = 0;
@@ -595,7 +608,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // chars
     *data_out = sizeof(int8_t) * col.num_chars;
@@ -962,31 +976,37 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
     // generate unpadded sizes of the source buffers
     auto const num_column_instances = column_instance_info.size();
     auto iter                       = thrust::make_counting_iterator(0);
-    thrust::for_each(rmm::exec_policy(stream, temp_mr),
-                     iter,
-                     iter + num_column_instances,
-                     [buffers_per_partition,
-                      num_columns,
-                      column_instance_info = column_instance_info.begin(),
-                      src_sizes_unpadded   = src_sizes_unpadded.begin()] __device__(size_type i) {
-                       auto const partition_index    = i / num_columns;
-                       auto const col_index          = i % num_columns;
-                       auto const col_instance_index = (partition_index * num_columns) + col_index;
+    thrust::for_each(
+      rmm::exec_policy(stream, temp_mr),
+      iter,
+      iter + num_column_instances,
+      [buffers_per_partition,
+       num_columns,
+       column_instance_info = column_instance_info.begin(),
+       src_sizes_unpadded   = src_sizes_unpadded.begin(),
+       partition_offsets    = partition_offsets.begin(),
+       partitions           = partitions.data()] __device__(size_type i) {
+        auto const partition_index    = i / num_columns;
+        auto const col_index          = i % num_columns;
+        auto const col_instance_index = (partition_index * num_columns) + col_index;
 
-                       auto const& cinfo_instance = column_instance_info[col_instance_index];
-                       auto const validity_buf_index =
-                         (partition_index * buffers_per_partition) + col_index;
-                       auto const offset_buf_index =
-                         (partition_index * buffers_per_partition) + num_columns + col_index;
-                       auto const data_buf_index =
-                         (partition_index * buffers_per_partition) + (num_columns * 2) + col_index;
-                       cudf::type_dispatcher(cudf::data_type{cinfo_instance.type},
-                                             assemble_buffer_size_functor{},
-                                             cinfo_instance,
-                                             &src_sizes_unpadded[validity_buf_index],
-                                             &src_sizes_unpadded[offset_buf_index],
-                                             &src_sizes_unpadded[data_buf_index]);
-                     });
+        partition_header const* const pheader = reinterpret_cast<partition_header const*>(
+          partitions + partition_offsets[partition_index]);
+
+        auto const& cinfo_instance    = column_instance_info[col_instance_index];
+        auto const validity_buf_index = (partition_index * buffers_per_partition) + col_index;
+        auto const offset_buf_index =
+          (partition_index * buffers_per_partition) + num_columns + col_index;
+        auto const data_buf_index =
+          (partition_index * buffers_per_partition) + (num_columns * 2) + col_index;
+        cudf::type_dispatcher(
+          cudf::data_type{cinfo_instance.type},
+          assemble_src_buffer_size_functor{cudf::hashing::detail::swap_endian(pheader->row_index)},
+          cinfo_instance,
+          &src_sizes_unpadded[validity_buf_index],
+          &src_sizes_unpadded[offset_buf_index],
+          &src_sizes_unpadded[data_buf_index]);
+      });
 
     // scan to source offsets, by partition
     auto partition_keys = cudf::detail::make_counting_transform_iterator(
@@ -1191,7 +1211,7 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         // leading bits. for example, the partition may start at row 3. but in that case, we will
         // have started copying from byte 0. so we have to shift right 3 rows.
         auto const row_index     = column_instance_info[col_instance_index].row_index;
-        auto const src_bit_shift = row_index % 8;
+        auto const src_bit_shift = cudf::hashing::detail::swap_endian(pheader->row_index) % 8;
         auto const dst_bit_shift = row_index % 32;
 
         // to transform the incoming unadjusted offsets into final offsets
@@ -1280,12 +1300,14 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
     word = (word >> batch.src_bit_shift) & relevant_row_mask;
+
     // any bits that are not being stored in the current dest word get overflowed to the next copy
     prev_word[0] = word >> (32 - batch.dst_bit_shift);
     // shift to the final destination bit position.
     word <<= batch.dst_bit_shift;
     // count and store
     valid_count += __popc(word);
+
     // use an atomic because we could be overlapping with another copy
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }

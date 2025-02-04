@@ -16,24 +16,111 @@
 
 #include "shuffle_split.hpp"
 
+#include <cuda/functional>
+
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <cub/device/device_memcpy.cuh>
+
 struct ShuffleSplitTests : public cudf::test::BaseFixture {};
 
-void run_split(cudf::table_view const& tbl, std::vector<cudf::size_type> const& splits)
+std::unique_ptr<cudf::table> reshape_table(cudf::table_view const& tbl, std::vector<int> const& splits, std::vector<int> const& remaps)
 {
-  auto [split_data, split_metadata] = spark_rapids_jni::shuffle_split(
-    tbl, splits, cudf::get_default_stream(), cudf::get_current_device_resource());
-  auto result = spark_rapids_jni::shuffle_assemble(
-    split_metadata,
-    {static_cast<uint8_t*>(split_data.partitions->data()), split_data.partitions->size()},
-    split_data.offsets,
-    cudf::get_default_stream(),
-    cudf::get_current_device_resource());
-  CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, *result);
+  auto split_result = cudf::split(tbl, splits);
+  std::vector<cudf::table_view> remapped;
+  remapped.reserve(split_result.size());
+  std::transform(remaps.begin(), remaps.end(), std::back_inserter(remapped), [&](int i){
+    return split_result[i];
+  });
+  return cudf::concatenate(remapped);
+}
+
+spark_rapids_jni::shuffle_split_result reshape_partitions(cudf::device_span<uint8_t const> partitions,
+                                                          cudf::device_span<size_t const> partition_offsets,
+                                                          std::vector<int> const& remaps,
+                                                          rmm::cuda_stream_view stream,
+                                                          rmm::device_async_resource_ref mr)
+{
+  CUDF_EXPECTS(remaps.size() == partition_offsets.size() - 1, "Invaid remaps vector size");
+  auto temp_mr = cudf::get_current_device_resource_ref();
+
+  // generate new partition offsets
+  auto d_remaps = cudf::detail::make_device_uvector_async(remaps, stream, temp_mr);
+  rmm::device_uvector<size_t> remapped_offsets(partition_offsets.size(), stream, mr);
+  auto const num_partitions = partition_offsets.size() - 1;
+  auto remapped_size_iter = cudf::detail::make_counting_transform_iterator(0, cuda::proclaim_return_type<size_t>([partition_offsets = partition_offsets.begin(), remaps = d_remaps.begin(), num_partitions] __device__(size_t i){
+    auto const ri = remaps[i];
+    return i >= num_partitions ? 0 : partition_offsets[ri+1] - partition_offsets[ri];
+  }));
+  thrust::exclusive_scan(rmm::exec_policy(stream),
+                         remapped_size_iter,
+                         remapped_size_iter + num_partitions + 1,
+                         remapped_offsets.begin());
+
+  // swizzle the data
+  rmm::device_buffer remapped_partitions(partitions.size(), stream, mr);
+  auto input_iter = cudf::detail::make_counting_transform_iterator(
+    0, cuda::proclaim_return_type<void*>([partitions = partitions.data(), partition_offsets = partition_offsets.begin(), remaps = d_remaps.begin()] __device__(size_t i) {
+      return reinterpret_cast<void*>(const_cast<uint8_t*>(partitions) + partition_offsets[remaps[i]]);
+    }));
+  auto size_iter = cudf::detail::make_counting_transform_iterator(
+    0, cuda::proclaim_return_type<size_t>([partition_offsets = partition_offsets.begin(), remaps = d_remaps.begin()] __device__(size_t i) {
+      auto const ri = remaps[i];
+      return partition_offsets[ri + 1] - partition_offsets[ri];
+    }));
+  auto output_iter = cudf::detail::make_counting_transform_iterator(
+    0, cuda::proclaim_return_type<void*>([remapped_partitions = remapped_partitions.data(), remapped_offsets = remapped_offsets.begin()] __device__(size_t i) {
+      return reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(remapped_partitions) + remapped_offsets[i]);
+    }));  
+
+  size_t temp_storage_bytes;
+  cub::DeviceMemcpy::Batched(
+    nullptr, temp_storage_bytes, input_iter, output_iter, size_iter, num_partitions, stream);
+  rmm::device_buffer temp_storage(
+    temp_storage_bytes, stream, cudf::get_current_device_resource_ref());
+  cub::DeviceMemcpy::Batched(
+    temp_storage.data(), temp_storage_bytes, input_iter, output_iter, size_iter, num_partitions, stream);
+
+  return {std::make_unique<rmm::device_buffer>(std::move(remapped_partitions)), std::move(remapped_offsets)};
+}
+
+void run_split(cudf::table_view const& tbl, std::vector<cudf::size_type> const& splits, std::vector<cudf::size_type> const& remaps = {})
+{
+  auto [split_data, split_metadata] = spark_rapids_jni::shuffle_split(tbl,
+                                                                      splits,
+                                                                      cudf::get_default_stream(),
+                                                                      rmm::mr::get_current_device_resource());
+
+  // maybe reshape the results
+  if(remaps.size() > 0){    
+    CUDF_EXPECTS(remaps.size() == splits.size() + 1, "Invalid remap vector size");
+    CUDF_EXPECTS(remaps.size() == split_data.offsets.size() - 1, "Invaid remaps vector size");
+    auto reshaped_table = reshape_table(tbl, splits, remaps);
+    auto reshaped_data = reshape_partitions({static_cast<uint8_t*>(split_data.partitions->data()), split_data.partitions->size()}, 
+                                            split_data.offsets, 
+                                            remaps, 
+                                            cudf::get_default_stream(), 
+                                            rmm::mr::get_current_device_resource());
+
+    auto result = spark_rapids_jni::shuffle_assemble(split_metadata,
+                                                     {static_cast<uint8_t*>(reshaped_data.partitions->data()), reshaped_data.partitions->size()},
+                                                     reshaped_data.offsets,
+                                                     cudf::get_default_stream(),
+                                                     rmm::mr::get_current_device_resource());
+    
+    CUDF_TEST_EXPECT_TABLES_EQUAL(*reshaped_table, *result);
+  } else {  
+    auto result = spark_rapids_jni::shuffle_assemble(split_metadata,
+                                                     {static_cast<uint8_t*>(split_data.partitions->data()), split_data.partitions->size()},
+                                                     split_data.offsets,
+                                                     cudf::get_default_stream(),
+                                                     rmm::mr::get_current_device_resource());
+
+    CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, *result);
+  }  
 }
 
 TEST_F(ShuffleSplitTests, Simple)
@@ -359,5 +446,22 @@ TEST_F(ShuffleSplitTests, NestedTypes)
     run_split(tbl, {});
     run_split(tbl, {2});
     run_split(tbl, {2, 4});
+  }
+}
+
+TEST_F(ShuffleSplitTests, Reshaping)
+{
+  // a key feature of the kud0 format is being able to reassemble arbitrary partitions. 
+  // so for example, if we had a shuffle_split() call that produced partitions ABCD, we might 
+  // want to reassemble that as CDAB. or we may have multiple shuffle_split calls producing multiple
+  // sets of partitions that need to be stitched together, such as:
+  // - shuffle_split()    -> ABCD
+  // - shuffle_split()    -> XYZW
+  // - shuffle_assemble(AXBYCDWZ)
+  {
+    cudf::test::fixed_width_column_wrapper<int> col0{{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+                                                     {1, 1, 1, 1, 0, 0, 1, 0, 1, 0,  0,  0,  0,  1,  1,  0,  1,  1,  1,  0}};
+    cudf::table_view tbl{{col0}};
+    run_split(tbl, {2, 10}, {2, 0, 1});
   }
 }

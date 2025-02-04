@@ -86,4 +86,4 @@ ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
 ConfigureTest(SHUFFLE_SPLIT
-    shuffle_split.cpp)
+    shuffle_split.cu)

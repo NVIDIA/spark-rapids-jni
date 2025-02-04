@@ -56,7 +56,7 @@ struct size_of_helper {
  */
 struct partition_header {
   uint32_t magic_number;
-  uint32_t offset;
+  uint32_t row_index;  // row index in the source table that this partition started at
   uint32_t num_rows;
   uint32_t validity_size;
   uint32_t offset_size;
