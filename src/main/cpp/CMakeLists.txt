@@ -200,6 +200,7 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/JSONUtilsJni.cpp
+  src/KudoGpuSerializerJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp

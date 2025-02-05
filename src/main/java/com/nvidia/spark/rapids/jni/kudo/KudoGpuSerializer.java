@@ -16,64 +16,66 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.DeviceMemoryBuffer;
-import ai.rapids.cudf.HostMemoryBuffer;
-import ai.rapids.cudf.Schema;
-import ai.rapids.cudf.Table;
+import ai.rapids.cudf.*;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Provides serializer and deserializer APIs similar to the java KudoSerializer
- * but are GPU accelerated. The APIs provided do not match KudoSerializer directly
- * because they operate slightly differently.
+ * Right now this is just to provide access to the underlying C++ APIs. In the future it should hopefully
+ * look more like the CPU KudoSerializer.
  */
 public class KudoGpuSerializer {
-
-  private final Schema schema;
-  // TODO a lot of this might need to change so we can so we can get the APIs right.
-  private final int flattenedColumnCount;
-
-  public KudoGpuSerializer(Schema schema) {
-    requireNonNull(schema, "schema is null");
-    this.schema = schema;
-    this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
+  static {
+    NativeDepsLoader.loadNativeDeps();
   }
 
-  /**
-   * This splits and serializes the table based on the indices passed in.
-   * @param table the table to be split up. The table must match the schema passed in.
-   * @param indices the indices into the table that will be used to split it up. These follow the same
-   *                pattern as contiguous split.
-   * @return a host memory buffers for each split.
-   */
-  public HostMemoryBuffer[] splitAndSerializeToHost(Table table, int... indices) {
-    // TODO some how we need to assert that the schema matches what was returned from the processing...
-    return null;
+  public static DeviceMemoryBuffer[] splitAndSerializeToDevice(Table table, int... splits) {
+    DeviceMemoryBuffer[] ret = new DeviceMemoryBuffer[2];
+    boolean success = false;
+    try {
+      long[] values = splitAndSerializeToDevice(table.getNativeView(), splits);
+      ret[0] = DeviceMemoryBuffer.fromRmm(values[0], values[1], values[2]);
+      ret[1] = DeviceMemoryBuffer.fromRmm(values[3], values[4], values[5]);
+      success = true;
+      return ret;
+    } finally {
+      if (!success) {
+        if (ret[0] != null) {
+          ret[0].close();
+        }
+        if (ret[1] != null) {
+          ret[1].close();
+        }
+      }
+    }
+  }
+
+  public static Table assembleFromDeviceRaw(Schema schema,
+                                            DeviceMemoryBuffer partitions,
+                                            DeviceMemoryBuffer offsets) {
+    return new Table(assembleFromDeviceRawNative(
+        partitions.getAddress(), partitions.getLength(),
+        offsets.getAddress(), offsets.getLength(),
+        schema.getFlattenedNumChildren(),
+        schema.getFlattenedTypeIds(),
+        schema.getFlattenedTypeScales()));
   }
 
   /**
    * Split the input table and serialize it to a device buffer.
    * @param tableNativeView the native view of the table to split
-   * @param indices the row indices to split around
-   * @param flattenedTypeIds the type ids that are expected to be returned (validation?? do we care??)
-   * @param flattenedNumChildren the num children that are expected to be returned (validation?? do we care??)
-   * @param flattenedScale the decimal scales that are expected to be returned (validation?? do we care??)
-   * @return an array of 2 DeviceMemoryBuffers. The first holds all the serialized data. The second holds
+   * @param splits the row indices to split around
+   * @return an array of 6 longs. These represent two device buffers each with 3 values.
+   * (address, length, rmmAddress) The first tuple holds all the serialized data. The second tuple holds
    * size_t offsets into the first to show where the splits are.
    */
-  // TODO make the return values like gather_maps_to_java in CUDF.
-  private static native DeviceMemoryBuffer[] splitAndSerializeToDevice(long tableNativeView,
-                                                       int[] indices,
-                                                       int[] flattenedTypeIds,
-                                                       int[] flattenedNumChildren,
-                                                       int[] flattenedScale);
+  private static native long[] splitAndSerializeToDevice(long tableNativeView, int[] splits);
 
-  public Table mergeToTable(DeviceMemoryBuffer ... buffers) {
-    // TODO but how do we know what to read???
-    return null;
-  }
 
-  // TODO we need a way to read from an input stream into a HostMemoryBuffer. This partly exist in the
-  //  KudoSerializer except the header is not written out serialized too, like it would need to be here.
+  private static native long[] assembleFromDeviceRawNative(long partAddr, long partLen,
+                                                           long offsetAddr, long offsetLen,
+                                                           int[] flattenedNumChildren,
+                                                           int[] flattenedTypeIds,
+                                                           int[] flattenedTypeScales);
+
 }
