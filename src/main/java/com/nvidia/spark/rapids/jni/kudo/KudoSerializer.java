@@ -231,7 +231,8 @@ public class KudoSerializer {
         .setColumns(columns)
         .setOutputStream(out)
         .setNumRows(numRows)
-        .setRowOffset(rowOffset).build();
+        .setRowOffset(rowOffset)
+        .build();
     return writeToStreamWithMetrics(input);
   }
 
