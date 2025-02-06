@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -129,6 +129,11 @@ std::unique_ptr<cudf::column> float_to_string(
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 std::unique_ptr<cudf::column> decimal_to_non_ansi_string(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> long_to_binary_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
