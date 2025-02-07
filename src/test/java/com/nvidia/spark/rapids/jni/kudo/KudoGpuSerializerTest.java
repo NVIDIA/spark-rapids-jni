@@ -73,6 +73,7 @@ public class KudoGpuSerializerTest {
   public void testSinglePartWriteCPURead() throws Exception {
     try (Table table = new Table.TestBuilder()
         .column((byte)0xFF, (byte)0xF0, (byte)0x0F, (byte)0xAA, (byte)0x55)
+        .column((byte)0xFF, (byte)0xF0, (byte)0x0F, (byte)0xAA, (byte)0x55)
         .build()) {
       DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
       assertEquals(2, buffers.length);
@@ -81,6 +82,7 @@ public class KudoGpuSerializerTest {
         // Ignoring the offsets for now because it should just be the start to the end of the buffer (one split)
         Schema s = Schema.builder()
             .column(DType.INT8, "a")
+            .column(DType.INT32, "b")
             .build();
         KudoSerializer serializer = new KudoSerializer(s);
         ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
@@ -94,12 +96,12 @@ public class KudoGpuSerializerTest {
         System.err.println("COMP GPU(" + hData.length + ") vs CPU(" + hDataCPU.length + ")");
         int len = Math.max(hData.length, hDataCPU.length);
         for (int i = 0; i < len; i++) {
-          String gpu = "N/A";
+          String gpu = "N/A     ";
           if (i < hData.length) {
             gpu = String.format("0x%02X %03d", hData[i] & 0xFF, hData[i]);
           }
 
-          String cpu = "N/A";
+          String cpu = "N/A     ";
           if (i < hDataCPU.length) {
             cpu = String.format("0x%02X %03d", hDataCPU[i] & 0xFF, hDataCPU[i]);
           }

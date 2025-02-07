@@ -188,11 +188,11 @@ public final class KudoTableHeader {
     streamIndex += 4;
 
     dout.writeInt(validityBufferLen);
-    System.err.println("VALIDITY BUF LEN " + streamIndex);
+    System.err.println("VALIDITY BUF LEN AT " + streamIndex);
     streamIndex += 4;
 
     dout.writeInt(offsetBufferLen);
-    System.err.println("OFFSET BUFF LEN " + streamIndex);
+    System.err.println("OFFSET BUFF LEN AT " + streamIndex);
     streamIndex += 4;
 
     dout.writeInt(totalDataLen);
@@ -203,7 +203,9 @@ public final class KudoTableHeader {
     System.err.println("VALIDITY AT " + streamIndex + " TO " + (streamIndex + hasValidityBuffer.length));
     streamIndex += hasValidityBuffer.length;
 
-    return (int) KudoSerializer.padForHostAlignment(dout, streamIndex);
+    streamIndex = (int) KudoSerializer.padForHostAlignment(dout, streamIndex);
+    System.err.println("HEADER PADDED TO " + streamIndex);
+    return streamIndex;
   }
 
   @Override
