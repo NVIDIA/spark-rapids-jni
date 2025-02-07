@@ -56,7 +56,7 @@ public class KudoSerializerTest {
   public void testRowCountOnly() throws Exception {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     long bytesWritten = KudoSerializer.writeRowCountToStream(out, 5);
-    assertEquals(28, bytesWritten);
+    assertEquals(24, bytesWritten);
 
     ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     KudoTableHeader header = KudoTableHeader.readFrom(new DataInputStream(in), 0).get();
@@ -75,7 +75,7 @@ public class KudoSerializerTest {
     try (Table t = buildSimpleTable()) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
-      assertEquals(189, bytesWritten);
+      assertEquals(188, bytesWritten);
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
 

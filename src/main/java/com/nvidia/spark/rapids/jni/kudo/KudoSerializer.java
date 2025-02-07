@@ -19,12 +19,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
 
-import ai.rapids.cudf.BufferType;
-import ai.rapids.cudf.Cuda;
-import ai.rapids.cudf.HostColumnVector;
-import ai.rapids.cudf.JCudfSerialization;
-import ai.rapids.cudf.Schema;
-import ai.rapids.cudf.Table;
+import ai.rapids.cudf.*;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
@@ -299,9 +294,10 @@ public class KudoSerializer {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
     try (KudoHostMergeResult children = result.getLeft()) {
+      System.err.println("Merged on host " + children);
       Table table = withTime(children::toTable,
           builder::convertToTableTime);
-
+      TableDebug.get().debug("RESULT", table);
       return Pair.of(table, builder.build());
     }
   }
@@ -314,16 +310,17 @@ public class KudoSerializer {
     withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
     KudoTableHeader header = headerCalc.getHeader();
     long currentTime = System.nanoTime();
-    header.writeTo(out);
+    int streamIndex = header.writeTo(out);
     metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
     metrics.addWrittenBytes(header.getSerializedSize());
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
       SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType,
-          out, metrics);
+          out, metrics, streamIndex);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
+      streamIndex += (int)serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
     }
 

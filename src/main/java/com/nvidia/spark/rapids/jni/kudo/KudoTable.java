@@ -46,6 +46,7 @@ public class KudoTable implements AutoCloseable {
     requireNonNull(header, "Header must not be null");
     this.header = header;
     this.buffer = buffer;
+    System.err.println("KUDO Table " + header + " " + buffer);
   }
 
   /**
@@ -62,6 +63,7 @@ public class KudoTable implements AutoCloseable {
     return KudoTableHeader.readFrom(din, numColumns).map(header -> {
       // Header only
       if (numColumns == 0) {
+        System.err.println("ROW COUNT ONLY BUFFER");
         return new KudoTable(header, null);
       }
 

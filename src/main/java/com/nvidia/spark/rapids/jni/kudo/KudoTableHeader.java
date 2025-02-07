@@ -83,12 +83,17 @@ public final class KudoTableHeader {
     int totalDataLen = din.readInt();
     System.err.println("GOT TOTAL LEN " + totalDataLen);
     int validityBufferLength = lengthOfHasValidityBuffer(numColumns);
-    System.err.println("VALID BUFFER LEN CALC FOR NUM COLS " + validityBufferLength);
+    System.err.println("VALID BUFFER LEN CALC FOR NUM COLS " + validityBufferLength + " FROM " + numColumns);
     byte[] hasValidityBuffer = new byte[validityBufferLength];
     din.readFully(hasValidityBuffer);
 
-    return Optional.of(new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
-        hasValidityBuffer));
+    KudoTableHeader header = new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen,
+        numColumns, hasValidityBuffer);
+    int amountPadded = header.getSerializedSize() - header.getNonPaddedSerializedSize();
+
+    din.skipBytes(amountPadded);
+
+    return Optional.of(header);
   }
 
   KudoTableHeader(int offset, int numRows, int validityBufferLen, int offsetBufferLen,
@@ -143,7 +148,6 @@ public final class KudoTableHeader {
    *   <li>Validity buffer length</li>
    *   <li>Offset buffer length</li>
    *   <li>Total data length</li>
-   *   <li>Number of columns</li>
    *   <li>hasValidityBuffer</li>
    * </ol>
    * <p>
@@ -153,7 +157,11 @@ public final class KudoTableHeader {
    * @return the size of the serialized header.
    */
   public int getSerializedSize() {
-    return 7 * Integer.BYTES + hasValidityBuffer.length;
+    return (int)KudoSerializer.padForHostAlignment(getNonPaddedSerializedSize());
+  }
+
+  int getNonPaddedSerializedSize() {
+    return (6 * Integer.BYTES) + hasValidityBuffer.length;
   }
 
   public int getValidityBufferLen() {
@@ -164,16 +172,38 @@ public final class KudoTableHeader {
     return offsetBufferLen;
   }
 
-  public void writeTo(DataWriter dout) throws IOException {
+  public int writeTo(DataWriter dout) throws IOException {
+    int streamIndex = 0;
     // Now write out the data
+    System.err.println("MAGIC NUMBER AT " + streamIndex);
     dout.writeInt(SER_FORMAT_MAGIC_NUMBER);
+    streamIndex += 4;
 
     dout.writeInt(offset);
+    System.err.println("OFFSET AT " + streamIndex);
+    streamIndex += 4;
+
     dout.writeInt(numRows);
+    System.err.println("NUM ROWS AT " + streamIndex);
+    streamIndex += 4;
+
     dout.writeInt(validityBufferLen);
+    System.err.println("VALIDITY BUF LEN " + streamIndex);
+    streamIndex += 4;
+
     dout.writeInt(offsetBufferLen);
+    System.err.println("OFFSET BUFF LEN " + streamIndex);
+    streamIndex += 4;
+
     dout.writeInt(totalDataLen);
+    System.err.println("TOTAL DATA LEN AT " + streamIndex);
+    streamIndex += 4;
+
     dout.write(hasValidityBuffer, 0, hasValidityBuffer.length);
+    System.err.println("VALIDITY AT " + streamIndex + " TO " + (streamIndex + hasValidityBuffer.length));
+    streamIndex += hasValidityBuffer.length;
+
+    return (int) KudoSerializer.padForHostAlignment(dout, streamIndex);
   }
 
   @Override
