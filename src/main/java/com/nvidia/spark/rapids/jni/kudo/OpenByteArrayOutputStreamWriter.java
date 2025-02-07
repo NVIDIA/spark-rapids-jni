@@ -22,6 +22,10 @@ import static java.util.Objects.requireNonNull;
 import ai.rapids.cudf.HostMemoryBuffer;
 import java.io.IOException;
 
+/**
+ * Adapter class which helps to save memory copy when shuffle manager uses
+ * {@link OpenByteArrayOutputStream} during serialization.
+ */
 public class OpenByteArrayOutputStreamWriter implements DataWriter {
   private final OpenByteArrayOutputStream out;
 
@@ -51,7 +55,6 @@ public class OpenByteArrayOutputStreamWriter implements DataWriter {
 
   @Override
   public void flush() throws IOException {
-
   }
 
   @Override

@@ -21,12 +21,14 @@ import ai.rapids.cudf.HostMemoryBuffer;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
+import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
 
 /**
  * This class extends {@link ByteArrayOutputStream} to provide some internal methods to save copy.
  */
 public class OpenByteArrayOutputStream extends ByteArrayOutputStream {
+  private static final int MAX_ARRAY_LENGTH = Integer.MAX_VALUE - 32;
 
   /**
    * Creates a new byte array output stream. The buffer capacity is
@@ -68,52 +70,16 @@ public class OpenByteArrayOutputStream extends ByteArrayOutputStream {
    * at least the number of elements specified by the minimum
    * capacity argument.
    *
-   * <br/>
-   *
-   * This code is copied from jdk's implementation.
-   *
-   * @param minCapacity the desired minimum capacity
-   * @throws OutOfMemoryError if {@code minCapacity < 0}.  This is
-   * interpreted as a request for the unsatisfiably large capacity
-   * {@code (long) Integer.MAX_VALUE + (minCapacity - Integer.MAX_VALUE)}.
+   * @param capacity the desired minimum capacity
+   * @throws IllegalStateException If {@code capacity < 0}  or {@code capacity >= MAX_ARRAY_LENGTH}.
    */
-  public void reserve(int minCapacity) {
-    // overflow-conscious code
-    if (minCapacity - buf.length > 0)
-      grow(minCapacity);
-  }
+  public void reserve(int capacity) {
+    ensure(capacity >= 0, () -> "Requested capacity must be positive, but was " + capacity);
+    ensure(capacity < MAX_ARRAY_LENGTH, () -> "Requested capacity is too large: " + capacity);
 
-  /**
-   * The maximum size of array to allocate.
-   * Some VMs reserve some header words in an array.
-   * Attempts to allocate larger arrays may result in
-   * OutOfMemoryError: Requested array size exceeds VM limit
-   */
-  private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
-
-  /**
-   * Increases the capacity to ensure that it can hold at least the
-   * number of elements specified by the minimum capacity argument.
-   *
-   * @param minCapacity the desired minimum capacity
-   */
-  private void grow(int minCapacity) {
-    // overflow-conscious code
-    int oldCapacity = buf.length;
-    int newCapacity = oldCapacity << 1;
-    if (newCapacity - minCapacity < 0)
-      newCapacity = minCapacity;
-    if (newCapacity - MAX_ARRAY_SIZE > 0)
-      newCapacity = hugeCapacity(minCapacity);
-    buf = Arrays.copyOf(buf, newCapacity);
-  }
-
-  private static int hugeCapacity(int minCapacity) {
-    if (minCapacity < 0) // overflow
-      throw new OutOfMemoryError();
-    return (minCapacity > MAX_ARRAY_SIZE) ?
-            Integer.MAX_VALUE :
-            MAX_ARRAY_SIZE;
+    if (capacity > buf.length) {
+      buf = Arrays.copyOf(buf, capacity);
+    }
   }
 
   /**

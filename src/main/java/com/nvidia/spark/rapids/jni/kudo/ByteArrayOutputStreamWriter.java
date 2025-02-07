@@ -26,8 +26,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Adapter class which helps to save memory copy when shuffle manager uses {@link ByteArrayOutputStream} during
- * serialization.
+ * Adapter class which helps to save memory copy when shuffle manager uses
+ * {@link ByteArrayOutputStream} during serialization.
  */
 public class ByteArrayOutputStreamWriter implements DataWriter {
   private static final Method ENSURE_CAPACITY;
@@ -68,11 +68,13 @@ public class ByteArrayOutputStreamWriter implements DataWriter {
 
   @Override
   public void writeInt(int v) throws IOException {
-    reserve(4 + out.size());
-    out.write((v >>> 24) & 0xFF);
-    out.write((v >>> 16) & 0xFF);
-    out.write((v >>>  8) & 0xFF);
-    out.write((v >>>  0) & 0xFF);
+    reserve(Integer.BYTES + out.size());
+    byte[] bytes = new byte[4];
+    bytes[0] = (byte) ((v >>> 24) & 0xFF);
+    bytes[1] = (byte) ((v >>> 16) & 0xFF);
+    bytes[2] = (byte) ((v >>> 8) & 0xFF);
+    bytes[3] = (byte) (v & 0xFF);
+    out.write(bytes);
   }
 
   @Override
