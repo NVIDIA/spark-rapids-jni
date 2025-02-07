@@ -103,13 +103,6 @@ import java.util.stream.IntStream;
  *         <td>Length of total body, in big endian format</td>
  *     </tr>
  *     <tr>
- *         <td>Number of columns</td>
- *         <td>4</td>
- *         <td>Number of columns in flattened schema, in big endian format. For details of <q>flattened schema</q>,
- *         see {@link com.nvidia.spark.rapids.jni.schema.SchemaVisitor}
- *         </td>
- *     </tr>
- *     <tr>
  *         <td>hasValidityBuffer</td>
  *         <td>(number of columns + 7) / 8</td>
  *         <td>A bit set to indicate whether a column has validity buffer. To test if column
@@ -172,6 +165,10 @@ public class KudoSerializer {
     requireNonNull(schema, "schema is null");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
+  }
+
+  public int getColumnCount() {
+    return flattenedColumnCount;
   }
 
   /**
@@ -279,7 +276,7 @@ public class KudoSerializer {
   public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
     MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
 
-    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables, flattenedColumnCount),
         metricsBuilder::calcHeaderTime);
     KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
         metricsBuilder::mergeIntoHostBufferTime);

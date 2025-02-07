@@ -55,13 +55,13 @@ public class KudoTable implements AutoCloseable {
    * @return the kudo table, or empty if the input stream is empty.
    * @throws IOException if an I/O error occurs
    */
-  public static Optional<KudoTable> from(InputStream in) throws IOException {
+  public static Optional<KudoTable> from(InputStream in, int numColumns) throws IOException {
     requireNonNull(in, "Input stream must not be null");
 
     DataInputStream din = readerFrom(in);
-    return KudoTableHeader.readFrom(din).map(header -> {
+    return KudoTableHeader.readFrom(din, numColumns).map(header -> {
       // Header only
-      if (header.getNumColumns() == 0) {
+      if (numColumns == 0) {
         return new KudoTable(header, null);
       }
 

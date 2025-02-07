@@ -45,7 +45,6 @@ public final class KudoTableHeader {
   private final int validityBufferLen;
   private final int offsetBufferLen;
   private final int totalDataLen;
-  private final int numColumns;
   // A bit set to indicate if a column has a validity buffer or not. Each column is represented by a single bit.
   private final byte[] hasValidityBuffer;
 
@@ -56,10 +55,12 @@ public final class KudoTableHeader {
    * @return the table header. If an EOFException is encountered at the beginning, returns empty result.
    * @throws IOException if an I/O error occurs
    */
-  public static Optional<KudoTableHeader> readFrom(DataInputStream din) throws IOException {
+  public static Optional<KudoTableHeader> readFrom(DataInputStream din, int numColumns) throws IOException {
     int num;
     try {
+      System.err.println("READ HEADER...");
       num = din.readInt();
+      System.err.println("GOT MAGIC NUMBER " + num + " vs " + SER_FORMAT_MAGIC_NUMBER);
       if (num != SER_FORMAT_MAGIC_NUMBER) {
         throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
             " found " + num);
@@ -71,13 +72,18 @@ public final class KudoTableHeader {
     }
 
     int offset = din.readInt();
+    System.err.println("GOT OFFSET " + offset);
     int numRows = din.readInt();
+    System.err.println("GOT NUM ROWS " + numRows);
 
     int validityBufferLen = din.readInt();
+    System.err.println("GOT VALID LEN " + validityBufferLen);
     int offsetBufferLen = din.readInt();
+    System.err.println("GOT OFFSET LEN " + offsetBufferLen);
     int totalDataLen = din.readInt();
-    int numColumns = din.readInt();
+    System.err.println("GOT TOTAL LEN " + totalDataLen);
     int validityBufferLength = lengthOfHasValidityBuffer(numColumns);
+    System.err.println("VALID BUFFER LEN CALC FOR NUM COLS " + validityBufferLength);
     byte[] hasValidityBuffer = new byte[validityBufferLength];
     din.readFully(hasValidityBuffer);
 
@@ -92,7 +98,7 @@ public final class KudoTableHeader {
     this.validityBufferLen = ensureNonNegative(validityBufferLen, "validityBufferLen");
     this.offsetBufferLen = ensureNonNegative(offsetBufferLen, "offsetBufferLen");
     this.totalDataLen = ensureNonNegative(totalDataLen, "totalDataLen");
-    this.numColumns = ensureNonNegative(numColumns, "numColumns");
+    ensureNonNegative(numColumns, "numColumns");
 
     requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
     ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),
@@ -150,10 +156,6 @@ public final class KudoTableHeader {
     return 7 * Integer.BYTES + hasValidityBuffer.length;
   }
 
-  public int getNumColumns() {
-    return numColumns;
-  }
-
   public int getValidityBufferLen() {
     return validityBufferLen;
   }
@@ -171,7 +173,6 @@ public final class KudoTableHeader {
     dout.writeInt(validityBufferLen);
     dout.writeInt(offsetBufferLen);
     dout.writeInt(totalDataLen);
-    dout.writeInt(numColumns);
     dout.write(hasValidityBuffer, 0, hasValidityBuffer.length);
   }
 
@@ -183,7 +184,6 @@ public final class KudoTableHeader {
         ", validityBufferLen=" + validityBufferLen +
         ", offsetBufferLen=" + offsetBufferLen +
         ", totalDataLen=" + totalDataLen +
-        ", numColumns=" + numColumns +
         ", hasValidityBuffer=" + Arrays.toString(hasValidityBuffer) +
         '}';
   }

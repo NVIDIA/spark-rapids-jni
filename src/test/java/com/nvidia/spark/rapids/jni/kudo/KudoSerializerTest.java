@@ -59,9 +59,8 @@ public class KudoSerializerTest {
     assertEquals(28, bytesWritten);
 
     ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    KudoTableHeader header = KudoTableHeader.readFrom(new DataInputStream(in)).get();
+    KudoTableHeader header = KudoTableHeader.readFrom(new DataInputStream(in), 0).get();
 
-    assertEquals(0, header.getNumColumns());
     assertEquals(0, header.getOffset());
     assertEquals(5, header.getNumRows());
     assertEquals(0, header.getValidityBufferLen());
@@ -80,8 +79,7 @@ public class KudoSerializerTest {
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
 
-      KudoTableHeader header = KudoTableHeader.readFrom(new DataInputStream(in)).get();
-      assertEquals(7, header.getNumColumns());
+      KudoTableHeader header = KudoTableHeader.readFrom(new DataInputStream(in), serializer.getColumnCount()).get();
       assertEquals(0, header.getOffset());
       assertEquals(4, header.getNumRows());
       assertEquals(24, header.getValidityBufferLen());
@@ -373,7 +371,7 @@ public class KudoSerializerTest {
       Arms.withResource(new ArrayList<KudoTable>(tableSlices.size()), kudoTables -> {
         try {
           for (int i = 0; i < tableSlices.size(); i++) {
-            kudoTables.add(KudoTable.from(bin).get());
+            kudoTables.add(KudoTable.from(bin, serializer.getColumnCount()).get());
           }
 
           long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
