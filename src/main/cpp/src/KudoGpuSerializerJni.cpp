@@ -71,7 +71,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
 
     // TODO these lengths might not be what we want/expect.
     cudf::device_span<uint8_t const> partitions(reinterpret_cast<uint8_t*>(part_addr), part_len);
-    cudf::device_span<size_t const> offsets(reinterpret_cast<size_t *>(offset_addr), offset_len);
+    cudf::device_span<size_t const> offsets(reinterpret_cast<size_t *>(offset_addr), offset_len/sizeof(size_t));
 
     cudf::jni::native_jintArray nnc(env, flat_num_children);
     cudf::jni::native_jintArray nti(env, flat_type_ids);
@@ -88,7 +88,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
       meta.col_info.emplace_back(tid, param);
     }
 
-    throw std::runtime_error("NOT IMPLEMENTED YET");
+    return cudf::jni::convert_table_for_return(env, shuffle_assemble(meta, partitions, offsets, 
+          cudf::get_default_stream(), cudf::get_current_device_resource()));
   }
   CATCH_STD(env, NULL);
 }

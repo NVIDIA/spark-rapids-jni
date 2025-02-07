@@ -16,10 +16,7 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
-import ai.rapids.cudf.DType;
-import ai.rapids.cudf.DeviceMemoryBuffer;
-import ai.rapids.cudf.Schema;
-import ai.rapids.cudf.Table;
+import ai.rapids.cudf.*;
 import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
@@ -29,18 +26,25 @@ public class KudoGpuSerializerTest {
   @Test
   public void testSimpleRoundTrip() {
     try (Table table = new Table.TestBuilder()
-        .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        .column(0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f)
+        .column(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+            11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
         .build()) {
-      DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table, 4);
+      DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table, 5, 10, 15);
       assert(buffers.length == 2);
       try (DeviceMemoryBuffer data = buffers[0];
            DeviceMemoryBuffer offsets = buffers[1]) {
+        try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(offsets.getLength())) {
+          tmp.copyFromDeviceBuffer(offsets);
+          for (int i = 0; i < tmp.getLength()/8; i++) {
+            System.err.println("OFFSET " + i + ": " + tmp.getLong(0) + "/" + data.getLength());
+          }
+        }
         Schema s = Schema.builder()
             .column(DType.INT32, "a")
-            .column(DType.FLOAT32, "b")
             .build();
         try (Table combined = KudoGpuSerializer.assembleFromDeviceRaw(s, data, offsets)) {
+          TableDebug.get().debug("EXPECTED", table);
+          TableDebug.get().debug("GOT", combined);
           assertTablesAreEqual(table, combined);
         }
       }
