@@ -101,7 +101,7 @@ struct assemble_column_info {
   size_type num_children;
 
   // only valid for column instances
-  size_type row_index;
+  size_type row_index, src_row_index;
   size_type char_index;
 };
 OUTPUT_ITERATOR(assemble_column_info_has_validity_output_iter, assemble_column_info, has_validity);
@@ -225,6 +225,7 @@ __global__ void compute_offset_child_row_counts(
   for (auto idx = 0; idx < offset_columns.size(); idx++) {
     // root column starts with the number of rows in the partition
     auto num_rows           = cudf::hashing::detail::swap_endian(pheader->num_rows);
+    auto src_row_index      = cudf::hashing::detail::swap_endian(pheader->row_index);
     auto col_index          = offset_columns[idx];
     auto col_instance_index = col_index + base_col_index;
 
@@ -242,12 +243,14 @@ __global__ void compute_offset_child_row_counts(
       auto& col_inst          = column_instances[col_instance_index];
       auto const num_children = meta.num_children();
 
-      col_inst.num_rows = num_rows;
+      col_inst.num_rows      = num_rows;
+      col_inst.src_row_index = src_row_index;
 
       switch (meta.type) {
-        // lists change the row count and advance the offset buffer
+        // lists change the row count, source row index and advance the offset buffer
         case cudf::type_id::LIST: {
           auto const last_num_rows = num_rows;
+          src_row_index            = offsets[0];
           num_rows                 = offsets[num_rows] - offsets[0];
           offsets += (last_num_rows + 1);
         } break;
@@ -255,8 +258,9 @@ __global__ void compute_offset_child_row_counts(
         // left to be processed
         case cudf::type_id::STRUCT:
           rc_stack_pos++;
-          rc_stack[rc_stack_pos * 2]       = num_rows;
-          rc_stack[(rc_stack_pos * 2) + 1] = num_children;
+          rc_stack[rc_stack_pos * 3]       = num_rows;
+          rc_stack[(rc_stack_pos * 3) + 1] = num_children;
+          rc_stack[(rc_stack_pos * 3) + 2] = src_row_index;
           break;
         // all other types jump back up to the nearest struct/branch point, as they represent the
         // end of a chain of children
@@ -266,6 +270,7 @@ __global__ void compute_offset_child_row_counts(
           // fallthrough
         default: {
           if (rc_stack_pos >= 0) {
+            src_row_index           = rc_stack[(rc_stack_pos * 2) + 2];
             auto const num_children = --rc_stack[(rc_stack_pos * 2) + 1];
             num_rows                = rc_stack[rc_stack_pos * 2];
             if (num_children == 0) { rc_stack_pos--; }
@@ -415,9 +420,10 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
       cinstance_info.num_chars    = 0;
       cinstance_info.num_children = metadata.num_children();
 
-      // note that this will be incorrect for any columns that are children of offset columns. those
-      // values will be fixed up below.
-      cinstance_info.num_rows = cudf::hashing::detail::swap_endian(pheader->num_rows);
+      // note that these will be incorrect for any columns that are children of offset columns.
+      // those values will be fixed up below.
+      cinstance_info.num_rows      = cudf::hashing::detail::swap_endian(pheader->num_rows);
+      cinstance_info.src_row_index = cudf::hashing::detail::swap_endian(pheader->row_index);
     });
 
   // reconstruct row counts for columns and columns instances  ------------------------------
@@ -433,7 +439,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
 
     // each block needs to maintain a small stack of information of size max_depth when traversing
     // the column hierarchy. we'll use dynamic shared memory to do it.
-    int const shmem_per_block = static_cast<int>(sizeof(size_type) * max_branch_depth * 2);
+    int const shmem_per_block = static_cast<int>(sizeof(size_type) * max_branch_depth * 3);
     int device_id;
     CUDF_CUDA_TRY(cudaGetDevice(&device_id));
     int shmem_limit_per_block;
@@ -550,7 +556,7 @@ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad
  *
  */
 struct assemble_src_buffer_size_functor {
-  size_t const src_row_index;
+  int const src_row_index;
 
   template <typename T, typename OutputIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
   __device__ void operator()(assemble_column_info const& col,
@@ -999,13 +1005,12 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
           (partition_index * buffers_per_partition) + num_columns + col_index;
         auto const data_buf_index =
           (partition_index * buffers_per_partition) + (num_columns * 2) + col_index;
-        cudf::type_dispatcher(
-          cudf::data_type{cinfo_instance.type},
-          assemble_src_buffer_size_functor{cudf::hashing::detail::swap_endian(pheader->row_index)},
-          cinfo_instance,
-          &src_sizes_unpadded[validity_buf_index],
-          &src_sizes_unpadded[offset_buf_index],
-          &src_sizes_unpadded[data_buf_index]);
+        cudf::type_dispatcher(cudf::data_type{cinfo_instance.type},
+                              assemble_src_buffer_size_functor{cinfo_instance.src_row_index},
+                              cinfo_instance,
+                              &src_sizes_unpadded[validity_buf_index],
+                              &src_sizes_unpadded[offset_buf_index],
+                              &src_sizes_unpadded[data_buf_index]);
       });
 
     // scan to source offsets, by partition
@@ -1201,32 +1206,35 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
 
         partition_header const* const pheader = reinterpret_cast<partition_header const*>(
           partitions + partition_offsets[partition_index]);
+
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
           min(cudf::hashing::detail::swap_endian(pheader->num_rows) - validity_batch_row_index,
               validity_rows_per_batch);
+
+        auto const dst_bit_shift = (column_instance_info[col_instance_index].row_index) % 32;
         // since the initial split copy is done on simple byte boundaries, the first bit we want to
         // copy may not be the first bit in the source buffer. so we need to shift right by these
         // leading bits. for example, the partition may start at row 3. but in that case, we will
         // have started copying from byte 0. so we have to shift right 3 rows.
-        auto const row_index     = column_instance_info[col_instance_index].row_index;
-        auto const src_bit_shift = cudf::hashing::detail::swap_endian(pheader->row_index) % 8;
-        auto const dst_bit_shift = row_index % 32;
+        // Important: we need to know the -source- row index to do this, as that ultimately is what
+        // affects what is in the incoming buffer. the destination row index is irrelevant.
+        auto const src_bit_shift = column_instance_info[col_instance_index].src_row_index % 8;
 
-        // to transform the incoming unadjusted offsets into final offsets
+        // transform the incoming raw offsets into final offsets
         int const offset_shift = [&] __device__() {
           if (btype != buffer_type::OFFSETS) { return 0; }
 
           auto const& col = column_info[col_index];
+          auto const root_partition_offset =
+            (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
           // subtract the first offset value in the buffer, then add the row/char index
           if (col.type == cudf::type_id::STRING) {
-            return column_instance_info[col_instance_index].char_index -
-                   (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
+            return column_instance_info[col_instance_index].char_index - root_partition_offset;
           } else if (col.type == cudf::type_id::LIST) {
             auto const& child_inst = column_instance_info[col_instance_index + 1];
-            return child_inst.row_index -
-                   (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
+            return child_inst.row_index - root_partition_offset;
           }
           // not an offset based column
           return 0;
