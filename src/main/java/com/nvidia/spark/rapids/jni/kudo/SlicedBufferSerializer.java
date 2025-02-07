@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,16 +48,18 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
   private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
   private final WriteMetrics metrics;
+  private final boolean addCopyBufferTime;
   private long totalDataLen;
 
   SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer,
-                         WriteMetrics metrics) {
+                         WriteMetrics metrics, boolean addCopyBufferTime) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.bufferType = bufferType;
     this.writer = writer;
     this.sliceInfos.addLast(root);
     this.metrics = metrics;
     this.totalDataLen = 0;
+    this.addCopyBufferTime = addCopyBufferTime;
   }
 
   public long getTotalDataLen() {
@@ -209,10 +211,15 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
   private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)
       throws IOException {
-    long now = System.nanoTime();
-    writer.copyDataFrom(buffer, offset, length);
-    long ret = padForHostAlignment(writer, length);
-    metrics.addCopyBufferTime(System.nanoTime() - now);
-    return ret;
+    if (addCopyBufferTime) {
+      long now = System.nanoTime();
+      writer.copyDataFrom(buffer, offset, length);
+      long ret = padForHostAlignment(writer, length);
+      metrics.addCopyBufferTime(System.nanoTime() - now);
+      return ret;
+    } else {
+      writer.copyDataFrom(buffer, offset, length);
+      return padForHostAlignment(writer, length);
+    }
   }
 }
