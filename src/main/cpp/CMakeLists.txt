@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.02.00
+  VERSION 25.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -211,6 +211,7 @@ add_library(
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/cast_float_to_string.cu
+  src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu

@@ -197,7 +197,14 @@ public class KudoSerializer {
           .toArray(HostColumnVector[]::new);
 
       Cuda.DEFAULT_STREAM.sync();
-      return writeToStreamWithMetrics(columns, out, rowOffset, numRows);
+
+      WriteInput input = WriteInput.builder()
+          .setColumns(columns)
+          .setOutputStream(out)
+          .setNumRows(numRows)
+          .setRowOffset(rowOffset)
+          .build();
+      return writeToStreamWithMetrics(input);
     } finally {
       if (columns != null) {
         for (HostColumnVector column : columns) {
@@ -205,18 +212,6 @@ public class KudoSerializer {
         }
       }
     }
-  }
-
-  /**
-   * Write partition of an array of {@link HostColumnVector} to an output stream.
-   * See {@link #writeToStreamWithMetrics(HostColumnVector[], OutputStream, int, int)} for more
-   * details.
-   *
-   * @return number of bytes written
-   */
-  public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset,
-                            int numRows) {
-    return writeToStreamWithMetrics(columns, out, rowOffset, numRows).getWrittenBytes();
   }
 
   /**
@@ -234,24 +229,33 @@ public class KudoSerializer {
    */
   public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, OutputStream out,
                                                int rowOffset, int numRows) {
-
-    return writeToStreamWithMetrics(columns, writerFrom(out), rowOffset, numRows);
+    WriteInput input =  WriteInput.builder()
+        .setColumns(columns)
+        .setOutputStream(out)
+        .setNumRows(numRows)
+        .setRowOffset(rowOffset)
+        .build();
+    return writeToStreamWithMetrics(input);
   }
 
-  public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, DataWriter out,
-                                               int rowOffset, int numRows) {
-    ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
-    ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
+  /**
+   * Write partition of an array of {@link HostColumnVector} to an output stream.
+   *
+   * @param input Arguments for writing to output stream.
+   * @return Metrics during write.
+   */
+  public WriteMetrics writeToStreamWithMetrics(WriteInput input) {
+    ensure(input.numRows > 0, () -> "numRows must be > 0, but was " + input.numRows);
+    ensure(input.columns.length > 0, () -> "columns must not be empty, for row count only records " +
         "please call writeRowCountToStream");
 
     try {
-      return writeSliced(columns, out, rowOffset, numRows);
+      return writeSliced(input.columns, writerFrom(input.outputStream), input.rowOffset,
+          input.numRows, input.measureCopyBufferTime);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
-
-
 
   /**
    * Write a row count only record to an output stream.
@@ -320,7 +324,7 @@ public class KudoSerializer {
   }
 
   private WriteMetrics writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset,
-                                   int numRows) throws Exception {
+                                   int numRows, boolean measureCopyBufferTime) throws Exception {
     WriteMetrics metrics = new WriteMetrics();
     KudoTableHeaderCalc headerCalc =
         new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
@@ -336,8 +340,9 @@ public class KudoSerializer {
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
-      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType,
-          out, metrics);
+      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset,
+          numRows, bufferType,
+          out, metrics, measureCopyBufferTime);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
