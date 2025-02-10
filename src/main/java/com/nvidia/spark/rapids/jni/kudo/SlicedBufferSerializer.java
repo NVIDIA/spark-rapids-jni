@@ -49,17 +49,15 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
   private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
   private final WriteMetrics metrics;
   private long totalDataLen;
-  private int streamIndex;
 
   SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer,
-                         WriteMetrics metrics, int streamIndex) {
+                         WriteMetrics metrics) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.bufferType = bufferType;
     this.writer = writer;
     this.sliceInfos.addLast(root);
     this.metrics = metrics;
     this.totalDataLen = 0;
-    this.streamIndex = streamIndex;
   }
 
   public long getTotalDataLen() {
@@ -162,7 +160,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     if (column.getValidity() != null && sliceInfo.getRowCount() > 0) {
       HostMemoryBuffer buff = column.getValidity();
       long len = sliceInfo.getValidityBufferInfo().getBufferLength();
-      return copyBufferAndPadForHost("VALIDITY", buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
+      return copyBufferAndPadForHost(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
     } else {
       return 0;
     }
@@ -176,7 +174,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     }
     long bytesToCopy = (sliceInfo.rowCount + 1) * Integer.BYTES;
     long srcOffset = sliceInfo.offset * Integer.BYTES;
-    return copyBufferAndPadForHost("OFFSETS", column.getOffsets(), srcOffset, bytesToCopy);
+    return copyBufferAndPadForHost(column.getOffsets(), srcOffset, bytesToCopy);
   }
 
   private long copySlicedData(HostColumnVectorCore column, SliceInfo sliceInfo) throws IOException {
@@ -195,12 +193,12 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
           return 0;
         } else {
-          return copyBufferAndPadForHost("DATA " + column.getType(), column.getData(), startByteOffset, bytesToCopy);
+          return copyBufferAndPadForHost(column.getData(), startByteOffset, bytesToCopy);
         }
       } else if (type.getSizeInBytes() > 0) {
         long bytesToCopy = sliceInfo.rowCount * type.getSizeInBytes();
         long srcOffset = sliceInfo.offset * type.getSizeInBytes();
-        return copyBufferAndPadForHost("DATA " + column.getType(), column.getData(), srcOffset, bytesToCopy);
+        return copyBufferAndPadForHost(column.getData(), srcOffset, bytesToCopy);
       } else {
         return 0;
       }
@@ -209,16 +207,12 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     }
   }
 
-  private long copyBufferAndPadForHost(String name, HostMemoryBuffer buffer, long offset, long length)
+  private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)
       throws IOException {
     long now = System.nanoTime();
     writer.copyDataFrom(buffer, offset, length);
     long ret = padForHostAlignment(writer, length);
     metrics.addCopyBufferTime(System.nanoTime() - now);
-    System.err.println(name + " AT " + streamIndex +
-        " TO " + (streamIndex + length) +
-        " PADDED TO " + (streamIndex + ret));
-    streamIndex += (int) ret;
     return ret;
   }
 }

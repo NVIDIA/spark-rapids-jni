@@ -110,7 +110,7 @@ public class KudoGpuSerializerTest {
         }
         // TODO verify that there is nothing more to read
         ByteArrayInputStream bin = new ByteArrayInputStream(hData);
-        try (KudoTable kt = KudoTable.from(bin, serializer.getColumnCount()).get();
+        try (KudoTable kt = KudoTable.from(bin).get();
              Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
           assertTablesAreEqual(table, combined);
         }

@@ -45,6 +45,7 @@ public final class KudoTableHeader {
   private final int validityBufferLen;
   private final int offsetBufferLen;
   private final int totalDataLen;
+  private final int numColumns;
   // A bit set to indicate if a column has a validity buffer or not. Each column is represented by a single bit.
   private final byte[] hasValidityBuffer;
 
@@ -55,12 +56,10 @@ public final class KudoTableHeader {
    * @return the table header. If an EOFException is encountered at the beginning, returns empty result.
    * @throws IOException if an I/O error occurs
    */
-  public static Optional<KudoTableHeader> readFrom(DataInputStream din, int numColumns) throws IOException {
+  public static Optional<KudoTableHeader> readFrom(DataInputStream din) throws IOException {
     int num;
     try {
-      System.err.println("READ HEADER...");
       num = din.readInt();
-      System.err.println("GOT MAGIC NUMBER " + num + " vs " + SER_FORMAT_MAGIC_NUMBER);
       if (num != SER_FORMAT_MAGIC_NUMBER) {
         throw new IllegalStateException("Kudo format error, expected magic number " + SER_FORMAT_MAGIC_NUMBER +
             " found " + num);
@@ -72,28 +71,18 @@ public final class KudoTableHeader {
     }
 
     int offset = din.readInt();
-    System.err.println("GOT OFFSET " + offset);
     int numRows = din.readInt();
-    System.err.println("GOT NUM ROWS " + numRows);
 
     int validityBufferLen = din.readInt();
-    System.err.println("GOT VALID LEN " + validityBufferLen);
     int offsetBufferLen = din.readInt();
-    System.err.println("GOT OFFSET LEN " + offsetBufferLen);
     int totalDataLen = din.readInt();
-    System.err.println("GOT TOTAL LEN " + totalDataLen);
+    int numColumns = din.readInt();
     int validityBufferLength = lengthOfHasValidityBuffer(numColumns);
-    System.err.println("VALID BUFFER LEN CALC FOR NUM COLS " + validityBufferLength + " FROM " + numColumns);
     byte[] hasValidityBuffer = new byte[validityBufferLength];
     din.readFully(hasValidityBuffer);
 
-    KudoTableHeader header = new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen,
-        numColumns, hasValidityBuffer);
-    int amountPadded = header.getSerializedSize() - header.getNonPaddedSerializedSize();
-
-    din.skipBytes(amountPadded);
-
-    return Optional.of(header);
+    return Optional.of(new KudoTableHeader(offset, numRows, validityBufferLen, offsetBufferLen, totalDataLen, numColumns,
+        hasValidityBuffer));
   }
 
   KudoTableHeader(int offset, int numRows, int validityBufferLen, int offsetBufferLen,
@@ -103,7 +92,7 @@ public final class KudoTableHeader {
     this.validityBufferLen = ensureNonNegative(validityBufferLen, "validityBufferLen");
     this.offsetBufferLen = ensureNonNegative(offsetBufferLen, "offsetBufferLen");
     this.totalDataLen = ensureNonNegative(totalDataLen, "totalDataLen");
-    ensureNonNegative(numColumns, "numColumns");
+    this.numColumns = ensureNonNegative(numColumns, "numColumns");
 
     requireNonNull(hasValidityBuffer, "hasValidityBuffer cannot be null");
     ensure(hasValidityBuffer.length == lengthOfHasValidityBuffer(numColumns),
@@ -148,6 +137,7 @@ public final class KudoTableHeader {
    *   <li>Validity buffer length</li>
    *   <li>Offset buffer length</li>
    *   <li>Total data length</li>
+   *   <li>Number of columns</li>
    *   <li>hasValidityBuffer</li>
    * </ol>
    * <p>
@@ -157,11 +147,11 @@ public final class KudoTableHeader {
    * @return the size of the serialized header.
    */
   public int getSerializedSize() {
-    return (int)KudoSerializer.padForHostAlignment(getNonPaddedSerializedSize());
+    return 7 * Integer.BYTES + hasValidityBuffer.length;
   }
 
-  int getNonPaddedSerializedSize() {
-    return (6 * Integer.BYTES) + hasValidityBuffer.length;
+  public int getNumColumns() {
+    return numColumns;
   }
 
   public int getValidityBufferLen() {
@@ -172,40 +162,17 @@ public final class KudoTableHeader {
     return offsetBufferLen;
   }
 
-  public int writeTo(DataWriter dout) throws IOException {
-    int streamIndex = 0;
+  public void writeTo(DataWriter dout) throws IOException {
     // Now write out the data
-    System.err.println("MAGIC NUMBER AT " + streamIndex);
     dout.writeInt(SER_FORMAT_MAGIC_NUMBER);
-    streamIndex += 4;
 
     dout.writeInt(offset);
-    System.err.println("OFFSET AT " + streamIndex);
-    streamIndex += 4;
-
     dout.writeInt(numRows);
-    System.err.println("NUM ROWS AT " + streamIndex);
-    streamIndex += 4;
-
     dout.writeInt(validityBufferLen);
-    System.err.println("VALIDITY BUF LEN AT " + streamIndex);
-    streamIndex += 4;
-
     dout.writeInt(offsetBufferLen);
-    System.err.println("OFFSET BUFF LEN AT " + streamIndex);
-    streamIndex += 4;
-
     dout.writeInt(totalDataLen);
-    System.err.println("TOTAL DATA LEN AT " + streamIndex);
-    streamIndex += 4;
-
+    dout.writeInt(numColumns);
     dout.write(hasValidityBuffer, 0, hasValidityBuffer.length);
-    System.err.println("VALIDITY AT " + streamIndex + " TO " + (streamIndex + hasValidityBuffer.length));
-    streamIndex += hasValidityBuffer.length;
-
-    streamIndex = (int) KudoSerializer.padForHostAlignment(dout, streamIndex);
-    System.err.println("HEADER PADDED TO " + streamIndex);
-    return streamIndex;
   }
 
   @Override
@@ -216,6 +183,7 @@ public final class KudoTableHeader {
         ", validityBufferLen=" + validityBufferLen +
         ", offsetBufferLen=" + offsetBufferLen +
         ", totalDataLen=" + totalDataLen +
+        ", numColumns=" + numColumns +
         ", hasValidityBuffer=" + Arrays.toString(hasValidityBuffer) +
         '}';
   }

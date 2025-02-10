@@ -46,7 +46,6 @@ public class KudoTable implements AutoCloseable {
     requireNonNull(header, "Header must not be null");
     this.header = header;
     this.buffer = buffer;
-    System.err.println("KUDO Table " + header + " " + buffer);
   }
 
   /**
@@ -56,14 +55,13 @@ public class KudoTable implements AutoCloseable {
    * @return the kudo table, or empty if the input stream is empty.
    * @throws IOException if an I/O error occurs
    */
-  public static Optional<KudoTable> from(InputStream in, int numColumns) throws IOException {
+  public static Optional<KudoTable> from(InputStream in) throws IOException {
     requireNonNull(in, "Input stream must not be null");
 
     DataInputStream din = readerFrom(in);
-    return KudoTableHeader.readFrom(din, numColumns).map(header -> {
+    return KudoTableHeader.readFrom(din).map(header -> {
       // Header only
-      if (numColumns == 0) {
-        System.err.println("ROW COUNT ONLY BUFFER");
+      if (header.getNumColumns() == 0) {
         return new KudoTable(header, null);
       }
 

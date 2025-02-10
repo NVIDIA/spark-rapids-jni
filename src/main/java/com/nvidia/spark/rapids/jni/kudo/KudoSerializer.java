@@ -19,7 +19,12 @@ package com.nvidia.spark.rapids.jni.kudo;
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
 
-import ai.rapids.cudf.*;
+import ai.rapids.cudf.BufferType;
+import ai.rapids.cudf.Cuda;
+import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.JCudfSerialization;
+import ai.rapids.cudf.Schema;
+import ai.rapids.cudf.Table;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
@@ -98,6 +103,13 @@ import java.util.stream.IntStream;
  *         <td>Length of total body, in big endian format</td>
  *     </tr>
  *     <tr>
+ *         <td>Number of columns</td>
+ *         <td>4</td>
+ *         <td>Number of columns in flattened schema, in big endian format. For details of <q>flattened schema</q>,
+ *         see {@link com.nvidia.spark.rapids.jni.schema.SchemaVisitor}
+ *         </td>
+ *     </tr>
+ *     <tr>
  *         <td>hasValidityBuffer</td>
  *         <td>(number of columns + 7) / 8</td>
  *         <td>A bit set to indicate whether a column has validity buffer. To test if column
@@ -160,10 +172,6 @@ public class KudoSerializer {
     requireNonNull(schema, "schema is null");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
-  }
-
-  public int getColumnCount() {
-    return flattenedColumnCount;
   }
 
   /**
@@ -271,7 +279,7 @@ public class KudoSerializer {
   public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
     MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
 
-    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables, flattenedColumnCount),
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
         metricsBuilder::calcHeaderTime);
     KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
         metricsBuilder::mergeIntoHostBufferTime);
@@ -294,10 +302,9 @@ public class KudoSerializer {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
     try (KudoHostMergeResult children = result.getLeft()) {
-      System.err.println("Merged on host " + children);
       Table table = withTime(children::toTable,
           builder::convertToTableTime);
-      TableDebug.get().debug("RESULT", table);
+
       return Pair.of(table, builder.build());
     }
   }
@@ -310,17 +317,16 @@ public class KudoSerializer {
     withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
     KudoTableHeader header = headerCalc.getHeader();
     long currentTime = System.nanoTime();
-    int streamIndex = header.writeTo(out);
+    header.writeTo(out);
     metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
     metrics.addWrittenBytes(header.getSerializedSize());
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
       SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType,
-          out, metrics, streamIndex);
+          out, metrics);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
-      streamIndex += (int)serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
     }
 

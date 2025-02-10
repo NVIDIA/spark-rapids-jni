@@ -37,10 +37,10 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
   // Column offset in gpu device buffer, it has one field for each flattened column
   private final List<ColumnOffsetInfo> columnOffsets;
 
-  public MergedInfoCalc(List<KudoTable> tables, int flattenedColumnCount) {
+  public MergedInfoCalc(List<KudoTable> tables) {
     super(tables);
     this.totalDataLen = 0;
-    this.columnOffsets = new ArrayList<>(flattenedColumnCount);
+    this.columnOffsets = new ArrayList<>(tables.get(0).getHeader().getNumColumns());
   }
 
   @Override
@@ -160,8 +160,8 @@ class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
         '}';
   }
 
-  static MergedInfoCalc calc(Schema schema, List<KudoTable> table, int flattenedColumnCount) {
-    MergedInfoCalc calc = new MergedInfoCalc(table, flattenedColumnCount);
+  static MergedInfoCalc calc(Schema schema, List<KudoTable> table) {
+    MergedInfoCalc calc = new MergedInfoCalc(table);
     Visitors.visitSchema(schema, calc);
     return calc;
   }
