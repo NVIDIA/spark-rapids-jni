@@ -61,6 +61,7 @@ struct partition_header {
   uint32_t validity_size;
   uint32_t offset_size;
   uint32_t data_size;
+  uint32_t num_flattened_columns; // used by the CPU version, but not the GPU version
 };
 
 // padding values for each validity type, as applied at the end of that data type
