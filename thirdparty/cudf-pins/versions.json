@@ -41,7 +41,19 @@
               "index 7d9e8622f..da5627306 100644",
               "--- a/cub/cub/thread/thread_sort.cuh",
               "+++ b/cub/cub/thread/thread_sort.cuh",
-              "@@ -87,10 +87,10 @@ StableOddEvenSort(KeyT (&keys)[ITEMS_PER_THREAD], ValueT (&items)[ITEMS_PER_THRE; {;   constexpr bool KEYS_ONLY = ::cuda::std::is_same<ValueT, NullType>::value;;;-#pragma unroll;+#pragma unroll 1;   for (int i = 0; i < ITEMS_PER_THREAD; ++i);   {;-#pragma unroll;+#pragma unroll 1;     for (int j = 1 & i; j < ITEMS_PER_THREAD - 1; j += 2);     {;       if (compare_op(keys[j + 1], keys[j]))"
+              "@@ -87,10 +87,10 @@ StableOddEvenSort(KeyT (&keys)[ITEMS_PER_THREAD], ValueT (&items)[ITEMS_PER_THRE",
+              " {",
+              "   constexpr bool KEYS_ONLY = ::cuda::std::is_same<ValueT, NullType>::value;",
+              "",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "   for (int i = 0; i < ITEMS_PER_THREAD; ++i)",
+              "   {",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "     for (int j = 1 & i; j < ITEMS_PER_THREAD - 1; j += 2)",
+              "     {",
+              "       if (compare_op(keys[j + 1], keys[j]))"
             ],
             "type" : "diff"
           },
@@ -197,7 +209,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5a825df50e53d546c0b08f2c57f0a578e42fd328",
+      "git_tag" : "c38038e09f5f0687d880a751bcb125c6fb5f35fb",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.04"
     },
