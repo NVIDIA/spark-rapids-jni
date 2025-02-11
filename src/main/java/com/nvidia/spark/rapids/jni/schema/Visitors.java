@@ -54,35 +54,6 @@ public class Visitors {
         return visitor.visitTopSchema(schema, childrenResult);
     }
 
-    public static void visitSchema(Schema schema, SchemaVisitor2 visitor) {
-        requireNonNull(schema, "schema cannot be null");
-        requireNonNull(visitor, "visitor cannot be null");
-
-        for (int i = 0; i < schema.getNumChildren(); i++) {
-            visitSchemaInner(schema.getChild(i), visitor);
-        }
-        visitor.visitTopSchema(schema);
-    }
-
-    private static void visitSchemaInner(Schema schema, SchemaVisitor2 visitor) {
-        switch (schema.getType().getTypeId()) {
-            case STRUCT:
-                for (int i=0; i<schema.getNumChildren(); i++) {
-                    visitSchemaInner(schema.getChild(i), visitor);
-                }
-                visitor.visitStruct(schema);
-                break;
-            case LIST:
-                visitor.preVisitList(schema);
-                visitSchemaInner(schema.getChild(0), visitor);
-                visitor.visitList(schema);
-                break;
-            default:
-                visitor.visit(schema);
-                break;
-        }
-    }
-
     private static <T, P, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, P, R> visitor) {
         switch (schema.getType().getTypeId()) {
             case STRUCT:
