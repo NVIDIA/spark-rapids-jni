@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 import ai.rapids.cudf.BufferType;
@@ -28,6 +29,7 @@ import ai.rapids.cudf.Table;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -328,6 +330,9 @@ public class KudoSerializer {
         new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
     withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
     KudoTableHeader header = headerCalc.getHeader();
+
+    out.reserve(toIntExact(header.getSerializedSize() + header.getTotalDataLen()));
+
     long currentTime = System.nanoTime();
     header.writeTo(out);
     metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
@@ -355,10 +360,15 @@ public class KudoSerializer {
   }
 
   private static DataWriter writerFrom(OutputStream out) {
-    if (!(out instanceof DataOutputStream)) {
-      out = new DataOutputStream(new BufferedOutputStream(out));
+    if (out instanceof DataOutputStream) {
+      return new DataOutputStreamWriter((DataOutputStream) out);
+    } else if (out instanceof OpenByteArrayOutputStream) {
+      return new OpenByteArrayOutputStreamWriter((OpenByteArrayOutputStream) out);
+    } else if (out instanceof ByteArrayOutputStream) {
+      return new ByteArrayOutputStreamWriter((ByteArrayOutputStream) out);
+    } else {
+      return new DataOutputStreamWriter(new DataOutputStream(new BufferedOutputStream(out)));
     }
-    return new DataOutputStreamWriter((DataOutputStream) out);
   }
 
 
