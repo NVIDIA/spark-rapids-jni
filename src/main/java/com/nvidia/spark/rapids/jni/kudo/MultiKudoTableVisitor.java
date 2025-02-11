@@ -202,7 +202,7 @@ abstract class MultiKudoTableVisitor<T, P, R> implements SchemaVisitor<T, P, R> 
         }
 
         if (tables.get(tableIdx).getHeader().hasValidityBuffer(currentIdx)) {
-          currentValidityOffsets[tableIdx] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+          currentValidityOffsets[tableIdx] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
 
         if (updateOffset) {

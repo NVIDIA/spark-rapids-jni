@@ -71,7 +71,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
     long validityBufferLength = 0;
     if (col.hasValidityVector()) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     this.validityBufferLen += validityBufferLength;
@@ -88,7 +88,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
     long validityBufferLength = 0;
     if (col.hasValidityVector() && parent.rowCount > 0) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     long offsetBufferLength = 0;
@@ -152,7 +152,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor<Void> {
 
   private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (col.hasValidityVector() && info.getRowCount() > 0) {
-      return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
+      return info.getValidityBufferInfo().getBufferLength();
     } else {
       return 0;
     }

@@ -160,7 +160,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     if (column.getValidity() != null && sliceInfo.getRowCount() > 0) {
       HostMemoryBuffer buff = column.getValidity();
       long len = sliceInfo.getValidityBufferInfo().getBufferLength();
-      return copyBufferAndPadForHost(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
+      return copyWithoutPadding(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
     } else {
       return 0;
     }
@@ -205,6 +205,14 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     } else {
       return 0;
     }
+  }
+
+  private long copyWithoutPadding(HostMemoryBuffer buffer, long offset, long length)
+      throws IOException {
+    long now = System.nanoTime();
+    writer.copyDataFrom(buffer, offset, length);
+    metrics.addCopyBufferTime(System.nanoTime() - now);
+    return length;
   }
 
   private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)

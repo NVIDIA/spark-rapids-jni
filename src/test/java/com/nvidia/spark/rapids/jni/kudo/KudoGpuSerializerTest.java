@@ -69,6 +69,122 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  public static void logPartitionComparison(byte[] hDataGPU, byte[] hDataCPU) {
+    System.err.println("     COMP GPU(" + hDataGPU.length + ") VS CPU(" + hDataCPU.length + ")");
+    int len = Math.max(hDataGPU.length, hDataCPU.length);
+    int hasValidLen = -1;
+    for (int i = 0; i < len; i++) {
+      Byte gpuByte = null;
+      Byte cpuByte = null;
+      String gpu = "N/A     ";
+      if (i < hDataGPU.length) {
+        gpuByte = hDataGPU[i];
+        gpu = String.format("0x%02X %03d", hDataGPU[i] & 0xFF, hDataGPU[i]);
+      }
+
+      String cpu = "N/A     ";
+      if (i < hDataCPU.length) {
+        cpuByte = hDataCPU[i];
+        cpu = String.format("0x%02X %03d", hDataCPU[i] & 0xFF, hDataCPU[i]);
+      }
+
+      String diff = "   ";
+      if (cpuByte != gpuByte) {
+        diff = "***";
+      }
+      String extra = "";
+      if (i == 0) {
+        extra = " <-- MAGIC START";
+      } else if (i == 3) {
+        extra = " <-- MAGIC END";
+      } else if (i == 4) {
+        extra = " <-- OFFSET START";
+      } else if (i == 7) {
+        extra = " <-- OFFSET END";
+      } else if (i == 8) {
+        extra = " <-- NUM_ROWS START";
+      } else if (i == 11) {
+        extra = " <-- NUM_ROWS END";
+      } else if (i == 12) {
+        extra = " <-- VALIDITY_BUF_LEN START";
+      } else if (i == 15) {
+        extra = " <-- VALIDITY_BUF_LEN END";
+      } else if (i == 16) {
+        extra = " <-- OFFSET_BUF_LEN START";
+      } else if (i == 19) {
+        extra = " <-- OFFSET_BUF_LEN END";
+      } else if (i == 20) {
+        extra = " <-- TOTAL_DATA_LEN START";
+      } else if (i == 23) {
+        extra = " <-- TOTAL_DATA_LEN END";
+      } else if (i == 24) {
+        extra = " <-- NUM_COL START";
+      } else if (i == 27) {
+        extra = " <-- NUM_COL END";
+        int gpuNumCol = (hDataGPU[24] << 24) + (hDataGPU[25] << 16) + (hDataGPU[26] << 8) + hDataGPU[27];
+        hasValidLen = (gpuNumCol + 7) / 8;
+      } else if (hasValidLen == 1 && i == 28) {
+        extra = " <-- HAS_VALID_BUF";
+      } else if (hasValidLen > 1 && i == 28) {
+        extra = " <-- HAS_VALID_BUF START";
+      } else if (hasValidLen > 1 && i == (27 + hasValidLen)) {
+        extra = " <-- HAS_VALID_BUF END";
+      }
+      String i_str = String.format("%04d: ", i);
+      System.err.println(i_str + diff + " " + gpu + " VS " + cpu  + extra);
+    }
+  }
+
+  public static void logPartition(byte[] hData) {
+    System.err.println("PARTITION (" + hData.length + ")");
+    int len = hData.length;
+    int hasValidLen = -1;
+    for (int i = 0; i < len; i++) {
+      String dataAsString = String.format("0x%02X %03d", hData[i] & 0xFF, hData[i]);
+
+      String extra = "";
+      if (i == 0) {
+        extra = " <-- MAGIC START";
+      } else if (i == 3) {
+        extra = " <-- MAGIC END";
+      } else if (i == 4) {
+        extra = " <-- OFFSET START";
+      } else if (i == 7) {
+        extra = " <-- OFFSET END";
+      } else if (i == 8) {
+        extra = " <-- NUM_ROWS START";
+      } else if (i == 11) {
+        extra = " <-- NUM_ROWS END";
+      } else if (i == 12) {
+        extra = " <-- VALIDITY_BUF_LEN START";
+      } else if (i == 15) {
+        extra = " <-- VALIDITY_BUF_LEN END";
+      } else if (i == 16) {
+        extra = " <-- OFFSET_BUF_LEN START";
+      } else if (i == 19) {
+        extra = " <-- OFFSET_BUF_LEN END";
+      } else if (i == 20) {
+        extra = " <-- TOTAL_DATA_LEN START";
+      } else if (i == 23) {
+        extra = " <-- TOTAL_DATA_LEN END";
+      } else if (i == 24) {
+        extra = " <-- NUM_COL START";
+      } else if (i == 27) {
+        extra = " <-- NUM_COL END";
+        int gpuNumCol = (hData[24] << 24) + (hData[25] << 16) + (hData[26] << 8) + hData[27];
+        hasValidLen = (gpuNumCol + 7) / 8;
+      } else if (hasValidLen == 1 && i == 28) {
+        extra = " <-- HAS_VALID_BUF";
+      } else if (hasValidLen > 1 && i == 28) {
+        extra = " <-- HAS_VALID_BUF START";
+      } else if (hasValidLen > 1 && i == (27 + hasValidLen)) {
+        extra = " <-- HAS_VALID_BUF END";
+      }
+      String i_str = String.format("%04d: ", i);
+      System.err.println(i_str + dataAsString  + extra);
+    }
+  }
+
   @Test
   public void testSinglePartWriteCPURead() throws Exception {
     try (Table table = new Table.TestBuilder()
@@ -90,76 +206,15 @@ public class KudoGpuSerializerTest {
         ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
         serializer.writeToStreamWithMetrics(table, tmpOut, 0, 5);
         byte[] hDataCPU = tmpOut.toByteArray();
-        byte[] hData = new byte[(int) data.getLength()]; // It will not be so large we need a long
+        byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
         try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
           tmp.copyFromDeviceBuffer(data);
-          tmp.getBytes(hData, 0, 0, hData.length);
+          tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
         }
-        System.err.println("     COMP GPU(" + hData.length + ") VS CPU(" + hDataCPU.length + ")");
-        int len = Math.max(hData.length, hDataCPU.length);
-        int hasValidLen = -1;
-        for (int i = 0; i < len; i++) {
-          Byte gpuByte = null;
-          Byte cpuByte = null;
-          String gpu = "N/A     ";
-          if (i < hData.length) {
-            gpuByte = hData[i];
-            gpu = String.format("0x%02X %03d", hData[i] & 0xFF, hData[i]);
-          }
+        logPartitionComparison(hDataGPU, hDataCPU);
 
-          String cpu = "N/A     ";
-          if (i < hDataCPU.length) {
-            cpuByte = hDataCPU[i];
-            cpu = String.format("0x%02X %03d", hDataCPU[i] & 0xFF, hDataCPU[i]);
-          }
-
-          String diff = "   ";
-          if (cpuByte != gpuByte) {
-            diff = "***";
-          }
-          String extra = "";
-          if (i == 0) {
-            extra = " <-- MAGIC START";
-          } else if (i == 3) {
-            extra = " <-- MAGIC END";
-          } else if (i == 4) {
-            extra = " <-- OFFSET START";
-          } else if (i == 7) {
-            extra = " <-- OFFSET END";
-          } else if (i == 8) {
-            extra = " <-- NUM_ROWS START";
-          } else if (i == 11) {
-            extra = " <-- NUM_ROWS END";
-          } else if (i == 12) {
-            extra = " <-- VALIDITY_BUF_LEN START";
-          } else if (i == 15) {
-            extra = " <-- VALIDITY_BUF_LEN END";
-          } else if (i == 16) {
-            extra = " <-- OFFSET_BUF_LEN START";
-          } else if (i == 19) {
-            extra = " <-- OFFSET_BUF_LEN END";
-          } else if (i == 20) {
-            extra = " <-- TOTAL_DATA_LEN START";
-          } else if (i == 23) {
-            extra = " <-- TOTAL_DATA_LEN END";
-          } else if (i == 24) {
-            extra = " <-- NUM_COL START";
-          } else if (i == 27) {
-            extra = " <-- NUM_COL END";
-            int gpuNumCol = (hData[24] << 24) + (hData[25] << 16) + (hData[26] << 8) + hData[27];
-            hasValidLen = (gpuNumCol + 7) / 8;
-          } else if (hasValidLen == 1 && i == 28) {
-            extra = " <-- HAS_VALID_BUF";
-          } else if (hasValidLen > 1 && i == 28) {
-            extra = " <-- HAS_VALID_BUF START";
-          } else if (hasValidLen > 1 && i == (27 + hasValidLen)) {
-            extra = " <-- HAS_VALID_BUF END";
-          }
-          String i_str = String.format("%04d: ", i);
-          System.err.println(i_str + diff + " " + gpu + " VS " + cpu  + extra);
-        }
         // TODO verify that there is nothing more to read
-        ByteArrayInputStream bin = new ByteArrayInputStream(hData);
+        ByteArrayInputStream bin = new ByteArrayInputStream(hDataGPU);
         try (KudoTable kt = KudoTable.from(bin).get();
              Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
           assertTablesAreEqual(table, combined);
