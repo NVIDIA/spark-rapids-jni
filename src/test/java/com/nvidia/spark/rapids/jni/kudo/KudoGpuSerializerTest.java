@@ -69,10 +69,13 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  public static void logPartitionComparison(byte[] hDataGPU, byte[] hDataCPU) {
-    System.err.println("     COMP GPU(" + hDataGPU.length + ") VS CPU(" + hDataCPU.length + ")");
+  public static void logPartitionComparison(String name, byte[] hDataGPU, byte[] hDataCPU) {
+    System.err.println(name + " COMP GPU(" + hDataGPU.length + ") VS CPU(" + hDataCPU.length + ")");
     int len = Math.max(hDataGPU.length, hDataCPU.length);
-    int hasValidLen = -1;
+    int hasValidStart = -1;
+    int hasValidEnd = -1;
+    int validityBuffersStart = -1;
+    int validityBuffersEnd = -1;
     for (int i = 0; i < len; i++) {
       Byte gpuByte = null;
       Byte cpuByte = null;
@@ -122,23 +125,45 @@ public class KudoGpuSerializerTest {
       } else if (i == 27) {
         extra = " <-- NUM_COL END";
         int gpuNumCol = (hDataGPU[24] << 24) + (hDataGPU[25] << 16) + (hDataGPU[26] << 8) + hDataGPU[27];
-        hasValidLen = (gpuNumCol + 7) / 8;
-      } else if (hasValidLen == 1 && i == 28) {
+        int hasValidLen = (gpuNumCol + 7) / 8;
+        if (hasValidLen > 0) {
+          hasValidStart = 28;
+          hasValidEnd = hasValidStart + hasValidLen - 1;
+        } else {
+          hasValidEnd = 28;
+        }
+        int validityBuffsLen = (hDataGPU[24] << 12) + (hDataGPU[13] << 16) + (hDataGPU[14] << 8) + hDataGPU[15];
+        if (validityBuffsLen > 0) {
+          validityBuffersStart = hasValidEnd + 1;
+          validityBuffersEnd = validityBuffersStart + validityBuffsLen - 1;
+        } else {
+          validityBuffersEnd = hasValidEnd;
+        }
+      } else if (hasValidStart == hasValidEnd && i == hasValidStart) {
         extra = " <-- HAS_VALID_BUF";
-      } else if (hasValidLen > 1 && i == 28) {
+      } else if (hasValidStart == i) {
         extra = " <-- HAS_VALID_BUF START";
-      } else if (hasValidLen > 1 && i == (27 + hasValidLen)) {
+      } else if (hasValidStart > 0 && hasValidEnd == i) {
         extra = " <-- HAS_VALID_BUF END";
+      } else if (validityBuffersStart == validityBuffersEnd && i == validityBuffersStart) {
+        extra = " <-- VALIDITY_BUFFERS";
+      } else if (validityBuffersStart == i) {
+        extra = " <-- VALIDITY_BUFFERS START";
+      } else if (validityBuffersStart > 0 && validityBuffersEnd == i) {
+        extra = " <-- VALIDITY_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
       System.err.println(i_str + diff + " " + gpu + " VS " + cpu  + extra);
     }
   }
 
-  public static void logPartition(byte[] hData) {
-    System.err.println("PARTITION (" + hData.length + ")");
+  public static void logPartition(String name, byte[] hData) {
+    System.err.println(name + " PARTITION (" + hData.length + ")");
     int len = hData.length;
-    int hasValidLen = -1;
+    int hasValidStart = -1;
+    int hasValidEnd = -1;
+    int validityBuffersStart = -1;
+    int validityBuffersEnd = -1;
     for (int i = 0; i < len; i++) {
       String dataAsString = String.format("0x%02X %03d", hData[i] & 0xFF, hData[i]);
 
@@ -172,54 +197,80 @@ public class KudoGpuSerializerTest {
       } else if (i == 27) {
         extra = " <-- NUM_COL END";
         int gpuNumCol = (hData[24] << 24) + (hData[25] << 16) + (hData[26] << 8) + hData[27];
-        hasValidLen = (gpuNumCol + 7) / 8;
-      } else if (hasValidLen == 1 && i == 28) {
+        int hasValidLen = (gpuNumCol + 7) / 8;
+        if (hasValidLen > 0) {
+          hasValidStart = 28;
+          hasValidEnd = hasValidStart + hasValidLen - 1;
+        } else {
+          hasValidEnd = 28;
+        }
+        int validityBuffsLen = (hData[24] << 12) + (hData[13] << 16) + (hData[14] << 8) + hData[15];
+        if (validityBuffsLen > 0) {
+          validityBuffersStart = hasValidEnd + 1;
+          validityBuffersEnd = validityBuffersStart + validityBuffsLen - 1;
+        } else {
+          validityBuffersEnd = hasValidEnd;
+        }
+      } else if (hasValidStart == hasValidEnd && i == hasValidStart) {
         extra = " <-- HAS_VALID_BUF";
-      } else if (hasValidLen > 1 && i == 28) {
+      } else if (hasValidStart == i) {
         extra = " <-- HAS_VALID_BUF START";
-      } else if (hasValidLen > 1 && i == (27 + hasValidLen)) {
+      } else if (hasValidStart > 0 && hasValidEnd == i) {
         extra = " <-- HAS_VALID_BUF END";
+      } else if (validityBuffersStart == validityBuffersEnd && i == validityBuffersStart) {
+        extra = " <-- VALIDITY_BUFFERS";
+      } else if (validityBuffersStart == i) {
+        extra = " <-- VALIDITY_BUFFERS START";
+      } else if (validityBuffersStart > 0 && validityBuffersEnd == i) {
+        extra = " <-- VALIDITY_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
       System.err.println(i_str + dataAsString  + extra);
     }
   }
 
-  @Test
-  public void testSinglePartWriteCPURead() throws Exception {
-    try (Table table = new Table.TestBuilder()
-        //.column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
-        //.column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
-        .column("0xFF", null, "0x0F", "0xAA", "0x55")
-        .build()) {
-      DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
-      assertEquals(2, buffers.length);
-      try (DeviceMemoryBuffer data = buffers[0];
-           DeviceMemoryBuffer offsets = buffers[1]) {
-        // Ignoring the offsets for now because it should just be the start to the end of the buffer (one split)
-        Schema s = Schema.builder()
-          //  .column(DType.INT8, "a")
-           // .column(DType.INT16, "b")
-            .column(DType.STRING, "c")
-            .build();
-        KudoSerializer serializer = new KudoSerializer(s);
-        ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
-        serializer.writeToStreamWithMetrics(table, tmpOut, 0, 5);
-        byte[] hDataCPU = tmpOut.toByteArray();
-        byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
-        try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
-          tmp.copyFromDeviceBuffer(data);
-          tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
-        }
-        logPartitionComparison(hDataGPU, hDataCPU);
+  public void doSinglePartGPUWriteCPUReadTest(String name, Table table) throws Exception {
+    DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
+    assertEquals(2, buffers.length);
+    try (DeviceMemoryBuffer data = buffers[0];
+         DeviceMemoryBuffer offsets = buffers[1]) {
+      // Ignoring the offsets for now because it should just be the start to the end of the buffer (one split)
+      Schema s = KudoSerializerTest.schemaOf(table);
+      KudoSerializer serializer = new KudoSerializer(s);
+      ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
+      serializer.writeToStreamWithMetrics(table, tmpOut, 0, 5);
+      byte[] hDataCPU = tmpOut.toByteArray();
+      byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
+      try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
+        tmp.copyFromDeviceBuffer(data);
+        tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
+      }
+      logPartitionComparison(name, hDataGPU, hDataCPU);
 
-        // TODO verify that there is nothing more to read
-        ByteArrayInputStream bin = new ByteArrayInputStream(hDataGPU);
-        try (KudoTable kt = KudoTable.from(bin).get();
-             Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
-          assertTablesAreEqual(table, combined);
-        }
+      // TODO verify that there is nothing more to read
+      ByteArrayInputStream bin = new ByteArrayInputStream(hDataGPU);
+      try (KudoTable kt = KudoTable.from(bin).get();
+           Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
+        assertTablesAreEqual(table, combined);
       }
     }
   }
+
+  @Test
+  public void testSinglePartWriteCPURead() throws Exception {
+    try (Table table = new Table.TestBuilder()
+//        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
+//        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
+        .column("0xFF", null, "0x0F", "0xAA", "0x55")
+        .build()) {
+     doSinglePartGPUWriteCPUReadTest("testSinglePartWriteCPURead", table);
+    }
+  }
+
+//  @Test
+//  public void testSimpleSinglePartWriteCPURead() throws Exception {
+//    try (Table table = KudoSerializerTest.buildSimpleTable()) {
+//      doSinglePartGPUWriteCPUReadTest("testSimpleSinglePartWriteCPURead", table);
+//    }
+//  }
 }

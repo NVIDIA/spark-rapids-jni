@@ -79,8 +79,7 @@ public class KudoSerializerTest {
     try (Table t = buildSimpleTable()) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
-      System.err.println("testWriteSimple: ");
-      KudoGpuSerializerTest.logPartition(out.toByteArray());
+      KudoGpuSerializerTest.logPartition("testWriteSimple", out.toByteArray());
 
       assertEquals(172, bytesWritten);
 
@@ -375,8 +374,7 @@ public class KudoSerializerTest {
       }
       bout.flush();
       if (tableSlices.size() == 1) {
-        System.err.println("checkMergeTable SLICES: " + tableSlices.size());
-        KudoGpuSerializerTest.logPartition(bout.toByteArray());
+        KudoGpuSerializerTest.logPartition("checkMergeTable SLICES: " + tableSlices.size(), bout.toByteArray());
       }
 
       ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
@@ -420,7 +418,7 @@ public class KudoSerializerTest {
     return values;
   }
 
-  private static Schema schemaOf(Table t) {
+  public static Schema schemaOf(Table t) {
     Schema.Builder builder = Schema.builder();
 
     for (int i = 0; i < t.getNumberOfColumns(); i++) {
