@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (c) 2024, NVIDIA CORPORATION.
+ *  Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -27,6 +27,8 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A utility class for visiting a schema or a list of host columns.
  */
@@ -42,8 +44,8 @@ public class Visitors {
      * @return the result of visiting the schema
      */
     public static <T, P, R> R visitSchema(Schema schema, SchemaVisitor<T, P, R> visitor) {
-        Objects.requireNonNull(schema, "schema cannot be null");
-        Objects.requireNonNull(visitor, "visitor cannot be null");
+        requireNonNull(schema, "schema cannot be null");
+        requireNonNull(visitor, "visitor cannot be null");
 
         List<T> childrenResult = IntStream.range(0, schema.getNumChildren())
                 .mapToObj(i -> visitSchemaInner(schema.getChild(i), visitor))
@@ -74,12 +76,11 @@ public class Visitors {
      *
      * @param cols the list of host columns to visit
      * @param visitor the visitor to use
-     * @param <T> Return type when visiting intermediate nodes. See {@link HostColumnsVisitor}
      */
-    public static <T> void visitColumns(HostColumnVector[] cols,
-                                        HostColumnsVisitor<T> visitor) {
-        Objects.requireNonNull(cols, "cols cannot be null");
-        Objects.requireNonNull(visitor, "visitor cannot be null");
+    public static void visitColumns(HostColumnVector[] cols,
+                                        HostColumnsVisitor visitor) {
+        requireNonNull(cols, "cols cannot be null");
+        requireNonNull(visitor, "visitor cannot be null");
 
         for (HostColumnVector col : cols) {
             visitColumn(col, visitor);
@@ -87,19 +88,21 @@ public class Visitors {
 
     }
 
-    private static <T> T visitColumn(HostColumnVectorCore col, HostColumnsVisitor<T> visitor) {
+    private static void visitColumn(HostColumnVectorCore col, HostColumnsVisitor visitor) {
         switch (col.getType().getTypeId()) {
             case STRUCT:
-                List<T> children = IntStream.range(0, col.getNumChildren())
-                        .mapToObj(childIdx -> visitColumn(col.getChildColumnView(childIdx), visitor))
-                        .collect(Collectors.toList());
-                return visitor.visitStruct(col, children);
+                for (int i=0; i<col.getNumChildren(); i++) {
+                    visitColumn(col.getChildColumnView(i), visitor);
+                }
+                visitor.visitStruct(col);
+                return;
             case LIST:
-                T preVisitResult = visitor.preVisitList(col);
-                T childResult = visitColumn(col.getChildColumnView(0), visitor);
-                return visitor.visitList(col, preVisitResult, childResult);
+                visitor.preVisitList(col);
+                visitColumn(col.getChildColumnView(0), visitor);
+                visitor.visitList(col);
+                return;
             default:
-                return visitor.visit(col);
+                visitor.visit(col);
         }
     }
 }

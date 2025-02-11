@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (c) 2024, NVIDIA CORPORATION.
+ *  Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -48,37 +48,33 @@ import java.util.List;
  *
  * </p>
  *
- * @param <T> Return type when visiting intermediate nodes.
  */
-public interface HostColumnsVisitor<T> {
+public interface HostColumnsVisitor {
     /**
      * Visit a struct column.
      * @param col the struct column to visit
-     * @param children the results of visiting the children
      * @return the result of visiting the struct column
      */
-    T visitStruct(HostColumnVectorCore col, List<T> children);
+    void visitStruct(HostColumnVectorCore col);
 
     /**
      * Visit a list column before actually visiting its child.
      * @param col the list column to visit
      * @return the result of visiting the list column
      */
-    T preVisitList(HostColumnVectorCore col);
+    void preVisitList(HostColumnVectorCore col);
 
     /**
      * Visit a list column after visiting its child.
      * @param col the list column to visit
-     * @param preVisitResult the result of visiting the list column before visiting its child
-     * @param childResult the result of visiting the child
      * @return the result of visiting the list column
      */
-    T visitList(HostColumnVectorCore col, T preVisitResult, T childResult);
+    void visitList(HostColumnVectorCore col);
 
     /**
      * Visit a column that is a primitive type.
      * @param col the column to visit
      * @return the result of visiting the column
      */
-    T visit(HostColumnVectorCore col);
+    void visit(HostColumnVectorCore col);
 }
