@@ -475,11 +475,6 @@ public class KudoSerializerTest {
           try (Table merged = serializer.mergeToTable(kudoTables).getLeft()) {
             assertEquals(expected.getRowCount(), merged.getRowCount());
 
-//            TableDebug.builder()
-//                    .withOutput(TableDebug.Output.STDOUT)
-//                    .build()
-//                    .debug("Merged table", merged);
-
             AssertUtils.assertTablesAreEqual(expected, merged);
           }
         } catch (Exception e) {

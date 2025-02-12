@@ -324,12 +324,12 @@ public class KudoConcatValidityTest {
 
       public void appendToDest(HostMemoryBuffer dest) {
         if (allValid) {
-          KudoTableMerger2.appendAllValid(dest, 0, resultStart, this.array.length);
+          KudoTableMerger.appendAllValid(dest, 0, resultStart, this.array.length);
         } else {
           int[] inputBuf = new int[64];
           int[] outputBuf = new int[64];
           try (HostMemoryBuffer src = fillValidityBuffer(this.startRow, array)) {
-            int nullCount = KudoTableMerger2.copyValidityBuffer(dest, 0, resultStart, src, 0, new SliceInfo(this.startRow, array.length), inputBuf, outputBuf);
+            int nullCount = KudoTableMerger.copyValidityBuffer(dest, 0, resultStart, src, 0, new SliceInfo(this.startRow, array.length), inputBuf, outputBuf);
             assertEquals(this.nullCount, nullCount, name + " null count not match");
           }
         }
