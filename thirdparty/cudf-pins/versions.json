@@ -132,7 +132,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "deab5799f3e4226cb8a49acf2199c03b14941ee4",
+      "git_tag" : "7b422c00f3541e2472e8d1047b7c3bb4e83c7e2c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -152,51 +152,6 @@
       "git_url" : "https://github.com/google/flatbuffers.git",
       "version" : "24.3.25"
     },
-    "fmt" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
-      "git_url" : "https://github.com/fmtlib/fmt.git",
-      "patches" : 
-      [
-        {
-          "inline_patch" : 
-          {
-            "content" : 
-            [
-              "diff --git a/include/fmt/base.h b/include/fmt/base.h",
-              "index 62764942..60f7483b 100644",
-              "--- a/include/fmt/base.h",
-              "+++ b/include/fmt/base.h",
-              "@@ -464,6 +464,9 @@ template <typename Char> FMT_CONSTEXPR auto length(const Char* s) -> size_t {",
-              "   return len;",
-              " }",
-              " ",
-              "+#if defined(__NVCC__)",
-              "+#pragma nv_diag_suppress 128",
-              "+#endif",
-              " template <typename Char>",
-              " FMT_CONSTEXPR auto compare(const Char* s1, const Char* s2, std::size_t n)",
-              "     -> int {",
-              "@@ -474,6 +477,9 @@ FMT_CONSTEXPR auto compare(const Char* s1, const Char* s2, std::size_t n)",
-              "   }",
-              "   return 0;",
-              " }",
-              "+#if defined(__NVCC__)",
-              "+#pragma nv_diag_default 128",
-              "+#endif",
-              " ",
-              " namespace adl {",
-              " using namespace std;"
-            ],
-            "type" : "diff"
-          },
-          "issue" : "fmt 11.0.2 produces a warning about an unreachable loop when compiled with nvcc"
-        }
-      ],
-      "version" : "11.0.2"
-    },
     "jitify" : 
     {
       "always_download" : true,
@@ -209,9 +164,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "54b78bdb96dfa55f9902fe123557200d7b018f63",
+      "git_tag" : "c38038e09f5f0687d880a751bcb125c6fb5f35fb",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.02"
+      "version" : "25.04.0"
     },
     "nanoarrow" : 
     {
@@ -220,24 +175,6 @@
       "git_tag" : "4bf5a9322626e95e3717e43de7616c0a256179eb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
       "version" : "0.7.0.dev"
-    },
-    "nvcomp" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "v2.2.0",
-      "git_url" : "https://github.com/NVIDIA/nvcomp.git",
-      "proprietary_binary" : 
-      {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-sbsa/nvcomp-linux-sbsa-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-x86_64/nvcomp-linux-x86_64-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz"
-      },
-      "proprietary_binary_cuda_version_mapping" : 
-      {
-        "11" : "11",
-        "12" : "12"
-      },
-      "version" : "4.1.0.6"
     },
     "nvtx3" : 
     {
@@ -251,7 +188,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8968ab3337f31c845d4e3bf6c55ae89242ded22b",
+      "git_tag" : "46070bb255482f0782ca840ae45de9354380e298",
       "git_url" : "https://github.com/rapidsai/rapids-logger.git",
       "version" : "0.1.0"
     },
@@ -259,17 +196,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2550156919aeb456988bc85a315177ea569d60b4",
+      "git_tag" : "6e8539e42d51852faab5f9b330232168f9223eee",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.02"
-    },
-    "spdlog" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
-      "git_url" : "https://github.com/gabime/spdlog.git",
-      "version" : "1.14.1"
+      "version" : "25.04.0"
     }
   }
 }
