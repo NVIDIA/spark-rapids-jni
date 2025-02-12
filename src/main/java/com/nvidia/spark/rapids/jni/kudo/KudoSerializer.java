@@ -363,7 +363,7 @@ public class KudoSerializer {
     return metrics;
   }
 
-  static DataWriter writerFrom(OutputStream out) {
+  private static DataWriter writerFrom(OutputStream out) {
     if (out instanceof DataOutputStream) {
       return new DataOutputStreamWriter((DataOutputStream) out);
     } else if (out instanceof OpenByteArrayOutputStream) {

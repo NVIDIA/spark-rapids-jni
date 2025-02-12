@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,8 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
-import java.util.List;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
