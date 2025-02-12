@@ -126,6 +126,10 @@ public final class KudoTableHeader {
     return (hasValidityBuffer[pos] & (1 << bit)) != 0;
   }
 
+  byte[] getHasValidityBuffer() {
+    return hasValidityBuffer;
+  }
+
   /**
    * Get the size of the serialized header.
    *
