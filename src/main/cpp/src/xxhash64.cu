@@ -15,9 +15,11 @@
  */
 
 #include "hash.cuh"
+#include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/algorithm.cuh>
+#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -271,6 +273,28 @@ hash_value_type __device__ inline XXHash_64<numeric::decimal128>::operator()(
 /**
  * @brief Computes the hash value of a row in the given table.
  *
+ * This functor uses Spark conventions for xxhash64 hashing, which differs from
+ * the xxhash64 implementation used in the rest of libcudf. These differences
+ * include:
+ * - Serially using the output hash as an input seed for the next item
+ * - Ignorance of null values
+ *
+ * The serial use of hashes as seeds means that data of different nested types
+ * can exhibit hash collisions. For example, a row of an integer column
+ * containing a 1 will have the same hash as a lists column of integers
+ * containing a list of [1] and a struct column of a single integer column
+ * containing a struct of {1}.
+ *
+ * As a consequence of ignoring null values, inputs like [1], [1, null], and
+ * [null, 1] have the same hash (an expected hash collision). This kind of
+ * collision can also occur across a table of nullable columns and with nulls
+ * in structs ({1, null} and {null, 1} have the same hash). The seed value (the
+ * previous element's hash value) is returned as the hash if an element is
+ * null.
+ *
+ * For additional differences such as special tail processing and decimal type
+ * handling, refer to the SparkXXHash64 functor.
+ *
  * @tparam Nullate A cudf::nullate type describing whether to check for nulls.
  */
 template <typename Nullate>
@@ -296,27 +320,186 @@ class device_row_hasher {
 
   /**
    * @brief Computes the hash value of an element in the given column.
+   *
+   * When the column is non-nested, this is a simple wrapper around the element_hasher.
+   * When the column is nested, this uses a seed value to serially compute each
+   * nested element, with the output hash becoming the seed for the next value.
+   * This requires constructing a new hash functor for each nested element,
+   * using the new seed from the previous element's hash. The hash of a null
+   * element is the input seed (the previous element's hash).
    */
   class element_hasher_adapter {
    public:
-    template <typename T, CUDF_ENABLE_IF(cudf::column_device_view::has_element_accessor<T>())>
+    class element_hasher {
+     private:
+      Nullate _check_nulls;
+      hash_value_type _seed;
+
+     public:
+      __device__ element_hasher(Nullate check_nulls, hash_value_type seed)
+        : _check_nulls(check_nulls), _seed(seed)
+      {
+      }
+
+      template <typename T, CUDF_ENABLE_IF(cudf::column_device_view::has_element_accessor<T>())>
+      __device__ hash_value_type operator()(cudf::column_device_view const& col,
+                                            cudf::size_type row_index) const noexcept
+      {
+        if (_check_nulls && col.is_null(row_index)) { return _seed; }
+        return XXHash_64<T>{_seed}(col.element<T>(row_index));
+      }
+
+      template <typename T, CUDF_ENABLE_IF(not cudf::column_device_view::has_element_accessor<T>())>
+      __device__ hash_value_type operator()(cudf::column_device_view const&,
+                                            cudf::size_type) const noexcept
+      {
+        CUDF_UNREACHABLE("Unsupported type for xxhash64");
+      }
+    };
+
+    template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ hash_value_type operator()(cudf::column_device_view const& col,
                                           cudf::size_type row_index,
                                           Nullate const _check_nulls,
                                           hash_value_type const _seed) const noexcept
     {
-      if (_check_nulls && col.is_null(row_index)) { return _seed; }
-      auto const hasher = XXHash_64<T>{_seed};
-      return hasher(col.element<T>(row_index));
+      auto const hasher = element_hasher{_check_nulls, _seed};
+      return hasher.template operator()<T>(col, row_index);
     }
 
-    template <typename T, CUDF_ENABLE_IF(not cudf::column_device_view::has_element_accessor<T>())>
-    __device__ hash_value_type operator()(cudf::column_device_view const&,
-                                          cudf::size_type,
-                                          Nullate const,
-                                          hash_value_type const) const noexcept
+    struct col_stack_frame {
+     private:
+      cudf::column_device_view _column;  // the column to process
+      int _idx_to_process;               // the index of child or element to process next
+
+     public:
+      __device__ col_stack_frame() =
+        delete;  // Because the default constructor of `cudf::column_device_view` is deleted
+
+      __device__ col_stack_frame(cudf::column_device_view col)
+        : _column(std::move(col)), _idx_to_process(0)
+      {
+      }
+
+      __device__ int get_and_inc_idx_to_process() { return _idx_to_process++; }
+
+      __device__ int get_idx_to_process() { return _idx_to_process; }
+
+      __device__ cudf::column_device_view get_column() { return _column; }
+    };
+
+    /**
+     * @brief Functor to compute hash value for nested columns.
+     *
+     * This functor uses a stack to process nested columns. It iterates through the nested columns
+     * in a depth-first manner. The stack is used to keep track of the nested columns that need to
+     * be processed.
+     *
+     * - If the current column is a list column, it replaces the list column with its most inner
+     *   non-list child since null values can be ignored in the xxhash64 computation.
+     * - If the current column is a struct column, there are two cases:
+     *    a. If the struct column has only one row, it would be treated as a struct element. The
+     *      children of the struct element would be pushed into the stack.
+     *    b. If the struct column has multiple rows, it would be treated as a struct column. The
+     *      next struct element would be pushed into the stack.
+     * - If the current column is a primitive column, it computes the hash value.
+     *
+     * For example, consider that the input column is of type `List<Struct<int, float>>`.
+     * Assume that the element at `row_index` is: [(1, 2.0), (3, 4.0)].
+     * The sliced column is noted as L1 here.
+     *
+     *            L1            List<Struct<int, float>>
+     *            |
+     *            S1            Struct<int, float>  ----> `struct_column` with multiple rows
+     *         /     \
+     *       S1[0]  S1[1]       Struct<int, float>  ----> `struct_element` with single row
+     *      /  \    /  \
+     *     i1  f1  i2  f2       Primitive columns
+     *
+     * List level L1:
+     * |Index|List<Struct<int, float>> |
+     * |-----|-------------------------|
+     * |0    |  [(1, 2.0), (3, 4.0)]   |
+     * length: 1
+     * Offsets: 0, 2
+     *
+     * Struct level S1:
+     * |Index|Struct<int, float>|
+     * |-----|------------------|
+     * |0    |  (1, 2.0)        |
+     * |1    |  (3, 4.0)        |
+     * length: 2
+     *
+     * @tparam T Type of the column.
+     * @param col The column to hash.
+     * @param row_index The index of the row to hash.
+     * @param _check_nulls A flag to indicate whether to check for null values.
+     * @param _seed The initial seed value for the hash computation.
+     * @return The computed hash value.
+     *
+     * @note This function is only enabled for nested columns.
+     */
+    template <typename T, CUDF_ENABLE_IF(cudf::is_nested<T>())>
+    __device__ hash_value_type operator()(cudf::column_device_view const& col,
+                                          cudf::size_type row_index,
+                                          Nullate const _check_nulls,
+                                          hash_value_type const _seed) const noexcept
     {
-      CUDF_UNREACHABLE("Unsupported type for xxhash64");
+      hash_value_type ret               = _seed;
+      cudf::column_device_view curr_col = col.slice(row_index, 1);
+      // The default constructor of `col_stack_frame` is deleted, so it can not allocate an array
+      // of `col_stack_frame` directly.
+      // Instead leverage the byte array to create the col_stack_frame array.
+      alignas(col_stack_frame) char stack_wrapper[sizeof(col_stack_frame) * MAX_STACK_DEPTH];
+      auto col_stack = reinterpret_cast<col_stack_frame*>(stack_wrapper);
+      int stack_size = 0;
+
+      col_stack[stack_size++] = col_stack_frame(curr_col);
+
+      while (stack_size > 0) {
+        col_stack_frame& top = col_stack[stack_size - 1];
+        curr_col             = top.get_column();
+        // Replace list column with its most inner non-list child
+        if (curr_col.type().id() == cudf::type_id::LIST) {
+          do {
+            curr_col = cudf::detail::lists_column_device_view(curr_col).get_sliced_child();
+          } while (curr_col.type().id() == cudf::type_id::LIST);
+          col_stack[stack_size - 1] = col_stack_frame(curr_col);
+          continue;
+        }
+
+        if (curr_col.type().id() == cudf::type_id::STRUCT) {
+          if (curr_col.size() <= 1) {  // struct element
+            // All child columns processed, pop the element
+            if (top.get_idx_to_process() == curr_col.num_child_columns()) {
+              --stack_size;
+            } else {
+              // Push the next child column into the stack
+              col_stack[stack_size++] =
+                col_stack_frame(cudf::detail::structs_column_device_view(curr_col).get_sliced_child(
+                  top.get_and_inc_idx_to_process()));
+            }
+          } else {  // struct column
+            if (top.get_idx_to_process() == curr_col.size()) {
+              --stack_size;
+            } else {
+              col_stack[stack_size++] =
+                col_stack_frame(curr_col.slice(top.get_and_inc_idx_to_process(), 1));
+            }
+          }
+        } else {  // Primitive column
+          ret = cudf::detail::accumulate(
+            thrust::counting_iterator(0),
+            thrust::counting_iterator(curr_col.size()),
+            ret,
+            [curr_col, _check_nulls] __device__(auto hash, auto element_index) {
+              return cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
+            });
+          --stack_size;
+        }
+      }
+      return ret;
     }
   };
 
@@ -324,6 +507,40 @@ class device_row_hasher {
   cudf::table_device_view const _table;
   hash_value_type const _seed;
 };
+
+void check_nested_depth(cudf::table_view const& input)
+{
+  using column_checker_fn_t = std::function<int(cudf::column_view const&)>;
+
+  column_checker_fn_t get_nested_depth = [&](cudf::column_view const& col) {
+    if (col.type().id() == cudf::type_id::LIST) {
+      auto const child_col = cudf::lists_column_view(col).child();
+      // When encountering a List of Struct column, we need to account for an extra depth,
+      // as both the struct column and its elements will be pushed into the stack.
+      if (child_col.type().id() == cudf::type_id::STRUCT) {
+        return 1 + get_nested_depth(child_col);
+      }
+      return get_nested_depth(child_col);
+    } else if (col.type().id() == cudf::type_id::STRUCT) {
+      int max_child_depth = 0;
+      for (auto child = col.child_begin(); child != col.child_end(); ++child) {
+        max_child_depth = std::max(max_child_depth, get_nested_depth(*child));
+      }
+      return 1 + max_child_depth;
+    } else {  // Primitive type
+      return 1;
+    }
+  };
+
+  for (auto i = 0; i < input.num_columns(); i++) {
+    cudf::column_view const& col = input.column(i);
+    CUDF_EXPECTS(get_nested_depth(col) <= MAX_STACK_DEPTH,
+                 "The " + std::to_string(i) +
+                   "-th column exceeds the maximum allowed nested depth. " +
+                   "Current depth: " + std::to_string(get_nested_depth(col)) + ", " +
+                   "Maximum allowed depth: " + std::to_string(MAX_STACK_DEPTH));
+  }
+}
 
 }  // namespace
 
@@ -343,7 +560,9 @@ std::unique_ptr<cudf::column> xxhash64(cudf::table_view const& input,
   // Return early if there's nothing to hash
   if (input.num_columns() == 0 || input.num_rows() == 0) { return output; }
 
-  bool const nullable   = has_nulls(input);
+  check_nested_depth(input);
+
+  bool const nullable   = has_nested_nulls(input);
   auto const input_view = cudf::table_device_view::create(input, stream);
   auto output_view      = output->mutable_view();
 
