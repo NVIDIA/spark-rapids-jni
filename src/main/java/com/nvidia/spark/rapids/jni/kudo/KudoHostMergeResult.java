@@ -20,7 +20,6 @@ import ai.rapids.cudf.*;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -34,10 +33,10 @@ public class KudoHostMergeResult implements AutoCloseable {
   KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, ColumnViewInfo[] columnInfoList) {
     requireNonNull(schema, "schema is null");
     requireNonNull(columnInfoList, "columnInfoList is null");
-    ensure(schema.getFlattenedColumnNames().length == columnInfoList.length, () ->
+    assert schema.getFlattenedColumnNames().length == columnInfoList.length :
         "Column offsets size does not match flattened schema size, column offsets size: " +
                 columnInfoList.length + ", flattened schema size: " +
-                schema.getFlattenedColumnNames().length);
+                schema.getFlattenedColumnNames().length;
     this.schema = schema;
     this.columnInfoList = columnInfoList;
     this.hostBuf = requireNonNull(hostBuf, "hostBuf is null");

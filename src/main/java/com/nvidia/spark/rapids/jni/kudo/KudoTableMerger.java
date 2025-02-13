@@ -372,22 +372,26 @@ class KudoTableMerger implements SimpleSchemaVisitor {
 
       int curDestBitIdx = totalRowCount % 32;
       int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+      int nullCount;
 
       if (curSrcBitIdx < curDestBitIdx) {
         // First case of this algorithm, in which we always need to merge remained bits of previous
         // integer when copying it to destination buffer.
-        totalNullCount += copySourceCaseOne(src, srcOffset, sliceInfo);
+        nullCount = copySourceCaseOne(src, srcOffset, sliceInfo);
       } else if (curSrcBitIdx > curDestBitIdx) {
         // Second case of this algorithm, in which we always need to borrow bits from next integer
         // when copying it to destination buffer.
-        totalNullCount += copySourceCaseTwo(src, srcOffset, sliceInfo);
+        nullCount = copySourceCaseTwo(src, srcOffset, sliceInfo);
       } else {
         // Third case of this algorithm, in which we can directly copy source buffer to destination
         // buffer, except some special handling of first integer.
-        totalNullCount += copySourceCaseThree(src, srcOffset, sliceInfo);
+        nullCount = copySourceCaseThree(src, srcOffset, sliceInfo);
       }
 
       totalRowCount += sliceInfo.getRowCount();
+      totalNullCount += nullCount;
+
+      return nullCount;
     }
 
     /**
