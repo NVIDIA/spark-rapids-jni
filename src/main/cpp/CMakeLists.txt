@@ -134,6 +134,7 @@ include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # find spdlog
 include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # JNI
 find_package(JNI REQUIRED)
