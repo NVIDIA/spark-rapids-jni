@@ -27,7 +27,7 @@ import ai.rapids.cudf.Schema;
  * This interface removed generic types and return values to simplify the interface, which could
  * avoid unnecessary allocation during visiting schema.
  */
-public interface SchemaVisitor2 {
+public interface SimpleSchemaVisitor {
     /**
      * Visit the top level schema.
      * @param schema the top level schema to visit

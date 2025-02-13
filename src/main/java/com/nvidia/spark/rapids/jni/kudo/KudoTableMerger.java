@@ -20,7 +20,7 @@ import ai.rapids.cudf.BufferType;
 import ai.rapids.cudf.HostMemoryBuffer;
 import ai.rapids.cudf.Schema;
 import com.nvidia.spark.rapids.jni.Arms;
-import com.nvidia.spark.rapids.jni.schema.SchemaVisitor2;
+import com.nvidia.spark.rapids.jni.schema.SimpleSchemaVisitor;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.util.*;
@@ -35,7 +35,7 @@ import static java.util.Objects.requireNonNull;
  * This class is used to merge multiple KudoTables into a single contiguous buffer, e.g. {@link KudoHostMergeResult},
  * which could be easily converted to a {@link ai.rapids.cudf.ContiguousTable}.
  */
-class KudoTableMerger implements SchemaVisitor2 {
+class KudoTableMerger implements SimpleSchemaVisitor {
   // Number of 1s in a byte
   private static final int[] ONES = new int[1024];
 
@@ -195,226 +195,20 @@ class KudoTableMerger implements SchemaVisitor2 {
   private int deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
     if (curColOffset.getValidity() != INVALID_OFFSET) {
       int offset = toIntExact(curColOffset.getValidity());
-      int nullCountTotal = 0;
-      int startRow = 0;
+
+      ValidityBufferMerger merger = new ValidityBufferMerger(buffer, offset, inputBuf, outputBuf);
       for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
         SliceInfo sliceInfo = sliceInfoOf(tableIdx);
         long validityOffset = validityOffsets[tableIdx];
         if (kudoTables[tableIdx].getHeader().hasValidityBuffer(curColIdx)) {
-          nullCountTotal += copyValidityBuffer(buffer, offset, startRow,
-                  kudoTables[tableIdx].getBuffer(),
-                  toIntExact(validityOffset),
-                  sliceInfo, inputBuf, outputBuf);
+          merger.copyValidityBuffer(kudoTables[tableIdx].getBuffer(), toIntExact(validityOffset), sliceInfo);
         } else {
-          appendAllValid(buffer, offset, startRow, sliceInfo.getRowCount());
+          merger.appendAllValid(sliceInfo.getRowCount());
         }
-
-        startRow += sliceInfo.getRowCount();
       }
-      return nullCountTotal;
+      return merger.getTotalNullCount();
     } else {
       return 0;
-    }
-  }
-
-  /**
-   * Copy a sliced validity buffer to the destination buffer, starting at the given bit offset.
-   * Visible for testing.
-   *
-   * @return Number of nulls in the validity buffer.
-   */
-  static int copyValidityBuffer(HostMemoryBuffer dest, int startOffset, int startBit,
-                                HostMemoryBuffer src, int srcOffset,
-                                SliceInfo sliceInfo, int[] inputBuf, int[] outputBuf) {
-    if (sliceInfo.getRowCount() <= 0) {
-      return 0;
-    }
-
-    int leftRowCount = sliceInfo.getRowCount();
-    int nullCount = 0;
-
-    int curDestIntIdx = startOffset + (startBit / 32) * 4;
-    int curDestBitIdx = startBit % 32;
-
-    int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
-    int curSrcIntIdx = srcOffset;
-    int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
-
-    if (curSrcBitIdx < curDestBitIdx) {
-      int rshift = curDestBitIdx - curSrcBitIdx;
-      // process first element
-      int outputMask = (1 << curDestBitIdx) - 1;
-      int destOutput = dest.getInt(curDestIntIdx) & outputMask;
-
-      int rawInput = src.getInt(curSrcIntIdx);
-      int input = (rawInput >>> curSrcBitIdx) << curDestBitIdx;
-      destOutput = input | destOutput;
-      dest.setInt(curDestIntIdx, destOutput);
-
-      if (srcIntBufLen == 1) {
-        int leftRem = 32 - curSrcBitIdx - leftRowCount;
-        assert leftRem >= 0;
-        nullCount += leftRowCount - Integer.bitCount((rawInput >>> curSrcBitIdx) << (curSrcBitIdx + leftRem));
-        if ((leftRowCount + curDestBitIdx) > 32) {
-          curDestIntIdx += 4;
-          input = rawInput >>> (curSrcBitIdx + 32 - curDestBitIdx);
-          dest.setInt(curDestIntIdx, input);
-        }
-        assert nullCount >= 0;
-        return nullCount;
-      }
-
-      nullCount += 32 - curDestBitIdx - Integer.bitCount(input & ~outputMask);
-      leftRowCount -= (32 - curDestBitIdx);
-      int lastValue = rawInput >>> (32 - rshift);
-      int lastOutput = 0;
-
-      curSrcIntIdx += 4;
-      curDestIntIdx += 4;
-      while (leftRowCount > 0) {
-        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
-        if (curArrLen <= 0) {
-          dest.setInt(curDestIntIdx, lastValue);
-          nullCount += leftRowCount - Integer.bitCount(lastValue & ((1 << leftRowCount) - 1));
-          leftRowCount = 0;
-          break;
-        }
-
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
-
-        for (int i=0; i<curArrLen; i++) {
-          outputBuf[i] = (inputBuf[i] << rshift) | lastValue;
-          lastValue = inputBuf[i] >>> (32 - rshift);
-          nullCount += 32 - Integer.bitCount(outputBuf[i]);
-          leftRowCount -= 32;
-        }
-
-        lastOutput = outputBuf[curArrLen - 1];
-        dest.setInts(curDestIntIdx, outputBuf, 0, curArrLen);
-        curSrcIntIdx += curArrLen * 4;
-        curDestIntIdx += curArrLen * 4;
-      }
-
-      if (leftRowCount < 0) {
-        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
-      }
-      assert nullCount >= 0;
-    } else if (curSrcBitIdx > curDestBitIdx) {
-      int rshift = curSrcBitIdx - curDestBitIdx;
-      // process first element
-      int destMask = (1 << curDestBitIdx) - 1;
-      int destOutput = dest.getInt(curDestIntIdx) & destMask;
-
-      int input = src.getInt(curSrcIntIdx);
-      if (srcIntBufLen == 1) {
-        int leftRem = 32 - curSrcBitIdx - leftRowCount;
-        assert leftRem >= 0;
-        int inputMask = -(1 << curSrcBitIdx);
-        nullCount += leftRowCount - Integer.bitCount( (input & inputMask) << leftRem);
-        destOutput |= (input >>> curSrcBitIdx) << curDestBitIdx;
-        dest.setInt(curDestIntIdx, destOutput);
-        assert nullCount >= 0;
-        return nullCount;
-      }
-
-      nullCount -= curDestBitIdx - Integer.bitCount(destOutput);
-      leftRowCount += curDestBitIdx;
-      int lastValue = destOutput | ((input >>> curSrcBitIdx) << curDestBitIdx);
-      int lastOutput = 0;
-      curSrcIntIdx += 4;
-
-      while (leftRowCount > 0) {
-        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
-        if (curArrLen <= 0) {
-          nullCount += leftRowCount - Integer.bitCount(lastValue & ((1 << leftRowCount) - 1));
-          dest.setInt(curDestIntIdx, lastValue);
-          leftRowCount = 0;
-          break;
-        }
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
-        for (int i=0; i<curArrLen; i++) {
-          outputBuf[i] = (inputBuf[i] << (32 - rshift)) | lastValue;
-          nullCount += 32 - Integer.bitCount(outputBuf[i]);
-          leftRowCount -= 32;
-          lastValue = inputBuf[i] >>> rshift;
-        }
-        lastOutput = outputBuf[curArrLen - 1];
-        dest.setInts(curDestIntIdx, outputBuf, 0, curArrLen);
-        curSrcIntIdx += curArrLen * 4;
-        curDestIntIdx += curArrLen * 4;
-      }
-
-      if (leftRowCount < 0) {
-        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
-      }
-      assert nullCount >= 0;
-    } else {
-      // Process first element
-      int mask = (1 << curDestBitIdx) - 1;
-      int firstInput = src.getInt(curSrcIntIdx);
-      int destOutput = dest.getInt(curDestIntIdx);
-      destOutput = (firstInput & ~mask) | (destOutput & mask);
-      dest.setInt(curDestIntIdx, destOutput);
-
-      if (srcIntBufLen == 1) {
-        int leftRem = 32 - curSrcBitIdx - leftRowCount;
-        assert leftRem >= 0;
-        nullCount += leftRowCount - Integer.bitCount((firstInput & ~mask) << leftRem);
-        assert nullCount >= 0;
-        return nullCount;
-      }
-
-      nullCount += 32 - curSrcBitIdx - Integer.bitCount((firstInput & ~mask));
-      leftRowCount -= 32 - curSrcBitIdx;
-
-      curSrcIntIdx += 4;
-      curDestIntIdx += 4;
-      int lastOutput = 0;
-      while (leftRowCount > 0) {
-        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
-        assert curArrLen > 0;
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
-        for (int i=0; i<curArrLen; i++) {
-          nullCount += 32 - Integer.bitCount(inputBuf[i]);
-          leftRowCount -= 32;
-        }
-        dest.setInts(curDestIntIdx, inputBuf, 0, curArrLen);
-        lastOutput = inputBuf[curArrLen - 1];
-        curSrcIntIdx += curArrLen * 4;
-        curDestIntIdx += curArrLen * 4;
-      }
-
-      if (leftRowCount < 0) {
-        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
-      }
-      assert nullCount >= 0;
-    }
-
-    return nullCount;
-  }
-
-  static void appendAllValid(HostMemoryBuffer dest, int destOffset, int startBit, int numRows) {
-    int curDestIntIdx = destOffset + (startBit / 32) * 4;
-    int curDestBitIdx = startBit % 32;
-
-    // First output
-    int firstOutput = dest.getInt(curDestIntIdx);
-    firstOutput |= -(1 << curDestBitIdx);
-    dest.setInt(curDestIntIdx, firstOutput);
-
-    int leftRowCount = max(0, numRows - (32 - curDestBitIdx));
-
-   curDestIntIdx += 4;
-    while (leftRowCount > 0) {
-      int curArrLen = min(leftRowCount / 32, ONES.length);
-      if (curArrLen == 0) {
-        dest.setInt(curDestIntIdx, 0xFFFFFFFF);
-        leftRowCount = 0;
-      } else {
-        dest.setInts(curDestIntIdx, ONES, 0, curArrLen);
-        leftRowCount = max(0, leftRowCount - 32 * curArrLen);
-        curDestIntIdx += curArrLen * 4;
-      }
     }
   }
 
@@ -518,5 +312,305 @@ class KudoTableMerger implements SchemaVisitor2 {
           Visitors.visitSchema(schema, merger);
           return merger.result;
         });
+  }
+
+  /**
+   * A helper class to merge validity buffers of multiple tables into a single validity buffer.
+   * <br/>
+   * Visible for testing.
+   */
+  static class ValidityBufferMerger {
+    private final HostMemoryBuffer dest;
+    private final int destOffset;
+    private final int[] inputBuf;
+    private final int[] outputBuf;
+
+    private int totalNullCount = 0;
+    private int totalRowCount = 0;
+
+    ValidityBufferMerger(HostMemoryBuffer dest, int destOffset, int[] inputBuf, int[] outputBuf) {
+      this.dest = dest;
+      this.destOffset = destOffset;
+      this.inputBuf = inputBuf;
+      this.outputBuf = outputBuf;
+    }
+
+    int getTotalNullCount() {
+      return totalNullCount;
+    }
+
+    int getTotalRowCount() {
+      return totalRowCount;
+    }
+
+    /**
+     * Copy source validity buffer to the destination buffer.
+     * <br/>
+     * The algorithm copy source validity buffer into destination buffer, and it improves efficiency
+     * with following key points:
+     *
+     * <ul>
+     *   <li> It processed this buffer integer by integer, and uses {@link Integer#bitCount(int)} to
+     *   count null values in each integer.
+     *   </li>
+     *   <li> It uses an intermediate int array to avoid
+     *   {@link HostMemoryBuffer#getInt(long)} method calls in for loop, which makes the for loop quite efficient.
+     *   </li>
+     * </ul>
+     *
+     *
+     * @param src The memory buffer of source kudo table.
+     * @param srcOffset The offset of validity buffer in the source buffer.
+     * @param sliceInfo The slice info of the source kudo table.
+     * @return Number of null values in the validity buffer.
+     */
+    int copyValidityBuffer(HostMemoryBuffer src, int srcOffset,
+                            SliceInfo sliceInfo) {
+      if (sliceInfo.getRowCount() <= 0) {
+        return 0;
+      }
+
+      int curDestBitIdx = totalRowCount % 32;
+      int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+
+      if (curSrcBitIdx < curDestBitIdx) {
+        // First case of this algorithm, in which we always need to merge remained bits of previous
+        // integer when copying it to destination buffer.
+        totalNullCount += copySourceCaseOne(src, srcOffset, sliceInfo);
+      } else if (curSrcBitIdx > curDestBitIdx) {
+        // Second case of this algorithm, in which we always need to borrow bits from next integer
+        // when copying it to destination buffer.
+        totalNullCount += copySourceCaseTwo(src, srcOffset, sliceInfo);
+      } else {
+        // Third case of this algorithm, in which we can directly copy source buffer to destination
+        // buffer, except some special handling of first integer.
+        totalNullCount += copySourceCaseThree(src, srcOffset, sliceInfo);
+      }
+
+      totalRowCount += sliceInfo.getRowCount();
+    }
+
+    /**
+     * Append {@code numRows} valid bits to the destination buffer.
+     * @param numRows Number of rows to append.
+     */
+    void appendAllValid(int numRows) {
+      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = totalRowCount % 32;
+
+      // First output
+      int firstOutput = dest.getInt(curDestIntIdx);
+      firstOutput |= -(1 << curDestBitIdx);
+      dest.setInt(curDestIntIdx, firstOutput);
+
+      int leftRowCount = max(0, numRows - (32 - curDestBitIdx));
+
+      curDestIntIdx += 4;
+      while (leftRowCount > 0) {
+        int curArrLen = min(leftRowCount / 32, ONES.length);
+        if (curArrLen == 0) {
+          dest.setInt(curDestIntIdx, 0xFFFFFFFF);
+          leftRowCount = 0;
+        } else {
+          dest.setInts(curDestIntIdx, ONES, 0, curArrLen);
+          leftRowCount = max(0, leftRowCount - 32 * curArrLen);
+          curDestIntIdx += curArrLen * 4;
+        }
+      }
+
+      totalRowCount += numRows;
+    }
+
+    private int copySourceCaseOne(HostMemoryBuffer src, int srcOffset,
+                                  SliceInfo sliceInfo) {
+      int nullCount = 0;
+      int leftRowCount = sliceInfo.getRowCount();
+
+      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = totalRowCount % 32;
+
+      int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
+      int curSrcIntIdx = srcOffset;
+      int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+
+      int rshift = curDestBitIdx - curSrcBitIdx;
+      // process first element
+      int outputMask = (1 << curDestBitIdx) - 1;
+      int destOutput = dest.getInt(curDestIntIdx) & outputMask;
+
+      int rawInput = src.getInt(curSrcIntIdx);
+      int input = (rawInput >>> curSrcBitIdx) << curDestBitIdx;
+      destOutput = input | destOutput;
+      dest.setInt(curDestIntIdx, destOutput);
+
+      if (srcIntBufLen == 1) {
+        int leftRem = 32 - curSrcBitIdx - leftRowCount;
+        assert leftRem >= 0;
+        nullCount += leftRowCount - Integer.bitCount((rawInput >>> curSrcBitIdx) << (curSrcBitIdx + leftRem));
+        if ((leftRowCount + curDestBitIdx) > 32) {
+          curDestIntIdx += 4;
+          input = rawInput >>> (curSrcBitIdx + 32 - curDestBitIdx);
+          dest.setInt(curDestIntIdx, input);
+        }
+        assert nullCount >= 0;
+        return nullCount;
+      }
+
+      nullCount += 32 - curDestBitIdx - Integer.bitCount(input & ~outputMask);
+      leftRowCount -= (32 - curDestBitIdx);
+      int lastValue = rawInput >>> (32 - rshift);
+      int lastOutput = 0;
+
+      curSrcIntIdx += 4;
+      curDestIntIdx += 4;
+      while (leftRowCount > 0) {
+        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
+        if (curArrLen <= 0) {
+          dest.setInt(curDestIntIdx, lastValue);
+          nullCount += leftRowCount - Integer.bitCount(lastValue & ((1 << leftRowCount) - 1));
+          leftRowCount = 0;
+          break;
+        }
+
+        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+
+        for (int i=0; i<curArrLen; i++) {
+          outputBuf[i] = (inputBuf[i] << rshift) | lastValue;
+          lastValue = inputBuf[i] >>> (32 - rshift);
+          nullCount += 32 - Integer.bitCount(outputBuf[i]);
+          leftRowCount -= 32;
+        }
+
+        lastOutput = outputBuf[curArrLen - 1];
+        dest.setInts(curDestIntIdx, outputBuf, 0, curArrLen);
+        curSrcIntIdx += curArrLen * 4;
+        curDestIntIdx += curArrLen * 4;
+      }
+
+      if (leftRowCount < 0) {
+        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
+      }
+      assert nullCount >= 0;
+
+      return nullCount;
+    }
+
+    private int copySourceCaseTwo(HostMemoryBuffer src, int srcOffset,
+                                  SliceInfo sliceInfo) {
+      int leftRowCount = sliceInfo.getRowCount();
+      int nullCount = 0;
+
+      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = totalRowCount % 32;
+
+      int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
+      int curSrcIntIdx = srcOffset;
+      int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+
+      int rshift = curSrcBitIdx - curDestBitIdx;
+      // process first element
+      int destMask = (1 << curDestBitIdx) - 1;
+      int destOutput = dest.getInt(curDestIntIdx) & destMask;
+
+      int input = src.getInt(curSrcIntIdx);
+      if (srcIntBufLen == 1) {
+        int leftRem = 32 - curSrcBitIdx - leftRowCount;
+        assert leftRem >= 0;
+        int inputMask = -(1 << curSrcBitIdx);
+        nullCount += leftRowCount - Integer.bitCount( (input & inputMask) << leftRem);
+        destOutput |= (input >>> curSrcBitIdx) << curDestBitIdx;
+        dest.setInt(curDestIntIdx, destOutput);
+        assert nullCount >= 0;
+        return nullCount;
+      }
+
+      nullCount -= curDestBitIdx - Integer.bitCount(destOutput);
+      leftRowCount += curDestBitIdx;
+      int lastValue = destOutput | ((input >>> curSrcBitIdx) << curDestBitIdx);
+      int lastOutput = 0;
+      curSrcIntIdx += 4;
+
+      while (leftRowCount > 0) {
+        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
+        if (curArrLen <= 0) {
+          nullCount += leftRowCount - Integer.bitCount(lastValue & ((1 << leftRowCount) - 1));
+          dest.setInt(curDestIntIdx, lastValue);
+          leftRowCount = 0;
+          break;
+        }
+        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+        for (int i=0; i<curArrLen; i++) {
+          outputBuf[i] = (inputBuf[i] << (32 - rshift)) | lastValue;
+          nullCount += 32 - Integer.bitCount(outputBuf[i]);
+          leftRowCount -= 32;
+          lastValue = inputBuf[i] >>> rshift;
+        }
+        lastOutput = outputBuf[curArrLen - 1];
+        dest.setInts(curDestIntIdx, outputBuf, 0, curArrLen);
+        curSrcIntIdx += curArrLen * 4;
+        curDestIntIdx += curArrLen * 4;
+      }
+
+      if (leftRowCount < 0) {
+        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
+      }
+      assert nullCount >= 0;
+      return nullCount;
+    }
+
+    private int copySourceCaseThree(HostMemoryBuffer src, int srcOffset,
+                                    SliceInfo sliceInfo) {
+      int leftRowCount = sliceInfo.getRowCount();
+      int nullCount = 0;
+
+      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = totalRowCount % 32;
+
+      int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
+      int curSrcIntIdx = srcOffset;
+      int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
+
+      // Process first element
+      int mask = (1 << curDestBitIdx) - 1;
+      int firstInput = src.getInt(curSrcIntIdx);
+      int destOutput = dest.getInt(curDestIntIdx);
+      destOutput = (firstInput & ~mask) | (destOutput & mask);
+      dest.setInt(curDestIntIdx, destOutput);
+
+      if (srcIntBufLen == 1) {
+        int leftRem = 32 - curSrcBitIdx - leftRowCount;
+        assert leftRem >= 0;
+        nullCount += leftRowCount - Integer.bitCount((firstInput & ~mask) << leftRem);
+        assert nullCount >= 0;
+        return nullCount;
+      }
+
+      nullCount += 32 - curSrcBitIdx - Integer.bitCount((firstInput & ~mask));
+      leftRowCount -= 32 - curSrcBitIdx;
+
+      curSrcIntIdx += 4;
+      curDestIntIdx += 4;
+      int lastOutput = 0;
+      while (leftRowCount > 0) {
+        int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
+        assert curArrLen > 0;
+        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+        for (int i=0; i<curArrLen; i++) {
+          nullCount += 32 - Integer.bitCount(inputBuf[i]);
+          leftRowCount -= 32;
+        }
+        dest.setInts(curDestIntIdx, inputBuf, 0, curArrLen);
+        lastOutput = inputBuf[curArrLen - 1];
+        curSrcIntIdx += curArrLen * 4;
+        curDestIntIdx += curArrLen * 4;
+      }
+
+      if (leftRowCount < 0) {
+        nullCount -= -leftRowCount - Integer.bitCount(lastOutput >>> (32 + leftRowCount));
+      }
+      assert nullCount >= 0;
+
+      return nullCount;
+    }
   }
 }

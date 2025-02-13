@@ -18,7 +18,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.BufferType;
 import ai.rapids.cudf.Schema;
-import com.nvidia.spark.rapids.jni.schema.SchemaVisitor2;
+import com.nvidia.spark.rapids.jni.schema.SimpleSchemaVisitor;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.util.*;
@@ -31,7 +31,7 @@ import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.*;
 /**
  * This class is used to calculate column offsets of merged buffer.
  */
-class MergedInfoCalc implements SchemaVisitor2 {
+class MergedInfoCalc implements SimpleSchemaVisitor {
 
     private final KudoTable[] kudoTables;
     // Total data len in gpu, which accounts for 64 byte alignment
@@ -80,7 +80,7 @@ class MergedInfoCalc implements SchemaVisitor2 {
 
     @Override
     public String toString() {
-        return "MergedInfoCalc2{" +
+        return "MergedInfoCalc{" +
                 "totalDataLen=" + totalDataLen +
                 ", columnOffsets=" + columnOffsets +
                 ", hasNull=" + Arrays.toString(hasNull) +
@@ -205,7 +205,7 @@ class MergedInfoCalc implements SchemaVisitor2 {
         curColIdx++;
     }
 
-    private class SingleTableVisitor implements SchemaVisitor2 {
+    private class SingleTableVisitor implements SimpleSchemaVisitor {
         private final KudoTable table;
         private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>(8);
         private int curColIdx = 0;

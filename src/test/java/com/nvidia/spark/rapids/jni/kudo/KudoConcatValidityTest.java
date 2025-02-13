@@ -71,16 +71,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 29, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // Now destBitIdx = 29
 
             // srcBitIdx < destBitIdx, srcIntBufLen = 1
             ValidityConcatArray arr2 = new ValidityConcatArray(7, 27, random, "Array 2", accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
             boolean[] result = getValidityBuffer(dest, accuArrLen);
@@ -96,16 +97,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 29, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // Now destBitIdx = 29
 
             // srcBitIdx < destBitIdx, srcIntBufLen > 1
             ValidityConcatArray arr2 = new ValidityConcatArray(7, 127, random, "Array 2", accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
             boolean[] result = getValidityBuffer(dest, accuArrLen);
@@ -121,16 +123,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 29, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // Now destBitIdx = 29
 
             // srcBitIdx < destBitIdx, srcIntBufLen > 1
             ValidityConcatArray arr2 = new ValidityConcatArray(7, 133, random, "Array 2", accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
             boolean[] result = getValidityBuffer(dest, accuArrLen);
@@ -146,9 +149,10 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 29, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
 
@@ -164,15 +168,16 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 29, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // destBitIdx = 29
             ValidityConcatArray arr2 = new ValidityConcatArray(29, 105, random, "Array 2",
                     accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
 
@@ -189,16 +194,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 14, random, "Array 1",
                     accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // destBitIdx = 14
             ValidityConcatArray arr2 = new ValidityConcatArray(17, 9, random, "Array 2",
                     accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
 
@@ -215,16 +221,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 14, random, "Array 1",
                     accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // destBitIdx = 14
             ValidityConcatArray arr2 = new ValidityConcatArray(17, 87, random, "Array 2",
                     accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
 
@@ -241,16 +248,17 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // When srcBitIdx == destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(0, 8, random, "Array 1",
                     accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // destBitIdx = 8
             ValidityConcatArray arr2 = new ValidityConcatArray(12, 85, random, "Array 2",
                     accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
 
@@ -266,35 +274,36 @@ public class KudoConcatValidityTest {
         int accuArrLen = 0;
         // Be careful with startRow, they are carefully designed to cover all test cases.
         try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(4096)) {
+            KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
             // Second case when srcBitIdx > destBitIdx
             ValidityConcatArray arr1 = new ValidityConcatArray(3, 129, random, "Array 1", accuArrLen);
-            arr1.appendToDest(dest);
+            arr1.appendToDest(merger);
             accuArrLen += arr1.array.length;
 
             // Second case when srcBitIdx > destBitIdx
             ValidityConcatArray arr2 = new ValidityConcatArray(7, 79, random, "Array 2", accuArrLen);
-            arr2.appendToDest(dest);
+            arr2.appendToDest(merger);
             accuArrLen += arr2.array.length;
 
 
             // Append all validity
             ValidityConcatArray arr3 = new ValidityConcatArray(-1, 129, null, "Array 3", accuArrLen);
-            arr3.appendToDest(dest);
+            arr3.appendToDest(merger);
             accuArrLen += arr3.array.length;
 
             // First case when srcBitIdx < destBitIdx
             ValidityConcatArray arr4 = new ValidityConcatArray(3, 70, random, "Array 4", accuArrLen);
-            arr4.appendToDest(dest);
+            arr4.appendToDest(merger);
             accuArrLen += arr4.array.length;
 
             // First case when srcBitIdx < destBitIdx
             ValidityConcatArray arr5 = new ValidityConcatArray(3, 62, random, "Array 5", accuArrLen);
-            arr5.appendToDest(dest);
+            arr5.appendToDest(merger);
             accuArrLen += arr5.array.length;
 
             // Third cas when srcBitIdx == destBitIdx
             ValidityConcatArray arr6 = new ValidityConcatArray(21, 79, random, "Array 5", accuArrLen);
-            arr6.appendToDest(dest);
+            arr6.appendToDest(merger);
             accuArrLen += arr6.array.length;
 
 
@@ -312,12 +321,14 @@ public class KudoConcatValidityTest {
       private final int nullCount;
       private final String name;
       private final boolean[] array;
-      private final int resultStart;
       private final boolean allValid;
+      private final int resultStart;
 
-      public ValidityConcatArray(int startRow, int numRow, Random random, String name, int resultStart) {
+      public ValidityConcatArray(int startRow, int numRow, Random random, String name,
+                                 int resultStart) {
         this.startRow = startRow;
         this.array = new boolean[numRow];
+        this.resultStart = resultStart;
         if (random == null) {
           this.allValid = true;
           Arrays.fill(array, true);
@@ -335,17 +346,15 @@ public class KudoConcatValidityTest {
         }
 
         this.name = name;
-        this.resultStart = resultStart;
       }
 
-      public void appendToDest(HostMemoryBuffer dest) {
+      public void appendToDest(KudoTableMerger.ValidityBufferMerger merger) {
+        assertEquals(this.resultStart, merger.getTotalRowCount(), name + " result start not match");
         if (allValid) {
-          KudoTableMerger.appendAllValid(dest, 0, resultStart, this.array.length);
+          merger.appendAllValid(this.array.length);
         } else {
-          int[] inputBuf = new int[64];
-          int[] outputBuf = new int[64];
           try (HostMemoryBuffer src = fillValidityBuffer(this.startRow, array)) {
-            int nullCount = KudoTableMerger.copyValidityBuffer(dest, 0, resultStart, src, 0, new SliceInfo(this.startRow, array.length), inputBuf, outputBuf);
+            int nullCount = merger.copyValidityBuffer(src, 0, new SliceInfo(this.startRow, array.length));
             assertEquals(this.nullCount, nullCount, name + " null count not match");
           }
         }

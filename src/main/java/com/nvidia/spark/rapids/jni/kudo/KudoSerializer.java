@@ -421,8 +421,4 @@ public class KudoSerializer {
   static long getValidityLengthInBytes(long rows) {
     return (rows + 7) / 8;
   }
-
-  static int getValidityLengthInInts(int rows) {
-    return (rows + 31) / 32;
-  }
 }

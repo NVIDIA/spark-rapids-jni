@@ -23,7 +23,6 @@ import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.Schema;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -54,7 +53,7 @@ public class Visitors {
         return visitor.visitTopSchema(schema, childrenResult);
     }
 
-    public static void visitSchema(Schema schema, SchemaVisitor2 visitor) {
+    public static void visitSchema(Schema schema, SimpleSchemaVisitor visitor) {
         requireNonNull(schema, "schema cannot be null");
         requireNonNull(visitor, "visitor cannot be null");
 
@@ -64,7 +63,7 @@ public class Visitors {
         visitor.visitTopSchema(schema);
     }
 
-    private static void visitSchemaInner(Schema schema, SchemaVisitor2 visitor) {
+    private static void visitSchemaInner(Schema schema, SimpleSchemaVisitor visitor) {
         switch (schema.getType().getTypeId()) {
             case STRUCT:
                 for (int i=0; i<schema.getNumChildren(); i++) {
