@@ -204,6 +204,7 @@ add_library(
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
+  src/SliceJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
@@ -227,6 +228,7 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/slice.cu
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
