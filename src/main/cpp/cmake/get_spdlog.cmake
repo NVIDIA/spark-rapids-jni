@@ -19,6 +19,7 @@ function(find_and_configure_spdlog)
   rapids_cpm_spdlog(
     FMT_OPTION "EXTERNAL_FMT_HO"
   )
+  set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 endfunction()
 
