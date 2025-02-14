@@ -43,8 +43,10 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& map_colum
                "maps_column_view input must have exactly 1 child (STRUCT) column.");
   CUDF_EXPECTS(structs.num_children() == 2,
                "maps_column_view key-value struct must have exactly 2 children.");
-  auto keys     = structs.child(0);
-  auto values   = structs.child(1);
+  auto keys   = structs.child(0);
+  auto values = structs.child(1);
+  CUDF_EXPECTS(structs.null_count() == 0, "maps_column_view key-value struct must have no null.");
+  CUDF_EXPECTS(keys.null_count() == 0, "maps_column_view keys must have no null.");
   auto segments = lists_of_structs.offsets();
 
   auto sorted = cudf::segmented_sort_by_key(cudf::table_view{{keys, values}},
