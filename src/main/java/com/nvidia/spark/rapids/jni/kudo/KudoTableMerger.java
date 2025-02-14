@@ -38,6 +38,7 @@ import static java.util.Objects.requireNonNull;
 class KudoTableMerger implements SimpleSchemaVisitor {
   // Number of 1s in a byte
   private static final int[] ONES = new int[1024];
+  private static final SliceInfo EMPTY_SLICE = new SliceInfo(0, 0);
 
   static {
     Arrays.fill(ONES, 0xFFFFFFFF);
@@ -213,7 +214,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   }
 
   private void deserializeOffsetBuffer(ColumnOffsetInfo curColOffset) {
-    Arrays.fill(sliceInfoBuf, null);
+    Arrays.fill(sliceInfoBuf, EMPTY_SLICE);
 
     if (curColOffset.getOffset() != INVALID_OFFSET) {
       long outputOffset = curColOffset.getOffset();
@@ -247,7 +248,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           sliceInfoBuf[tableIdx] = new SliceInfo(firstOffset, lastOffset - firstOffset);
           accumulatedDataLen += (lastOffset - firstOffset);
         } else {
-          sliceInfoBuf[tableIdx] = new SliceInfo(0, 0);
+          sliceInfoBuf[tableIdx] = EMPTY_SLICE;
         }
       }
 
