@@ -14,31 +14,29 @@
  * limitations under the License.
  */
 
-#include "cudf_jni_apis.hpp"
-#include "jni_utils.hpp"
 #include "map.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/column/column_view.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/sorting.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
-#include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
-#include <rmm/resource_ref.hpp>
 
 namespace spark_rapids_jni {
 
-std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& map_column,
+std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& input,
                                               cudf::order sort_order,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  auto const& lists_of_structs = cudf::lists_column_view(map_column);
-  auto const structs           = lists_of_structs.child();
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST,
+               "maps_column_view input must be LIST type");
+  if (input.size() == 0) { return cudf::make_empty_column(input.type()); }
+
+  auto const lists_of_structs = cudf::lists_column_view(input);
+  auto const structs          = lists_of_structs.child();
   CUDF_EXPECTS(structs.type().id() == cudf::type_id::STRUCT,
                "maps_column_view input must have exactly 1 child (STRUCT) column.");
   CUDF_EXPECTS(structs.num_children() == 2,
@@ -49,7 +47,7 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& map_colum
   CUDF_EXPECTS(keys.null_count() == 0, "maps_column_view keys must have no null.");
   auto segments = lists_of_structs.offsets();
 
-  auto sorted = cudf::segmented_sort_by_key(cudf::table_view{{keys, values}},
+  auto sorted = cudf::segmented_sort_by_key(cudf::table_view{{structs}},
                                             cudf::table_view{{keys}},
                                             segments,
                                             {sort_order},
@@ -57,14 +55,7 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& map_colum
                                             stream,
                                             mr);
   stream.synchronize();
-  std::vector<std::unique_ptr<cudf::column>> k_v = sorted->release();
-
-  // Note: The keys in a map MUST not be null, so the struct<Key, Value> MUST not be null too.
-  // Of course, the null count is zero for struct<Key Value> column
-  auto mask = cudf::create_null_mask(keys.size(), cudf::mask_state::UNALLOCATED, stream, mr);
-  stream.synchronize();
-  auto sorted_struct =
-    cudf::make_structs_column(keys.size(), std::move(k_v), 0, std::move(mask), stream, mr);
+  std::vector<std::unique_ptr<cudf::column>> one_item_vec = sorted->release();
 
   // clone segments
   auto copied_segements = cudf::make_numeric_column(cudf::data_type(segments.type().id()),
@@ -82,7 +73,7 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& map_colum
 
   return cudf::make_lists_column(lists_of_structs.size(),
                                  std::move(copied_segements),  // offsets
-                                 std::move(sorted_struct),     // child column
+                                 std::move(one_item_vec[0]),   // child column
                                  lists_of_structs.null_count(),
                                  cudf::copy_bitmask(lists_of_structs.parent(), stream, mr),
                                  stream,
