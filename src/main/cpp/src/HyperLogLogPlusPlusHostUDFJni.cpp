@@ -27,7 +27,6 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(J
                                                                                int precision)
 {
   try {
-    cudf::jni::auto_set_device(env);
     auto udf_ptr = [&] {
       // The value of agg_type must be sync with
       // `HyperLogLogPlusPlusHostUDF.java#AggregationType`.
