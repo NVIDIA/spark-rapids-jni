@@ -92,7 +92,6 @@ CUDF_KERNEL void compute_starts_and_sizes_kernel(size_type const* offsets_of_inp
 
   start = start < 0 ? length_of_list + start : start - 1;
   if (start < 0 || start >= length_of_list) {
-    d_starts[tid] = 0;
     d_sizes[tid]  = 0;
     return;
   }
