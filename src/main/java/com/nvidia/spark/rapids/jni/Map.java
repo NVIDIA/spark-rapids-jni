@@ -31,21 +31,23 @@ public class Map {
   }
 
   /**
-   * Sort map column according to the key column in it.
+   * Sort entries for each map in map column according to the keys of each map.
+   * Note: The keys of map MUST not be null. This implementation does not check if
+   * all the keys are non-null, and does not check if all the struct(key, value)
+   * are non-null. The caller MUST pass in valid map column.
    * 
-   * @param cv             Input map column, should in LIST<STRUCT<KEY, VALUE>> type.
-   * @param isDescending   True if sort in descending order, false if sort in
-   *                       ascending order
-   * @param isNullSmallest True if null is considered smallest, false if null is
-   *                       considered largest
+   * @param cv           Input map column, should in LIST(STRUCT(KEY, VALUE))
+   *                     type.
+   * @param isDescending True if sort in descending order, false if sort in
+   *                     ascending order
    * @return Sorted map according to the sort order of the key column in map.
    */
   public static ColumnVector sort(ColumnView cv, boolean isDescending, boolean isNullSmallest) {
     assert (cv.getType().equals(DType.LIST));
-    long r = sort(cv.getNativeView(), isDescending, isNullSmallest);
+    long r = sort(cv.getNativeView(), isDescending);
     return new ColumnVector(r);
   }
 
-  private static native long sort(long handle, boolean isDescending, boolean isNullSmallest) throws CudfException;
+  private static native long sort(long handle, boolean isDescending) throws CudfException;
 }
 

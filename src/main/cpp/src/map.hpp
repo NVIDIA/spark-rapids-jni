@@ -14,17 +14,9 @@
  * limitations under the License.
  */
 
-#include "cudf_jni_apis.hpp"
-#include "jni_utils.hpp"
-
-#include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_view.hpp>
-#include <cudf/lists/lists_column_view.hpp>
-#include <cudf/null_mask.hpp>
-#include <cudf/sorting.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/error.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
@@ -34,7 +26,6 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> sort_map_column(
   cudf::column_view const& map_column,
   cudf::order sort_order,
-  cudf::null_order null_order,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
