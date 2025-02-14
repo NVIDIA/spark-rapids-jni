@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 24.12.01
+  VERSION 25.02.00
   LANGUAGES C CXX CUDA
 )
 
@@ -132,6 +132,9 @@ include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
 # find CCCL
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
+# find spdlog
+include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+
 # JNI
 find_package(JNI REQUIRED)
 if(JNI_FOUND)
@@ -190,7 +193,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
-  src/DateTimeRebaseJni.cpp
+  src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
@@ -208,9 +211,11 @@ add_library(
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/cast_float_to_string.cu
+  src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
+  src/datetime_truncate.cu
   src/decimal_utils.cu
   src/format_float.cu
   src/from_json_to_raw_map.cu
@@ -277,6 +282,7 @@ target_link_libraries(
     ${CUDFJNI_LIB}
     cudf::cudf
     nvtx3::nvtx3-cpp
+    spdlog::spdlog_header_only
   -Wl,--no-whole-archive
     ${ARROW_LIB}
     ${PARQUET_LIB}

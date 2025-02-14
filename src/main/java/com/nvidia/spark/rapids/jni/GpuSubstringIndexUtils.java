@@ -24,7 +24,7 @@ public class GpuSubstringIndexUtils {
     }
 
     public static ColumnVector substringIndex(ColumnView cv, Scalar delimiter, int count){
-        return new ColumnVector(substringIndex(cv.getNativeView(), CudfAccessor.getScalarHandle(delimiter), count));
+        return new ColumnVector(substringIndex(cv.getNativeView(), delimiter.getScalarHandle(), count));
     }
 
     private static native long substringIndex(long columnView, long delimiter, int count) throws CudfException;

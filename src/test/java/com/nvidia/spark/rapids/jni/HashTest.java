@@ -388,6 +388,182 @@ public class HashTest {
   }
 
   @Test
+  void testXXHash64Struct() {
+    try (ColumnVector strings = ColumnVector.fromStrings(
+          "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721",
+          "A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+          "in the MD5 hash function. This string needed to be longer.",
+          null, null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(
+          0.0, 100.0, -100.0, POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(
+          0f, 100f, -100f, NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(true, false, null, false, true, null);
+         ColumnView structs = ColumnView.makeStructView(strings, integers, doubles, floats, bools);
+         ColumnVector result = Hash.xxhash64(new ColumnView[]{structs});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(7451748878409563026L, 6024043102550151964L, 3380664624738534402L, 8444697026100086329L, -5888679192448042852L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64NestedStruct() {
+    try (ColumnVector strings = ColumnVector.fromStrings(
+          "a", "B\n", "dE\"\u0100\t\u0101 \ud720\ud721",
+          "A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+          "in the MD5 hash function. This string needed to be longer.",
+          null, null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(
+          0.0, 100.0, -100.0, POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(
+          0f, 100f, -100f, NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(true, false, null, false, true, null);
+         ColumnView structs1 = ColumnView.makeStructView(strings, integers);
+         ColumnView structs2 = ColumnView.makeStructView(structs1, doubles);
+         ColumnView structs3 = ColumnView.makeStructView(bools);
+         ColumnView structs = ColumnView.makeStructView(structs2, floats, structs3);
+         ColumnVector result = Hash.xxhash64(new ColumnView[]{structs});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(7451748878409563026L, 6024043102550151964L, 3380664624738534402L, 8444697026100086329L, -5888679192448042852L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64Lists() {
+    try (ColumnVector stringListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.STRING)),
+             Arrays.asList(null, "a"),
+             Arrays.asList("B\n", ""),
+             Arrays.asList("dE\"\u0100\t\u0101", " \ud720\ud721"),
+             Collections.singletonList("A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+             "in the MD5 hash function. This string needed to be longer."),
+             Collections.singletonList(""),
+             null);
+         ColumnVector stringExpected = ColumnVector.fromBoxedLongs(-8582455328737087284L, 7160715839242204087L, -862482741676457612L, -3700309651391443614L, -7444071767201028348L, Hash.DEFAULT_XXHASH64_SEED);
+         ColumnVector stringResult = Hash.xxhash64(new ColumnView[]{stringListCV});
+         ColumnVector intListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Collections.emptyList(),
+             Arrays.asList(0, -2, 3),
+             Collections.singletonList(Integer.MAX_VALUE),
+             Arrays.asList(5, -6, null),
+             Collections.singletonList(Integer.MIN_VALUE),
+             null);
+         ColumnVector intExpected = ColumnVector.fromBoxedLongs(Hash.DEFAULT_XXHASH64_SEED, -4022702357093761688L, 1508894993788531228L, 7329154841501342665L, 2073849959933241805L, Hash.DEFAULT_XXHASH64_SEED);
+         ColumnVector intResult = Hash.xxhash64(new ColumnVector[]{intListCV})) {
+      assertColumnsAreEqual(stringExpected, stringResult);
+      assertColumnsAreEqual(intExpected, intResult);
+    }
+  }
+
+  @Test
+  void testXXHash64NestedLists() {
+    try (ColumnVector nestedStringListCV = ColumnVector.fromLists(
+             new ListType(true, new ListType(true, new BasicType(true, DType.STRING))),
+             Arrays.asList(null, Collections.singletonList("a")),
+             Collections.singletonList(Arrays.asList("B\n", "")),
+             Arrays.asList(Collections.singletonList("dE\"\u0100\t\u0101"), Collections.singletonList(" \ud720\ud721")),
+             Collections.singletonList(Collections.singletonList("A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+             "in the MD5 hash function. This string needed to be longer.")),
+             Collections.singletonList(Collections.singletonList("")),
+             null);
+         ColumnVector stringExpected = ColumnVector.fromBoxedLongs(-8582455328737087284L, 7160715839242204087L, -862482741676457612L, -3700309651391443614L, -7444071767201028348L, Hash.DEFAULT_XXHASH64_SEED);
+         ColumnVector stringResult = Hash.xxhash64(new ColumnView[]{nestedStringListCV});
+         ColumnVector nestedIntListCV = ColumnVector.fromLists(
+             new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
+             Collections.emptyList(),
+             Arrays.asList(Collections.singletonList(0), Collections.singletonList(-2), Collections.singletonList(3)),
+             Collections.singletonList(Collections.singletonList(Integer.MAX_VALUE)),
+             Arrays.asList(Collections.singletonList(5), Arrays.asList(-6, null)),
+             Collections.singletonList(Collections.singletonList(Integer.MIN_VALUE)),
+             null);
+         ColumnVector intExpected = ColumnVector.fromBoxedLongs(Hash.DEFAULT_XXHASH64_SEED, -4022702357093761688L, 1508894993788531228L, 7329154841501342665L, 2073849959933241805L, Hash.DEFAULT_XXHASH64_SEED);
+         ColumnVector intResult = Hash.xxhash64(new ColumnVector[]{nestedIntListCV});) {
+      assertColumnsAreEqual(stringExpected, stringResult);
+      assertColumnsAreEqual(intExpected, intResult);
+    }
+  }
+
+  @Test
+  void testXXHash64StructOfList() {
+    try (ColumnVector stringListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.STRING)),
+             Arrays.asList(null, "a"),
+             Arrays.asList("B\n", ""),
+             Arrays.asList("dE\"\u0100\t\u0101", " \ud720\ud721"),
+             Collections.singletonList("A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+             "in the MD5 hash function. This string needed to be longer."),
+             Collections.singletonList(""),
+             null);
+         ColumnVector intListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Collections.emptyList(),
+             Arrays.asList(0, -2, 3),
+             Collections.singletonList(Integer.MAX_VALUE),
+             Arrays.asList(5, -6, null),
+             Collections.singletonList(Integer.MIN_VALUE),
+             null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(
+         0.0, 100.0, -100.0, POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(
+         0f, 100f, -100f, NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnView structCV = ColumnView.makeStructView(intListCV, stringListCV, doubles, floats);
+         ColumnVector nestedExpected = ColumnVector.fromBoxedLongs(-8492741646850220468L, -6547737320918905493L, -8718220625378038731L, 5441580647216064522L, 3645801243834961127L, Hash.DEFAULT_XXHASH64_SEED);
+         ColumnVector nestedResult = Hash.xxhash64(new ColumnView[]{structCV})) {
+      assertColumnsAreEqual(nestedExpected, nestedResult);
+    }
+  }
+
+  @Test
+  void testXXHash64ListOfStruct() {
+    try (ColumnVector structListCV = ColumnVector.fromLists(new ListType(true, new StructType(true,
+              new BasicType(true, DType.STRING), new BasicType(true, DType.INT32), new BasicType(true, DType.FLOAT64), new BasicType(true, DType.FLOAT32), new BasicType(true, DType.BOOL8))),
+             Collections.emptyList(),
+             Collections.singletonList(new StructData("a", 0, 0.0, 0f, true)),
+             Arrays.asList(new StructData("B\n", 100, 100.0, 100f, false), new StructData("dE\"\u0100\t\u0101 \ud720\ud721", -100, -100.0, -100f, null)),
+             Collections.singletonList(new StructData("A very long (greater than 128 bytes/char string) to test a multi hash-step data point " +
+             "in the MD5 hash function. This string needed to be longer.", Integer.MIN_VALUE, POSITIVE_DOUBLE_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_LOWER_RANGE, false)),
+             Arrays.asList(new StructData(null, Integer.MAX_VALUE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, true), new StructData(null, null, null, null, null)),
+             null);
+         ColumnVector result = Hash.xxhash64(new ColumnView[]{structListCV});
+         ColumnVector expected = ColumnVector.fromBoxedLongs(Hash.DEFAULT_XXHASH64_SEED, 7451748878409563026L, 948372773124634350L, 8444697026100086329L, -5888679192448042852L, Hash.DEFAULT_XXHASH64_SEED)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testXXHash64NestedDepthExceedsLimit() {
+    try (ColumnVector nestedIntListCV = ColumnVector.fromLists(
+            new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
+            Arrays.asList(Arrays.asList(null, null), null),
+            Arrays.asList(Collections.singletonList(0), Collections.singletonList(-2), Collections.singletonList(3)),
+            Arrays.asList(null, Collections.singletonList(Integer.MAX_VALUE)),
+            Arrays.asList(Collections.singletonList(5), Arrays.asList(-6, null)),
+            Arrays.asList(Collections.singletonList(Integer.MIN_VALUE), null),
+            null);
+         ColumnVector integers = ColumnVector.fromBoxedInts(
+            0, 100, -100, Integer.MIN_VALUE, Integer.MAX_VALUE, null);
+         ColumnVector doubles = ColumnVector.fromBoxedDoubles(0.0, 100.0, -100.0,
+            POSITIVE_DOUBLE_NAN_LOWER_RANGE, POSITIVE_DOUBLE_NAN_UPPER_RANGE, null);
+         ColumnVector floats = ColumnVector.fromBoxedFloats(0f, 100f, -100f,
+            NEGATIVE_FLOAT_NAN_LOWER_RANGE, NEGATIVE_FLOAT_NAN_UPPER_RANGE, null);
+         ColumnVector bools = ColumnVector.fromBoxedBooleans(
+            true, false, null, false, true, null);
+         ColumnView structs1 = ColumnView.makeStructView(nestedIntListCV, integers);
+         ColumnView structs2 = ColumnView.makeStructView(structs1, doubles);
+         ColumnView structs3 = ColumnView.makeStructView(structs2, bools);
+         ColumnView structs4 = ColumnView.makeStructView(structs3);
+         ColumnView structs5 = ColumnView.makeStructView(structs4, floats);
+         ColumnView structs6 = ColumnView.makeStructView(structs5);
+         ColumnView structs7 = ColumnView.makeStructView(structs6);
+         ColumnView nestedResult = ColumnView.makeStructView(structs7);) {
+      assertThrows(CudfException.class, () -> Hash.xxhash64(new ColumnView[]{nestedResult}));
+    }
+  }
+
+  @Test
   void testHiveHashBools() {
     try (ColumnVector v0 = ColumnVector.fromBoxedBooleans(true, false, null);
          ColumnVector result = Hash.hiveHash(new ColumnVector[]{v0});

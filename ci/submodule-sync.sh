@@ -75,7 +75,7 @@ set +e
 # Don't do a full build. Just try to update/build CUDF with no patches on top of it.
 # calling the antrun directly skips applying patches and also only builds
 # libcudf
-${MVN} antrun:run@build-libcudf ${MVN_MIRROR} \
+${MVN} antrun:run@buildcpp ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -Dlibcudf.dependency.mode=latest \

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -152,6 +152,21 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
     auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::decimal_to_non_ansi_string(cv, cudf::get_default_stream()));
+  }
+  CATCH_CAST_EXCEPTION(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromLongToBinary(
+  JNIEnv* env, jclass, jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::long_to_binary_string(cv, cudf::get_default_stream()));
   }
   CATCH_CAST_EXCEPTION(env, 0);
 }
