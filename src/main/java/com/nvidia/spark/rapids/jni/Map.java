@@ -42,7 +42,7 @@ public class Map {
    * @throws CudfException If the input column is not a LIST(STRUCT(KEY, VALUE))
    *                       column or the keys contain nulls.
    */
-  public static ColumnVector sort(ColumnView cv, boolean isDescending, boolean isNullSmallest) {
+  public static ColumnVector sort(ColumnView cv, boolean isDescending) {
     assert (cv.getType().equals(DType.LIST));
     long r = sort(cv.getNativeView(), isDescending);
     return new ColumnVector(r);

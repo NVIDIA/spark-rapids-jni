@@ -47,7 +47,7 @@ public class MapTest {
             new HostColumnVector.BasicType(true, DType.INT32)));
     try (ColumnVector cv = ColumnVector.fromLists(
         new HostColumnVector.ListType(true, structType), map1, map2);
-        ColumnVector res = Map.sort(cv, false, true);
+        ColumnVector res = Map.sort(cv, false);
         ColumnVector expected = ColumnVector.fromLists(
             new HostColumnVector.ListType(true, structType), sorted_map1, sorted_map2)) {
 
