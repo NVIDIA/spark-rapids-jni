@@ -57,23 +57,13 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& input,
   stream.synchronize();
   std::vector<std::unique_ptr<cudf::column>> one_item_vec = sorted->release();
 
-  // clone segments
-  auto copied_segements = cudf::make_numeric_column(cudf::data_type(segments.type().id()),
-                                                    segments.size(),
-                                                    cudf::mask_state::UNALLOCATED,
-                                                    stream,
-                                                    mr);
-  stream.synchronize();
-  CUDF_CUDA_TRY(cudaMemcpyAsync(copied_segements->mutable_view().data<int32_t>(),
-                                segments.data<int32_t>(),
-                                segments.size() * sizeof(int32_t),
-                                cudaMemcpyDeviceToDevice,
-                                stream.value()));
+  // Deep copying segments
+  auto output_segments = std::make_unique<cudf::column>(segments);
   stream.synchronize();
 
   return cudf::make_lists_column(lists_of_structs.size(),
-                                 std::move(copied_segements),  // offsets
-                                 std::move(one_item_vec[0]),   // child column
+                                 std::move(output_segments),  // offsets
+                                 std::move(one_item_vec[0]),  // child column
                                  lists_of_structs.null_count(),
                                  cudf::copy_bitmask(lists_of_structs.parent(), stream, mr),
                                  stream,
