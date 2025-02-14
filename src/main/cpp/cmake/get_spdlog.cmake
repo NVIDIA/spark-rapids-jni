@@ -15,6 +15,7 @@
 # Use CPM to find or clone speedlog
 function(find_and_configure_spdlog)
 
+  set(CPM_DOWNLOAD_spdlog ON)
   include(${rapids-cmake-dir}/cpm/spdlog.cmake)
   rapids_cpm_spdlog(
     FMT_OPTION "EXTERNAL_FMT_HO"
