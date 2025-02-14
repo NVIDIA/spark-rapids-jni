@@ -51,6 +51,6 @@ std::unique_ptr<cudf::column> slice(
   cudf::column_view const& start,
   cudf::column_view const& length,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
