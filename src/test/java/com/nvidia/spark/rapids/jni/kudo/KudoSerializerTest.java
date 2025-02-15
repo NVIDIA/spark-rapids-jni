@@ -134,6 +134,36 @@ public class KudoSerializerTest {
   }
 
   @Test
+  public void testMergeString() {
+      Arms.withResource(new ArrayList<Table>(), tables -> {
+                  Table table1 = new Table.TestBuilder()
+                          .column("A", "B", "C", "D", null, "TESTING", "1", "2", "3", "4",
+                                  "5", "6", "7", null, "9", "10", "11", "12", "13", null, "15")
+                          .build();
+                  tables.add(table1);
+
+                  Table table2 = new Table.TestBuilder()
+                          .column("A", "A", "C", "C", "E", "TESTING", "1", "2", "3", "4", "5",
+                                  "6", "7", "", "9", "10", "11", "12", "13", "", "15")
+                          .build();
+                  tables.add(table2);
+
+                  Table expected = new Table.TestBuilder()
+                          .column("C", "D", null, "TESTING", "1", "2", "3", "4",
+                                  "5", "6", "7", null, "9", "C", "E", "TESTING", "1", "2")
+                          .build();
+                  tables.add(expected);
+
+                  checkMergeTable(expected, asList(
+                          new TableSlice(2, 13, table1),
+                          new TableSlice(3, 5, table2)));
+
+                  return null;
+              }
+      );
+  }
+
+  @Test
   public void testMergeList() {
     Arms.withResource(new ArrayList<Table>(), tables -> {
       Table table1 = new Table.TestBuilder()
@@ -166,6 +196,37 @@ public class KudoSerializerTest {
           new TableSlice(3, 7, table1),
           new TableSlice(1, 9, table2)));
 
+      return null;
+    });
+  }
+
+  @Test
+  public void testMergeComplexStructList() {
+    Arms.withResource(new ArrayList<Table>(), tables -> {
+      HostColumnVector.ListType listMapType = new HostColumnVector.ListType(true,
+              new HostColumnVector.ListType(true,
+                      new HostColumnVector.StructType(true,
+                              new HostColumnVector.BasicType(false, DType.STRING),
+                              new HostColumnVector.BasicType(true, DType.STRING))));
+
+      Table table = new Table.TestBuilder()
+              .column(listMapType, asList(asList(struct("k1", "v1"), struct("k2", "v2")),
+                              singletonList(struct("k3", "v3"))),
+                      null,
+                      singletonList(asList(struct("k14", "v14"), struct("k15", "v15"))),
+                      null,
+                      asList(null, null, null),
+                      asList(singletonList(struct("k22", null)), singletonList(struct("k23", null))),
+                      null, null,
+                      null)
+              .build();
+      tables.add(table);
+
+      checkMergeTable(table, asList(
+              new TableSlice(0, 3, table),
+              new TableSlice(3, 3, table),
+              new TableSlice(6, 3, table))
+      );
       return null;
     });
   }
@@ -223,6 +284,7 @@ public class KudoSerializerTest {
 
     assertArrayEquals(expected, bout.toByteArray());
   }
+
 
   private static Schema buildSimpleTestSchema() {
     Schema.Builder builder = Schema.builder();
@@ -412,6 +474,7 @@ public class KudoSerializerTest {
 
           try (Table merged = serializer.mergeToTable(kudoTables).getLeft()) {
             assertEquals(expected.getRowCount(), merged.getRowCount());
+
             AssertUtils.assertTablesAreEqual(expected, merged);
           }
         } catch (Exception e) {
@@ -493,4 +556,5 @@ public class KudoSerializerTest {
       return baseTable;
     }
   }
+
 }
