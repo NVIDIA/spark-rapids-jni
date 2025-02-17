@@ -400,6 +400,9 @@ class KudoTableMerger implements SimpleSchemaVisitor {
      * @param numRows Number of rows to append.
      */
     void appendAllValid(int numRows) {
+      if (numRows <= 0) {
+        return;
+      }
       int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
       int curDestBitIdx = totalRowCount % 32;
 
