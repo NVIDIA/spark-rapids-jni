@@ -35,6 +35,8 @@ public class Map {
    * Note:
    *   The keys of map MUST not be null.
    *   Assume that maps do not have duplicate keys.
+   *   Do not normalize/sort the nested maps in `KEY` column; This means
+   *   Only consider the first level LIST(STRUCT(KEY, VALUE)) as map type.
    *
    * @param cv           Input map column, should in LIST(STRUCT(KEY, VALUE))
    *                     type.
