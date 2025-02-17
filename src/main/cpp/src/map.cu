@@ -51,19 +51,13 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& input,
                                             cudf::table_view{{keys}},
                                             segments,
                                             {sort_order},
-                                            {},  // Map keys MUST be not null
+                                            {},  // Map keys MUST not be null
                                             stream,
                                             mr);
-  stream.synchronize();
-  std::vector<std::unique_ptr<cudf::column>> one_item_vec = sorted->release();
-
-  // Deep copying segments
-  auto output_segments = std::make_unique<cudf::column>(segments);
-  stream.synchronize();
 
   return cudf::make_lists_column(lists_of_structs.size(),
-                                 std::move(output_segments),  // offsets
-                                 std::move(one_item_vec[0]),  // child column
+                                 std::make_unique<cudf::column>(segments),  // copy segment offsets
+                                 std::move(sorted->release().front()),      // child column
                                  lists_of_structs.null_count(),
                                  cudf::copy_bitmask(lists_of_structs.parent(), stream, mr),
                                  stream,

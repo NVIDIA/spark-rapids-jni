@@ -22,10 +22,22 @@
 
 namespace spark_rapids_jni {
 
+/**
+ * Sort entries for each map in map column according to the keys of each map.
+ * Note:
+ *   The keys of map MUST not be null.
+ *   Assume that maps do not have duplicate keys.
+ *
+ * @param input Input map column, should in LIST(STRUCT(KEY, VALUE)) type.
+ * @param sort_order Ascending or descending order
+ * @return Sorted map according to the sort order of the key column in map.
+ * @throws cudf::logic_error If the input column is not a LIST(STRUCT(KEY, VALUE)) column or the
+ * keys contain nulls.
+ */
 std::unique_ptr<cudf::column> sort_map_column(
-  cudf::column_view const& map_column,
+  cudf::column_view const& input,
   cudf::order sort_order,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
-}
+}  // namespace spark_rapids_jni

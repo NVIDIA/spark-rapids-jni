@@ -32,8 +32,10 @@ public class Map {
 
   /**
    * Sort entries for each map in map column according to the keys of each map.
-   * Note: The keys of map MUST not be null.
-   * 
+   * Note:
+   *   The keys of map MUST not be null.
+   *   Assume that maps do not have duplicate keys.
+   *
    * @param cv           Input map column, should in LIST(STRUCT(KEY, VALUE))
    *                     type.
    * @param isDescending True if sort in descending order, false if sort in
