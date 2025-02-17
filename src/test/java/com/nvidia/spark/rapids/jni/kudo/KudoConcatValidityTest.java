@@ -316,6 +316,34 @@ public class KudoConcatValidityTest {
         }
     }
 
+    @Test
+    public void testConcatValidityWithEmpty() {
+      Random random = getRandom();
+      int accuArrLen = 0;
+      // Be careful with startRow, they are carefully designed to cover all test cases.
+      try (HostMemoryBuffer dest = HostMemoryBuffer.allocate(64)) {
+        KudoTableMerger.ValidityBufferMerger merger = new KudoTableMerger.ValidityBufferMerger(dest, 0, new int[64], new int[64]);
+
+        ValidityConcatArray arr1 = new ValidityConcatArray(3, 512, random, "Array 1", accuArrLen);
+        arr1.appendToDest(merger);
+        accuArrLen += arr1.array.length;
+
+
+        // Should not throw
+        merger.appendAllValid(0);
+
+        try (HostMemoryBuffer src = HostMemoryBuffer.allocate(32)) {
+          // Should not throw
+          merger.copyValidityBuffer(src, 0, new SliceInfo(0, 0));
+        }
+
+        boolean[] result = getValidityBuffer(dest, accuArrLen);
+        arr1.verifyData(result);
+      }
+    }
+
+
+
     private static class ValidityConcatArray {
       private final int startRow;
       private final int nullCount;
