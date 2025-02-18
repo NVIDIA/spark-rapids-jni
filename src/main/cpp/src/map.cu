@@ -55,11 +55,11 @@ std::unique_ptr<cudf::column> sort_map_column(cudf::column_view const& input,
                                             stream,
                                             mr);
 
-  return cudf::make_lists_column(lists_of_structs.size(),
+  return cudf::make_lists_column(input.size(),
                                  std::make_unique<cudf::column>(segments),  // copy segment offsets
                                  std::move(sorted->release().front()),      // child column
-                                 lists_of_structs.null_count(),
-                                 cudf::copy_bitmask(lists_of_structs.parent(), stream, mr),
+                                 input.null_count(),
+                                 cudf::copy_bitmask(input, stream, mr),
                                  stream,
                                  mr);
 }
