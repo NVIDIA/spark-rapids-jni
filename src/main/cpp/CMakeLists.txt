@@ -200,6 +200,7 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/JSONUtilsJni.cpp
+  src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
@@ -223,6 +224,7 @@ add_library(
   src/get_json_object.cu
   src/histogram.cu
   src/json_utils.cu
+  src/map.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
