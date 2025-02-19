@@ -236,8 +236,8 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
   CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
 
-  auto const length_cdv = *column_device_view::create(length, stream);
-  assert_length_is_not_negative(length_cdv, stream);
+  auto const length_cdv = column_device_view::create(length, stream);
+  assert_length_is_not_negative(*length_cdv, stream);
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
