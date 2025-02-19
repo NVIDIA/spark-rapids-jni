@@ -245,7 +245,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   auto [starts, sizes]         = generate_starts_and_sizes(input.offsets_begin(),
                                                    num_rows,
                                                    int_iterator_from_scalar(start),
-                                                   int_iterator_from_column(length_cdv),
+                                                   int_iterator_from_column(*length_cdv),
                                                    stream);
   auto [null_mask, null_count] = cudf::detail::bitmask_and(
     table_view{{input.parent(), length}}, stream, cudf::get_current_device_resource_ref());
@@ -263,15 +263,15 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
 
-  auto const start_cdv = *column_device_view::create(start, stream);
-  assert_start_is_not_zero(start_cdv, stream);
+  auto const start_cdv = column_device_view::create(start, stream);
+  assert_start_is_not_zero(*start_cdv, stream);
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
 
   auto [starts, sizes] = generate_starts_and_sizes(input.offsets_begin(),
                                                    num_rows,
-                                                   int_iterator_from_column(start_cdv),
+                                                   int_iterator_from_column(*start_cdv),
                                                    int_iterator_from_scalar(length),
                                                    stream);
 
@@ -291,18 +291,18 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
 
-  auto const start_cdv = *column_device_view::create(start, stream);
-  assert_start_is_not_zero(start_cdv, stream);
-  auto const length_cdv = *column_device_view::create(length, stream);
-  assert_length_is_not_negative(length_cdv, stream);
+  auto const start_cdv = column_device_view::create(start, stream);
+  assert_start_is_not_zero(*start_cdv, stream);
+  auto const length_cdv = column_device_view::create(length, stream);
+  assert_length_is_not_negative(*length_cdv, stream);
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
 
   auto [starts, sizes] = generate_starts_and_sizes(input.offsets_begin(),
                                                    num_rows,
-                                                   int_iterator_from_column(start_cdv),
-                                                   int_iterator_from_column(length_cdv),
+                                                   int_iterator_from_column(*start_cdv),
+                                                   int_iterator_from_column(*length_cdv),
                                                    stream);
 
   auto [null_mask, null_count] = cudf::detail::bitmask_and(
