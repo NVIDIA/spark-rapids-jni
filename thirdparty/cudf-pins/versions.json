@@ -108,6 +108,32 @@
             "type" : "diff"
           },
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
+        },
+        {
+          "fixed_in" : "",
+          "inline_patch" : 
+          {
+            "content" : 
+            [
+              "diff --git a/thrust/thrust/system/cuda/detail/copy_if.h b/thrust/thrust/system/cuda/detail/copy_if.h",
+              "index 19dd014f5..3cba72c51 100644",
+              "--- a/thrust/thrust/system/cuda/detail/copy_if.h",
+              "+++ b/thrust/thrust/system/cuda/detail/copy_if.h",
+              "@@ -245,7 +245,8 @@ THRUST_RUNTIME_FUNCTION OutputIt copy_if(",
+              "     dispatch64_t::dispatch,",
+              "     num_items,",
+              "     (policy, temp_storage, temp_storage_bytes, first, stencil, output, predicate, num_items_fixed));",
+              "-  cuda_cub::throw_on_error(status, \"copy_if failed on 2nd step\");",
+              "+  auto err_msg = \"copy_if failed on 2nd step with temp_storage_bytes = \" + std::to_string(temp_storage_bytes) +",
+              "+                                     \" and num_items = \" + std::to_string(num_items);",
+              "+  cuda_cub::throw_on_error(status, err_msg.c_str());",
+              " ",
+              "   return output;",
+              " }"
+            ],
+            "type" : "diff"
+          },
+          "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
       "version" : "2.7.0"
