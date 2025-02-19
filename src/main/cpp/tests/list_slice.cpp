@@ -19,7 +19,7 @@
 
 #include <cudf/lists/lists_column_view.hpp>
 
-#include <slice.hpp>
+#include <list_slice.hpp>
 
 using namespace cudf;
 
@@ -34,7 +34,7 @@ TEST_F(SliceTests, SliceTest)
     size_type start  = 1;
     size_type length = 2;
 
-    auto results = spark_rapids_jni::slice(list_col, start, length);
+    auto results = spark_rapids_jni::list_slice(list_col, start, length);
 
     auto const expected = test::lists_column_wrapper<int32_t>{{0, 1}, {2, 3}, {4, 5}};
 
@@ -44,7 +44,7 @@ TEST_F(SliceTests, SliceTest)
     size_type start   = 1;
     auto const length = test::fixed_width_column_wrapper<int32_t>{0, 1, 2};
 
-    auto results = spark_rapids_jni::slice(list_col, start, length);
+    auto results = spark_rapids_jni::list_slice(list_col, start, length);
 
     auto const expected = test::lists_column_wrapper<int32_t>{{}, {2}, {4, 5}};
 
@@ -54,7 +54,7 @@ TEST_F(SliceTests, SliceTest)
     auto const start = test::fixed_width_column_wrapper<int32_t>{1, 2, 2};
     size_type length = 2;
 
-    auto results = spark_rapids_jni::slice(list_col, start, length);
+    auto results = spark_rapids_jni::list_slice(list_col, start, length);
 
     auto const expected = test::lists_column_wrapper<int32_t>{{0, 1}, {3, 7}, {5}};
 
@@ -64,7 +64,7 @@ TEST_F(SliceTests, SliceTest)
     auto const start  = test::fixed_width_column_wrapper<int32_t>{1, 2, 1};
     auto const length = test::fixed_width_column_wrapper<int32_t>{0, 1, 2};
 
-    auto results = spark_rapids_jni::slice(list_col, start, length);
+    auto results = spark_rapids_jni::list_slice(list_col, start, length);
 
     auto const expected = test::lists_column_wrapper<int32_t>{{}, {3}, {4, 5}};
 

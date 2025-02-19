@@ -28,9 +28,9 @@ import java.util.Collections;
 import static ai.rapids.cudf.AssertUtils.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class GpuSliceUtilsTest {
+public class GpuListSliceUtilsTest {
   @Test
-  void testSliceStartIntLengthInt() {
+  void testListSliceStartIntLengthInt() {
     try (ColumnVector intListCV = ColumnVector.fromLists(
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3), // Normal case
@@ -40,7 +40,7 @@ public class GpuSliceUtilsTest {
         Collections.singletonList(null), // Single null
         Arrays.asList(null, null, null), // All nulls
         Arrays.asList(6, 7));
-        ColumnVector result1 = GpuSliceUtils.slice(intListCV, 1, 2);
+        ColumnVector result1 = GpuListSliceUtils.listSlice(intListCV, 1, 2);
         ColumnVector expected1 = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Arrays.asList(1, 2),
@@ -50,7 +50,7 @@ public class GpuSliceUtilsTest {
             Collections.singletonList(null),
             Arrays.asList(null, null),
             Arrays.asList(6, 7));
-        ColumnVector result2 = GpuSliceUtils.slice(intListCV, 1, 0);
+        ColumnVector result2 = GpuListSliceUtils.listSlice(intListCV, 1, 0);
         ColumnVector expected2 = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Collections.emptyList(),
@@ -60,7 +60,7 @@ public class GpuSliceUtilsTest {
             Collections.emptyList(),
             Collections.emptyList(),
             Collections.emptyList());
-        ColumnVector result3 = GpuSliceUtils.slice(intListCV, 3, 10);
+        ColumnVector result3 = GpuListSliceUtils.listSlice(intListCV, 3, 10);
         ColumnVector expected3 = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Collections.singletonList(3),
@@ -70,7 +70,7 @@ public class GpuSliceUtilsTest {
             Collections.emptyList(),
             Collections.singletonList(null),
             Collections.emptyList());
-        ColumnVector result4 = GpuSliceUtils.slice(intListCV, -2, 2);
+        ColumnVector result4 = GpuListSliceUtils.listSlice(intListCV, -2, 2);
         ColumnVector expected4 = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Arrays.asList(2, 3),
@@ -88,7 +88,7 @@ public class GpuSliceUtilsTest {
   }
 
   @Test
-  void testSliceStartIntLengthCol() {
+  void testListSliceStartIntLengthCol() {
     try (ColumnVector intListCV = ColumnVector.fromLists(
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3), // Normal case
@@ -99,7 +99,7 @@ public class GpuSliceUtilsTest {
         Arrays.asList(null, null, null), // All nulls
         Arrays.asList(6, 7));
         ColumnVector lengthCV = ColumnVector.fromBoxedInts(0, 1, 2, 3, 4, 10, null);
-        ColumnVector result = GpuSliceUtils.slice(intListCV, 1, lengthCV);
+        ColumnVector result = GpuListSliceUtils.listSlice(intListCV, 1, lengthCV);
         ColumnVector expected = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Collections.emptyList(),
@@ -114,7 +114,7 @@ public class GpuSliceUtilsTest {
   }
 
   @Test
-  void testSliceStartColLengthInt() {
+  void testListSliceStartColLengthInt() {
     try (ColumnVector intListCV = ColumnVector.fromLists(
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3), // Normal case
@@ -125,7 +125,7 @@ public class GpuSliceUtilsTest {
         Arrays.asList(null, null, null), // All nulls
         Arrays.asList(6, 7));
         ColumnVector startCV = ColumnVector.fromBoxedInts(1, -1, 2, 3, -10, 10, null);
-        ColumnVector result = GpuSliceUtils.slice(intListCV, startCV, 2);
+        ColumnVector result = GpuListSliceUtils.listSlice(intListCV, startCV, 2);
         ColumnVector expected = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Arrays.asList(1, 2),
@@ -140,7 +140,7 @@ public class GpuSliceUtilsTest {
   }
 
   @Test
-  void testSliceStartColLengthCol() {
+  void testListSliceStartColLengthCol() {
     try (ColumnVector intListCV = ColumnVector.fromLists(
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3), // Normal case
@@ -152,7 +152,7 @@ public class GpuSliceUtilsTest {
         Arrays.asList(6, 7));
         ColumnVector startCV = ColumnVector.fromBoxedInts(1, -1, 2, 3, -10, -2, null);
         ColumnVector lengthCV = ColumnVector.fromBoxedInts(0, 1, 2, null, 4, 10, 1);
-        ColumnVector result = GpuSliceUtils.slice(intListCV, startCV, lengthCV);
+        ColumnVector result = GpuListSliceUtils.listSlice(intListCV, startCV, lengthCV);
         ColumnVector expected = ColumnVector.fromLists(
             new ListType(true, new BasicType(true, DType.INT32)),
             Collections.emptyList(),
@@ -167,7 +167,7 @@ public class GpuSliceUtilsTest {
   }
 
   @Test
-  void testSliceIllegalArguments() {
+  void testListSliceIllegalArguments() {
     try (ColumnVector intListCV = ColumnVector.fromLists(
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3),
@@ -179,20 +179,20 @@ public class GpuSliceUtilsTest {
         ColumnVector startMismatchCV = ColumnVector.fromBoxedInts(1);
         ColumnVector lengthMismatchCV = ColumnVector.fromBoxedInts(1, 1, 1)) {
       // start can not be 0
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, 0, 1));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, 0, legalLengthCV));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, startContainsZeroCV, 1));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, startContainsZeroCV, legalLengthCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 0, 1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 0, legalLengthCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, startContainsZeroCV, 1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, startContainsZeroCV, legalLengthCV));
       // length can not be negative
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, 1, -1));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, 1, lengthContainsNegCV));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, legalStartCV, -1));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, legalStartCV, lengthContainsNegCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 1, -1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 1, lengthContainsNegCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, legalStartCV, -1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, legalStartCV, lengthContainsNegCV));
       // mismatched size of start or length
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, startMismatchCV, 1));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, startMismatchCV, legalLengthCV));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, 1, lengthMismatchCV));
-      assertThrows(CudfException.class, () -> GpuSliceUtils.slice(intListCV, legalStartCV, lengthMismatchCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, startMismatchCV, 1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, startMismatchCV, legalLengthCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 1, lengthMismatchCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, legalStartCV, lengthMismatchCV));
     }
   }
 }

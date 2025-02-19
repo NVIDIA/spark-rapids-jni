@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "slice.hpp"
+#include "list_slice.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -159,11 +159,11 @@ auto generate_starts_and_sizes(size_type const* offsets_of_input_lists,
   return std::make_pair(std::move(starts), std::move(sizes));
 }
 
-std::unique_ptr<cudf::column> legal_slice(lists_column_view const& input,
-                                          column_view const& starts,
-                                          column_view const& sizes,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
+                                               column_view const& starts,
+                                               column_view const& sizes,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
 {
   auto const num_rows = input.size();
   // make output_offset
@@ -206,11 +206,11 @@ std::unique_ptr<cudf::column> legal_slice(lists_column_view const& input,
 
 }  // namespace
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    size_type const start,
-                                    size_type const length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         size_type const start,
+                                         size_type const length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
   CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
@@ -224,14 +224,14 @@ std::unique_ptr<cudf::column> slice(lists_column_view const& input,
                                                    int_iterator_from_scalar(length),
                                                    stream);
 
-  return legal_slice(input, starts->view(), sizes->view(), stream, mr);
+  return legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    size_type const start,
-                                    column_view const& length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         size_type const start,
+                                         column_view const& length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
   CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
@@ -249,16 +249,16 @@ std::unique_ptr<cudf::column> slice(lists_column_view const& input,
                                                    stream);
   auto [null_mask, null_count] = cudf::detail::bitmask_and(
     table_view{{input.parent(), length}}, stream, cudf::get_current_device_resource_ref());
-  auto result = legal_slice(input, starts->view(), sizes->view(), stream, mr);
+  auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    column_view const& start,
-                                    size_type const length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         column_view const& start,
+                                         size_type const length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
@@ -277,16 +277,16 @@ std::unique_ptr<cudf::column> slice(lists_column_view const& input,
 
   auto [null_mask, null_count] = cudf::detail::bitmask_and(
     table_view{{input.parent(), start}}, stream, cudf::get_current_device_resource_ref());
-  auto result = legal_slice(input, starts->view(), sizes->view(), stream, mr);
+  auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    column_view const& start,
-                                    column_view const& length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         column_view const& start,
+                                         column_view const& length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
@@ -307,7 +307,7 @@ std::unique_ptr<cudf::column> slice(lists_column_view const& input,
 
   auto [null_mask, null_count] = cudf::detail::bitmask_and(
     table_view{{input.parent(), start, length}}, stream, cudf::get_current_device_resource_ref());
-  auto result = legal_slice(input, starts->view(), sizes->view(), stream, mr);
+  auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
 }
@@ -315,44 +315,44 @@ std::unique_ptr<cudf::column> slice(lists_column_view const& input,
 }  // namespace detail
 
 // external API
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    size_type const start,
-                                    size_type const length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         size_type const start,
+                                         size_type const length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, stream, mr);
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    size_type const start,
-                                    column_view const& length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         size_type const start,
+                                         column_view const& length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, stream, mr);
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    column_view const& start,
-                                    size_type const length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         column_view const& start,
+                                         size_type const length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, stream, mr);
 }
 
-std::unique_ptr<cudf::column> slice(lists_column_view const& input,
-                                    column_view const& start,
-                                    column_view const& length,
-                                    rmm::cuda_stream_view stream,
-                                    rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
+                                         column_view const& start,
+                                         column_view const& length,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

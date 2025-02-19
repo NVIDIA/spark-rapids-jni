@@ -15,11 +15,11 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "slice.hpp"
+#include "list_slice.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceIntInt(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceIntInt(
   JNIEnv* env, jclass, jlong input_column, jint start, jint length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -27,12 +27,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceIntI
     cudf::jni::auto_set_device(env);
 
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    return cudf::jni::release_as_jlong(spark_rapids_jni::slice(lcv, start, length));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length));
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceIntCol(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceIntCol(
   JNIEnv* env, jclass, jlong input_column, jint start, jlong length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -42,12 +42,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceIntC
 
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::slice(lcv, start, length_cv));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length_cv));
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceColInt(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceColInt(
   JNIEnv* env, jclass, jlong input_column, jlong start, jint length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -57,12 +57,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceColI
 
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv = *reinterpret_cast<cudf::column_view const*>(start);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::slice(lcv, start_cv, length));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start_cv, length));
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceColCol(
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceColCol(
   JNIEnv* env, jclass, jlong input_column, jlong start, jlong length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
@@ -74,7 +74,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuSliceUtils_sliceColC
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv  = *reinterpret_cast<cudf::column_view const*>(start);
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::slice(lcv, start_cv, length_cv));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start_cv, length_cv));
   }
   CATCH_STD(env, 0);
 }
