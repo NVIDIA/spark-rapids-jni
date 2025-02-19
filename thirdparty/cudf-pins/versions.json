@@ -133,7 +133,7 @@
             ],
             "type" : "diff"
           },
-          "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
+          "issue" : "More debug info for potential copy_if failures reported in [https://github.com/NVIDIA/spark-rapids/issues/12066]"
         }
       ],
       "version" : "2.7.0"
