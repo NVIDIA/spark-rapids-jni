@@ -28,7 +28,7 @@ struct hllpp_groupby_udf : cudf::groupby_host_udf {
   hllpp_groupby_udf(int precision_, bool is_merge_) : precision(precision_), is_merge(is_merge_) {}
 
   /**
-   * Perform the main groupby computation for HLLPP UDF
+   * @brief Perform the main groupby computation for HLLPP UDF.
    */
   [[nodiscard]] std::unique_ptr<cudf::column> operator()(
     rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr) const override
