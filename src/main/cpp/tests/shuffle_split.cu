@@ -581,3 +581,30 @@ TEST_F(ShuffleSplitTests, Reshaping)
     run_split(tbl, {2, 4}, {2, 0, 1});
   }
 }
+
+TEST_F(ShuffleSplitTests, LargeBatchSimple)
+{
+  // 8 million rows per validity copy batch.
+  constexpr size_t rows_per_column = 32 * 1024 * 1024;
+
+  srand(31337);
+  auto validity_iter =
+    cudf::detail::make_counting_transform_iterator(0, [](int i) { return rand() % 2 == 0; });
+  auto iter = thrust::make_counting_iterator(0);
+
+  cudf::test::fixed_width_column_wrapper<int> col0(iter, iter + rows_per_column, validity_iter);
+
+  cudf::table_view tbl{{col0}};
+  run_split(tbl, {});
+  run_split(tbl, {0});
+  run_split(tbl, {1});
+  run_split(tbl, {31});
+  run_split(tbl, {32});
+  run_split(tbl, {63});
+  run_split(tbl, {64});
+  run_split(tbl, {rows_per_column - 1});
+  run_split(tbl, {rows_per_column - 31});
+  run_split(tbl, {rows_per_column - 32});
+  run_split(tbl, {rows_per_column - 33});
+  run_split(tbl, {8000001, 16000003});
+}

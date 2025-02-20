@@ -643,11 +643,11 @@ struct assemble_src_buffer_size_functor {
  * the generated list of values.
  *
  * As an example, imagine we had the input
- * [2, 5, 1]
+ * [2, 0, 5, 1]
  *
  * transform_expand will invoke `op` 8 times, with the values
  *
- * (0, 0) (0, 1),  (1, 0), (1, 1), (1, 2), (1, 3), (1, 4),  (2, 0)
+ * (0, 0) (0, 1),  (2, 0), (2, 1), (2, 2), (2, 3), (2, 4),   (3, 0)
  *
  * @param first Beginning of the input range
  * @param end End of the input range
@@ -691,10 +691,11 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
                       [op,
                        group_offsets_begin = group_offsets.begin(),
                        group_offsets_end   = group_offsets.end()] __device__(size_t i) {
-                        auto const group_index =
-                          thrust::lower_bound(
+                        auto const index =
+                          thrust::upper_bound(
                             thrust::seq, group_offsets_begin, group_offsets_end, i) -
                           group_offsets_begin;
+                        auto const group_index = i < group_offsets_begin[index] ? index - 1 : index;
                         auto const intra_group_index = i - group_offsets_begin[group_index];
                         return op(group_index, intra_group_index);
                       }));
@@ -816,9 +817,7 @@ constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
  */
 constexpr size_t size_to_batch_count(size_t bytes)
 {
-  return std::max(
-    std::size_t{1},
-    util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size);
+  return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
 }
 
 /**
@@ -995,9 +994,6 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const partition_index    = i / num_columns;
         auto const col_index          = i % num_columns;
         auto const col_instance_index = (partition_index * num_columns) + col_index;
-
-        partition_header const* const pheader = reinterpret_cast<partition_header const*>(
-          partitions + partition_offsets[partition_index]);
 
         auto const& cinfo_instance    = column_instance_info[col_instance_index];
         auto const validity_buf_index = (partition_index * buffers_per_partition) + col_index;
@@ -1308,13 +1304,12 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
     word = (word >> batch.src_bit_shift) & relevant_row_mask;
+    valid_count += __popc(word);
 
     // any bits that are not being stored in the current dest word get overflowed to the next copy
     prev_word[0] = word >> (32 - batch.dst_bit_shift);
     // shift to the final destination bit position.
     word <<= batch.dst_bit_shift;
-    // count and store
-    valid_count += __popc(word);
 
     // use an atomic because we could be overlapping with another copy
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
@@ -1328,16 +1323,23 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   auto src = reinterpret_cast<bitmask_type const*>(batch.src + leading_bytes);
   auto dst = reinterpret_cast<bitmask_type*>(batch.dst);
 
+  // how many words we visited in the initial batch. note that even if we only wrote 2 bits, it is
+  // possible we skipped past the first word.  For example if our dst_bit_shift was 30 (that is, we
+  // were starting to write at row index 30), 1 of the 2 bits would go in word 0, and 1 of them
+  // would go in word 1. So our leading number of words is 1.
+  auto const num_leading_words = ((rows_in_batch + batch.dst_bit_shift) / 32);
+  auto remaining_words         = (remaining_rows + 31) / 32;
+
   // compute a new bit_shift.
   // - src_bit_shift is now irrelevant because we have skipped past any leading irrelevant bits in
   // the input
   // - the amount we have to dst shift is simply incremented by the number of rows we've processed.
   auto const bit_shift = (batch.dst_bit_shift + rows_in_batch) % 32;
-  auto remaining_words = (remaining_rows + 31) / 32;
 
   // we can still be anywhere in the destination buffer, so any stores to either the first or last
   // destination words (where other copies may be happening at the same time) need to use atomicOr.
-  auto store_word = [last_word_index = remaining_words - 1, dst] __device__(int i, uint32_t val) {
+  auto const last_word_index = num_leading_words + ((((remaining_rows + bit_shift) + 31) / 32) - 1);
+  auto store_word            = [last_word_index, dst] __device__(int i, uint32_t val) {
     if (i == 0 || i == last_word_index) {
       atomicOr(dst + i, val);
     } else {
@@ -1346,11 +1348,9 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   };
 
   // copy the remaining words
-  auto const rows_per_batch    = blockDim.x * 32;
-  int src_word_index           = threadIdx.x;
-  auto const num_leading_words = ((rows_in_batch + batch.dst_bit_shift) / 32);
-  int dst_word_index =
-    threadIdx.x + num_leading_words;  // NOTE: we may still be at destination word 0
+  auto const rows_per_batch = blockDim.x * 32;
+  int src_word_index        = threadIdx.x;
+  int dst_word_index        = threadIdx.x + num_leading_words;
   int words_in_batch;
   bitmask_type cur, prev;
   do {
@@ -1376,7 +1376,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // dst[1] =  xxxx0000000000000000000000000000
       //
       prev = cur >> (32 - bit_shift);
-      // the trailing bits the last thread goes to the 0th thread for the next iteration of the
+      // the trailing bits in the last thread goes to the 0th thread for the next iteration of the
       // loop, so don't write it until the end of the loop, otherwise we'll inadvertently blow away
       // the 0th thread's correct value
       if (threadIdx.x < words_in_batch - 1) { prev_word[threadIdx.x + 1] = prev; }
@@ -1396,8 +1396,10 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     remaining_rows -= rows_in_batch;
   } while (remaining_words > 0);
 
-  // final trailing bits.
-  if (threadIdx.x == 0) { store_word(dst_word_index, prev_word[0]); }
+  // final trailing bits, if any
+  if (threadIdx.x == 0 && dst_word_index == last_word_index) {
+    store_word(dst_word_index, prev_word[0]);
+  }
 
   // add the valid count for the entire block to the count for the entire buffer.
   using block_reduce = cub::BlockReduce<cudf::size_type, block_size>;
