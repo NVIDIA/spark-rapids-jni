@@ -118,7 +118,9 @@ ColumnIter compute_root_offset_columns_traverse(ColumnIter input_begin,
                                                 int& max_branch_depth)
 {
   bool const is_struct = col->type == cudf::type_id::STRUCT;
-  if (col->type == cudf::type_id::STRING || col->type == cudf::type_id::LIST) {
+  bool const is_string = col->type == cudf::type_id::STRING;
+  bool const is_list   = col->type == cudf::type_id::LIST;
+  if (is_string || is_list) {
     // if we're at depth 0, store the column as a root
     if (depth == 0) { out.push_back(static_cast<int>(std::distance(input_begin, col))); }
     depth++;
@@ -129,7 +131,7 @@ ColumnIter compute_root_offset_columns_traverse(ColumnIter input_begin,
   }
 
   // recurse through structs and lists
-  if (col->type == cudf::type_id::STRUCT || col->type == cudf::type_id::LIST) {
+  if (is_struct || is_list) {
     auto const num_children = col->num_children();
     col                     = std::next(col);
     for (auto idx = 0; idx < num_children; idx++) {
@@ -221,7 +223,7 @@ __global__ void compute_offset_child_row_counts(
                               validity_pad);
   size_type const* offsets = reinterpret_cast<size_type const*>(partitions.begin() + offsets_begin);
 
-  auto base_col_index = column_metadata.size() * partition_index;
+  auto const base_col_index = column_metadata.size() * partition_index;
   for (auto idx = 0; idx < offset_columns.size(); idx++) {
     // root column starts with the number of rows in the partition
     auto num_rows           = cudf::hashing::detail::swap_endian(pheader->num_rows);
@@ -254,8 +256,12 @@ __global__ void compute_offset_child_row_counts(
           num_rows                 = offsets[num_rows] - offsets[0];
           offsets += (last_num_rows + 1);
         } break;
-        // structs are a branch point, so we record the current num_rows and how many children are
-        // left to be processed
+        // structs are a branch point, so we record the current num_rows, how many children are
+        // left to be processed, and current row index.
+        // 'branch' here means that since we can have multiple children, any of which could be a
+        // list which alters row information for everything below them, every time we reach a
+        // struct, we need to push that current information onto a stack so that we can pop it back
+        // off later when returning from a 'branch' (a child tree)
         case cudf::type_id::STRUCT:
           rc_stack_pos++;
           rc_stack[rc_stack_pos * 3]       = num_rows;
@@ -270,10 +276,14 @@ __global__ void compute_offset_child_row_counts(
           // fallthrough
         default: {
           if (rc_stack_pos >= 0) {
-            src_row_index           = rc_stack[(rc_stack_pos * 2) + 2];
-            auto const num_children = --rc_stack[(rc_stack_pos * 2) + 1];
-            num_rows                = rc_stack[rc_stack_pos * 2];
-            if (num_children == 0) { rc_stack_pos--; }
+            // we have now returned back to our most recent branch point. a struct.
+            // restore row information off the stack and decrement the number of struct
+            // children left to process. if we reach 0, we are done processing all of the
+            // children of the struct and can pop it off the stack entirely.
+            src_row_index                  = rc_stack[(rc_stack_pos * 3) + 2];
+            auto const struct_num_children = --rc_stack[(rc_stack_pos * 3) + 1];
+            num_rows                       = rc_stack[rc_stack_pos * 3];
+            if (struct_num_children == 0) { rc_stack_pos--; }
           }
         } break;
       }
@@ -286,16 +296,6 @@ __global__ void compute_offset_child_row_counts(
   }
 }
 
-// returns:
-// - a vector of assemble_column_info structs representing the destination column data.
-//   the vector is of length global_metadata.col_info.size()  that is, the flattened list of columns
-//   in the table.
-//
-// - the same vector as above, but in host memory.
-//
-// - a vector of assemble_column_info structs, representing the source column data.
-//   the vector is of length global_metadata.col_info.size() * the # of partitions.
-//
 /**
  * @brief Generate assemble_column_info structures for columns and column_instances
  *
@@ -344,23 +344,27 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
   // compute has-validity
   // note that we are iterating vertically -> horizontally here, with each column's individual piece
   // per partition first.
+  auto col_has_validity = cuda::proclaim_return_type<bool>(
+    [] __device__(bitmask_type const* const has_validity_buf, int col_index) -> bool {
+      return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
+    });
   auto column_keys = cudf::detail::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_type>([num_partitions] __device__(size_type i) {
       return i / num_partitions;
     }));
   auto has_validity_values = cudf::detail::make_counting_transform_iterator(
     0,
-    cuda::proclaim_return_type<bool>(
-      [num_partitions,
-       partitions        = partitions.data(),
-       partition_offsets = partition_offsets.begin()] __device__(int i) -> bool {
-        auto const partition_index                 = i % num_partitions;
-        bitmask_type const* const has_validity_buf = reinterpret_cast<bitmask_type const*>(
-          partitions + partition_offsets[partition_index] + sizeof(partition_header));
-        auto const col_index = i / num_partitions;
+    cuda::proclaim_return_type<bool>([num_partitions,
+                                      partitions        = partitions.data(),
+                                      partition_offsets = partition_offsets.begin(),
+                                      col_has_validity] __device__(int i) -> bool {
+      auto const partition_index                 = i % num_partitions;
+      bitmask_type const* const has_validity_buf = reinterpret_cast<bitmask_type const*>(
+        partitions + partition_offsets[partition_index] + sizeof(partition_header));
+      auto const col_index = i / num_partitions;
 
-        return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
-      }));
+      return col_has_validity(has_validity_buf, col_index);
+    }));
   thrust::reduce_by_key(rmm::exec_policy_nosync(stream, temp_mr),
                         column_keys,
                         column_keys + num_column_instances,
@@ -398,7 +402,8 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
      partitions           = partitions.data(),
      partition_offsets    = partition_offsets.begin(),
      num_columns,
-     per_partition_metadata_size] __device__(size_type i) {
+     per_partition_metadata_size,
+     col_has_validity] __device__(size_type i) {
       auto const partition_index    = i / num_columns;
       auto const col_index          = i % num_columns;
       auto const col_instance_index = (partition_index * num_columns) + col_index;
@@ -412,8 +417,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
 
       bitmask_type const* const has_validity_buf =
         reinterpret_cast<bitmask_type const*>(buf_start + sizeof(partition_header));
-      cinstance_info.has_validity =
-        has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
+      cinstance_info.has_validity = col_has_validity(has_validity_buf, col_index);
 
       cinstance_info.type         = metadata.type;
       cinstance_info.valid_count  = 0;

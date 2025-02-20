@@ -88,7 +88,7 @@ struct shuffle_split_result {
   // - each partition is prepended with a metadata buffer
   //   the metadata is of the format:
   //   - 4 byte row count for the partition
-  //   - for each string column in huffle_split_metadata.col_info
+  //   - for each string column in shuffle_split_metadata.col_info
   //     - 4 byte char count
   //   - for each entry in shuffle_split_metadata.col_info
   //     - 1 bit per column indicating whether or not validity info is
@@ -119,7 +119,7 @@ struct shuffle_split_result {
  *
  * The result is returned as a blob of bytes representing the individual partitions resulting from
  * the splits, and a set of offsets indicating the beginning of each resulting partition in the
- * result. The function also returns a shuffle_split_metadat struct which contains additional
+ * result. The function also returns a shuffle_split_metadata struct which contains additional
  * information needed to reconstruct the buffer during shuffle_assemble.
  *
  * @param input The input table
@@ -143,7 +143,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
  * @param partitions A buffer of anonymous bytes representing multiple partitions of data to be
  * merged
  * @param partition_offsets Offsets into the partitions buffer indicating where each individual
- * partition begins. The number of partitions is partition_offsets.size()
+ * partition begins. The number of partitions is partition_offsets.size() - 1
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned column's device memory.
  * @return A cudf table

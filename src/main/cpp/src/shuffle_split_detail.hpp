@@ -63,9 +63,9 @@ struct partition_header {
   uint32_t data_size;
 };
 
-// padding values for each validity type, as applied at the end of that data type
+// alignment values for each validity type, as applied at the end of that data type
 // in each partition. so for example all of the grouped-together validity buffers for
-// a given partition will have a final 4 byte pad applied before the offset buffers begin
+// a given partition will have a final 4 byte alignment applied before the offset buffers begin
 constexpr size_t validity_pad = 4;
 constexpr size_t offset_pad   = 4;
 constexpr size_t data_pad     = 4;
