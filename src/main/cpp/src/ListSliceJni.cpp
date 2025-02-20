@@ -26,6 +26,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
   try {
     cudf::jni::auto_set_device(env);
 
+    // The following constructor expects that the type of the input_column is LIST.
+    // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length));
   }
@@ -40,6 +42,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
   try {
     cudf::jni::auto_set_device(env);
 
+    // The following constructor expects that the type of the input_column is LIST.
+    // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);
     return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length_cv));
@@ -55,6 +59,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
   try {
     cudf::jni::auto_set_device(env);
 
+    // The following constructor expects that the type of the input_column is LIST.
+    // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv = *reinterpret_cast<cudf::column_view const*>(start);
     return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start_cv, length));
@@ -71,6 +77,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
   try {
     cudf::jni::auto_set_device(env);
 
+    // The following constructor expects that the type of the input_column is LIST.
+    // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv  = *reinterpret_cast<cudf::column_view const*>(start);
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);

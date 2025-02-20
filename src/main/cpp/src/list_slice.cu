@@ -95,22 +95,28 @@ CUDF_KERNEL void compute_starts_and_sizes_kernel(size_type const* offsets_of_inp
   auto const tid = cudf::detail::grid_1d::global_thread_id();
   if (tid >= num_rows) { return; }
 
+  // If either start or length is null, produce an empty list
   if (start_iterator.is_null(tid) || length_iterator.is_null(tid)) {
     d_sizes[tid] = 0;
     return;
   }
 
+  // The number of elements in the current row's list
   auto const length_of_list = offsets_of_input_lists[tid + 1] - offsets_of_input_lists[tid];
   auto start                = start_iterator(tid);
   auto const length         = length_iterator(tid);
 
+  // start cannot be 0
   start = start < 0 ? length_of_list + start : start - 1;
+  // If the original start is out of [-length_of_list, length_of_list], will produce an empty list
   if (start < 0 || start >= length_of_list) {
     d_sizes[tid] = 0;
     return;
   }
+  // The new start index will be in range [0, length_of_list)
   d_starts[tid] = start;
-  d_sizes[tid]  = cuda::std::min(length_of_list - start, length);
+  // The sliced length cannot exceed the remaining elements in the list
+  d_sizes[tid] = cuda::std::min(length_of_list - start, length);
 }
 
 CUDF_KERNEL void compute_gather_map(size_type const num_rows_of_input,
@@ -181,19 +187,19 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
     output_offset->view().begin<int32_t>(),
     gather_map.data());
 
+  // The following code is adapted from cudf::lists::segmented_gather
   // Call gather on child of input column
   auto child_table = cudf::detail::gather(table_view({input.get_sliced_child(stream)}),
                                           gather_map,
                                           out_of_bounds_policy::DONT_CHECK,
                                           cudf::detail::negative_index_policy::NOT_ALLOWED,
                                           stream,
-                                          cudf::get_current_device_resource_ref());
+                                          mr);
 
   auto child = std::move(child_table->release().front());
 
   // Assemble list column & return
-  auto null_mask =
-    cudf::detail::copy_bitmask(input.parent(), stream, cudf::get_current_device_resource_ref());
+  auto null_mask  = cudf::detail::copy_bitmask(input.parent(), stream, mr);
   auto null_count = input.null_count();
   return make_lists_column(num_rows,
                            std::move(output_offset),
@@ -242,13 +248,13 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
 
-  auto [starts, sizes]         = generate_starts_and_sizes(input.offsets_begin(),
+  auto [starts, sizes] = generate_starts_and_sizes(input.offsets_begin(),
                                                    num_rows,
                                                    int_iterator_from_scalar(start),
                                                    int_iterator_from_column(*length_cdv),
                                                    stream);
-  auto [null_mask, null_count] = cudf::detail::bitmask_and(
-    table_view{{input.parent(), length}}, stream, cudf::get_current_device_resource_ref());
+  auto [null_mask, null_count] =
+    cudf::detail::bitmask_and(table_view{{input.parent(), length}}, stream, mr);
   auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
@@ -275,8 +281,8 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    int_iterator_from_scalar(length),
                                                    stream);
 
-  auto [null_mask, null_count] = cudf::detail::bitmask_and(
-    table_view{{input.parent(), start}}, stream, cudf::get_current_device_resource_ref());
+  auto [null_mask, null_count] =
+    cudf::detail::bitmask_and(table_view{{input.parent(), start}}, stream, mr);
   auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;
@@ -305,8 +311,8 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                                    int_iterator_from_column(*length_cdv),
                                                    stream);
 
-  auto [null_mask, null_count] = cudf::detail::bitmask_and(
-    table_view{{input.parent(), start, length}}, stream, cudf::get_current_device_resource_ref());
+  auto [null_mask, null_count] =
+    cudf::detail::bitmask_and(table_view{{input.parent(), start, length}}, stream, mr);
   auto result = legal_list_slice(input, starts->view(), sizes->view(), stream, mr);
   result->set_null_mask(std::move(null_mask), null_count);
   return result;

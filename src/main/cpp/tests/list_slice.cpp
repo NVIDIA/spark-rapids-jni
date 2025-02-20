@@ -25,9 +25,9 @@ using namespace cudf;
 
 constexpr test::debug_output_level verbosity{test::debug_output_level::FIRST_ERROR};
 
-struct SliceTests : public test::BaseFixture {};
+struct ListSliceTests : public test::BaseFixture {};
 
-TEST_F(SliceTests, SliceTest)
+TEST_F(ListSliceTests, ListSliceTest)
 {
   auto const list_col = test::lists_column_wrapper<int32_t>{{0, 1}, {2, 3, 7, 8}, {4, 5}};
   {
