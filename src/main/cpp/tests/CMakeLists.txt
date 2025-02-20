@@ -85,3 +85,6 @@ ConfigureTest(PARSE_URI
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
+ConfigureTest(HLLPP
+    hyper_log_log_plus_plus.cu)
+
