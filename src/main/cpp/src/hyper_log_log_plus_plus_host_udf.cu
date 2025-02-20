@@ -113,7 +113,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
   }
 
   /**
-   * Perform the main reduce computation for HLLPP UDF
+   * @brief Perform the main reduce computation for HLLPP UDF.
    */
   std::unique_ptr<cudf::scalar> operator()(
     cudf::column_view const& input,
