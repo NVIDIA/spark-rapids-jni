@@ -241,9 +241,9 @@ TEST_F(HyperLogLogPlusPlusUDFTest, Groupby)
     cudf::table_view({keys}), cudf::null_policy::INCLUDE, cudf::sorted::NO, {}, {});
   auto const grp_result = gb_obj.aggregate(agg_requests, cudf::test::get_default_stream());
   // each grouped sketches has 3 rows for keys: 1, 2, 3
-  auto const& grouped_sketches_for_vals1 = grp_result.second[0].results[0]->view();
-  auto const& grouped_sketches_for_vals2 = grp_result.second[1].results[0]->view();
-  auto const& grouped_sketches_for_vals3 = grp_result.second[1].results[0]->view();
+  auto const grouped_sketches_for_vals1 = grp_result.second[0].results[0]->view();
+  auto const grouped_sketches_for_vals2 = grp_result.second[1].results[0]->view();
+  auto const grouped_sketches_for_vals3 = grp_result.second[1].results[0]->view();
 
   // 3. Execute merge sketches
   auto stream = cudf::get_default_stream();

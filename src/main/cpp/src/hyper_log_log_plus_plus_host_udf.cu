@@ -103,13 +103,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
       0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-    auto host_results_view_iter = thrust::make_transform_iterator(
-      children.begin(), [](auto const& results_column) { return results_column->view(); });
-    auto views      = std::vector<cudf::column_view>(host_results_view_iter,
-                                                host_results_view_iter + num_long_cols);
-    auto table_view = cudf::table_view{views};
-    auto table      = cudf::table(table_view);
-    return std::make_unique<cudf::struct_scalar>(std::move(table), true, stream, mr);
+    return std::make_unique<cudf::struct_scalar>(cudf::table{std::move(children)}, true, stream, mr);
   }
 
   /**
@@ -124,7 +118,7 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
   {
     if (input.size() == 0) { return get_empty_scalar(stream, mr); }
     if (is_merge) {
-      // reduce intermidate result, input are struct of long columns
+      // input is struct of long columns
       return spark_rapids_jni::reduce_merge_hyper_log_log_plus_plus(input, precision, stream, mr);
     } else {
       return spark_rapids_jni::reduce_hyper_log_log_plus_plus(input, precision, stream, mr);
