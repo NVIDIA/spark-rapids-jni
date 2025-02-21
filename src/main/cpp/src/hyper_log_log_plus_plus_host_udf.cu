@@ -103,7 +103,8 @@ struct hllpp_reduct_udf : cudf::reduce_host_udf {
       0, [&](int i) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT64}); });
     auto children =
       std::vector<std::unique_ptr<cudf::column>>(results_iter, results_iter + num_long_cols);
-    return std::make_unique<cudf::struct_scalar>(cudf::table{std::move(children)}, true, stream, mr);
+    return std::make_unique<cudf::struct_scalar>(
+      cudf::table{std::move(children)}, true, stream, mr);
   }
 
   /**
