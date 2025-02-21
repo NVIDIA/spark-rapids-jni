@@ -24,7 +24,7 @@
 namespace spark_rapids_jni {
 
 // TODO: this is duplicated from cudf because the cudf function is not marked as constexpr, so it
-// cannot be called on the gpu there is an issue filed against cudf to make
+// cannot be called on the gpu. there is an issue filed against cudf to make
 // is_fixed_point(cudf::data_type type) constexpr. Once that is done, we can remove this
 template <typename T>
 constexpr inline bool is_fixed_point()
@@ -63,7 +63,7 @@ struct shuffle_split_col_data {
   }
   cudf::size_type scale() const
   {
-    CUDF_EXPECTS(!cudf::is_fixed_point(cudf::data_type{type}),
+    CUDF_EXPECTS(cudf::is_fixed_point(cudf::data_type{type}),
                  "Unexpected call to scale() on a non-fixed-point type.");
     return param.scale;
   }

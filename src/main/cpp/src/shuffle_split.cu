@@ -304,7 +304,7 @@ struct buf_info_functor {
 
  private:
   void add_null_buffer(column_view const& col,
-                       src_buf_info* validity_cur,
+                       src_buf_info*& validity_cur,
                        int offset_stack_pos,
                        int parent_offset_index,
                        int offset_depth)
@@ -763,7 +763,8 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   rmm::device_async_resource_ref mr)
 {
   // empty inputs
-  if (input.num_columns() == 0 || input.num_rows() == 0) {
+  CUDF_EXPECTS(input.num_columns() != 0, "Encountered input with no columns.");
+  if (input.num_rows() == 0) {
     rmm::device_uvector<size_t> empty_offsets(1, stream, mr);
     thrust::fill(rmm::exec_policy(stream), empty_offsets.begin(), empty_offsets.end(), 0);
     return {shuffle_split_result{std::make_unique<rmm::device_buffer>(0, stream, mr),

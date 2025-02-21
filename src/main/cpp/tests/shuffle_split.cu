@@ -15,11 +15,14 @@
  */
 
 #include "shuffle_split.hpp"
+#include "test_utilities.hpp"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_utilities.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/iterator_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
+#include <cudf_test/type_lists.hpp>
 
 #include <cub/device/device_memcpy.cuh>
 #include <cuda/functional>
@@ -143,6 +146,9 @@ void run_split(cudf::table_view const& tbl,
       split_data.offsets,
       cudf::get_default_stream(),
       rmm::mr::get_current_device_resource());
+
+    // cudf::test::print(tbl.column(0));
+    // cudf::test::print(result->get_column(0));
 
     CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, *result);
   }
@@ -607,4 +613,36 @@ TEST_F(ShuffleSplitTests, LargeBatchSimple)
   run_split(tbl, {rows_per_column - 32});
   run_split(tbl, {rows_per_column - 33});
   run_split(tbl, {8000001, 16000003});
+}
+
+TEST_F(ShuffleSplitTests, FixedPoint)
+{
+  constexpr auto num_rows = 500'000;
+
+  auto vals0 = random_values<int16_t>(num_rows);
+  auto vals1 = random_values<int32_t>(num_rows);
+  auto vals2 = random_values<int64_t>(num_rows);
+
+  using cudf::test::iterators::no_nulls;
+  cudf::test::fixed_point_column_wrapper<numeric::decimal32::rep> col0(
+    vals0.begin(), vals0.end(), no_nulls(), numeric::scale_type{5});
+  cudf::test::fixed_point_column_wrapper<numeric::decimal64::rep> col1(
+    vals1.begin(), vals1.end(), no_nulls(), numeric::scale_type{-5});
+  cudf::test::fixed_point_column_wrapper<numeric::decimal128::rep> col2(
+    vals2.begin(), vals2.end(), no_nulls(), numeric::scale_type{-6});
+
+  srand(31337);
+  auto validity_iter =
+    cudf::detail::make_counting_transform_iterator(0, [](int i) { return rand() % 2 == 0; });
+  cudf::test::fixed_point_column_wrapper<numeric::decimal32::rep> col3(
+    vals0.begin(), vals0.end(), validity_iter, numeric::scale_type{5});
+  cudf::test::fixed_point_column_wrapper<numeric::decimal64::rep> col4(
+    vals1.begin(), vals1.end(), validity_iter, numeric::scale_type{-5});
+  cudf::test::fixed_point_column_wrapper<numeric::decimal128::rep> col5(
+    vals2.begin(), vals2.end(), validity_iter, numeric::scale_type{-6});
+
+  cudf::table_view tbl{{col0, col1, col2, col3, col4, col5}};
+  run_split(tbl, {});
+  run_split(tbl, {100});
+  run_split(tbl, {1000, num_rows - 1000});
 }

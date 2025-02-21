@@ -1283,17 +1283,18 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   // note that in several cases here, we are reading past the end of the actual input buffer. but
   // this is safe because we are always guaranteed final padding of partitions out to 8 bytes.
 
-  // how many leading misaligned bytes we have
-  int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4)) % 4;
+  // how many leading bytes we have. that is, how many bytes will be read by the initial read, which
+  // accounts for misaligned source buffers.
+  int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4));
   int remaining_rows      = batch.validity_row_count;
 
   // - if the address is misaligned, load byte-by-byte and only store up to that many bits/rows off
-  // instead of a full 32 handle the leading (misaligned) bytes in the source Note: src_bit_shift
-  // effectively means "how many rows at the beginning should we ignore", so we subtract that from
-  // the amount of rows that are actually in the bytes that we've read.
+  // instead of a full word. Note: src_bit_shift effectively means "how many rows at the beginning
+  // should we ignore", so we subtract that from the amount of rows that are actually in the bytes
+  // that we've read.
   int rows_in_batch =
     min(remaining_rows,
-        leading_bytes != 0 ? (leading_bytes * 8) - batch.src_bit_shift : 32 - batch.src_bit_shift);
+        leading_bytes != 4 ? (leading_bytes * 8) - batch.src_bit_shift : 32 - batch.src_bit_shift);
   remaining_rows -= rows_in_batch;
 
   size_type valid_count = 0;
@@ -1301,14 +1302,13 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   // thread 0 does all the work for the leading (unaligned) bytes in the source
   if (threadIdx.x == 0) {
     bitmask_type word =
-      leading_bytes != 0
+      leading_bytes != 4
         ? (batch.src[0] | (batch.src[1] << 8) | (batch.src[2] << 16) | (batch.src[3] << 24))
         : (reinterpret_cast<bitmask_type const*>(batch.src))[0];
     bitmask_type const relevant_row_mask = ((1 << rows_in_batch) - 1);
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
     word = (word >> batch.src_bit_shift) & relevant_row_mask;
-    valid_count += __popc(word);
 
     // any bits that are not being stored in the current dest word get overflowed to the next copy
     prev_word[0] = word >> (32 - batch.dst_bit_shift);
@@ -1316,6 +1316,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     word <<= batch.dst_bit_shift;
 
     // use an atomic because we could be overlapping with another copy
+    valid_count += __popc(word);
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }
   if (remaining_rows == 0) {
@@ -1349,6 +1350,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     } else {
       dst[i] = val;
     }
+    return __popc(val);
   };
 
   // copy the remaining words
@@ -1367,7 +1369,6 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
       cur                                  = (src[src_word_index] & relevant_row_mask);
-      valid_count += __popc(cur);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The
@@ -1389,7 +1390,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     if (threadIdx.x < words_in_batch) {
       // construct final word from cur leading bits and prev trailing bits
       auto const word = (cur << bit_shift) | prev_word[threadIdx.x];
-      store_word(dst_word_index, word);
+      valid_count += store_word(dst_word_index, word);
     }
     __syncthreads();
     // store the final trailing bits at the beginning for the next iteration
@@ -1402,7 +1403,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
 
   // final trailing bits, if any
   if (threadIdx.x == 0 && dst_word_index == last_word_index) {
-    store_word(dst_word_index, prev_word[0]);
+    valid_count += store_word(dst_word_index, prev_word[0]);
   }
 
   // add the valid count for the entire block to the count for the entire buffer.
@@ -1531,146 +1532,155 @@ namespace {
  * @brief Functor that generates final cudf columns assembled from provided input buffers
  */
 struct assemble_column_functor {
+  cudf::host_span<shuffle_split_col_data const> column_meta;
+  cudf::host_span<assemble_column_info const> columns;
   rmm::cuda_stream_view stream;
   rmm::device_async_resource_ref mr;
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     // no offsets
     auto const data = buffer + 2;
 
+    auto const col = columns[col_index];
     out.push_back(std::make_unique<cudf::column>(
-      cudf::data_type{col->type},
-      col->num_rows,
+      cudf::data_type{col.type,
+                      spark_rapids_jni::is_fixed_point(cudf::data_type{col.type})
+                        ? column_meta[col_index].scale()
+                        : 0},
+      col.num_rows,
       std::move(*data),
-      col->has_validity ? std::move(*validity) : rmm::device_buffer{},
-      col->has_validity ? col->num_rows - col->valid_count : 0));
+      col.has_validity ? std::move(*validity) : rmm::device_buffer{},
+      col.has_validity ? col.num_rows - col.valid_count : 0));
 
-    return {col + 1, buffer + 3};
+    return {col_index + 1, buffer + 3};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     buffer += 3;
 
     // build children
     std::vector<std::unique_ptr<cudf::column>> children;
-    children.reserve(col->num_children);
-    auto next = col + 1;
-    for (size_type i = 0; i < col->num_children; i++) {
-      std::tie(next, buffer) = cudf::type_dispatcher(
-        cudf::data_type{next->type}, assemble_column_functor{stream, mr}, next, buffer, children);
+    auto const& col = columns[col_index];
+    children.reserve(col.num_children);
+    auto next = col_index + 1;
+    for (size_type i = 0; i < col.num_children; i++) {
+      std::tie(next, buffer) =
+        cudf::type_dispatcher(cudf::data_type{columns[next].type},
+                              assemble_column_functor{column_meta, columns, stream, mr},
+                              next,
+                              buffer,
+                              children);
     }
 
     out.push_back(
-      cudf::make_structs_column(col->num_rows,
+      cudf::make_structs_column(col.num_rows,
                                 std::move(children),
-                                col->has_validity ? col->num_rows - col->valid_count : 0,
-                                col->has_validity ? std::move(*validity) : rmm::device_buffer{},
+                                col.has_validity ? col.num_rows - col.valid_count : 0,
+                                col.has_validity ? std::move(*validity) : rmm::device_buffer{},
                                 stream,
                                 mr));
     return {next, buffer};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     auto const offsets  = buffer + 1;
     auto const chars    = buffer + 2;
 
+    auto const& col = columns[col_index];
     out.push_back(cudf::make_strings_column(
-      col->num_rows,
+      col.num_rows,
       std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                     col->num_rows + 1,
+                                     col.num_rows + 1,
                                      std::move(*offsets),
                                      rmm::device_buffer{},
                                      0),
       std::move(*chars),
-      col->has_validity ? col->num_rows - col->valid_count : 0,
-      col->has_validity ? std::move(*validity) : rmm::device_buffer{}));
-    return {col + 1, buffer + 3};
+      col.has_validity ? col.num_rows - col.valid_count : 0,
+      col.has_validity ? std::move(*validity) : rmm::device_buffer{}));
+    return {col_index + 1, buffer + 3};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     auto const offsets  = buffer + 1;
     buffer += 3;
 
     // build the child
+    auto const& col = columns[col_index];
     std::vector<std::unique_ptr<cudf::column>> child_col;
-    auto next              = col + 1;
-    std::tie(next, buffer) = cudf::type_dispatcher(
-      cudf::data_type{next->type}, assemble_column_functor{stream, mr}, next, buffer, child_col);
+    auto next = col_index + 1;
+    std::tie(next, buffer) =
+      cudf::type_dispatcher(cudf::data_type{columns[next].type},
+                            assemble_column_functor{column_meta, columns, stream, mr},
+                            next,
+                            buffer,
+                            child_col);
 
     // build the final column
     out.push_back(
-      cudf::make_lists_column(col->num_rows,
+      cudf::make_lists_column(col.num_rows,
                               std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                             col->num_rows + 1,
+                                                             col.num_rows + 1,
                                                              std::move(*offsets),
                                                              rmm::device_buffer{},
                                                              0),
                               std::move(child_col.back()),
-                              col->has_validity ? col->num_rows - col->valid_count : 0,
-                              col->has_validity ? std::move(*validity) : rmm::device_buffer{},
+                              col.has_validity ? col.num_rows - col.valid_count : 0,
+                              col.has_validity ? std::move(*validity) : rmm::device_buffer{},
                               stream,
                               mr));
     return {next, buffer};
   }
 
   template <typename T,
-            typename ColumnIter,
             typename BufferIter,
             CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view> and
                            !std::is_same_v<T, cudf::string_view> and
                            !std::is_same_v<T, cudf::list_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     CUDF_FAIL("Unsupported type in shuffle_assemble");
   }
 };
 
 // assemble all the columns and the final table from the intermediate buffers
-std::unique_ptr<cudf::table> build_table(cudf::host_span<assemble_column_info const> assemble_data,
+std::unique_ptr<cudf::table> build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
+                                         cudf::host_span<assemble_column_info const> assemble_data,
                                          cudf::host_span<rmm::device_buffer> assemble_buffers,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   std::vector<std::unique_ptr<cudf::column>> columns;
-  auto column = assemble_data.begin();
-  auto buffer = assemble_buffers.begin();
-  while (column != assemble_data.end()) {
-    std::tie(column, buffer) = cudf::type_dispatcher(
-      cudf::data_type{column->type}, assemble_column_functor{stream, mr}, column, buffer, columns);
+  size_t col_index = 0;
+  auto buffer      = assemble_buffers.begin();
+  while (col_index < assemble_data.size()) {
+    std::tie(col_index, buffer) =
+      cudf::type_dispatcher(cudf::data_type{assemble_data[col_index].type},
+                            assemble_column_functor{column_meta, assemble_data, stream, mr},
+                            col_index,
+                            buffer,
+                            columns);
   }
   return std::make_unique<cudf::table>(std::move(columns));
 }
@@ -1778,7 +1788,7 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
   // with the the gpu work being done in assemble_copy.
 
   // build the final table while the gpu is performing the copy
-  auto ret = build_table(h_column_info, dst_buffers, stream, mr);
+  auto ret = build_table(metadata.col_info, h_column_info, dst_buffers, stream, mr);
   return ret;
 }
 
