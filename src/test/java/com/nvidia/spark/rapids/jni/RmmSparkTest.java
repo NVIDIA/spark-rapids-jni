@@ -1262,7 +1262,9 @@ public class RmmSparkTest {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
-    assertEquals(11, rmmEventHandler.getAllocationCount());
+    // We retry the failed allocation for the last thread before going into
+    // the BUFN state. So we have 22 allocations instead of the expected 11
+    assertEquals(22, rmmEventHandler.getAllocationCount());
   }
 
   @Test
