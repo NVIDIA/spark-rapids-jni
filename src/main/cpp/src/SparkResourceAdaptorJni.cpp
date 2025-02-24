@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -286,7 +286,7 @@ class full_thread_state {
   // Is the thread transitively blocked on a pool or not.
   bool pool_blocked = false;
   // We keep track of when memory is freed, which lets us wake up
-  // blocked threads to make progress. But we do not keep track of 
+  // blocked threads to make progress. But we do not keep track of
   // when buffers are made spillable. This can result in us
   // throwing a split and retry exception even if memory was made
   // spillable. So, instead of tracking when any buffer is made
@@ -1638,7 +1638,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (need_to_break_deadlock) {
       // Find the task thread with the lowest priority that is not already BUFN
       thread_priority to_bufn(-1, -1);
-      bool is_to_bufn_set = false;
+      bool is_to_bufn_set      = false;
       int blocked_thread_count = 0;
       for (auto const& [thread_id, t_state] : threads) {
         switch (t_state.state) {
@@ -1659,7 +1659,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         if (thread != threads.end()) {
           if (blocked_thread_count == 1) {
             // This is the very last thread that is going to
-            // transition to BUFN. When that happens the 
+            // transition to BUFN. When that happens the
             // thread would throw a split and retry exception.
             // But we are not tracking when data is made spillable
             // so if data was made spillable we will retry the
