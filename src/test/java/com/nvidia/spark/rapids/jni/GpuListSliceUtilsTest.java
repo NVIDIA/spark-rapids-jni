@@ -172,6 +172,8 @@ public class GpuListSliceUtilsTest {
         new ListType(true, new BasicType(true, DType.INT32)),
         Arrays.asList(1, 2, 3),
         Arrays.asList(4, 5));
+        ColumnVector longStartCV = ColumnVector.fromBoxedLongs(1L, 1L);
+        ColumnVector longLengthCV = ColumnVector.fromBoxedLongs(1L, 1L);
         ColumnVector legalStartCV = ColumnVector.fromBoxedInts(1, 1);
         ColumnVector legalLengthCV = ColumnVector.fromBoxedInts(1, 1);
         ColumnVector startContainsZeroCV = ColumnVector.fromBoxedInts(0, 2);
@@ -193,6 +195,10 @@ public class GpuListSliceUtilsTest {
       assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, startMismatchCV, legalLengthCV));
       assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 1, lengthMismatchCV));
       assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, legalStartCV, lengthMismatchCV));
+      // start or length column is not of INT32 type
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, longStartCV, 1));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, 1, longLengthCV));
+      assertThrows(CudfException.class, () -> GpuListSliceUtils.listSlice(intListCV, longStartCV, longLengthCV));
     }
   }
 }

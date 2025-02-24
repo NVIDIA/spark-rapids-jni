@@ -239,6 +239,9 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(length.type().id() == type_id::INT32,
+               "Invalid length type: length must be INT32",
+               cudf::data_type_error);
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
   CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
 
@@ -266,6 +269,9 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(start.type().id() == type_id::INT32,
+               "Invalid start type: start must be INT32",
+               cudf::data_type_error);
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
 
@@ -294,6 +300,12 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(start.type().id() == type_id::INT32,
+               "Invalid start type: start must be INT32",
+               cudf::data_type_error);
+  CUDF_EXPECTS(length.type().id() == type_id::INT32,
+               "Invalid length type: length must be INT32",
+               cudf::data_type_error);
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
 
