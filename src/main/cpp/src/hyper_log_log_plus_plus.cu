@@ -756,13 +756,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
     <<<1, block_size, shared_mem_size, stream.value()>>>(*d_hashs, d_results, precision);
 
   // 3. create struct scalar
-  auto host_results_view_iter = thrust::make_transform_iterator(
-    children.begin(), [](auto const& results_column) { return results_column->view(); });
-  auto views =
-    std::vector<cudf::column_view>(host_results_view_iter, host_results_view_iter + num_long_cols);
-  auto table_view = cudf::table_view{views};
-  auto table      = cudf::table(table_view);
-  return std::make_unique<cudf::struct_scalar>(std::move(table), true, stream, mr);
+  return std::make_unique<cudf::struct_scalar>(cudf::table{std::move(children)}, true, stream, mr);
 }
 
 CUDF_KERNEL void reduce_merge_hll_kernel_vertically(cudf::device_span<int64_t const*> sketch_longs,
@@ -832,13 +826,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
     1 /** num_groups **/, num_registers_per_sketch, d_results, output_cache);
 
   // create scalar
-  auto host_results_view_iter = thrust::make_transform_iterator(
-    children.begin(), [](auto const& results_column) { return results_column->view(); });
-  auto views =
-    std::vector<cudf::column_view>(host_results_view_iter, host_results_view_iter + num_long_cols);
-  auto table_view = cudf::table_view{views};
-  auto table      = cudf::table(table_view);
-  return std::make_unique<cudf::struct_scalar>(std::move(table), true, stream, mr);
+  return std::make_unique<cudf::struct_scalar>(cudf::table{std::move(children)}, true, stream, mr);
 }
 
 struct estimate_fn {
