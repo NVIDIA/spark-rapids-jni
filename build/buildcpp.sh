@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -63,7 +63,8 @@ LIBCUDF_INSTALL_PATH=${LIBCUDF_INSTALL_PATH:-$PROJECT_BUILD_DIR/libcudf-install}
 LIBCUDFJNI_BUILD_PATH=${LIBCUDFJNI_BUILD_PATH:-$PROJECT_BUILD_DIR/libcudfjni}
 SPARK_JNI_BUILD_PATH=${SPARK_JNI_BUILD_PATH:-$PROJECT_BUILD_DIR/jni/cmake-build}
 RMM_LOGGING_LEVEL=${RMM_LOGGING_LEVEL:-OFF}
-USE_GDS=${USE_GDS:-OFF}" > "$PROJECT_BUILD_DIR/buildcpp-env.sh"
+USE_GDS=${USE_GDS:-OFF}
+LIBCUDF_CONFIGURE_ONLY=${LIBCUDF_CONFIGURE_ONLY:-OFF}" > "$PROJECT_BUILD_DIR/buildcpp-env.sh"
 fi
 
 source "$PROJECT_BUILD_DIR/buildcpp-env.sh"
@@ -93,6 +94,10 @@ if [[ $LIBCUDF_BUILD_CONFIGURE == true || ! -f $LIBCUDF_BUILD_PATH/CMakeCache.tx
     -DLIBCUDF_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
     -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
     -C="$CUDF_PIN_PATH/setup.cmake"
+fi
+if [[ $LIBCUDF_CONFIGURE_ONLY == ON ]]; then # submodule-sync.sh phase 1 call this script with LIBCUDF_CONFIGURE_ONLY=ON
+  echo "Skip build..."
+  exit 0
 fi
 echo "Building cudf native libs"
 cmake --build "$LIBCUDF_BUILD_PATH" --target install "-j$CPP_PARALLEL_LEVEL"
