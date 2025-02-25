@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1262,7 +1262,9 @@ public class RmmSparkTest {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
       }
     });
-    assertEquals(11, rmmEventHandler.getAllocationCount());
+    // We retry the failed allocation for the last thread before going into
+    // the BUFN state. So we have 22 allocations instead of the expected 11
+    assertEquals(22, rmmEventHandler.getAllocationCount());
   }
 
   @Test
