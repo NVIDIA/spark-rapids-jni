@@ -53,20 +53,22 @@ struct size_of_helper {
 
 /**
  * @brief Header for each partition.
+ *
+ * The values are stored in big-endian format.
  */
 struct partition_header {
   uint32_t magic_number;
-  uint32_t offset;
+  uint32_t row_index;  // row index in the source table that this partition started at
   uint32_t num_rows;
   uint32_t validity_size;
   uint32_t offset_size;
   uint32_t data_size;
-  uint32_t num_flattened_columns; // used by the CPU version, but not the GPU version
+  uint32_t num_flattened_columns;
 };
 
-// padding values for each validity type, as applied at the end of that data type
+// alignment values for each validity type, as applied at the end of that data type
 // in each partition. so for example all of the grouped-together validity buffers for
-// a given partition will have a final 4 byte pad applied before the offset buffers begin
+// a given partition will have a final 4 byte alignment applied before the offset buffers begin
 constexpr size_t validity_pad = 4;
 constexpr size_t offset_pad   = 4;
 constexpr size_t data_pad     = 4;

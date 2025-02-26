@@ -34,6 +34,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cub/device/device_memcpy.cuh>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
@@ -100,7 +101,7 @@ struct assemble_column_info {
   size_type num_children;
 
   // only valid for column instances
-  size_type row_index;
+  size_type row_index, src_row_index;
   size_type char_index;
 };
 OUTPUT_ITERATOR(assemble_column_info_has_validity_output_iter, assemble_column_info, has_validity);
@@ -117,7 +118,9 @@ ColumnIter compute_root_offset_columns_traverse(ColumnIter input_begin,
                                                 int& max_branch_depth)
 {
   bool const is_struct = col->type == cudf::type_id::STRUCT;
-  if (col->type == cudf::type_id::STRING || col->type == cudf::type_id::LIST) {
+  bool const is_string = col->type == cudf::type_id::STRING;
+  bool const is_list   = col->type == cudf::type_id::LIST;
+  if (is_string || is_list) {
     // if we're at depth 0, store the column as a root
     if (depth == 0) { out.push_back(static_cast<int>(std::distance(input_begin, col))); }
     depth++;
@@ -128,7 +131,7 @@ ColumnIter compute_root_offset_columns_traverse(ColumnIter input_begin,
   }
 
   // recurse through structs and lists
-  if (col->type == cudf::type_id::STRUCT || col->type == cudf::type_id::LIST) {
+  if (is_struct || is_list) {
     auto const num_children = col->num_children();
     col                     = std::next(col);
     for (auto idx = 0; idx < num_children; idx++) {
@@ -220,10 +223,11 @@ __global__ void compute_offset_child_row_counts(
                               validity_pad);
   size_type const* offsets = reinterpret_cast<size_type const*>(partitions.begin() + offsets_begin);
 
-  auto base_col_index = column_metadata.size() * partition_index;
+  auto const base_col_index = column_metadata.size() * partition_index;
   for (auto idx = 0; idx < offset_columns.size(); idx++) {
     // root column starts with the number of rows in the partition
     auto num_rows           = cudf::hashing::detail::swap_endian(pheader->num_rows);
+    auto src_row_index      = cudf::hashing::detail::swap_endian(pheader->row_index);
     auto col_index          = offset_columns[idx];
     auto col_instance_index = col_index + base_col_index;
 
@@ -241,21 +245,28 @@ __global__ void compute_offset_child_row_counts(
       auto& col_inst          = column_instances[col_instance_index];
       auto const num_children = meta.num_children();
 
-      col_inst.num_rows = num_rows;
+      col_inst.num_rows      = num_rows;
+      col_inst.src_row_index = src_row_index;
 
       switch (meta.type) {
-        // lists change the row count and advance the offset buffer
+        // lists change the row count, source row index and advance the offset buffer
         case cudf::type_id::LIST: {
           auto const last_num_rows = num_rows;
+          src_row_index            = offsets[0];
           num_rows                 = offsets[num_rows] - offsets[0];
           offsets += (last_num_rows + 1);
         } break;
-        // structs are a branch point, so we record the current num_rows and how many children are
-        // left to be processed
+        // structs are a branch point, so we record the current num_rows, how many children are
+        // left to be processed, and current row index.
+        // 'branch' here means that since we can have multiple children, any of which could be a
+        // list which alters row information for everything below them, every time we reach a
+        // struct, we need to push that current information onto a stack so that we can pop it back
+        // off later when returning from a 'branch' (a child tree)
         case cudf::type_id::STRUCT:
           rc_stack_pos++;
-          rc_stack[rc_stack_pos * 2]       = num_rows;
-          rc_stack[(rc_stack_pos * 2) + 1] = num_children;
+          rc_stack[rc_stack_pos * 3]       = num_rows;
+          rc_stack[(rc_stack_pos * 3) + 1] = num_children;
+          rc_stack[(rc_stack_pos * 3) + 2] = src_row_index;
           break;
         // all other types jump back up to the nearest struct/branch point, as they represent the
         // end of a chain of children
@@ -265,9 +276,14 @@ __global__ void compute_offset_child_row_counts(
           // fallthrough
         default: {
           if (rc_stack_pos >= 0) {
-            auto const num_children = --rc_stack[(rc_stack_pos * 2) + 1];
-            num_rows                = rc_stack[rc_stack_pos * 2];
-            if (num_children == 0) { rc_stack_pos--; }
+            // we have now returned back to our most recent branch point. a struct.
+            // restore row information off the stack and decrement the number of struct
+            // children left to process. if we reach 0, we are done processing all of the
+            // children of the struct and can pop it off the stack entirely.
+            src_row_index                  = rc_stack[(rc_stack_pos * 3) + 2];
+            auto const struct_num_children = --rc_stack[(rc_stack_pos * 3) + 1];
+            num_rows                       = rc_stack[rc_stack_pos * 3];
+            if (struct_num_children == 0) { rc_stack_pos--; }
           }
         } break;
       }
@@ -280,16 +296,6 @@ __global__ void compute_offset_child_row_counts(
   }
 }
 
-// returns:
-// - a vector of assemble_column_info structs representing the destination column data.
-//   the vector is of length global_metadata.col_info.size()  that is, the flattened list of columns
-//   in the table.
-//
-// - the same vector as above, but in host memory.
-//
-// - a vector of assemble_column_info structs, representing the source column data.
-//   the vector is of length global_metadata.col_info.size() * the # of partitions.
-//
 /**
  * @brief Generate assemble_column_info structures for columns and column_instances
  *
@@ -338,23 +344,27 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
   // compute has-validity
   // note that we are iterating vertically -> horizontally here, with each column's individual piece
   // per partition first.
+  auto col_has_validity = cuda::proclaim_return_type<bool>(
+    [] __device__(bitmask_type const* const has_validity_buf, int col_index) -> bool {
+      return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
+    });
   auto column_keys = cudf::detail::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_type>([num_partitions] __device__(size_type i) {
       return i / num_partitions;
     }));
   auto has_validity_values = cudf::detail::make_counting_transform_iterator(
     0,
-    cuda::proclaim_return_type<bool>(
-      [num_partitions,
-       partitions        = partitions.data(),
-       partition_offsets = partition_offsets.begin()] __device__(int i) -> bool {
-        auto const partition_index                 = i % num_partitions;
-        bitmask_type const* const has_validity_buf = reinterpret_cast<bitmask_type const*>(
-          partitions + partition_offsets[partition_index] + sizeof(partition_header));
-        auto const col_index = i / num_partitions;
+    cuda::proclaim_return_type<bool>([num_partitions,
+                                      partitions        = partitions.data(),
+                                      partition_offsets = partition_offsets.begin(),
+                                      col_has_validity] __device__(int i) -> bool {
+      auto const partition_index                 = i % num_partitions;
+      bitmask_type const* const has_validity_buf = reinterpret_cast<bitmask_type const*>(
+        partitions + partition_offsets[partition_index] + sizeof(partition_header));
+      auto const col_index = i / num_partitions;
 
-        return has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
-      }));
+      return col_has_validity(has_validity_buf, col_index);
+    }));
   thrust::reduce_by_key(rmm::exec_policy_nosync(stream, temp_mr),
                         column_keys,
                         column_keys + num_column_instances,
@@ -392,7 +402,8 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
      partitions           = partitions.data(),
      partition_offsets    = partition_offsets.begin(),
      num_columns,
-     per_partition_metadata_size] __device__(size_type i) {
+     per_partition_metadata_size,
+     col_has_validity] __device__(size_type i) {
       auto const partition_index    = i / num_columns;
       auto const col_index          = i % num_columns;
       auto const col_instance_index = (partition_index * num_columns) + col_index;
@@ -406,17 +417,17 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
 
       bitmask_type const* const has_validity_buf =
         reinterpret_cast<bitmask_type const*>(buf_start + sizeof(partition_header));
-      cinstance_info.has_validity =
-        has_validity_buf[col_index / 32] & (1 << (col_index % 32)) ? 1 : 0;
+      cinstance_info.has_validity = col_has_validity(has_validity_buf, col_index);
 
       cinstance_info.type         = metadata.type;
       cinstance_info.valid_count  = 0;
       cinstance_info.num_chars    = 0;
       cinstance_info.num_children = metadata.num_children();
 
-      // note that this will be incorrect for any columns that are children of offset columns. those
-      // values will be fixed up below.
-      cinstance_info.num_rows = cudf::hashing::detail::swap_endian(pheader->num_rows);
+      // note that these will be incorrect for any columns that are children of offset columns.
+      // those values will be fixed up below.
+      cinstance_info.num_rows      = cudf::hashing::detail::swap_endian(pheader->num_rows);
+      cinstance_info.src_row_index = cudf::hashing::detail::swap_endian(pheader->row_index);
     });
 
   // reconstruct row counts for columns and columns instances  ------------------------------
@@ -432,7 +443,7 @@ assemble_build_column_info(shuffle_split_metadata const& h_global_metadata,
 
     // each block needs to maintain a small stack of information of size max_depth when traversing
     // the column hierarchy. we'll use dynamic shared memory to do it.
-    int const shmem_per_block = static_cast<int>(sizeof(size_type) * max_branch_depth * 2);
+    int const shmem_per_block = static_cast<int>(sizeof(size_type) * max_branch_depth * 3);
     int device_id;
     CUDF_CUDA_TRY(cudaGetDevice(&device_id));
     int shmem_limit_per_block;
@@ -535,13 +546,22 @@ constexpr size_t bitmask_allocation_size_bytes(size_type number_of_bits, int pad
 }
 
 /**
- * @brief Functor that fills in buffer sizes (validity, offsets, data) per column.
+ * @brief Functor that fills in source buffer sizes (validity, offsets, data) per column.
  *
  * This returns the size of the buffer -without- padding. Just the size of
  * the raw bytes containing the actual data.
  *
+ * Note that there is an odd edge case here. We may have a partition that contains 8 rows, which
+ * would translate to 1 byte of validity data. However, we copy from byte boundaries. So if this
+ * partition started at row index 2, we would need to account for those extra 2 bits that will be
+ * included in the buffer. So the source buffer will be 2 bytes (10 bits) even though the we are
+ * only using 8 bits of that data in the output. Therefore, ths size returned from this functor is
+ * only valid for -source- data.
+ *
  */
-struct assemble_buffer_size_functor {
+struct assemble_src_buffer_size_functor {
+  int const src_row_index;
+
   template <typename T, typename OutputIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
   __device__ void operator()(assemble_column_info const& col,
                              OutputIter validity_out,
@@ -549,7 +569,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // no offsets for fixed width types
     *offsets_out = 0;
@@ -565,7 +586,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // offsets
     *offsets_out = sizeof(size_type) * (col.num_rows + 1);
@@ -581,7 +603,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // no offsets or data for structs
     *offsets_out = 0;
@@ -595,7 +618,8 @@ struct assemble_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out = col.has_validity ? bitmask_allocation_size_bytes(col.num_rows, 1) : 0;
+    *validity_out =
+      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // chars
     *data_out = sizeof(int8_t) * col.num_chars;
@@ -623,11 +647,11 @@ struct assemble_buffer_size_functor {
  * the generated list of values.
  *
  * As an example, imagine we had the input
- * [2, 5, 1]
+ * [2, 0, 5, 1]
  *
  * transform_expand will invoke `op` 8 times, with the values
  *
- * (0, 0) (0, 1),  (1, 0), (1, 1), (1, 2), (1, 3), (1, 4),  (2, 0)
+ * (0, 0) (0, 1),  (2, 0), (2, 1), (2, 2), (2, 3), (2, 4),   (3, 0)
  *
  * @param first Beginning of the input range
  * @param end End of the input range
@@ -671,10 +695,11 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
                       [op,
                        group_offsets_begin = group_offsets.begin(),
                        group_offsets_end   = group_offsets.end()] __device__(size_t i) {
-                        auto const group_index =
-                          thrust::lower_bound(
+                        auto const index =
+                          thrust::upper_bound(
                             thrust::seq, group_offsets_begin, group_offsets_end, i) -
                           group_offsets_begin;
+                        auto const group_index = i < group_offsets_begin[index] ? index - 1 : index;
                         auto const intra_group_index = i - group_offsets_begin[group_index];
                         return op(group_index, intra_group_index);
                       }));
@@ -796,9 +821,7 @@ constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
  */
 constexpr size_t size_to_batch_count(size_t bytes)
 {
-  return std::max(
-    std::size_t{1},
-    util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size);
+  return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
 }
 
 /**
@@ -962,31 +985,33 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
     // generate unpadded sizes of the source buffers
     auto const num_column_instances = column_instance_info.size();
     auto iter                       = thrust::make_counting_iterator(0);
-    thrust::for_each(rmm::exec_policy(stream, temp_mr),
-                     iter,
-                     iter + num_column_instances,
-                     [buffers_per_partition,
-                      num_columns,
-                      column_instance_info = column_instance_info.begin(),
-                      src_sizes_unpadded   = src_sizes_unpadded.begin()] __device__(size_type i) {
-                       auto const partition_index    = i / num_columns;
-                       auto const col_index          = i % num_columns;
-                       auto const col_instance_index = (partition_index * num_columns) + col_index;
+    thrust::for_each(
+      rmm::exec_policy(stream, temp_mr),
+      iter,
+      iter + num_column_instances,
+      [buffers_per_partition,
+       num_columns,
+       column_instance_info = column_instance_info.begin(),
+       src_sizes_unpadded   = src_sizes_unpadded.begin(),
+       partition_offsets    = partition_offsets.begin(),
+       partitions           = partitions.data()] __device__(size_type i) {
+        auto const partition_index    = i / num_columns;
+        auto const col_index          = i % num_columns;
+        auto const col_instance_index = (partition_index * num_columns) + col_index;
 
-                       auto const& cinfo_instance = column_instance_info[col_instance_index];
-                       auto const validity_buf_index =
-                         (partition_index * buffers_per_partition) + col_index;
-                       auto const offset_buf_index =
-                         (partition_index * buffers_per_partition) + num_columns + col_index;
-                       auto const data_buf_index =
-                         (partition_index * buffers_per_partition) + (num_columns * 2) + col_index;
-                       cudf::type_dispatcher(cudf::data_type{cinfo_instance.type},
-                                             assemble_buffer_size_functor{},
-                                             cinfo_instance,
-                                             &src_sizes_unpadded[validity_buf_index],
-                                             &src_sizes_unpadded[offset_buf_index],
-                                             &src_sizes_unpadded[data_buf_index]);
-                     });
+        auto const& cinfo_instance    = column_instance_info[col_instance_index];
+        auto const validity_buf_index = (partition_index * buffers_per_partition) + col_index;
+        auto const offset_buf_index =
+          (partition_index * buffers_per_partition) + num_columns + col_index;
+        auto const data_buf_index =
+          (partition_index * buffers_per_partition) + (num_columns * 2) + col_index;
+        cudf::type_dispatcher(cudf::data_type{cinfo_instance.type},
+                              assemble_src_buffer_size_functor{cinfo_instance.src_row_index},
+                              cinfo_instance,
+                              &src_sizes_unpadded[validity_buf_index],
+                              &src_sizes_unpadded[offset_buf_index],
+                              &src_sizes_unpadded[data_buf_index]);
+      });
 
     // scan to source offsets, by partition
     auto partition_keys = cudf::detail::make_counting_transform_iterator(
@@ -1181,32 +1206,35 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
 
         partition_header const* const pheader = reinterpret_cast<partition_header const*>(
           partitions + partition_offsets[partition_index]);
+
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
           min(cudf::hashing::detail::swap_endian(pheader->num_rows) - validity_batch_row_index,
               validity_rows_per_batch);
+
+        auto const dst_bit_shift = (column_instance_info[col_instance_index].row_index) % 32;
         // since the initial split copy is done on simple byte boundaries, the first bit we want to
         // copy may not be the first bit in the source buffer. so we need to shift right by these
         // leading bits. for example, the partition may start at row 3. but in that case, we will
         // have started copying from byte 0. so we have to shift right 3 rows.
-        auto const row_index     = column_instance_info[col_instance_index].row_index;
-        auto const src_bit_shift = row_index % 8;
-        auto const dst_bit_shift = row_index % 32;
+        // Important: we need to know the -source- row index to do this, as that ultimately is what
+        // affects what is in the incoming buffer. the destination row index is irrelevant.
+        auto const src_bit_shift = column_instance_info[col_instance_index].src_row_index % 8;
 
-        // to transform the incoming unadjusted offsets into final offsets
+        // transform the incoming raw offsets into final offsets
         int const offset_shift = [&] __device__() {
           if (btype != buffer_type::OFFSETS) { return 0; }
 
           auto const& col = column_info[col_index];
+          auto const root_partition_offset =
+            (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
           // subtract the first offset value in the buffer, then add the row/char index
           if (col.type == cudf::type_id::STRING) {
-            return column_instance_info[col_instance_index].char_index -
-                   (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
+            return column_instance_info[col_instance_index].char_index - root_partition_offset;
           } else if (col.type == cudf::type_id::LIST) {
             auto const& child_inst = column_instance_info[col_instance_index + 1];
-            return child_inst.row_index -
-                   (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
+            return child_inst.row_index - root_partition_offset;
           }
           // not an offset based column
           return 0;
@@ -1255,17 +1283,18 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   // note that in several cases here, we are reading past the end of the actual input buffer. but
   // this is safe because we are always guaranteed final padding of partitions out to 8 bytes.
 
-  // how many leading misaligned bytes we have
-  int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4)) % 4;
+  // how many leading bytes we have. that is, how many bytes will be read by the initial read, which
+  // accounts for misaligned source buffers.
+  int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4));
   int remaining_rows      = batch.validity_row_count;
 
   // - if the address is misaligned, load byte-by-byte and only store up to that many bits/rows off
-  // instead of a full 32 handle the leading (misaligned) bytes in the source Note: src_bit_shift
-  // effectively means "how many rows at the beginning should we ignore", so we subtract that from
-  // the amount of rows that are actually in the bytes that we've read.
+  // instead of a full word. Note: src_bit_shift effectively means "how many rows at the beginning
+  // should we ignore", so we subtract that from the amount of rows that are actually in the bytes
+  // that we've read.
   int rows_in_batch =
     min(remaining_rows,
-        leading_bytes != 0 ? (leading_bytes * 8) - batch.src_bit_shift : 32 - batch.src_bit_shift);
+        leading_bytes != 4 ? (leading_bytes * 8) - batch.src_bit_shift : 32 - batch.src_bit_shift);
   remaining_rows -= rows_in_batch;
 
   size_type valid_count = 0;
@@ -1273,20 +1302,21 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   // thread 0 does all the work for the leading (unaligned) bytes in the source
   if (threadIdx.x == 0) {
     bitmask_type word =
-      leading_bytes != 0
+      leading_bytes != 4
         ? (batch.src[0] | (batch.src[1] << 8) | (batch.src[2] << 16) | (batch.src[3] << 24))
         : (reinterpret_cast<bitmask_type const*>(batch.src))[0];
     bitmask_type const relevant_row_mask = ((1 << rows_in_batch) - 1);
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
     word = (word >> batch.src_bit_shift) & relevant_row_mask;
+
     // any bits that are not being stored in the current dest word get overflowed to the next copy
     prev_word[0] = word >> (32 - batch.dst_bit_shift);
     // shift to the final destination bit position.
     word <<= batch.dst_bit_shift;
-    // count and store
-    valid_count += __popc(word);
+
     // use an atomic because we could be overlapping with another copy
+    valid_count += __popc(word);
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }
   if (remaining_rows == 0) {
@@ -1298,29 +1328,35 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   auto src = reinterpret_cast<bitmask_type const*>(batch.src + leading_bytes);
   auto dst = reinterpret_cast<bitmask_type*>(batch.dst);
 
+  // how many words we visited in the initial batch. note that even if we only wrote 2 bits, it is
+  // possible we skipped past the first word.  For example if our dst_bit_shift was 30 (that is, we
+  // were starting to write at row index 30), 1 of the 2 bits would go in word 0, and 1 of them
+  // would go in word 1. So our leading number of words is 1.
+  auto const num_leading_words = ((rows_in_batch + batch.dst_bit_shift) / 32);
+  auto remaining_words         = (remaining_rows + 31) / 32;
+
   // compute a new bit_shift.
   // - src_bit_shift is now irrelevant because we have skipped past any leading irrelevant bits in
   // the input
   // - the amount we have to dst shift is simply incremented by the number of rows we've processed.
   auto const bit_shift = (batch.dst_bit_shift + rows_in_batch) % 32;
-  auto remaining_words = (remaining_rows + 31) / 32;
 
   // we can still be anywhere in the destination buffer, so any stores to either the first or last
   // destination words (where other copies may be happening at the same time) need to use atomicOr.
-  auto store_word = [last_word_index = remaining_words - 1, dst] __device__(int i, uint32_t val) {
+  auto const last_word_index = num_leading_words + ((((remaining_rows + bit_shift) + 31) / 32) - 1);
+  auto store_word            = [last_word_index, dst] __device__(int i, uint32_t val) {
     if (i == 0 || i == last_word_index) {
       atomicOr(dst + i, val);
     } else {
       dst[i] = val;
     }
+    return __popc(val);
   };
 
   // copy the remaining words
-  auto const rows_per_batch    = blockDim.x * 32;
-  int src_word_index           = threadIdx.x;
-  auto const num_leading_words = ((rows_in_batch + batch.dst_bit_shift) / 32);
-  int dst_word_index =
-    threadIdx.x + num_leading_words;  // NOTE: we may still be at destination word 0
+  auto const rows_per_batch = blockDim.x * 32;
+  int src_word_index        = threadIdx.x;
+  int dst_word_index        = threadIdx.x + num_leading_words;
   int words_in_batch;
   bitmask_type cur, prev;
   do {
@@ -1333,7 +1369,6 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
       cur                                  = (src[src_word_index] & relevant_row_mask);
-      valid_count += __popc(cur);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The
@@ -1346,7 +1381,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // dst[1] =  xxxx0000000000000000000000000000
       //
       prev = cur >> (32 - bit_shift);
-      // the trailing bits the last thread goes to the 0th thread for the next iteration of the
+      // the trailing bits in the last thread goes to the 0th thread for the next iteration of the
       // loop, so don't write it until the end of the loop, otherwise we'll inadvertently blow away
       // the 0th thread's correct value
       if (threadIdx.x < words_in_batch - 1) { prev_word[threadIdx.x + 1] = prev; }
@@ -1355,7 +1390,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     if (threadIdx.x < words_in_batch) {
       // construct final word from cur leading bits and prev trailing bits
       auto const word = (cur << bit_shift) | prev_word[threadIdx.x];
-      store_word(dst_word_index, word);
+      valid_count += store_word(dst_word_index, word);
     }
     __syncthreads();
     // store the final trailing bits at the beginning for the next iteration
@@ -1366,8 +1401,10 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     remaining_rows -= rows_in_batch;
   } while (remaining_words > 0);
 
-  // final trailing bits.
-  if (threadIdx.x == 0) { store_word(dst_word_index, prev_word[0]); }
+  // final trailing bits, if any
+  if (threadIdx.x == 0 && dst_word_index == last_word_index) {
+    valid_count += store_word(dst_word_index, prev_word[0]);
+  }
 
   // add the valid count for the entire block to the count for the entire buffer.
   using block_reduce = cub::BlockReduce<cudf::size_type, block_size>;
@@ -1495,146 +1532,155 @@ namespace {
  * @brief Functor that generates final cudf columns assembled from provided input buffers
  */
 struct assemble_column_functor {
+  cudf::host_span<shuffle_split_col_data const> column_meta;
+  cudf::host_span<assemble_column_info const> columns;
   rmm::cuda_stream_view stream;
   rmm::device_async_resource_ref mr;
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     // no offsets
     auto const data = buffer + 2;
 
+    auto const col = columns[col_index];
     out.push_back(std::make_unique<cudf::column>(
-      cudf::data_type{col->type},
-      col->num_rows,
+      cudf::data_type{col.type,
+                      spark_rapids_jni::is_fixed_point(cudf::data_type{col.type})
+                        ? column_meta[col_index].scale()
+                        : 0},
+      col.num_rows,
       std::move(*data),
-      col->has_validity ? std::move(*validity) : rmm::device_buffer{},
-      col->has_validity ? col->num_rows - col->valid_count : 0));
+      col.has_validity ? std::move(*validity) : rmm::device_buffer{},
+      col.has_validity ? col.num_rows - col.valid_count : 0));
 
-    return {col + 1, buffer + 3};
+    return {col_index + 1, buffer + 3};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     buffer += 3;
 
     // build children
     std::vector<std::unique_ptr<cudf::column>> children;
-    children.reserve(col->num_children);
-    auto next = col + 1;
-    for (size_type i = 0; i < col->num_children; i++) {
-      std::tie(next, buffer) = cudf::type_dispatcher(
-        cudf::data_type{next->type}, assemble_column_functor{stream, mr}, next, buffer, children);
+    auto const& col = columns[col_index];
+    children.reserve(col.num_children);
+    auto next = col_index + 1;
+    for (size_type i = 0; i < col.num_children; i++) {
+      std::tie(next, buffer) =
+        cudf::type_dispatcher(cudf::data_type{columns[next].type},
+                              assemble_column_functor{column_meta, columns, stream, mr},
+                              next,
+                              buffer,
+                              children);
     }
 
     out.push_back(
-      cudf::make_structs_column(col->num_rows,
+      cudf::make_structs_column(col.num_rows,
                                 std::move(children),
-                                col->has_validity ? col->num_rows - col->valid_count : 0,
-                                col->has_validity ? std::move(*validity) : rmm::device_buffer{},
+                                col.has_validity ? col.num_rows - col.valid_count : 0,
+                                col.has_validity ? std::move(*validity) : rmm::device_buffer{},
                                 stream,
                                 mr));
     return {next, buffer};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     auto const offsets  = buffer + 1;
     auto const chars    = buffer + 2;
 
+    auto const& col = columns[col_index];
     out.push_back(cudf::make_strings_column(
-      col->num_rows,
+      col.num_rows,
       std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                     col->num_rows + 1,
+                                     col.num_rows + 1,
                                      std::move(*offsets),
                                      rmm::device_buffer{},
                                      0),
       std::move(*chars),
-      col->has_validity ? col->num_rows - col->valid_count : 0,
-      col->has_validity ? std::move(*validity) : rmm::device_buffer{}));
-    return {col + 1, buffer + 3};
+      col.has_validity ? col.num_rows - col.valid_count : 0,
+      col.has_validity ? std::move(*validity) : rmm::device_buffer{}));
+    return {col_index + 1, buffer + 3};
   }
 
-  template <typename T,
-            typename ColumnIter,
-            typename BufferIter,
-            CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     auto const validity = buffer;
     auto const offsets  = buffer + 1;
     buffer += 3;
 
     // build the child
+    auto const& col = columns[col_index];
     std::vector<std::unique_ptr<cudf::column>> child_col;
-    auto next              = col + 1;
-    std::tie(next, buffer) = cudf::type_dispatcher(
-      cudf::data_type{next->type}, assemble_column_functor{stream, mr}, next, buffer, child_col);
+    auto next = col_index + 1;
+    std::tie(next, buffer) =
+      cudf::type_dispatcher(cudf::data_type{columns[next].type},
+                            assemble_column_functor{column_meta, columns, stream, mr},
+                            next,
+                            buffer,
+                            child_col);
 
     // build the final column
     out.push_back(
-      cudf::make_lists_column(col->num_rows,
+      cudf::make_lists_column(col.num_rows,
                               std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                             col->num_rows + 1,
+                                                             col.num_rows + 1,
                                                              std::move(*offsets),
                                                              rmm::device_buffer{},
                                                              0),
                               std::move(child_col.back()),
-                              col->has_validity ? col->num_rows - col->valid_count : 0,
-                              col->has_validity ? std::move(*validity) : rmm::device_buffer{},
+                              col.has_validity ? col.num_rows - col.valid_count : 0,
+                              col.has_validity ? std::move(*validity) : rmm::device_buffer{},
                               stream,
                               mr));
     return {next, buffer};
   }
 
   template <typename T,
-            typename ColumnIter,
             typename BufferIter,
             CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view> and
                            !std::is_same_v<T, cudf::string_view> and
                            !std::is_same_v<T, cudf::list_view>)>
-  std::pair<ColumnIter, BufferIter> operator()(ColumnIter col,
-                                               BufferIter buffer,
-                                               std::vector<std::unique_ptr<cudf::column>>& out)
+  std::pair<size_t, BufferIter> operator()(size_t col_index,
+                                           BufferIter buffer,
+                                           std::vector<std::unique_ptr<cudf::column>>& out)
   {
     CUDF_FAIL("Unsupported type in shuffle_assemble");
   }
 };
 
 // assemble all the columns and the final table from the intermediate buffers
-std::unique_ptr<cudf::table> build_table(cudf::host_span<assemble_column_info const> assemble_data,
+std::unique_ptr<cudf::table> build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
+                                         cudf::host_span<assemble_column_info const> assemble_data,
                                          cudf::host_span<rmm::device_buffer> assemble_buffers,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   std::vector<std::unique_ptr<cudf::column>> columns;
-  auto column = assemble_data.begin();
-  auto buffer = assemble_buffers.begin();
-  while (column != assemble_data.end()) {
-    std::tie(column, buffer) = cudf::type_dispatcher(
-      cudf::data_type{column->type}, assemble_column_functor{stream, mr}, column, buffer, columns);
+  size_t col_index = 0;
+  auto buffer      = assemble_buffers.begin();
+  while (col_index < assemble_data.size()) {
+    std::tie(col_index, buffer) =
+      cudf::type_dispatcher(cudf::data_type{assemble_data[col_index].type},
+                            assemble_column_functor{column_meta, assemble_data, stream, mr},
+                            col_index,
+                            buffer,
+                            columns);
   }
   return std::make_unique<cudf::table>(std::move(columns));
 }
@@ -1742,7 +1788,7 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
   // with the the gpu work being done in assemble_copy.
 
   // build the final table while the gpu is performing the copy
-  auto ret = build_table(h_column_info, dst_buffers, stream, mr);
+  auto ret = build_table(metadata.col_info, h_column_info, dst_buffers, stream, mr);
   return ret;
 }
 

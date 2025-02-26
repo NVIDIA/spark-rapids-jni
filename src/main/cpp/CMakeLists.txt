@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.28.6 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.02.00
+  VERSION 25.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -201,6 +201,8 @@ add_library(
   src/HostTableJni.cpp
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
+  src/ListSliceJni.cpp
+  src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
@@ -224,6 +226,8 @@ add_library(
   src/get_json_object.cu
   src/histogram.cu
   src/json_utils.cu
+  src/list_slice.cu
+  src/map.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu

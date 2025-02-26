@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,24 +20,13 @@ package com.nvidia.spark.rapids.jni.kudo;
  * This class contains metrics for serializing table using kudo format.
  */
 public class WriteMetrics {
-  private long calcHeaderTime;
-  private long copyHeaderTime;
   private long copyBufferTime;
   private long writtenBytes;
 
 
   public WriteMetrics() {
-    this.calcHeaderTime = 0;
-    this.copyHeaderTime = 0;
     this.copyBufferTime = 0;
     this.writtenBytes = 0;
-  }
-
-  /**
-   * Get the time spent on calculating the header.
-   */
-  public long getCalcHeaderTime() {
-    return calcHeaderTime;
   }
 
   /**
@@ -49,21 +38,6 @@ public class WriteMetrics {
 
   public void addCopyBufferTime(long time) {
     copyBufferTime += time;
-  }
-
-  /**
-   * Get the time spent on copying the header.
-   */
-  public long getCopyHeaderTime() {
-    return copyHeaderTime;
-  }
-
-  public void addCalcHeaderTime(long time) {
-    calcHeaderTime += time;
-  }
-
-  public void addCopyHeaderTime(long time) {
-    copyHeaderTime += time;
   }
 
   /**

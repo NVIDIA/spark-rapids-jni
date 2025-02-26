@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,23 +41,25 @@ import java.util.List;
  * For more details about the kudo format, please refer to {@link KudoSerializer}.
  * </p>
  */
-class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
+class SlicedBufferSerializer implements HostColumnsVisitor {
   private final SliceInfo root;
   private final BufferType bufferType;
   private final DataWriter writer;
 
   private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
   private final WriteMetrics metrics;
+  private final boolean addCopyBufferTime;
   private long totalDataLen;
 
   SlicedBufferSerializer(int rowOffset, int numRows, BufferType bufferType, DataWriter writer,
-                         WriteMetrics metrics) {
+                         WriteMetrics metrics, boolean addCopyBufferTime) {
     this.root = new SliceInfo(rowOffset, numRows);
     this.bufferType = bufferType;
     this.writer = writer;
     this.sliceInfos.addLast(root);
     this.metrics = metrics;
     this.totalDataLen = 0;
+    this.addCopyBufferTime = addCopyBufferTime;
   }
 
   public long getTotalDataLen() {
@@ -65,17 +67,17 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
   }
 
   @Override
-  public Void visitStruct(HostColumnVectorCore col, List<Void> children) {
+  public void visitStruct(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.peekLast();
 
     try {
       switch (bufferType) {
         case VALIDITY:
           totalDataLen += this.copySlicedValidity(col, parent);
-          return null;
+          return;
         case OFFSET:
         case DATA:
-          return null;
+          return;
         default:
           throw new IllegalArgumentException("Unexpected buffer type: " + bufferType);
       }
@@ -86,7 +88,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
   }
 
   @Override
-  public Void preVisitList(HostColumnVectorCore col) {
+  public void preVisitList(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
 
@@ -124,29 +126,27 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
     sliceInfos.addLast(current);
 
     totalDataLen += bytesCopied;
-    return null;
   }
 
   @Override
-  public Void visitList(HostColumnVectorCore col, Void preVisitResult, Void childResult) {
+  public void visitList(HostColumnVectorCore col) {
     sliceInfos.removeLast();
-    return null;
   }
 
   @Override
-  public Void visit(HostColumnVectorCore col) {
+  public void visit(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
     try {
       switch (bufferType) {
         case VALIDITY:
           totalDataLen += this.copySlicedValidity(col, parent);
-          return null;
+          return;
         case OFFSET:
           totalDataLen += this.copySlicedOffset(col, parent);
-          return null;
+          return;
         case DATA:
           totalDataLen += this.copySlicedData(col, parent);
-          return null;
+          return;
         default:
           throw new IllegalArgumentException("Unexpected buffer type: " + bufferType);
       }
@@ -217,10 +217,15 @@ class SlicedBufferSerializer implements HostColumnsVisitor<Void> {
 
   private long copyBufferAndPadForHost(HostMemoryBuffer buffer, long offset, long length)
       throws IOException {
-    long now = System.nanoTime();
-    writer.copyDataFrom(buffer, offset, length);
-    long ret = padForHostAlignment(writer, length);
-    metrics.addCopyBufferTime(System.nanoTime() - now);
-    return ret;
+    if (addCopyBufferTime) {
+      long now = System.nanoTime();
+      writer.copyDataFrom(buffer, offset, length);
+      long ret = padForHostAlignment(writer, length);
+      metrics.addCopyBufferTime(System.nanoTime() - now);
+      return ret;
+    } else {
+      writer.copyDataFrom(buffer, offset, length);
+      return padForHostAlignment(writer, length);
+    }
   }
 }

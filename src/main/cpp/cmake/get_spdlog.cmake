@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -15,10 +15,12 @@
 # Use CPM to find or clone speedlog
 function(find_and_configure_spdlog)
 
+  set(CPM_DOWNLOAD_spdlog ON)
   include(${rapids-cmake-dir}/cpm/spdlog.cmake)
   rapids_cpm_spdlog(
     FMT_OPTION "EXTERNAL_FMT_HO"
   )
+  set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 endfunction()
 

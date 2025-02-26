@@ -34,6 +34,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cub/device/device_memcpy.cuh>
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
@@ -303,7 +304,7 @@ struct buf_info_functor {
 
  private:
   void add_null_buffer(column_view const& col,
-                       src_buf_info* validity_cur,
+                       src_buf_info*& validity_cur,
                        int offset_stack_pos,
                        int parent_offset_index,
                        int offset_depth)
@@ -620,7 +621,7 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
   if (col_index == 0) {
     pheader->magic_number = cudf::hashing::detail::swap_endian(magic);
 
-    pheader->offset =
+    pheader->row_index =
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(split_indices[partition_index]));
 
     // it is possible to get in here with no columns -or- no rows.
@@ -764,7 +765,8 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   rmm::device_async_resource_ref mr)
 {
   // empty inputs
-  if (input.num_columns() == 0 || input.num_rows() == 0) {
+  CUDF_EXPECTS(input.num_columns() != 0, "Encountered input with no columns.");
+  if (input.num_rows() == 0) {
     rmm::device_uvector<size_t> empty_offsets(1, stream, mr);
     thrust::fill(rmm::exec_policy(stream), empty_offsets.begin(), empty_offsets.end(), 0);
     return {shuffle_split_result{std::make_unique<rmm::device_buffer>(0, stream, mr),
@@ -932,7 +934,9 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
             (num_rows > 0)) {
           return num_rows + 1;
         } else if (src_info.btype == buffer_type::VALIDITY) {
-          return (num_rows + 7) / 8;
+          // edge case: we are going to be copying at the nearest byte boundary, so
+          // if we are at row 2 and we need 8 rows, we are actually copying 10 rows of info.
+          return (num_rows + (row_start % 8) + 7) / 8;
         }
         return num_rows;
       }();
