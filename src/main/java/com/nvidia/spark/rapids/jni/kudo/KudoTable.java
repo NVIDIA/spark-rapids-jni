@@ -32,8 +32,9 @@ import static java.util.Objects.requireNonNull;
  * data.
  */
 public class KudoTable implements AutoCloseable {
-  private final KudoTableHeader header;
-  private final HostMemoryBuffer buffer;
+  protected final KudoTableHeader header;
+  protected HostMemoryBuffer buffer;
+  protected long length = 0L;
 
   /**
    * Create a kudo table.
@@ -46,6 +47,9 @@ public class KudoTable implements AutoCloseable {
     requireNonNull(header, "Header must not be null");
     this.header = header;
     this.buffer = buffer;
+    if (buffer != null) {
+      this.length = buffer.getLength();
+    }
   }
 
   /**
@@ -82,6 +86,10 @@ public class KudoTable implements AutoCloseable {
 
   public HostMemoryBuffer getBuffer() {
     return buffer;
+  }
+
+  public long getLength() {
+    return length;
   }
 
   @Override
