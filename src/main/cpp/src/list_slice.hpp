@@ -26,13 +26,15 @@ namespace spark_rapids_jni {
 /**
  * @brief Slices each row of a lists column according to the requested `start` and `length`.
  *
- * The indices start at 1, or from the end if negative(can not be zero). If any index in start is
- * outside [-n, n] for a row (where n is the number of elements in that row), the result for that
- * row is an empty list.
+ * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1 refers
+ * to the last element in the list). If any index in start is outside [-n, n] (where n is the number
+ * of elements in that row), the result for that row is an empty list.
  *
- * If length is zero, the result for that row is an empty list. If length exceeds the number of
- * elements from the real start index(0 to n - 1) to the end of the row, the result for that row
- * is the elements from the real start index to the end of the row.
+ * If length is zero, the result for that row is an empty list. If there are not enough elements
+ * from the specified start to the end of the target list, the number of elements in the result
+ * list will be less than the specified length.
+ *
+ * Null handling: For each row, if corresponding input is null, the result row will be null.
  *
  * @code{.pseudo}
  * input_column = [
@@ -70,16 +72,16 @@ std::unique_ptr<cudf::column> list_slice(
 /**
  * @brief Slices each row of a lists column according to the requested `start` and `length`.
  *
- * The indices start at 1, or from the end if negative(can not be zero). If any index in start is
- * outside [-n, n] for a row (where n is the number of elements in that row), the result for that
- * row is an empty list.
+ * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1 refers
+ * to the last element in the list). If any index in start is outside [-n, n] (where n is the number
+ * of elements in that row), the result for that row is an empty list.
  *
- * If length is zero, the result for that row is an empty list. If length exceeds the number of
- * elements from the real start index(0 to n - 1) to the end of the row, the result for that row
- * is the elements from the real start index to the end of the row.
+ * If length is zero, the result for that row is an empty list. If there are not enough elements
+ * from the specified start to the end of the target list, the number of elements in the result
+ * list will be less than the specified length.
  *
- * Null handling: For each row, if the corresponding input or length element is null, the result row
- * will be null.
+ * Null handling: For each row, if either corresponding input or length element is null, the result
+ * row will be null.
  *
  * @code{.pseudo}
  * input_column = [
@@ -99,6 +101,7 @@ std::unique_ptr<cudf::column> list_slice(
  *
  * @throws cudf::logic_error if the sizes of @p input, @p length columns are not equal
  * @throws cudf::logic_error if @p start is zero
+ * @throws cudf::logic_error if @p length column is not of INT32 type
  * @throws cudf::logic_error if @p length column contains negative values
  *
  * @param input The input lists column to slice
@@ -118,15 +121,15 @@ std::unique_ptr<cudf::column> list_slice(
 /**
  * @brief Slices each row of a lists column according to the requested `start` and `length`.
  *
- * The indices start at 1, or from the end if negative(can not be zero). If any index in start is
- * outside [-n, n] for a row (where n is the number of elements in that row), the result for that
- * row is an empty list.
+ * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1 refers
+ * to the last element in the list). If any index in start is outside [-n, n] (where n is the number
+ * of elements in that row), the result for that row is an empty list.
  *
- * If length is zero, the result for that row is an empty list. If length exceeds the number of
- * elements from the real start index(0 to n - 1) to the end of the row, the result for that row
- * is the elements from the real start index to the end of the row.
+ * If length is zero, the result for that row is an empty list. If there are not enough elements
+ * from the specified start to the end of the target list, the number of elements in the result
+ * list will be less than the specified length.
  *
- * Null handling: For each row, if the corresponding input or start element is null, the result row
+ * Null handling: For each row, if either corresponding input or start index is null, the result row
  * will be null.
  *
  * @code{.pseudo}
@@ -146,6 +149,7 @@ std::unique_ptr<cudf::column> list_slice(
  * @endcode
  *
  * @throws cudf::logic_error if the sizes of @p input, @p start columns are not equal
+ * @throws cudf::logic_error if @p start column is not of INT32 type
  * @throws cudf::logic_error if @p start column contains zeros
  * @throws cudf::logic_error if @p length is negative
  *
@@ -166,36 +170,46 @@ std::unique_ptr<cudf::column> list_slice(
 /**
  * @brief Slices each row of a lists column according to the requested `start` and `length`.
  *
- * The indices start at 1, or from the end if negative(can not be zero). If any index in start is
- * outside [-n, n] for a row (where n is the number of elements in that row), the result for that
- * row is an empty list.
+ * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1 refers
+ * to the last element in the list). If any index in start is outside [-n, n] (where n is the number
+ * of elements in that row), the result for that row is an empty list.
  *
- * If length is zero, the result for that row is an empty list. If length exceeds the number of
- * elements from the real start index(0 to n - 1) to the end of the row, the result for that row
- * is the elements from the real start index to the end of the row.
+ * If length is zero, the result for that row is an empty list. If there are not enough elements
+ * from the specified start to the end of the target list, the number of elements in the result
+ * list will be less than the specified length.
  *
- * Null handling: For each row, if the corresponding input, start, or length element is null, the
- * result row will be null.
+ * Null handling: For each row, if any corresponding input, start index, or length element is null,
+ * the result row will be null.
  *
  * @code{.pseudo}
  * input_column = [
- *   [1, 2, 3, 4],
- *   [5, 6, 7],
- *   [8, 9]
+ *   [1, 2, 3],
+ *   [4, null, 5],
+ *   null,
+ *   [],
+ *   [null],
+ *   [6, 7, 8],
+ *   [9, 10]
  * ]
  *
- * start = [2, 1, -1], length = [2, 2, 3]
+ * start = [1, -2, 2, 3, -10, -3, null], length = [0, 2, 2, null, 4, 10, 1]
  *
  * result = [
- *   [2, 3],
- *   [5, 6],
- *   [9]
+ *   [],
+ *   [null, 5],
+ *   null,
+ *   null,
+ *   [],
+ *   [6, 7, 8],
+ *   null
  * ]
  * @endcode
  *
  * @throws cudf::logic_error if the sizes of @p input, @p start columns are not equal
  * @throws cudf::logic_error if the sizes of @p input, @p length columns are not equal
+ * @throws cudf::logic_error if @p start column is not of INT32 type
  * @throws cudf::logic_error if @p start column contains zeros
+ * @throws cudf::logic_error if @p length column is not of INT32 type
  * @throws cudf::logic_error if @p length column contains negative values
  *
  * @param input The input lists column to slice

@@ -24,8 +24,33 @@ public class GpuListSliceUtils {
     }
 
     /**
-     * Slices a lists column, beginning at the specified integer start offset and
-     * including up to the given integer length.
+     * @brief Slices each row of a lists column according to the requested `start` and `length`.
+     *
+     * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1
+     * refers to the last element in the list). If any index in start is outside [-n, n] (where n
+     * is the number of elements in that row), the result for that row is an empty list.
+     *
+     * If length is zero, the result for that row is an empty list. If there are not enough elements
+     * from the specified start to the end of the target list, the number of elements in the result
+     * list will be less than the specified length.
+     *
+     * Null handling: For each row, if corresponding input is null, the result row will be null.
+     *
+     * @code{.pseudo}
+     * input_column = [
+     *   [1, 2, 3, 4],
+     *   [5, 6, 7],
+     *   [8, 9]
+     * ]
+     *
+     * start = 2, length = 2
+     *
+     * result = [
+     *   [2, 3],
+     *   [6, 7],
+     *   [9]
+     * ]
+     * @endcode
      *
      * @param cv    the column of lists to slice
      * @param start the integer offset at which to begin slicing
@@ -37,8 +62,34 @@ public class GpuListSliceUtils {
     }
 
     /**
-     * Slices a lists column, beginning at the specified integer start offset and
-     * including up to the lengths specified by another column view.
+     * @brief Slices each row of a lists column according to the requested `start` and `length`.
+     *
+     * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1
+     * refers to the last element in the list). If any index in start is outside [-n, n] (where n
+     * is the number of elements in that row), the result for that row is an empty list.
+     *
+     * If length is zero, the result for that row is an empty list. If there are not enough elements
+     * from the specified start to the end of the target list, the number of elements in the result
+     * list will be less than the specified length.
+     *
+     * Null handling: For each row, if either corresponding input or length element is null, the
+     * result row will be null.
+     *
+     * @code{.pseudo}
+     * input_column = [
+     *   [1, 2, 3, 4],
+     *   [5, 6, 7],
+     *   [8, 9]
+     * ]
+     *
+     * start = -2, length = [3, 2, 1]
+     *
+     * result = [
+     *   [3, 4],
+     *   [6, 7],
+     *   [8]
+     * ]
+     * @endcode
      *
      * @param cv    the column of lists to slice
      * @param start the integer offset at which to begin slicing
@@ -50,8 +101,34 @@ public class GpuListSliceUtils {
     }
 
     /**
-     * Slices a lists column, beginning at the offsets specified by a column view and
-     * including up to a fixed integer length.
+     * @brief Slices each row of a lists column according to the requested `start` and `length`.
+     *
+     * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1
+     * refers to the last element in the list). If any index in start is outside [-n, n] (where n
+     * is the number of elements in that row), the result for that row is an empty list.
+     *
+     * If length is zero, the result for that row is an empty list. If there are not enough elements
+     * from the specified start to the end of the target list, the number of elements in the result
+     * list will be less than the specified length.
+     *
+     * Null handling: For each row, if either corresponding input or start index is null, the result
+     * row will be null.
+     *
+     * @code{.pseudo}
+     * input_column = [
+     *   [1, 2, 3, 4],
+     *   [5, 6, 7],
+     *   [8, 9]
+     * ]
+     *
+     * start = [2, 1, -1], length = 2
+     *
+     * result = [
+     *   [2, 3],
+     *   [5, 6],
+     *   [9]
+     * ]
+     * @endcode
      *
      * @param cv    the column of lists to slice
      * @param start the column view specifying the start offsets for each list slice
@@ -63,8 +140,42 @@ public class GpuListSliceUtils {
     }
 
     /**
-     * Slices a lists column, beginning at the offsets specified by one column view and
-     * including up to the lengths specified by another column view.
+     * @brief Slices each row of a lists column according to the requested `start` and `length`.
+     *
+     * The indices cannot be zero; they start at 1, or from the end if negative (the value of -1
+     * refers to the last element in the list). If any index in start is outside [-n, n] (where n
+     * is the number of elements in that row), the result for that row is an empty list.
+     *
+     * If length is zero, the result for that row is an empty list. If there are not enough elements
+     * from the specified start to the end of the target list, the number of elements in the result
+     * list will be less than the specified length.
+     *
+     * Null handling: For each row, if any corresponding input, start index, or length element is
+     * null, the result row will be null.
+     *
+     * @code{.pseudo}
+     * input_column = [
+     *   [1, 2, 3],
+     *   [4, null, 5],
+     *   null,
+     *   [],
+     *   [null],
+     *   [6, 7, 8],
+     *   [9, 10]
+     * ]
+     *
+     * start = [1, -2, 2, 3, -10, -3, null], length = [0, 2, 2, null, 4, 10, 1]
+     *
+     * result = [
+     *   [],
+     *   [null, 5],
+     *   null,
+     *   null,
+     *   [],
+     *   [6, 7, 8],
+     *   null
+     * ]
+     * @endcode
      *
      * @param cv    the column of lists to slice
      * @param start the column view specifying the start offsets for each list slice
