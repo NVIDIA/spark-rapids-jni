@@ -21,8 +21,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
@@ -69,6 +67,34 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  private static int readIntHeader(int start, byte[] data) {
+    byte b1 = start < data.length ? data[start] : 0;
+    byte b2 = start + 1 < data.length ? data[start + 1] : 0;
+    byte b3 = start + 2 < data.length ? data[start + 2] : 0;
+    byte b4 = start + 3 < data.length ? data[start + 3] : 0;
+    return (b1 << 24) + (b2 << 16) + (b3 << 8) + b4;
+  }
+
+  private static int readIntOffset(int start, byte[] data) {
+    byte b1 = start < data.length ? data[start] : 0;
+    byte b2 = start + 1 < data.length ? data[start + 1] : 0;
+    byte b3 = start + 2 < data.length ? data[start + 2] : 0;
+    byte b4 = start + 3 < data.length ? data[start + 3] : 0;
+    return b1 + (b2 << 8) + (b3 << 16) + (b4 << 24);
+  }
+
+  private static String makeExtraEnd(String name, int start, byte[] hDataGPU, byte[] hDataCPU) {
+    int gpuNum = readIntHeader(start, hDataGPU);
+    int cpuNum = readIntHeader(start, hDataCPU);
+    return " <-- " + name + " END (" + gpuNum + "/" + cpuNum + ")";
+  }
+
+  private static String makeOffsetEnd(int index, int start, byte[] hDataGPU, byte[] hDataCPU) {
+    int gpuNum = readIntOffset(start, hDataGPU);
+    int cpuNum = readIntOffset(start, hDataCPU);
+    return " <-- OFFSET " + index + " (" + gpuNum + "/" + cpuNum + ")";
+  }
+
   public static void logPartitionComparison(String name, byte[] hDataGPU, byte[] hDataCPU) {
     System.err.println(name + " COMP GPU(" + hDataGPU.length + ") VS CPU(" + hDataCPU.length + ")");
     int len = Math.max(hDataGPU.length, hDataCPU.length);
@@ -107,54 +133,54 @@ public class KudoGpuSerializerTest {
       } else if (i == 4) {
         extra = " <-- OFFSET START";
       } else if (i == 7) {
-        extra = " <-- OFFSET END";
+        extra = makeExtraEnd("OFFSET", 4, hDataGPU, hDataCPU);
       } else if (i == 8) {
         extra = " <-- NUM_ROWS START";
       } else if (i == 11) {
-        extra = " <-- NUM_ROWS END";
+        extra = makeExtraEnd("NUM_ROWS", 8, hDataGPU, hDataCPU);
       } else if (i == 12) {
         extra = " <-- VALIDITY_BUF_LEN START";
       } else if (i == 15) {
-        extra = " <-- VALIDITY_BUF_LEN END";
+        extra = makeExtraEnd("VALIDITY_BUF_LEN", 12, hDataGPU, hDataCPU);
       } else if (i == 16) {
         extra = " <-- OFFSET_BUF_LEN START";
       } else if (i == 19) {
-        extra = " <-- OFFSET_BUF_LEN END";
+        extra = makeExtraEnd("OFFSET_BUF_LEN", 16, hDataGPU, hDataCPU);
       } else if (i == 20) {
         extra = " <-- TOTAL_DATA_LEN START";
       } else if (i == 23) {
-        extra = " <-- TOTAL_DATA_LEN END";
+        extra = makeExtraEnd("TOTAL_DATA_LEN", 20, hDataGPU, hDataCPU);
       } else if (i == 24) {
         extra = " <-- NUM_COL START";
       } else if (i == 27) {
-        extra = " <-- NUM_COL END";
-        int gpuNumCol = (hDataGPU[24] << 24) + (hDataGPU[25] << 16) + (hDataGPU[26] << 8) + hDataGPU[27];
-        int hasValidLen = (gpuNumCol + 7) / 8;
+        extra = makeExtraEnd("NUM_COL", 24, hDataGPU, hDataCPU);
+        int numCol = readIntHeader(24, hDataCPU);
+        int hasValidLen = (numCol + 7) / 8;
         if (hasValidLen > 0) {
           hasValidStart = 28;
           hasValidEnd = hasValidStart + hasValidLen - 1;
         } else {
           hasValidEnd = 28;
         }
-        int validityBuffsLen = (hDataGPU[12] << 24) + (hDataGPU[13] << 16) + (hDataGPU[14] << 8) + hDataGPU[15];
+        int validityBuffsLen = readIntHeader(12, hDataCPU);
         if (validityBuffsLen > 0) {
           validityBuffersStart = hasValidEnd + 1;
           validityBuffersEnd = validityBuffersStart + validityBuffsLen - 1;
         } else {
           validityBuffersEnd = hasValidEnd;
         }
-        int offsetBuffersLen = (hDataGPU[16] << 24) + (hDataGPU[17] << 16) + (hDataGPU[18] << 8) + hDataGPU[19];
+        int offsetBuffersLen = readIntHeader(16, hDataCPU);
         if (offsetBuffersLen > 0) {
           offsetBuffersStart = validityBuffersEnd + 1;
-          offsetBuffersEnd = offsetBuffersStart + offsetBuffersLen;
+          offsetBuffersEnd = offsetBuffersStart + offsetBuffersLen - 1;
         } else {
           offsetBuffersEnd = validityBuffersEnd;
         }
-        int totalDataLen = (hDataGPU[20] << 24) + (hDataGPU[21] << 16) + (hDataGPU[22] << 8) + hDataGPU[23];
+        int totalDataLen = readIntHeader(20, hDataCPU);
         int dataLen = totalDataLen - offsetBuffersLen - validityBuffsLen;
         if (dataLen > 0) {
           dataBuffersStart = offsetBuffersEnd + 1;
-          dataBuffersEnd = dataBuffersStart + dataLen;
+          dataBuffersEnd = dataBuffersStart + dataLen - 1;
         } else {
           dataBuffersEnd = offsetBuffersEnd;
         }
@@ -172,8 +198,8 @@ public class KudoGpuSerializerTest {
         extra = " <-- VALIDITY_BUFFERS END";
       } else if (offsetBuffersStart == i) {
         extra = " <-- OFFSET_BUFFERS START";
-      } else if (offsetBuffersStart > 0 && offsetBuffersEnd == i) {
-        extra = " <-- OFFSET_BUFFERS END";
+      } else if (offsetBuffersStart > 0 && i > offsetBuffersStart && i <= offsetBuffersEnd && (i - offsetBuffersStart + 1) % 4 == 0) {
+        extra = makeOffsetEnd(((i - offsetBuffersStart) / 4), i - 3, hDataGPU, hDataCPU);
       } else if (dataBuffersStart == dataBuffersEnd && i == dataBuffersStart) {
         extra = " <-- DATA_BUFFERS";
       } else if (dataBuffersStart == i) {
@@ -317,9 +343,10 @@ public class KudoGpuSerializerTest {
   @Test
   public void testSinglePartWriteCPURead() throws Exception {
     try (Table table = new Table.TestBuilder()
-        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
+//        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
 //        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
 //        .column("0xFF", null, "0x0F", "0xAA", "0x55")
+        .column("A","B","C","D",null)
         .build()) {
      doSinglePartGPUWriteCPUReadTest("testSinglePartWriteCPURead", table);
     }

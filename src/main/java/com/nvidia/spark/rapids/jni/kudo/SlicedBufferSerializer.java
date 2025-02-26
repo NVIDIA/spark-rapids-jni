@@ -160,7 +160,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     if (column.getValidity() != null && sliceInfo.getRowCount() > 0) {
       HostMemoryBuffer buff = column.getValidity();
       long len = sliceInfo.getValidityBufferInfo().getBufferLength();
-      return copyWithoutPadding(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
+      return copyBufferAndPadForHost(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
     } else {
       return 0;
     }
