@@ -53,6 +53,8 @@ struct size_of_helper {
 
 /**
  * @brief Header for each partition.
+ *
+ * The values are stored in big-endian format.
  */
 struct partition_header {
   uint32_t magic_number;
@@ -61,6 +63,7 @@ struct partition_header {
   uint32_t validity_size;
   uint32_t offset_size;
   uint32_t data_size;
+  uint32_t num_flattened_columns;
 };
 
 // alignment values for each validity type, as applied at the end of that data type

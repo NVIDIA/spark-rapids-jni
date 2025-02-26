@@ -222,6 +222,22 @@ TEST_F(ShuffleSplitTests, Strings)
   }
 }
 
+TEST_F(ShuffleSplitTests, SimpleWithStrings)
+{
+  cudf::test::fixed_width_column_wrapper<int8_t> col0({0, 0xF0, 0x0F, 0xAA, 0}, {1, 0, 0, 0, 1});
+  cudf::test::strings_column_wrapper col1({"0xFF", "", "0x0F", "0xAA", "0x55"}, {0, 1, 0, 0, 0});
+
+  // 2 columns split once
+  {
+    cudf::table_view tbl{
+      {static_cast<cudf::column_view>(col0), static_cast<cudf::column_view>(col1)}};
+    run_split(tbl, {});
+    run_split(tbl, {1, 3});
+    run_split(tbl, {0, 1, 2});
+    run_split(tbl, {5});
+  }
+}
+
 TEST_F(ShuffleSplitTests, Lists)
 {
   // list<uint64_t>
