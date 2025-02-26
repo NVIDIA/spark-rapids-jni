@@ -637,7 +637,8 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.validity_size));
     pheader->offset_size =
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.offset_size));
-    pheader->data_size = cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.data_size));
+    pheader->data_size = cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.data_size +
+          psize.offset_size + psize.validity_size));
     pheader->num_flattened_columns =
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(columns_per_partition));
   }
