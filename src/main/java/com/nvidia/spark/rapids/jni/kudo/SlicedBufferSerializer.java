@@ -160,10 +160,10 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     try {
       switch (bufferType) {
         case VALIDITY:
+          // fallthrough
+        case OFFSET:
           totalDataLen = padForHostAlignment(writer, totalDataLen);
           return;
-        case OFFSET:
-          // fallthrough
         case DATA:
           // noop
           return;
@@ -194,7 +194,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     }
     long bytesToCopy = (sliceInfo.rowCount + 1) * Integer.BYTES;
     long srcOffset = sliceInfo.offset * Integer.BYTES;
-    return copyBufferAndPadForHost(column.getOffsets(), srcOffset, bytesToCopy);
+    return copyWithoutPadding(column.getOffsets(), srcOffset, bytesToCopy);
   }
 
   private long copySlicedData(HostColumnVectorCore column, SliceInfo sliceInfo) throws IOException {

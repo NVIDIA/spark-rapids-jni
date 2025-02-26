@@ -58,8 +58,10 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     return new KudoTableHeader(toIntExact(root.offset),
         toIntExact(root.rowCount),
         toIntExact(padForHostAlignment(validityBufferLen)),
-        toIntExact(offsetBufferLen),
-        toIntExact(padForHostAlignment(validityBufferLen) + offsetBufferLen + dataOnlyLen),
+        toIntExact(padForHostAlignment(offsetBufferLen)),
+        toIntExact(padForHostAlignment(validityBufferLen) +
+            padForHostAlignment(offsetBufferLen) +
+            dataOnlyLen),
         numFlattenedCols,
         bitset);
   }
@@ -89,7 +91,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     long offsetBufferLength = 0;
     if (col.getOffsets() != null && parent.rowCount > 0) {
-      offsetBufferLength = padForHostAlignment((parent.rowCount + 1) * Integer.BYTES);
+      offsetBufferLength = (parent.rowCount + 1L) * Integer.BYTES;
     }
 
     this.validityBufferLen += validityBufferLength;
@@ -153,7 +155,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
   private static long dataLenOfOffsetBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (DType.STRING.equals(col.getType()) && info.getRowCount() > 0) {
-      return padForHostAlignment((info.rowCount + 1) * Integer.BYTES);
+      return (info.rowCount + 1L) * Integer.BYTES;
     } else {
       return 0;
     }

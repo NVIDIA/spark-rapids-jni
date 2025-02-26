@@ -137,7 +137,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
       if (sliceInfo.getRowCount() > 0) {
-        offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+        offsetOffsets[i] += (sliceInfo.getRowCount() + 1L) * Integer.BYTES;
       }
       sliceInfos[i].addLast(sliceInfoBuf[i]);
     }
@@ -174,7 +174,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
-          offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+          offsetOffsets[i] += (sliceInfo.getRowCount() + 1L) * Integer.BYTES;
           dataOffsets[i] += padForHostAlignment(sliceInfoBuf[i].getRowCount());
         }
       }
