@@ -22,7 +22,6 @@ import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.List;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
 import static java.lang.Math.toIntExact;
@@ -41,14 +40,14 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   private final byte[] bitset;
   private long validityBufferLen;
   private long offsetBufferLen;
-  private long totalDataLen;
+  private long dataOnlyLen;
   private int nextColIdx;
 
   private Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
 
   KudoTableHeaderCalc(int rowOffset, int numRows, int numFlattenedCols) {
     this.root = new SliceInfo(rowOffset, numRows);
-    this.totalDataLen = 0;
+    this.dataOnlyLen = 0;
     sliceInfos.addLast(this.root);
     this.bitset = new byte[(numFlattenedCols + 7) / 8];
     this.numFlattenedCols = numFlattenedCols;
@@ -60,7 +59,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
         toIntExact(root.rowCount),
         toIntExact(validityBufferLen),
         toIntExact(offsetBufferLen),
-        toIntExact(totalDataLen),
+        toIntExact(validityBufferLen + offsetBufferLen + dataOnlyLen),
         numFlattenedCols,
         bitset);
   }
@@ -71,13 +70,10 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     long validityBufferLength = 0;
     if (col.hasValidityVector()) {
-      System.err.println("VALIDITY BUFFER LENGTH IS " + parent.getValidityBufferInfo().getBufferLength());
       validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
     }
 
     this.validityBufferLen += validityBufferLength;
-
-    totalDataLen += validityBufferLength;
     this.setHasValidity(col.hasValidityVector());
   }
 
@@ -98,7 +94,6 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     this.validityBufferLen += validityBufferLength;
     this.offsetBufferLen += offsetBufferLength;
-    this.totalDataLen += validityBufferLength + offsetBufferLength;
 
     this.setHasValidity(col.hasValidityVector());
 
@@ -131,7 +126,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     this.validityBufferLen += validityBufferLen;
     this.offsetBufferLen += offsetBufferLen;
-    this.totalDataLen += validityBufferLen + offsetBufferLen + dataBufferLen;
+    this.dataOnlyLen += dataBufferLen;
 
     this.setHasValidity(col.hasValidityVector());
   }
@@ -147,7 +142,6 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
   private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (col.hasValidityVector() && info.getRowCount() > 0) {
-      System.err.println("VALIDITY BUFFER LENGTH IS " + info.getValidityBufferInfo().getBufferLength());
       return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
     } else {
       return 0;
