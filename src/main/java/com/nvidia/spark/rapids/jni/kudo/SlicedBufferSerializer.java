@@ -155,12 +155,32 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     }
   }
 
+  @Override
+  public void done() {
+    try {
+      switch (bufferType) {
+        case VALIDITY:
+          totalDataLen = padForHostAlignment(writer, totalDataLen);
+          return;
+        case OFFSET:
+          // fallthrough
+        case DATA:
+          // noop
+          return;
+        default:
+          throw new IllegalArgumentException("Unexpected buffer type: " + bufferType);
+      }
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   private long copySlicedValidity(HostColumnVectorCore column, SliceInfo sliceInfo)
       throws IOException {
     if (column.getValidity() != null && sliceInfo.getRowCount() > 0) {
       HostMemoryBuffer buff = column.getValidity();
       long len = sliceInfo.getValidityBufferInfo().getBufferLength();
-      return copyBufferAndPadForHost(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
+      return copyWithoutPadding(buff, sliceInfo.getValidityBufferInfo().getBufferOffset(), len);
     } else {
       return 0;
     }

@@ -57,9 +57,9 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   public KudoTableHeader getHeader() {
     return new KudoTableHeader(toIntExact(root.offset),
         toIntExact(root.rowCount),
-        toIntExact(validityBufferLen),
+        toIntExact(padForHostAlignment(validityBufferLen)),
         toIntExact(offsetBufferLen),
-        toIntExact(validityBufferLen + offsetBufferLen + dataOnlyLen),
+        toIntExact(padForHostAlignment(validityBufferLen) + offsetBufferLen + dataOnlyLen),
         numFlattenedCols,
         bitset);
   }
@@ -70,7 +70,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     long validityBufferLength = 0;
     if (col.hasValidityVector()) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     this.validityBufferLen += validityBufferLength;
@@ -84,7 +84,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     long validityBufferLength = 0;
     if (col.hasValidityVector() && parent.rowCount > 0) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     long offsetBufferLength = 0;
@@ -131,6 +131,9 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     this.setHasValidity(col.hasValidityVector());
   }
 
+  @Override
+  public void done() {}
+
   private void setHasValidity(boolean hasValidityBuffer) {
     if (hasValidityBuffer) {
       int bytePos = nextColIdx / 8;
@@ -142,7 +145,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
   private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (col.hasValidityVector() && info.getRowCount() > 0) {
-      return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
+      return info.getValidityBufferInfo().getBufferLength();
     } else {
       return 0;
     }

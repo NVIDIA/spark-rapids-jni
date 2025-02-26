@@ -53,28 +53,29 @@ public interface HostColumnsVisitor {
     /**
      * Visit a struct column.
      * @param col the struct column to visit
-     * @return the result of visiting the struct column
      */
     void visitStruct(HostColumnVectorCore col);
 
     /**
      * Visit a list column before actually visiting its child.
      * @param col the list column to visit
-     * @return the result of visiting the list column
      */
     void preVisitList(HostColumnVectorCore col);
 
     /**
      * Visit a list column after visiting its child.
      * @param col the list column to visit
-     * @return the result of visiting the list column
      */
     void visitList(HostColumnVectorCore col);
 
     /**
      * Visit a column that is a primitive type.
      * @param col the column to visit
-     * @return the result of visiting the column
      */
     void visit(HostColumnVectorCore col);
+
+    /**
+     * The processing is all done
+     */
+    void done();
 }

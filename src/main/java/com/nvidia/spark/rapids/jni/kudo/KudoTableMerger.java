@@ -114,7 +114,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
       if (header.hasValidityBuffer(curColIdx)) {
-        validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+        validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
     }
     curColIdx++;
@@ -134,7 +134,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
       if (header.hasValidityBuffer(curColIdx)) {
-        validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+        validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
       if (sliceInfo.getRowCount() > 0) {
         offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
@@ -171,7 +171,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
         if (header.hasValidityBuffer(curColIdx)) {
-          validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+          validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
           offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
@@ -183,7 +183,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
         if (header.hasValidityBuffer(curColIdx)) {
-          validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+          validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
           dataOffsets[i] += padForHostAlignment(primitiveType.getType().getSizeInBytes() * sliceInfo.getRowCount());

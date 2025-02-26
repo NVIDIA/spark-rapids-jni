@@ -113,7 +113,7 @@ public class Visitors {
         for (HostColumnVector col : cols) {
             visitColumn(col, visitor);
         }
-
+        visitor.done();
     }
 
     private static void visitColumn(HostColumnVectorCore col, HostColumnsVisitor visitor) {
