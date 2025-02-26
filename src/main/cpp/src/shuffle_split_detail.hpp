@@ -69,8 +69,11 @@ struct partition_header {
 // alignment values for each validity type, as applied at the end of that data type
 // in each partition. so for example all of the grouped-together validity buffers for
 // a given partition will have a final 4 byte alignment applied before the offset buffers begin
+// This is because the offset buffers must be 4 byte aligned to be read properly by the GPU
+// Similarly the data is padded to 4 byte alignment so that the next header is at a 4 byte
+// alignemnt to be read properly
 constexpr size_t validity_pad = 4;
-constexpr size_t offset_pad   = 4;
+constexpr size_t offset_pad   = 1;
 constexpr size_t data_pad     = 4;
 
 /**

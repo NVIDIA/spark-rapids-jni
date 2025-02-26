@@ -395,9 +395,23 @@ public class KudoSerializer {
     }
   }
 
+  /**
+   * Based on cudf::util::round_up_safe
+   */
+  private static long roundUpSafe(long toRound, long modulus) {
+    long remainder = toRound % modulus;
+    if (remainder == 0) {
+      return toRound;
+    }
+    long roundedUp = toRound - remainder + modulus;
+    if (roundedUp < toRound) {
+      throw new IllegalStateException("Overflow when rounding up");
+    }
+    return roundedUp;
+  }
 
   static long padForHostAlignment(long orig) {
-    return ((orig + 3) / 4) * 4;
+    return roundUpSafe(orig, 4);
   }
 
   static long padForHostAlignment(DataWriter out, long bytes) throws IOException {
