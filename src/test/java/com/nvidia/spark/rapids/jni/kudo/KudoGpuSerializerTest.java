@@ -78,6 +78,8 @@ public class KudoGpuSerializerTest {
     int validityBuffersEnd = -1;
     int offsetBuffersStart = -1;
     int offsetBuffersEnd = -1;
+    int dataBuffersStart = -1;
+    int dataBuffersEnd = -1;
     for (int i = 0; i < len; i++) {
       Byte gpuByte = null;
       Byte cpuByte = null;
@@ -148,6 +150,14 @@ public class KudoGpuSerializerTest {
         } else {
           offsetBuffersEnd = validityBuffersEnd;
         }
+        int totalDataLen = (hDataGPU[20] << 24) + (hDataGPU[21] << 16) + (hDataGPU[22] << 8) + hDataGPU[23];
+        int dataLen = totalDataLen - offsetBuffersLen - validityBuffsLen;
+        if (dataLen > 0) {
+          dataBuffersStart = offsetBuffersEnd + 1;
+          dataBuffersEnd = dataBuffersStart + dataLen;
+        } else {
+          dataBuffersEnd = offsetBuffersEnd;
+        }
       } else if (hasValidStart == hasValidEnd && i == hasValidStart) {
         extra = " <-- HAS_VALID_BUF";
       } else if (hasValidStart == i) {
@@ -164,6 +174,12 @@ public class KudoGpuSerializerTest {
         extra = " <-- OFFSET_BUFFERS START";
       } else if (offsetBuffersStart > 0 && offsetBuffersEnd == i) {
         extra = " <-- OFFSET_BUFFERS END";
+      } else if (dataBuffersStart == dataBuffersEnd && i == dataBuffersStart) {
+        extra = " <-- DATA_BUFFERS";
+      } else if (dataBuffersStart == i) {
+        extra = " <-- DATA_BUFFERS START";
+      } else if (dataBuffersStart > 0 && dataBuffersEnd == i) {
+        extra = " <-- DATA_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
       System.err.println(i_str + diff + " " + gpu + " VS " + cpu  + extra);
@@ -179,6 +195,8 @@ public class KudoGpuSerializerTest {
     int validityBuffersEnd = -1;
     int offsetBuffersStart = -1;
     int offsetBuffersEnd = -1;
+    int dataBuffersStart = -1;
+    int dataBuffersEnd = -1;
     for (int i = 0; i < len; i++) {
       String dataAsString = String.format("0x%02X %03d", hData[i] & 0xFF, hData[i]);
 
@@ -233,6 +251,14 @@ public class KudoGpuSerializerTest {
         } else {
           offsetBuffersEnd = validityBuffersEnd;
         }
+        int totalDataLen = (hData[20] << 24) + (hData[21] << 16) + (hData[22] << 8) + hData[23];
+        int dataLen = totalDataLen - offsetBuffersLen - validityBuffsLen;
+        if (dataLen > 0) {
+          dataBuffersStart = offsetBuffersEnd + 1;
+          dataBuffersEnd = dataBuffersStart + dataLen;
+        } else {
+          dataBuffersEnd = offsetBuffersEnd;
+        }
       } else if (hasValidStart == hasValidEnd && i == hasValidStart) {
         extra = " <-- HAS_VALID_BUF";
       } else if (hasValidStart == i) {
@@ -249,6 +275,12 @@ public class KudoGpuSerializerTest {
         extra = " <-- OFFSET_BUFFERS START";
       } else if (offsetBuffersStart > 0 && offsetBuffersEnd == i) {
         extra = " <-- OFFSET_BUFFERS END";
+      } else if (dataBuffersStart == dataBuffersEnd && i == dataBuffersStart) {
+        extra = " <-- DATA_BUFFERS";
+      } else if (dataBuffersStart == i) {
+        extra = " <-- DATA_BUFFERS START";
+      } else if (dataBuffersStart > 0 && dataBuffersEnd == i) {
+        extra = " <-- DATA_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
       System.err.println(i_str + dataAsString  + extra);
