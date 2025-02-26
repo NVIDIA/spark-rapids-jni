@@ -132,7 +132,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "deab5799f3e4226cb8a49acf2199c03b14941ee4",
+      "git_tag" : "7b422c00f3541e2472e8d1047b7c3bb4e83c7e2c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -209,7 +209,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c38038e09f5f0687d880a751bcb125c6fb5f35fb",
+      "git_tag" : "1278827b7a822296bed470b34d7933e247bec04c",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.04"
     },
@@ -237,7 +237,7 @@
         "11" : "11",
         "12" : "12"
       },
-      "version" : "4.1.0.6"
+      "version" : "4.2.0.11"
     },
     "nvtx3" : 
     {
@@ -251,7 +251,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8968ab3337f31c845d4e3bf6c55ae89242ded22b",
+      "git_tag" : "46070bb255482f0782ca840ae45de9354380e298",
       "git_url" : "https://github.com/rapidsai/rapids-logger.git",
       "version" : "0.1.0"
     },
@@ -259,7 +259,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "3953d1c58f6095b63783c1ff9ae9b9ecdf3ed044",
+      "git_tag" : "a7577403c90baf6ea93c67e71703933efa884570",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.04"
     },

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import ai.rapids.cudf.BufferType;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -125,6 +126,10 @@ public final class KudoTableHeader {
     return (hasValidityBuffer[pos] & (1 << bit)) != 0;
   }
 
+  byte[] getHasValidityBuffer() {
+    return hasValidityBuffer;
+  }
+
   /**
    * Get the size of the serialized header.
    *
@@ -162,6 +167,19 @@ public final class KudoTableHeader {
     return offsetBufferLen;
   }
 
+    public int startOffsetOf(BufferType bufferType) {
+        switch (bufferType) {
+            case VALIDITY:
+                return 0;
+            case OFFSET:
+                return validityBufferLen;
+            case DATA:
+                return validityBufferLen + offsetBufferLen;
+            default:
+                throw new IllegalArgumentException("Unsupported buffer type: " + bufferType);
+        }
+    }
+
   public void writeTo(DataWriter dout) throws IOException {
     // Now write out the data
     dout.writeInt(SER_FORMAT_MAGIC_NUMBER);
@@ -188,7 +206,7 @@ public final class KudoTableHeader {
         '}';
   }
 
-  private static int lengthOfHasValidityBuffer(int numColumns) {
+  static int lengthOfHasValidityBuffer(int numColumns) {
     return (numColumns + 7) / 8;
   }
 }

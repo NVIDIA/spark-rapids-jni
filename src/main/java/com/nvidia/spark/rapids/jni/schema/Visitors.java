@@ -23,7 +23,6 @@ import ai.rapids.cudf.HostColumnVectorCore;
 import ai.rapids.cudf.Schema;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -52,6 +51,35 @@ public class Visitors {
                 .collect(Collectors.toList());
 
         return visitor.visitTopSchema(schema, childrenResult);
+    }
+
+    public static void visitSchema(Schema schema, SimpleSchemaVisitor visitor) {
+        requireNonNull(schema, "schema cannot be null");
+        requireNonNull(visitor, "visitor cannot be null");
+
+        for (int i = 0; i < schema.getNumChildren(); i++) {
+            visitSchemaInner(schema.getChild(i), visitor);
+        }
+        visitor.visitTopSchema(schema);
+    }
+
+    private static void visitSchemaInner(Schema schema, SimpleSchemaVisitor visitor) {
+        switch (schema.getType().getTypeId()) {
+            case STRUCT:
+                for (int i=0; i<schema.getNumChildren(); i++) {
+                    visitSchemaInner(schema.getChild(i), visitor);
+                }
+                visitor.visitStruct(schema);
+                break;
+            case LIST:
+                visitor.preVisitList(schema);
+                visitSchemaInner(schema.getChild(0), visitor);
+                visitor.visitList(schema);
+                break;
+            default:
+                visitor.visit(schema);
+                break;
+        }
     }
 
     private static <T, P, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, P, R> visitor) {

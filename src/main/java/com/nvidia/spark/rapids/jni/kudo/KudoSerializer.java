@@ -172,6 +172,7 @@ public class KudoSerializer {
 
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
+    ensure(schema.getNumChildren() > 0, "Top schema can't be empty");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
   }
@@ -286,32 +287,57 @@ public class KudoSerializer {
    * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
    * {@link KudoSerializer}, otherwise behavior is undefined.
    *
-   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @return the merged table, and metrics during merge.
+   * @return the merged table.
    */
-  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
-    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
-
-    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
-        metricsBuilder::calcHeaderTime);
-    KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
-        metricsBuilder::mergeIntoHostBufferTime);
-    return Pair.of(result, metricsBuilder.build());
-
+  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables) {
+    MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
+    return KudoTableMerger.merge(schema, mergedInfoCalc);
   }
 
   /**
-   * Merge a list of kudo tables into a contiguous table.
+   * See {@link #mergeOnHost(KudoTable[])}.
+   * @deprecated Use {@link #mergeOnHost(KudoTable[])} instead.
+   */
+  @Deprecated
+  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
+    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
+
+    KudoHostMergeResult result;
+    KudoTable[] newTables = kudoTables.toArray(new KudoTable[0]);
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, newTables),
+              metricsBuilder::calcHeaderTime);
+    result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
+              metricsBuilder::mergeIntoHostBufferTime);
+
+    return Pair.of(result, metricsBuilder.build());
+  }
+
+  /**
+   * Merge an array of kudo tables into a contiguous table.
    * <br/>
    * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
    * {@link KudoSerializer}, otherwise behavior is undefined.
    *
-   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @return the merged table, and metrics during merge.
+   * @return the merged table.
    * @throws Exception if any error occurs during merge.
    */
+  public Table mergeToTable(KudoTable[] kudoTables) throws Exception {
+    try (KudoHostMergeResult children = mergeOnHost(kudoTables)) {
+      return children.toTable();
+    }
+  }
+
+
+  /**
+   * See {@link #mergeToTable(KudoTable[])}.
+   *
+   * @deprecated Use {@link #mergeToTable(KudoTable[])} instead.
+   */
+  @Deprecated
   public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) throws Exception {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
@@ -328,14 +354,12 @@ public class KudoSerializer {
     WriteMetrics metrics = new WriteMetrics();
     KudoTableHeaderCalc headerCalc =
         new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
-    withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
+    Visitors.visitColumns(columns, headerCalc);
     KudoTableHeader header = headerCalc.getHeader();
 
     out.reserve(toIntExact(header.getSerializedSize() + header.getTotalDataLen()));
 
-    long currentTime = System.nanoTime();
     header.writeTo(out);
-    metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
     metrics.addWrittenBytes(header.getSerializedSize());
 
     long bytesWritten = 0;
