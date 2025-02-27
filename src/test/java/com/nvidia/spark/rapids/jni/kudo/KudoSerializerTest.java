@@ -82,7 +82,7 @@ public class KudoSerializerTest {
       long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
       KudoGpuSerializerTest.logPartition("testWriteSimple", out.toByteArray());
 
-      assertEquals(173, bytesWritten);
+      assertEquals(172, bytesWritten);
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
 
@@ -90,9 +90,9 @@ public class KudoSerializerTest {
       assertEquals(7, header.getNumColumns());
       assertEquals(0, header.getOffset());
       assertEquals(4, header.getNumRows());
-      assertEquals(8, header.getValidityBufferLen());
+      assertEquals(7, header.getValidityBufferLen());
       assertEquals(40, header.getOffsetBufferLen());
-      assertEquals(144, header.getTotalDataLen());
+      assertEquals(143, header.getTotalDataLen());
 
       // First integer column has no validity buffer
       assertFalse(header.hasValidityBuffer(0));

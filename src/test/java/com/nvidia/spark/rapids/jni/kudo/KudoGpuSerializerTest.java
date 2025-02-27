@@ -218,7 +218,11 @@ public class KudoGpuSerializerTest {
         extra = " <-- DATA_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
-      System.err.println(i_str + diff + " " + gpu + " VS " + cpu  + extra);
+      String aligned = "        ";
+      if (i % 4 == 0) {
+        aligned = "ALIGNED ";
+      }
+      System.err.println(aligned + i_str + diff + " " + gpu + " VS " + cpu  + extra);
     }
   }
 
@@ -319,7 +323,12 @@ public class KudoGpuSerializerTest {
         extra = " <-- DATA_BUFFERS END";
       }
       String i_str = String.format("%04d: ", i);
-      System.err.println(i_str + dataAsString  + extra);
+      String aligned = "        ";
+      if (i % 4 == 0) {
+        aligned = "ALIGNED ";
+      }
+
+      System.err.println(aligned + i_str + dataAsString  + extra);
     }
   }
 

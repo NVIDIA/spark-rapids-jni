@@ -24,6 +24,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForValidityAlignment;
 import static java.lang.Math.toIntExact;
 
 /**
@@ -55,13 +56,17 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   }
 
   public KudoTableHeader getHeader() {
+    int headerSize = KudoTableHeader.getSerializedSize(bitset.length);
+    // The validity is a bit odd because we want to pad it for 4 byte alignment
+    // But that is relative to the header, not the payload buffer
+    long paddedValiditySize = padForValidityAlignment(validityBufferLen, headerSize);
     return new KudoTableHeader(toIntExact(root.offset),
         toIntExact(root.rowCount),
-        toIntExact(padForHostAlignment(validityBufferLen)),
+        toIntExact(paddedValiditySize),
         toIntExact(padForHostAlignment(offsetBufferLen)),
-        toIntExact(padForHostAlignment(validityBufferLen) +
+        toIntExact(paddedValiditySize +
             padForHostAlignment(offsetBufferLen) +
-            dataOnlyLen),
+            padForHostAlignment(dataOnlyLen)),
         numFlattenedCols,
         bitset);
   }
@@ -166,13 +171,13 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
       if (col.getOffsets() != null) {
         long startByteOffset = col.getOffsets().getInt(info.offset * Integer.BYTES);
         long endByteOffset = col.getOffsets().getInt((info.offset + info.rowCount) * Integer.BYTES);
-        return padForHostAlignment(endByteOffset - startByteOffset);
+        return endByteOffset - startByteOffset;
       } else {
         return 0;
       }
     } else {
       if (col.getType().getSizeInBytes() > 0) {
-        return padForHostAlignment(col.getType().getSizeInBytes() * info.rowCount);
+        return col.getType().getSizeInBytes() * info.rowCount;
       } else {
         return 0;
       }

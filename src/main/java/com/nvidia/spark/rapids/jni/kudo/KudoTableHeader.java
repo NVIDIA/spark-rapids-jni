@@ -155,6 +155,10 @@ public final class KudoTableHeader {
     return 7 * Integer.BYTES + hasValidityBuffer.length;
   }
 
+  public static int getSerializedSize(int hasValiditySize) {
+    return 7 * Integer.BYTES + hasValiditySize;
+  }
+
   public int getNumColumns() {
     return numColumns;
   }

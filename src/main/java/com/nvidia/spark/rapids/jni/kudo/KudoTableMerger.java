@@ -175,7 +175,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         }
         if (sliceInfo.getRowCount() > 0) {
           offsetOffsets[i] += (sliceInfo.getRowCount() + 1L) * Integer.BYTES;
-          dataOffsets[i] += padForHostAlignment(sliceInfoBuf[i].getRowCount());
+          dataOffsets[i] += sliceInfoBuf[i].getRowCount();
         }
       }
     } else {
@@ -186,7 +186,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
-          dataOffsets[i] += padForHostAlignment(primitiveType.getType().getSizeInBytes() * sliceInfo.getRowCount());
+          dataOffsets[i] += primitiveType.getType().getSizeInBytes() * sliceInfo.getRowCount();
         }
       }
     }

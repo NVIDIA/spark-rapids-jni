@@ -366,7 +366,8 @@ public class KudoSerializer {
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
       SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset,
           numRows, bufferType,
-          out, metrics, measureCopyBufferTime);
+          out, metrics, measureCopyBufferTime,
+          header.getSerializedSize());
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
@@ -414,8 +415,20 @@ public class KudoSerializer {
     return roundUpSafe(orig, 4);
   }
 
+  static long padForValidityAlignment(long orig, long headerSize) {
+    return roundUpSafe(orig + headerSize, 4) - headerSize;
+  }
+
   static long padForHostAlignment(DataWriter out, long bytes) throws IOException {
     final long paddedBytes = padForHostAlignment(bytes);
+    if (paddedBytes > bytes) {
+      out.write(PADDING, 0, (int) (paddedBytes - bytes));
+    }
+    return paddedBytes;
+  }
+
+  static long padForValidityAlignment(DataWriter out, long bytes, long headerSize) throws IOException {
+    final long paddedBytes = padForValidityAlignment(bytes, headerSize);
     if (paddedBytes > bytes) {
       out.write(PADDING, 0, (int) (paddedBytes - bytes));
     }
