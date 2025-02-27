@@ -575,7 +575,7 @@ std::pair<size_t, size_t> count_flattened_columns(InputIter begin, InputIter end
 /**
  * @brief Sizes of each of the data sections in a partition.
  *
- * Does not include padding between sections.
+ * Sizes include padding.
  */
 struct partition_size_info {
   size_t validity_size;
@@ -637,7 +637,8 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.validity_size));
     pheader->offset_size =
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.offset_size));
-    pheader->data_size = cudf::hashing::detail::swap_endian(static_cast<uint32_t>(psize.data_size));
+    pheader->total_size = cudf::hashing::detail::swap_endian(
+      static_cast<uint32_t>(psize.validity_size + psize.offset_size + psize.data_size));
     pheader->num_flattened_columns =
       cudf::hashing::detail::swap_endian(static_cast<uint32_t>(columns_per_partition));
   }
@@ -857,7 +858,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
 
   // packed block of memory 2. partition buffer sizes and dst_buf_info structs
   size_t const partition_sizes_size =
-    cudf::util::round_up_safe(num_partitions * sizeof(partition_size_info), split_align);
+    cudf::util::round_up_safe(num_partitions * sizeof(partition_size_info) * 2, split_align);
   size_t const dst_buf_info_size =
     cudf::util::round_up_safe(num_bufs * sizeof(dst_buf_info), split_align);
   // host-side
@@ -868,9 +869,10 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   // device-side
   rmm::device_buffer d_buf_sizes_and_dst_info(
     partition_sizes_size + dst_buf_info_size, stream, temp_mr);
-  partition_size_info* d_partition_sizes =
+  partition_size_info* d_partition_sizes_unpadded =
     reinterpret_cast<partition_size_info*>(d_buf_sizes_and_dst_info.data());
-  dst_buf_info* d_dst_buf_info = reinterpret_cast<dst_buf_info*>(
+  partition_size_info* d_partition_sizes = d_partition_sizes_unpadded + num_partitions;
+  dst_buf_info* d_dst_buf_info           = reinterpret_cast<dst_buf_info*>(
     static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + partition_sizes_size);
 
   // this has to be a separate allocation because it gets returned.
@@ -959,7 +961,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
       return buf_index / bufs_per_partition;
     }));
 
-  // - compute: size of all validity buffers, size of all offset buffers, size of all data buffers
+  // - compute: unpadded section sizes (validity, offsets, data)
   auto buf_sizes_by_type = cudf::detail::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<partition_size_info>([d_dst_buf_info] __device__(int index) {
       switch (d_dst_buf_info[index].type) {
@@ -983,24 +985,38 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                         partition_keys + num_bufs,
                         buf_sizes_by_type,
                         thrust::make_discard_iterator(),
-                        d_partition_sizes,
+                        d_partition_sizes_unpadded,
                         thrust::equal_to{},  // key equality check
                         buf_size_reduce);
+
+  // - compute: padded section sizes
+  thrust::transform(
+    rmm::exec_policy_nosync(stream, temp_mr),
+    d_partition_sizes_unpadded,
+    d_partition_sizes_unpadded + num_partitions,
+    d_partition_sizes,
+    cuda::proclaim_return_type<partition_size_info>(
+      [per_partition_metadata_size] __device__(partition_size_info const& pinfo) {
+        auto const validity_begin = per_partition_metadata_size;
+        auto const offsets_begin =
+          cudf::util::round_up_safe(validity_begin + pinfo.validity_size, validity_pad);
+        auto const data_begin =
+          cudf::util::round_up_safe(offsets_begin + pinfo.offset_size, offset_pad);
+        auto const data_end = cudf::util::round_up_safe(data_begin + pinfo.data_size, data_pad);
+
+        return partition_size_info{
+          offsets_begin - validity_begin, data_begin - offsets_begin, data_end - data_begin};
+      }));
 
   // - compute partition start offsets and total output buffer size overall
   auto partition_size_iter = cudf::detail::make_counting_transform_iterator(
     0,
     cuda::proclaim_return_type<size_t>(
       [num_partitions, d_partition_sizes, per_partition_metadata_size] __device__(size_t i) {
-        return i >= num_partitions
-                 ? 0
-                 : cudf::util::round_up_safe(
-                     cudf::util::round_up_safe(
-                       per_partition_metadata_size + d_partition_sizes[i].validity_size,
-                       validity_pad) +
-                       cudf::util::round_up_safe(d_partition_sizes[i].offset_size, offset_pad) +
-                       d_partition_sizes[i].data_size,
-                     data_pad);
+        auto const& pinfo = d_partition_sizes[i];
+        return i >= num_partitions ? 0
+                                   : per_partition_metadata_size + pinfo.validity_size +
+                                       pinfo.offset_size + pinfo.data_size;
       }));
   thrust::exclusive_scan(rmm::exec_policy_nosync(stream, temp_mr),
                          partition_size_iter,
@@ -1014,7 +1030,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                   cudaMemcpyDeviceToHost,
                   stream);
 
-  // generate destination offsets for each of the source copies
+  // generate destination offsets for each of the source copies, by partition, by section.
   auto buf_sizes = cudf::detail::make_counting_transform_iterator(
     0, cuda::proclaim_return_type<size_t>([d_dst_buf_info] __device__(size_t i) {
       return d_dst_buf_info[i].buf_size;
@@ -1033,28 +1049,28 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
      bufs_per_partition,
      d_dst_buf_info,
      d_partition_sizes,
+     d_partition_sizes_unpadded,
      d_partition_offsets = d_partition_offsets.begin()] __device__(size_type i) {
       auto const partition_index = i / bufs_per_partition;
-      auto const& ps             = d_partition_sizes[partition_index];
-      // number of bytes from the start of the (validity|offsets|data) section
-      auto const buffer_offset  = cuda::proclaim_return_type<size_t>([&] __device__() {
+      // number of bytes from the start of the (validity|offsets|data) section, not counting
+      // padding between sections. we need this because the incoming dst_offset values are
+      // computed this way.
+      auto const unpadded_buffer_offset = cuda::proclaim_return_type<size_t>([&] __device__() {
+        auto const& unpadded_ps = d_partition_sizes_unpadded[partition_index];
         switch (d_dst_buf_info[i].type) {
-          case buffer_type::OFFSETS: return ps.validity_size;
-          case buffer_type::DATA: return ps.validity_size + ps.offset_size;
+          case buffer_type::OFFSETS: return unpadded_ps.validity_size;
+          case buffer_type::DATA: return unpadded_ps.validity_size + unpadded_ps.offset_size;
           default: return size_t{0};
         }
       })();
+      // number of bytes from the beginning of the partition
       auto const section_offset = cuda::proclaim_return_type<size_t>([&] __device__() {
+        auto const& ps = d_partition_sizes[partition_index];
         switch (d_dst_buf_info[i].type) {
-          case buffer_type::OFFSETS:
-            return cudf::util::round_up_safe(per_partition_metadata_size + ps.validity_size,
-                                             validity_pad);
+          case buffer_type::OFFSETS: return per_partition_metadata_size + ps.validity_size;
           case buffer_type::DATA:
-            return cudf::util::round_up_safe(
-              cudf::util::round_up_safe(per_partition_metadata_size + ps.validity_size,
-                                        validity_pad) +
-                ps.offset_size,
-              offset_pad);
+            return per_partition_metadata_size + ps.validity_size + ps.offset_size;
+          // validity
           default: return per_partition_metadata_size;
         }
       })();
@@ -1062,7 +1078,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
         d_partition_offsets[partition_index] +  // offset to the entire partition
         section_offset +                        // partition-relative offset to our section start
         (d_dst_buf_info[i].dst_offset -
-         buffer_offset);  // section-relative offset to the start of our buffer
+         unpadded_buffer_offset);  // unpadded section-relative offset to the start of our buffer
     });
 
   // allocate output buffer

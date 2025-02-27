@@ -62,7 +62,7 @@ struct partition_header {
   uint32_t num_rows;
   uint32_t validity_size;
   uint32_t offset_size;
-  uint32_t data_size;
+  uint32_t total_size;  // size of validity+offset+data sections
   uint32_t num_flattened_columns;
 };
 
