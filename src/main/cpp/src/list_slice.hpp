@@ -58,9 +58,9 @@ namespace spark_rapids_jni {
  * @param input The input lists column to slice
  * @param start The index of the first element to slice in each row(1-based, negative for reverse)
  * @param length The number of elements to slice in each row
- * @param check_start_length Whether to check the validity of @p start and @p length, when set to
- * false, the caller is responsible for ensuring the validity of @p start and @p length, otherwise
- * the behavior is undefined if there are any invalid values
+ * @param check_start_length Whether to validate @p start and @p length (defaults to true). If set
+ * to false, the caller must ensure @p start and @p length are valid; otherwise, the behavior is
+ * undefined if there are any invalid values
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate all returned device memory
  * @return The result column with elements in each row sliced according to @p start and @p length
@@ -111,9 +111,9 @@ std::unique_ptr<cudf::column> list_slice(
  * @param input The input lists column to slice
  * @param start The index of the first element to slice in each row(1-based, negative for reverse)
  * @param length The number of elements to slice in each row
- * @param check_start_length Whether to check the validity of @p start and @p length, when set to
- * false, the caller is responsible for ensuring the validity of @p start and @p length, otherwise
- * the behavior is undefined if there are any invalid values
+ * @param check_start_length Whether to validate @p start and @p length (defaults to true). If set
+ * to false, the caller must ensure @p start and @p length are valid; otherwise, the behavior is
+ * undefined if there are any invalid values
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate all returned device memory
  * @return The result column with elements in each row sliced according to @p start and @p length
@@ -164,9 +164,9 @@ std::unique_ptr<cudf::column> list_slice(
  * @param input The input lists column to slice
  * @param start The index of the first element to slice in each row(1-based, negative for reverse)
  * @param length The number of elements to slice in each row
- * @param check_start_length Whether to check the validity of @p start and @p length, when set to
- * false, the caller is responsible for ensuring the validity of @p start and @p length, otherwise
- * the behavior is undefined if there are any invalid values
+ * @param check_start_length Whether to validate @p start and @p length (defaults to true). If set
+ * to false, the caller must ensure @p start and @p length are valid; otherwise, the behavior is
+ * undefined if there are any invalid values
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate all returned device memory
  * @return The result column with elements in each row sliced according to @p start and @p length
@@ -227,9 +227,9 @@ std::unique_ptr<cudf::column> list_slice(
  * @param input The input lists column to slice
  * @param start The index of the first element to slice in each row(1-based, negative for reverse)
  * @param length The number of elements to slice in each row
- * @param check_start_length Whether to check the validity of @p start and @p length, when set to
- * false, the caller is responsible for ensuring the validity of @p start and @p length, otherwise
- * the behavior is undefined if there are any invalid values
+ * @param check_start_length Whether to validate @p start and @p length (defaults to true). If set
+ * to false, the caller must ensure @p start and @p length are valid; otherwise, the behavior is
+ * undefined if there are any invalid values
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr Device memory resource used to allocate all returned device memory
  * @return The result column with elements in each row sliced according to @p start and @p length

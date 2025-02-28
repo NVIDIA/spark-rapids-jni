@@ -109,7 +109,10 @@ CUDF_KERNEL void compute_starts_and_sizes_kernel(size_type const* offsets_of_inp
   // start cannot be 0
   start = start < 0 ? length_of_list + start : start - 1;
   // If the original start is out of [-length_of_list, length_of_list], will produce an empty list
-  // If `check_start_length` is false, set the output size to 0 to avoid out-of-bound access
+  // If `check_start_length` is false, will not check the legality of start and length.
+  // If original start is 0 or length is negative, set the output size to 0 to avoid out-of-bound
+  // access. The result for this row will be an empty list or null(since the output mask will be
+  // reset according to the input mask, start mask and length mask)
   if (start < 0 || start >= length_of_list || length <= 0) {
     d_sizes[tid] = 0;
     return;
