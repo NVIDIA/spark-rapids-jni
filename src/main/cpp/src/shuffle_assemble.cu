@@ -217,10 +217,8 @@ __global__ void compute_offset_child_row_counts(
   auto const partition_index            = blockIdx.x;
   partition_header const* const pheader = reinterpret_cast<partition_header const*>(
     partitions.begin() + partition_offsets[partition_index]);
-  size_t const offsets_begin =
-    cudf::util::round_up_safe(partition_offsets[partition_index] + per_partition_metadata_size +
-                                cudf::hashing::detail::swap_endian(pheader->validity_size),
-                              validity_pad);
+  size_t const offsets_begin = partition_offsets[partition_index] + per_partition_metadata_size +
+                               cudf::hashing::detail::swap_endian(pheader->validity_size);
   size_type const* offsets = reinterpret_cast<size_type const*>(partitions.begin() + offsets_begin);
 
   auto const base_col_index = column_metadata.size() * partition_index;
@@ -1013,20 +1011,23 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
                               &src_sizes_unpadded[data_buf_index]);
       });
 
-    // scan to source offsets, by partition
-    auto partition_keys = cudf::detail::make_counting_transform_iterator(
-      0, cuda::proclaim_return_type<size_t>([buffers_per_partition] __device__(size_t i) {
-        return i / buffers_per_partition;
+    // scan to source offsets, by partition, by section
+    // so for 2 partitions with 2 columns, we would generate
+    //      validity  offsets  data
+    // P0:  0 A       0 B      0 C
+    // P1   0 D       0 E      0 E
+    auto section_keys = cudf::detail::make_counting_transform_iterator(
+      0, cuda::proclaim_return_type<size_t>([num_columns] __device__(size_t i) {
+        return (i / num_columns);
       }));
     thrust::exclusive_scan_by_key(rmm::exec_policy(stream, temp_mr),
-                                  partition_keys,
-                                  partition_keys + num_src_buffers,
+                                  section_keys,
+                                  section_keys + num_src_buffers,
                                   src_sizes_unpadded.begin(),
                                   src_offsets.begin());
 
     // adjust the source offsets:
     // - add metadata offset
-    // - take padding into account
     // - add partition offset
     thrust::for_each(
       rmm::exec_policy(stream, temp_mr),
@@ -1050,21 +1051,17 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const offset_buf_index   = validity_buf_index + num_columns;
         auto const data_buf_index     = offset_buf_index + num_columns;
 
-        auto const validity_section_offset = partition_offset + per_partition_metadata_size;
-        src_offsets[validity_buf_index] += validity_section_offset;
+        auto const validity_section_begin = partition_offset + per_partition_metadata_size;
+        src_offsets[validity_buf_index] += validity_section_begin;
 
         auto const validity_size = cudf::hashing::detail::swap_endian(pheader->validity_size);
         auto const offset_size   = cudf::hashing::detail::swap_endian(pheader->offset_size);
 
-        auto const offset_section_offset =
-          cudf::util::round_up_safe(validity_section_offset + validity_size, validity_pad);
-        src_offsets[offset_buf_index] =
-          (src_offsets[offset_buf_index] - validity_size) + offset_section_offset;
+        auto const offset_section_begin = validity_section_begin + validity_size;
+        src_offsets[offset_buf_index] += offset_section_begin;
 
-        auto const data_section_offset =
-          cudf::util::round_up_safe(offset_section_offset + offset_size, offset_pad);
-        src_offsets[data_buf_index] =
-          (src_offsets[data_buf_index] - (validity_size + offset_size)) + data_section_offset;
+        auto const data_section_begin = offset_section_begin + offset_size;
+        src_offsets[data_buf_index] += data_section_begin;
       });
 
     // compute: destination buffer offsets. see note above about ordering of dst_offsets.
@@ -1547,15 +1544,14 @@ struct assemble_column_functor {
     auto const data = buffer + 2;
 
     auto const col = columns[col_index];
-    out.push_back(std::make_unique<cudf::column>(
-      cudf::data_type{col.type,
-                      spark_rapids_jni::is_fixed_point(cudf::data_type{col.type})
-                        ? column_meta[col_index].scale()
-                        : 0},
-      col.num_rows,
-      std::move(*data),
-      col.has_validity ? std::move(*validity) : rmm::device_buffer{},
-      col.has_validity ? col.num_rows - col.valid_count : 0));
+    out.push_back(
+      std::make_unique<cudf::column>(spark_rapids_jni::is_fixed_point(cudf::data_type{col.type})
+                                       ? cudf::data_type{col.type, column_meta[col_index].scale()}
+                                       : cudf::data_type{col.type},
+                                     col.num_rows,
+                                     std::move(*data),
+                                     col.has_validity ? std::move(*validity) : rmm::device_buffer{},
+                                     col.has_validity ? col.num_rows - col.valid_count : 0));
 
     return {col_index + 1, buffer + 3};
   }
