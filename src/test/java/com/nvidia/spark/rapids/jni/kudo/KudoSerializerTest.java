@@ -448,20 +448,20 @@ public class KudoSerializerTest {
 //            asList(null, null, null),
 //            asList(singletonList(struct("k22", null)), singletonList(struct("k23", null))),
 //            null, null, null, null, null)
-//        .column(listDateType, asList(struct(-210, 293), struct(-719, 205), struct(-509, 183),
-//                struct(174, 122), struct(647, 683)),
-//            asList(struct(311, 992), struct(-169, 482), struct(166, 525)),
-//            asList(struct(156, 197), struct(926, 134), struct(747, 312), struct(293, 801)),
-//            asList(struct(647, null), struct(293, 387)), emptyList(),
-//            null, emptyList(), null,
-//            asList(struct(-210, 293), struct(-719, 205), struct(-509, 183), struct(174, 122),
-//                struct(647, 683)),
-//            asList(struct(311, 992), struct(-169, 482), struct(166, 525)),
-//            asList(struct(156, 197), struct(926, 134), struct(747, 312), struct(293, 801)),
-//            asList(struct(647, null), struct(293, 387)), emptyList(), null,
-//            emptyList(), null,
-//            singletonList(struct(778, 765)), asList(struct(7, 87), struct(8, 96)),
-//            asList(struct(9, 56), struct(10, 532), struct(11, 456)), null, emptyList())
+        .column(listDateType, asList(struct(-210, 293), struct(-719, 205), struct(-509, 183),
+                struct(174, 122), struct(647, 683)),
+            asList(struct(311, 992), struct(-169, 482), struct(166, 525)),
+            asList(struct(156, 197), struct(926, 134), struct(747, 312), struct(293, 801)),
+            asList(struct(647, null), struct(293, 387)), emptyList(),
+            null, emptyList(), null,
+            asList(struct(-210, 293), struct(-719, 205), struct(-509, 183), struct(174, 122),
+                struct(647, 683)),
+            asList(struct(311, 992), struct(-169, 482), struct(166, 525)),
+            asList(struct(156, 197), struct(926, 134), struct(747, 312), struct(293, 801)),
+            asList(struct(647, null), struct(293, 387)), emptyList(), null,
+            emptyList(), null,
+            singletonList(struct(778, 765)), asList(struct(7, 87), struct(8, 96)),
+            asList(struct(9, 56), struct(10, 532), struct(11, 456)), null, emptyList())
         .build();
   }
 
