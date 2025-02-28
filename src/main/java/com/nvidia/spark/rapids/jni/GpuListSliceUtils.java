@@ -207,7 +207,7 @@ public class GpuListSliceUtils {
      * @return a new {@code ColumnVector} containing the sliced lists
      */
     public static ColumnVector listSlice(ColumnView cv, ColumnView start, ColumnView length) {
-        return new ColumnVector(listSliceColCol(cv.getNativeView(), start.getNativeView(), length.getNativeView(), true));
+        return listSlice(cv, start, length, true);
     }
 
     public static ColumnVector listSlice(ColumnView cv, ColumnView start, ColumnView length, boolean checkStartLength) {
