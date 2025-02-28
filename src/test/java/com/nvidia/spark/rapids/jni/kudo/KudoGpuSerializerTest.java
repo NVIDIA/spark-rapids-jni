@@ -24,6 +24,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.Collections;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.strings;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class KudoGpuSerializerTest {
@@ -341,7 +342,7 @@ public class KudoGpuSerializerTest {
       Schema s = KudoSerializerTest.schemaOf(table);
       KudoSerializer serializer = new KudoSerializer(s);
       ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
-      serializer.writeToStreamWithMetrics(table, tmpOut, 0, 5);
+      serializer.writeToStreamWithMetrics(table, tmpOut, 0, (int)table.getRowCount());
       byte[] hDataCPU = tmpOut.toByteArray();
       byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
       try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
@@ -359,11 +360,68 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  public void doSinglePartGPUWriteGPUReadTest(String name, Table table) throws Exception {
+    DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
+    assertEquals(2, buffers.length);
+    try (DeviceMemoryBuffer data = buffers[0];
+         DeviceMemoryBuffer offsets = buffers[1]) {
+      Schema s = KudoSerializerTest.schemaOf(table);
+      KudoSerializer serializer = new KudoSerializer(s);
+      ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
+      serializer.writeToStreamWithMetrics(table, tmpOut, 0, (int)table.getRowCount());
+      byte[] hDataCPU = tmpOut.toByteArray();
+      byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
+      try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
+        tmp.copyFromDeviceBuffer(data);
+        tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
+      }
+      logPartitionComparison(name, hDataGPU, hDataCPU);
+
+      try (Table combined = KudoGpuSerializer.assembleFromDeviceRaw(s, data, offsets)) {
+        assertTablesAreEqual(table, combined);
+      }
+    }
+  }
+
+  static Table buildSimpleTable() {
+    HostColumnVector.StructType st = new HostColumnVector.StructType(
+        true,
+        new HostColumnVector.BasicType(true, DType.INT8),
+        new HostColumnVector.BasicType(true, DType.INT64)
+    );
+    return new Table.TestBuilder()
+        .column(null, 2, 3, 4, 5, 6)
+        .column("1", null, "34", "45", "56", "67")
+        .column(new Integer[]{1, 2, null},
+            new Integer[]{4, 5, 6},
+            new Integer[]{7, 8, 9},
+            null,
+            new Integer[]{},
+            new Integer[]{})
+        .column(st, new HostColumnVector.StructData(null, 11L),
+            new HostColumnVector.StructData((byte) 2, null),
+            new HostColumnVector.StructData((byte) 3, 33L),
+            new HostColumnVector.StructData((byte) 4, 44L),
+            new HostColumnVector.StructData((byte) 5, 55L),
+            null)
+        .build();
+  }
+
+  static Table buildStringListTable() {
+    return new Table.TestBuilder()
+        .column(strings("*"), strings("*"), strings("****"),
+            strings("", "*", null))
+        .column(strings(null, null, null, null), strings(),
+            strings(null, null, null), strings())
+        .build();
+  }
+
+
   @Test
   public void testSinglePartWriteCPURead() throws Exception {
     try (Table table = new Table.TestBuilder()
-//        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
-//        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
+        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
+        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
         .column("A","B","C","D",null)
         .column("0xFF", null, "0x0F", "0xAA", "0x55")
         .build()) {
@@ -371,10 +429,38 @@ public class KudoGpuSerializerTest {
     }
   }
 
-//  @Test
-//  public void testSimpleSinglePartWriteCPURead() throws Exception {
-//    try (Table table = KudoSerializerTest.buildSimpleTable()) {
-//      doSinglePartGPUWriteCPUReadTest("testSimpleSinglePartWriteCPURead", table);
-//    }
-//  }
+  @Test
+  public void testSimpleSinglePartWriteCPURead() throws Exception {
+    try (Table table = buildSimpleTable()) {
+      doSinglePartGPUWriteCPUReadTest("testSimpleSinglePartWriteCPURead", table);
+    }
+  }
+
+  @Test
+  public void testComplexSinglePartWriteCPURead() throws Exception {
+    try (Table table = KudoSerializerTest.buildTestTable()) {
+      doSinglePartGPUWriteCPUReadTest("testComplexSinglePartWriteCPURead", table);
+    }
+  }
+
+  @Test
+  public void testComplexSinglePartWriteGPURead() throws Exception {
+    try (Table table = KudoSerializerTest.buildTestTable()) {
+      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
+    }
+  }
+
+  @Test
+  public void testStringListCPURead() throws Exception {
+    try (Table table = buildStringListTable()) {
+      doSinglePartGPUWriteCPUReadTest("testStringListCPURead", table);
+    }
+  }
+
+  @Test
+  public void testStringListGPURead() throws Exception {
+    try (Table table = buildStringListTable()) {
+      doSinglePartGPUWriteGPUReadTest("testStringListGPURead", table);
+    }
+  }
 }
