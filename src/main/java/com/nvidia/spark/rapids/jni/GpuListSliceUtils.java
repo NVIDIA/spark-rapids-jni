@@ -55,10 +55,17 @@ public class GpuListSliceUtils {
      * @param cv    the column of lists to slice
      * @param start the integer offset at which to begin slicing
      * @param length the integer length of elements to include in the slice
+     * @param checkStartLength whether to check the validity of start and length, when set to false,
+     * the caller is responsible for ensuring the validity of start and length, otherwise the
+     * behavior is undefined if there are any invalid values
      * @return a new {@code ColumnVector} containing the sliced lists
      */
     public static ColumnVector listSlice(ColumnView cv, int start, int length) {
-        return new ColumnVector(listSliceIntInt(cv.getNativeView(), start, length));
+        return new ColumnVector(listSliceIntInt(cv.getNativeView(), start, length, true));
+    }
+
+    public static ColumnVector listSlice(ColumnView cv, int start, int length, boolean checkStartLength) {
+        return new ColumnVector(listSliceIntInt(cv.getNativeView(), start, length, checkStartLength));
     }
 
     /**
@@ -94,10 +101,17 @@ public class GpuListSliceUtils {
      * @param cv    the column of lists to slice
      * @param start the integer offset at which to begin slicing
      * @param length the column view specifying the lengths for each list slice
+     * @param checkStartLength whether to check the validity of start and length, when set to false,
+     * the caller is responsible for ensuring the validity of start and length, otherwise the
+     * behavior is undefined if there are any invalid values
      * @return a new {@code ColumnVector} containing the sliced lists
      */
     public static ColumnVector listSlice(ColumnView cv, int start, ColumnView length) {
-        return new ColumnVector(listSliceIntCol(cv.getNativeView(), start, length.getNativeView()));
+        return new ColumnVector(listSliceIntCol(cv.getNativeView(), start, length.getNativeView(), true));
+    }
+
+    public static ColumnVector listSlice(ColumnView cv, int start, ColumnView length, boolean checkStartLength) {
+        return new ColumnVector(listSliceIntCol(cv.getNativeView(), start, length.getNativeView(), checkStartLength));
     }
 
     /**
@@ -133,10 +147,17 @@ public class GpuListSliceUtils {
      * @param cv    the column of lists to slice
      * @param start the column view specifying the start offsets for each list slice
      * @param length the integer length of elements to include in the slice
+     * @param checkStartLength whether to check the validity of start and length, when set to false,
+     * the caller is responsible for ensuring the validity of start and length, otherwise the
+     * behavior is undefined if there are any invalid values
      * @return a new {@code ColumnVector} containing the sliced lists
      */
     public static ColumnVector listSlice(ColumnView cv, ColumnView start, int length) {
-        return new ColumnVector(listSliceColInt(cv.getNativeView(), start.getNativeView(), length));
+        return new ColumnVector(listSliceColInt(cv.getNativeView(), start.getNativeView(), length, true));
+    }
+
+    public static ColumnVector listSlice(ColumnView cv, ColumnView start, int length, boolean checkStartLength) {
+        return new ColumnVector(listSliceColInt(cv.getNativeView(), start.getNativeView(), length, checkStartLength));
     }
 
     /**
@@ -180,17 +201,24 @@ public class GpuListSliceUtils {
      * @param cv    the column of lists to slice
      * @param start the column view specifying the start offsets for each list slice
      * @param length the column view specifying the lengths for each list slice
+     * @param checkStartLength whether to check the validity of start and length, when set to false,
+     * the caller is responsible for ensuring the validity of start and length, otherwise the
+     * behavior is undefined if there are any invalid values
      * @return a new {@code ColumnVector} containing the sliced lists
      */
     public static ColumnVector listSlice(ColumnView cv, ColumnView start, ColumnView length) {
-        return new ColumnVector(listSliceColCol(cv.getNativeView(), start.getNativeView(), length.getNativeView()));
+        return new ColumnVector(listSliceColCol(cv.getNativeView(), start.getNativeView(), length.getNativeView(), true));
     }
 
-    private static native long listSliceIntInt(long listColumnView, int start, int length);
+    public static ColumnVector listSlice(ColumnView cv, ColumnView start, ColumnView length, boolean checkStartLength) {
+        return new ColumnVector(listSliceColCol(cv.getNativeView(), start.getNativeView(), length.getNativeView(), checkStartLength));
+    }
 
-    private static native long listSliceIntCol(long listColumnView, int start, long lengthColumnView);
+    private static native long listSliceIntInt(long listColumnView, int start, int length, boolean check_start_length);
 
-    private static native long listSliceColInt(long listColumnView, long startColumnView, int length);
+    private static native long listSliceIntCol(long listColumnView, int start, long lengthColumnView, boolean check_start_length);
 
-    private static native long listSliceColCol(long listColumnView, long startColumnView, long lengthColumnView);
+    private static native long listSliceColInt(long listColumnView, long startColumnView, int length, boolean check_start_length);
+
+    private static native long listSliceColCol(long listColumnView, long startColumnView, long lengthColumnView, boolean check_start_length);
 }

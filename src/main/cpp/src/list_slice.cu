@@ -109,7 +109,8 @@ CUDF_KERNEL void compute_starts_and_sizes_kernel(size_type const* offsets_of_inp
   // start cannot be 0
   start = start < 0 ? length_of_list + start : start - 1;
   // If the original start is out of [-length_of_list, length_of_list], will produce an empty list
-  if (start < 0 || start >= length_of_list) {
+  // If `check_start_length` is false, set the output size to 0 to avoid out-of-bound access
+  if (start < 0 || start >= length_of_list || length <= 0) {
     d_sizes[tid] = 0;
     return;
   }
@@ -215,11 +216,14 @@ std::unique_ptr<cudf::column> legal_list_slice(lists_column_view const& input,
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          size_type const start,
                                          size_type const length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
-  CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
+  if (check_start_length) {
+    CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
+    CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
+  }
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
@@ -236,6 +240,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          size_type const start,
                                          column_view const& length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
@@ -243,10 +248,12 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                "Invalid length type: length must be INT32",
                cudf::data_type_error);
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
-  CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
 
   auto const length_cdv = column_device_view::create(length, stream);
-  assert_length_is_not_negative(*length_cdv, stream);
+  if (check_start_length) {
+    CUDF_EXPECTS(start != 0, "Invalid start value: start must not be 0");
+    assert_length_is_not_negative(*length_cdv, stream);
+  }
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
@@ -266,6 +273,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          column_view const& start,
                                          size_type const length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
@@ -273,10 +281,12 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                "Invalid start type: start must be INT32",
                cudf::data_type_error);
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
-  CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
 
   auto const start_cdv = column_device_view::create(start, stream);
-  assert_start_is_not_zero(*start_cdv, stream);
+  if (check_start_length) {
+    assert_start_is_not_zero(*start_cdv, stream);
+    CUDF_EXPECTS(length >= 0, "Invalid length value: length must be >= 0");
+  }
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
@@ -297,6 +307,7 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          column_view const& start,
                                          column_view const& length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
@@ -309,10 +320,13 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
   CUDF_EXPECTS(input.size() == start.size(), "Input and start size mismatch");
   CUDF_EXPECTS(input.size() == length.size(), "Input and length size mismatch");
 
-  auto const start_cdv = column_device_view::create(start, stream);
-  assert_start_is_not_zero(*start_cdv, stream);
+  auto const start_cdv  = column_device_view::create(start, stream);
   auto const length_cdv = column_device_view::create(length, stream);
-  assert_length_is_not_negative(*length_cdv, stream);
+
+  if (check_start_length) {
+    assert_start_is_not_zero(*start_cdv, stream);
+    assert_length_is_not_negative(*length_cdv, stream);
+  }
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return make_empty_column(data_type{type_id::LIST}); }
@@ -336,41 +350,45 @@ std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          size_type const start,
                                          size_type const length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::list_slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          size_type const start,
                                          column_view const& length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::list_slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          column_view const& start,
                                          size_type const length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::list_slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
 std::unique_ptr<cudf::column> list_slice(lists_column_view const& input,
                                          column_view const& start,
                                          column_view const& length,
+                                         bool check_start_length,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::list_slice(input, start, length, stream, mr);
+  return detail::list_slice(input, start, length, check_start_length, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
