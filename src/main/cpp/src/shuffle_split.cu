@@ -305,7 +305,7 @@ struct buf_info_functor {
  private:
   void add_null_buffer(column_view const& col,
                        src_buf_info*& validity_cur,
-                       int offset_stack_pos,
+                       int& offset_stack_pos,
                        int parent_offset_index,
                        int offset_depth)
   {

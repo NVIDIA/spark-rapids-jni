@@ -277,6 +277,37 @@ TEST_F(ShuffleSplitTests, Lists)
     run_split(tbl, {4});
     run_split(tbl, {1, 4});
   }
+
+  // list<string>
+  {
+    cudf::test::strings_column_wrapper strings0{{"*", "*", "****", "", "*", ""},
+                                                {1, 1, 1, 1, 1, 0}};
+    cudf::test::fixed_width_column_wrapper<int> offsets0{0, 1, 2, 3, 6};
+    auto col0 = cudf::make_lists_column(4,
+                                        offsets0.release(),
+                                        strings0.release(),
+                                        0,
+                                        {},
+                                        cudf::get_default_stream(),
+                                        rmm::mr::get_current_device_resource());
+
+    cudf::test::strings_column_wrapper strings1{{"", "", "", "", "", "", ""},
+                                                {0, 0, 0, 0, 0, 0, 0}};
+    cudf::test::fixed_width_column_wrapper<int> offsets1{0, 4, 4, 7, 7};
+    auto col1 = cudf::make_lists_column(4,
+                                        offsets1.release(),
+                                        strings1.release(),
+                                        0,
+                                        {},
+                                        cudf::get_default_stream(),
+                                        rmm::mr::get_current_device_resource());
+
+    cudf::table_view tbl{{*col0, *col1}};
+    run_split(tbl, {});
+    run_split(tbl, {1});
+    run_split(tbl, {2});
+    run_split(tbl, {1, 3});
+  }
 }
 
 TEST_F(ShuffleSplitTests, Struct)
