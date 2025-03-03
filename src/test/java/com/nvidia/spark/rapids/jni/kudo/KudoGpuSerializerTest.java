@@ -355,6 +355,8 @@ public class KudoGpuSerializerTest {
       ByteArrayInputStream bin = new ByteArrayInputStream(hDataGPU);
       try (KudoTable kt = KudoTable.from(bin).get();
            Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
+        TableDebug.get().debug("FROM CPU", combined);
+        TableDebug.get().debug("expected", table);
         assertTablesAreEqual(table, combined);
       }
     }
@@ -378,6 +380,7 @@ public class KudoGpuSerializerTest {
       logPartitionComparison(name, hDataGPU, hDataCPU);
 
       try (Table combined = KudoGpuSerializer.assembleFromDeviceRaw(s, data, offsets)) {
+        TableDebug.get().debug("FROM GPU", combined);
         assertTablesAreEqual(table, combined);
       }
     }
