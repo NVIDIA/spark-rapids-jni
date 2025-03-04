@@ -21,13 +21,40 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.schemaOf;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.strings;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class KudoGpuSerializerTest {
+  private static class JustCountOutputStream extends OutputStream {
+    long length = 0;
+
+    @Override
+    public void write(byte[] i) {
+      this.length += i.length;
+    }
+
+    @Override
+    public void write(byte[] i, int start, int length) {
+      // Just assume that this is all correct for now...
+      this.length += length;
+    }
+
+    @Override
+    public void write(int i) {
+      this.length += 1;
+    }
+  }
+
   @Test
   public void testSimpleRoundTrip() {
     try (Table table = new Table.TestBuilder()
@@ -386,6 +413,15 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  static Table perfTable(int numRows, int numColumns) {
+    try (Scalar s = Scalar.fromLong(1);
+      ColumnVector cv = ColumnVector.sequence(s, numRows)) {
+      ColumnVector[] columns = new ColumnVector[numColumns];
+      Arrays.fill(columns, cv);
+      return new Table(columns);
+    }
+  }
+
   static Table buildSimpleTable() {
     HostColumnVector.StructType st = new HostColumnVector.StructType(
         true,
@@ -393,20 +429,21 @@ public class KudoGpuSerializerTest {
         new HostColumnVector.BasicType(true, DType.INT64)
     );
     return new Table.TestBuilder()
-        .column(null, 2, 3, 4, 5, 6)
-        .column("1", null, "34", "45", "56", "67")
-        .column(new Integer[]{1, 2, null},
-            new Integer[]{4, 5, 6},
-            new Integer[]{7, 8, 9},
-            null,
-            new Integer[]{},
-            new Integer[]{})
+//        .column(null, 2, 3, 4, 5, 6)
+//        .column("1", null, "34", "45", "56", "67")
+//        .column(new Integer[]{1, 2, null},
+//            new Integer[]{4, 5, 6},
+//            new Integer[]{7, 8, 9},
+//            null,
+//            new Integer[]{},
+//            new Integer[]{})
         .column(st, new HostColumnVector.StructData(null, 11L),
             new HostColumnVector.StructData((byte) 2, null),
             new HostColumnVector.StructData((byte) 3, 33L),
             new HostColumnVector.StructData((byte) 4, 44L),
             new HostColumnVector.StructData((byte) 5, 55L),
             null)
+//            new HostColumnVector.StructData(null, null))
         .build();
   }
 
@@ -419,6 +456,97 @@ public class KudoGpuSerializerTest {
         .build();
   }
 
+  @Test
+  public void writePerfTest200() {
+    int numColumns = 10;
+    int numIters = 100;
+//    int[] rowOptions = {10, 200, 1000, 10000, 100000, 1000000, 10000000};
+//    int[] sliceOptions = {10, 200, 1000, 10000, 100000};
+    int[] rowOptions = {10000000};
+    int[] sliceOptions = {200};
+    ArrayList<Long> cpuTimes = new ArrayList<>();
+    ArrayList<Long> gpuTimes = new ArrayList<>();
+    for (int numSlices : sliceOptions) {
+      for (int numRows : rowOptions) {
+        if (numSlices > numRows) {
+          continue;
+        }
+        cpuTimes.clear();
+        gpuTimes.clear();
+        System.err.println();
+        System.err.println("SLICES " + numSlices + " ROWS " + numRows);
+        int rowsPerSlice = numRows / numSlices;
+        long size = -1;
+        int[] slices = new int[numSlices - 1];
+        int offset = 0;
+        //int strt;
+        for (int i = 0; i < slices.length; i++) {
+          //strt = offset;
+          offset += rowsPerSlice;
+          //System.err.println("EXPECTED " + i + " " + strt + " TO " + offset);
+          slices[i] = offset;
+        }
+        //System.err.println("EXPECTED END " + offset + " TO " + numRows);
+        try (Table t = perfTable(numRows, numColumns)) {
+          for (int iter = 0; iter < numIters; iter++) {
+            long gpuStart = System.nanoTime();
+            DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(t, slices);
+            Cuda.deviceSynchronize();
+            try {
+              size = buffers[0].getLength();
+              try (HostMemoryBuffer data = HostMemoryBuffer.allocate(size, true);
+                   HostMemoryBuffer offsets = HostMemoryBuffer.allocate(buffers[1].getLength(), true)) {
+                data.copyFromDeviceBuffer(buffers[0]);
+                offsets.copyFromDeviceBuffer(buffers[1]);
+              }
+            } finally {
+              buffers[0].close();
+              buffers[1].close();
+            }
+            long gpuEnd = System.nanoTime();
+            gpuTimes.add(gpuEnd - gpuStart);
+          }
+
+          System.err.println("GPU: " +
+              " SIZE " + size +
+              " WITH COPY\n=MEDIAN(" + gpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
+          for (int iter = 0; iter < numIters; iter++) {
+            KudoSerializer ser = new KudoSerializer(schemaOf(t));
+            JustCountOutputStream jc = new JustCountOutputStream();
+            long cpuStart = System.nanoTime();
+            HostColumnVector[] columns = new HostColumnVector[numColumns];
+            try {
+              for (int c = 0; c < numColumns; c++) {
+                columns[c] = t.getColumn(c).copyToHost();
+              }
+              int start = 0;
+              int end;
+              for (int i = 0; i < numSlices; i++) {
+                if (i >= slices.length) {
+                  end = numRows;
+                } else {
+                  end = slices[i];
+                }
+                int len = end - start;
+                ser.writeToStreamWithMetrics(columns, jc, start, len);
+                start = end;
+              }
+            } finally {
+              for (int c = 0; c < numColumns; c++) {
+                columns[c].close();
+              }
+            }
+            long cpuEnd = System.nanoTime();
+            size = jc.length;
+            cpuTimes.add((cpuEnd - cpuStart));
+          }
+          System.err.println("CPU: " +
+              " SIZE " + size +
+              " WITH COPY\n=MEDIAN(" + cpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
+        }
+      }
+    }
+  }
 
   @Test
   public void testSinglePartWriteCPURead() throws Exception {
