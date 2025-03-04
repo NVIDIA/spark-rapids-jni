@@ -1207,7 +1207,7 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
-          min(cudf::hashing::detail::swap_endian(pheader->num_rows) - validity_batch_row_index,
+          min(column_instance_info[col_instance_index].num_rows - validity_batch_row_index,
               validity_rows_per_batch);
 
         auto const dst_bit_shift = (column_instance_info[col_instance_index].row_index) % 32;
