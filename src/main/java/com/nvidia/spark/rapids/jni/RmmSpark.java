@@ -589,6 +589,17 @@ public class RmmSpark {
     }
   }
 
+  public static long getTotalBlockedOrLostTime(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getTotalBlockedOrLostTime(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
   /**
    * Get the max device memory footprint, in bytes, that this task had allocated over its lifetime
    * @param taskId the id of the task to get the metric for.
@@ -598,6 +609,17 @@ public class RmmSpark {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
         return sra.getAndResetGpuMaxMemoryAllocated(taskId);
+      } else {
+        // sra is not set so the value is by definition 0
+        return 0;
+      }
+    }
+  }
+
+  public static long getMaxGpuTaskMemory(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.getMaxGpuTaskMemory(taskId);
       } else {
         // sra is not set so the value is by definition 0
         return 0;
@@ -676,6 +698,26 @@ public class RmmSpark {
     }
     if (local != null && local.isOpen()) {
       local.cpuDeallocate(ptr, amount);
+    }
+  }
+
+  public static void spillRangeStarting() {
+    SparkResourceAdaptor local;
+    synchronized (Rmm.class) {
+      local = sra;
+    }
+    if (local != null && local.isOpen()) {
+      local.spillRangeStarting();
+    }
+  }
+
+  public static void spillRangeDone() {
+    SparkResourceAdaptor local;
+    synchronized (Rmm.class) {
+      local = sra;
+    }
+    if (local != null && local.isOpen()) {
+      local.spillRangeDone();
     }
   }
 
