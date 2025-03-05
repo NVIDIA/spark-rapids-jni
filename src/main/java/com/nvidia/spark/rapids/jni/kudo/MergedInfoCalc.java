@@ -115,10 +115,12 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
 
     @Override
     public void visitTopSchema(Schema schema) {
+        System.err.println("MERGED INFO CALC VISIT TOP " + schema);
     }
 
     @Override
-    public void visitStruct(Schema structType) {
+    public void preVisitStruct(Schema structType) {
+        System.err.println("MI PRE VISIT STRUCT " + structType + " " + curColIdx + " " + hasNull[curColIdx]);
         long validityOffset = INVALID_OFFSET;
         long validityBufferLen = 0;
 
@@ -134,7 +136,14 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     }
 
     @Override
+    public void visitStruct(Schema structType) {
+        // Noop
+    }
+
+    @Override
     public void preVisitList(Schema listType) {
+        System.err.println("MI PRE VISIT LIST " + listType + " " + curColIdx + " " + hasNull[curColIdx]);
+
         long validityOffset = INVALID_OFFSET;
         long validityBufferLen = 0;
 
@@ -167,6 +176,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
 
     @Override
     public void visit(Schema primitiveType) {
+        System.err.println("MI VISIT " + primitiveType + " " + curColIdx + " " + hasNull[curColIdx]);
         long validityOffset = INVALID_OFFSET;
         long validityBufferLen = 0;
 
@@ -222,7 +232,8 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         }
 
         @Override
-        public void visitStruct(Schema structType) {
+        public void preVisitStruct(Schema structType) {
+            System.err.println("ST PRE VISIT STRUCT " + structType + " " + curColIdx + " " + hasNull[curColIdx]);
             SliceInfo sliceInfo = sliceInfos.getLast();
             rowCount[curColIdx] += sliceInfo.getRowCount();
 
@@ -230,7 +241,13 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         }
 
         @Override
+        public void visitStruct(Schema structType) {
+            // Noop
+        }
+
+        @Override
         public void preVisitList(Schema listType) {
+            System.err.println("ST PRE VISIT LIST " + listType + " " + curColIdx + " " + hasNull[curColIdx]);
             SliceInfo sliceInfo = sliceInfos.getLast();
             rowCount[curColIdx] += sliceInfo.getRowCount();
 
@@ -255,6 +272,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
 
         @Override
         public void visit(Schema primitiveType) {
+            System.err.println("ST VISIT " + primitiveType + " " + curColIdx + " " + hasNull[curColIdx]);
             SliceInfo sliceInfo = sliceInfos.getLast();
             rowCount[curColIdx] += sliceInfo.getRowCount();
             if (primitiveType.getType().hasOffsets()) {

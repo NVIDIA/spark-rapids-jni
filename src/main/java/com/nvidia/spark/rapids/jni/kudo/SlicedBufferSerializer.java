@@ -69,7 +69,7 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
   }
 
   @Override
-  public void visitStruct(HostColumnVectorCore col) {
+  public void preVisitStruct(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.peekLast();
 
     try {
@@ -87,6 +87,11 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Override
+  public void visitStruct(HostColumnVectorCore col) {
+    // NOOP
   }
 
   @Override

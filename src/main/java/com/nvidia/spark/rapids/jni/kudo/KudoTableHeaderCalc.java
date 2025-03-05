@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.HostColumnVectorCore;
 import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
 
@@ -72,7 +73,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   }
 
   @Override
-  public void visitStruct(HostColumnVectorCore col) {
+  public void preVisitStruct(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
     long validityBufferLength = 0;
@@ -82,6 +83,11 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     this.validityBufferLen += validityBufferLength;
     this.setHasValidity(col.hasValidityVector());
+  }
+
+  @Override
+  public void visitStruct(HostColumnVectorCore col) {
+    // NOOP
   }
 
   @Override

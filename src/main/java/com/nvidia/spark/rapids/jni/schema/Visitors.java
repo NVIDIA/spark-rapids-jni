@@ -66,6 +66,7 @@ public class Visitors {
     private static void visitSchemaInner(Schema schema, SimpleSchemaVisitor visitor) {
         switch (schema.getType().getTypeId()) {
             case STRUCT:
+                visitor.preVisitStruct(schema);
                 for (int i=0; i<schema.getNumChildren(); i++) {
                     visitSchemaInner(schema.getChild(i), visitor);
                 }
@@ -83,16 +84,20 @@ public class Visitors {
     }
 
     private static <T, P, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, P, R> visitor) {
+        System.err.println("VISIT SCHEMA INNER " + schema);
         switch (schema.getType().getTypeId()) {
-            case STRUCT:
+            case STRUCT: {
+                P preVisitResult = visitor.preVisitStruct(schema);
                 List<T> children = IntStream.range(0, schema.getNumChildren())
-                        .mapToObj(childIdx -> visitSchemaInner(schema.getChild(childIdx), visitor))
-                        .collect(Collectors.toList());
-                return visitor.visitStruct(schema, children);
-            case LIST:
+                    .mapToObj(childIdx -> visitSchemaInner(schema.getChild(childIdx), visitor))
+                    .collect(Collectors.toList());
+                return visitor.visitStruct(schema, preVisitResult, children);
+            }
+            case LIST: {
                 P preVisitResult = visitor.preVisitList(schema);
                 T childResult = visitSchemaInner(schema.getChild(0), visitor);
                 return visitor.visitList(schema, preVisitResult, childResult);
+            }
             default:
                 return visitor.visit(schema);
         }
@@ -119,6 +124,7 @@ public class Visitors {
     private static void visitColumn(HostColumnVectorCore col, HostColumnsVisitor visitor) {
         switch (col.getType().getTypeId()) {
             case STRUCT:
+                visitor.preVisitStruct(col);
                 for (int i=0; i<col.getNumChildren(); i++) {
                     visitColumn(col.getChildColumnView(i), visitor);
                 }

@@ -37,9 +37,10 @@ import java.util.List;
  *
  * The order of visiting will be:
  * <ol>
+ *     <li> Previsit struct column A</li>
  *     <li> Visit primitive column a1 </li>
  *     <li> Visit primitive column a2</li>
- *     <li> Visit struct column A, with results from a1 and a2</li>
+ *     <li> Visit struct column A</li>
  *     <li> Previsit list column B</li>
  *     <li> Visit primitive column b1</li>
  *     <li> Visit list column B</li>
@@ -50,6 +51,13 @@ import java.util.List;
  *
  */
 public interface HostColumnsVisitor {
+    /**
+     * Visit a struct column before any of its children.
+     * @param col the struct column to visit
+     */
+    void preVisitStruct(HostColumnVectorCore col);
+
+    // TODO no one uses this, do we even want it???
     /**
      * Visit a struct column.
      * @param col the struct column to visit

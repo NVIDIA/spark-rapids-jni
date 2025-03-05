@@ -98,12 +98,14 @@ class KudoTableMerger implements SimpleSchemaVisitor {
 
   @Override
   public void visitTopSchema(Schema schema) {
+    System.err.println("KT VISIT TOP SCHEMA " + Arrays.toString(colViewInfoList));
     result = new KudoHostMergeResult(schema, buffer, colViewInfoList);
   }
 
   @Override
-  public void visitStruct(Schema structType) {
+  public void preVisitStruct(Schema structType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    System.err.println("KT PRE VISIT STRUCT " + structType + " " + curColIdx + " " + offsetInfo);
     int nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     colViewInfoList[curColIdx] = new ColumnViewInfo(structType.getType(),
@@ -120,9 +122,14 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     curColIdx++;
   }
 
+  public void visitStruct(Schema structType) {
+    // Noop
+  }
+
   @Override
   public void preVisitList(Schema listType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    System.err.println("KT PRE VISIT LIST " + listType + " " + curColIdx + " " + offsetInfo);
     int nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     deserializeOffsetBuffer(offsetInfo);
@@ -154,6 +161,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   @Override
   public void visit(Schema primitiveType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
+    System.err.println("KT VISIT " + primitiveType + " " + curColIdx + " " + offsetInfo);
     int nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     if (primitiveType.getType().hasOffsets()) {
