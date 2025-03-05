@@ -403,6 +403,7 @@ public class KudoGpuSerializerTest {
         tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
       }
       logPartitionComparison(name, hDataGPU, hDataCPU);
+      TableDebug.get().debug("EXPECTED", table);
 
       try (Table combined = KudoGpuSerializer.assembleFromDeviceRaw(s, data, offsets)) {
         TableDebug.get().debug("FROM GPU", combined);
@@ -582,12 +583,12 @@ public class KudoGpuSerializerTest {
     }
   }
 
-//  @Test
-//  public void testComplexSinglePartWriteGPURead() throws Exception {
-//    try (Table table = KudoSerializerTest.buildTestTable()) {
-//      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
-//    }
-//  }
+  @Test
+  public void testComplexSinglePartWriteGPURead() throws Exception {
+    try (Table table = KudoSerializerTest.buildTestTable()) {
+      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
+    }
+  }
 
   @Test
   public void testStringListCPURead() throws Exception {
