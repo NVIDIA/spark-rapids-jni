@@ -455,15 +455,6 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  static Table buildStringListTable() {
-    return new Table.TestBuilder()
-        .column(strings("*"), strings("*"), strings("****"),
-            strings("", "*", null))
-        .column(strings(null, null, null, null), strings(),
-            strings(null, null, null), strings())
-        .build();
-  }
-
   public static void main(String [] args) {
     KudoGpuSerializerTest t = new KudoGpuSerializerTest();
     t.writePerfTest();
@@ -605,6 +596,21 @@ public class KudoGpuSerializerTest {
         .build();
   }
 
+  @Test
+  public void testMediumRoundTrip() throws Exception {
+    try (Table table = buildMediumTable()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+//        testCPUOnlyRoundTrip("medium", table, slices);
+//        testGPUOnlyRoundTrip("medium", table, slices);
+//        testCPUWriteGPURead("medium", table, slices);
+        //testGPUWriteCPURead("medium", table, slices);
+        testRoundTrip("medium", table, slices);
+      }
+    }
+  }
+
   public static Table buildHalfEmtpyStructTable() {
     HostColumnVector.StructType st = new HostColumnVector.StructType(
         true,
@@ -622,21 +628,6 @@ public class KudoGpuSerializerTest {
   }
 
   @Test
-  public void testMediumRoundTrip() throws Exception {
-    try (Table table = buildMediumTable()) {
-      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
-        System.err.println("TEST WITH "+ numSlices);
-        int[] slices = calcEvenSlices(table, numSlices);
-//        testCPUOnlyRoundTrip("medium", table, slices);
-//        testGPUOnlyRoundTrip("medium", table, slices);
-//        testCPUWriteGPURead("medium", table, slices);
-        //testGPUWriteCPURead("medium", table, slices);
-        testRoundTrip("medium", table, slices);
-      }
-    }
-  }
-
-  @Test
   public void testHalfEmtpyStructRoundTrip() throws Exception {
     try (Table table = buildHalfEmtpyStructTable()) {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
@@ -646,55 +637,55 @@ public class KudoGpuSerializerTest {
 //        testGPUOnlyRoundTrip("medium", table, slices);
 //        testCPUWriteGPURead("medium", table, slices);
         //testGPUWriteCPURead("medium", table, slices);
-        testRoundTrip("medium", table, slices);
+        testRoundTrip("half empty struct", table, slices);
       }
     }
   }
 
-//  @Test
-//  public void testSinglePartWriteCPURead() throws Exception {
-//    try (Table table = new Table.TestBuilder()
-//        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
-//        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
-//        .column("A","B","C","D",null)
-//        .column("0xFF", null, "0x0F", "0xAA", "0x55")
-//        .build()) {
-//     doSinglePartGPUWriteCPUReadTest("testSinglePartWriteCPURead", table);
-//    }
-//  }
-//
-//  @Test
-//  public void testSimpleSinglePartWriteCPURead() throws Exception {
-//    try (Table table = buildSimpleTable()) {
-//      doSinglePartGPUWriteCPUReadTest("testSimpleSinglePartWriteCPURead", table);
-//    }
-//  }
-//
-//  @Test
-//  public void testComplexSinglePartWriteCPURead() throws Exception {
-//    try (Table table = KudoSerializerTest.buildTestTable()) {
-//      doSinglePartGPUWriteCPUReadTest("testComplexSinglePartWriteCPURead", table);
-//    }
-//  }
-//
-//  @Test
-//  public void testComplexSinglePartWriteGPURead() throws Exception {
-//    try (Table table = KudoSerializerTest.buildTestTable()) {
-//      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
-//    }
-//  }
-//
-//  @Test
-//  public void testStringListCPURead() throws Exception {
-//    try (Table table = buildStringListTable()) {
-//      doSinglePartGPUWriteCPUReadTest("testStringListCPURead", table);
-//    }
-//  }
-//
-//  @Test
-//  public void testStringListGPURead() throws Exception {
-//    try (Table table = buildStringListTable()) {
-//      doSinglePartGPUWriteGPUReadTest("testStringListGPURead", table);
-//    }
-//  }
+  @Test
+  public void testSimpleMultiColumnRoundTrip() throws Exception {
+    try (Table table = new Table.TestBuilder()
+        .column(null, (byte)0xF0, (byte)0x0F, (byte)0xAA, null)
+        .column((short)0xFFFF, (short)0xF0F0, null, (short)0xAAAA, (short)0x5555)
+        .column("A","B","C","D",null)
+        .column("0xFF", null, "0x0F", "0xAA", "0x55")
+        .build()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+        testRoundTrip("simple multicolumn", table, slices);
+      }
+    }
+  }
+
+  //@Test
+  public void testComplexRoundTrip() throws Exception {
+    try (Table table = KudoSerializerTest.buildTestTable()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+        testRoundTrip("complex", table, slices);
+      }
+    }
+  }
+
+  static Table buildStringListTable() {
+    return new Table.TestBuilder()
+        .column(strings("*"), strings("*"), strings("****"),
+            strings("", "*", null))
+        .column(strings(null, null, null, null), strings(),
+            strings(null, null, null), strings())
+        .build();
+  }
+
+  @Test
+  public void testStringListRoundTrip() throws Exception {
+    try (Table table = buildStringListTable()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+        testRoundTrip("complex", table, slices);
+      }
+    }
+  }
 }
