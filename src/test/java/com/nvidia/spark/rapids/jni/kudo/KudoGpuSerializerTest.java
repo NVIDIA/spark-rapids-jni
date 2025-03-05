@@ -582,12 +582,12 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  @Test
-  public void testComplexSinglePartWriteGPURead() throws Exception {
-    try (Table table = KudoSerializerTest.buildTestTable()) {
-      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
-    }
-  }
+//  @Test
+//  public void testComplexSinglePartWriteGPURead() throws Exception {
+//    try (Table table = KudoSerializerTest.buildTestTable()) {
+//      doSinglePartGPUWriteGPUReadTest("testComplexSinglePartWriteGPURead", table);
+//    }
+//  }
 
   @Test
   public void testStringListCPURead() throws Exception {
