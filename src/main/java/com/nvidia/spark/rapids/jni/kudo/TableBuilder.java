@@ -50,7 +50,6 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
 
   @Override
   public Table visitTopSchema(Schema schema, List<ColumnView> children) {
-    System.err.println("TB VISIT TOP STRUCT " + schema + " " + children);
     // When this method is called, the ownership of the column views in `columnViewList` has been transferred to
     // `children`, so we need to clear `columnViewList`.
     Arrays.fill(columnViewList, null);
@@ -78,7 +77,6 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
 
   @Override
   public ColumnView visitStruct(Schema structType, ColumnViewInfo colViewInfo, List<ColumnView> children) {
-    System.err.println("TB VISIT STRUCT " + structType + " " + children + " " + colViewInfo);
     ColumnView[] childrenView = children.toArray(new ColumnView[0]);
 
     ColumnView columnView = colViewInfo.buildColumnView(buffer, childrenView);
@@ -108,7 +106,6 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
 
   @Override
   public ColumnView visit(Schema primitiveType) {
-    System.err.println("TB VISIT " + primitiveType);
     ColumnViewInfo colViewInfo = getCurrentColumnViewInfo();
 
     ColumnView columnView = colViewInfo.buildColumnView(buffer, null);

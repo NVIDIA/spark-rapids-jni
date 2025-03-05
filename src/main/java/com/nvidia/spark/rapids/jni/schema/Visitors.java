@@ -84,7 +84,6 @@ public class Visitors {
     }
 
     private static <T, P, R> T visitSchemaInner(Schema schema, SchemaVisitor<T, P, R> visitor) {
-        System.err.println("VISIT SCHEMA INNER " + schema);
         switch (schema.getType().getTypeId()) {
             case STRUCT: {
                 P preVisitResult = visitor.preVisitStruct(schema);
