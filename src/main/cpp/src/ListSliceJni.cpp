@@ -20,7 +20,7 @@
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceIntInt(
-  JNIEnv* env, jclass, jlong input_column, jint start, jint length)
+  JNIEnv* env, jclass, jlong input_column, jint start, jint length, jboolean check_start_length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   try {
@@ -29,13 +29,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
     // The following constructor expects that the type of the input_column is LIST.
     // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
-    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::list_slice(lcv, start, length, check_start_length));
   }
   CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceIntCol(
-  JNIEnv* env, jclass, jlong input_column, jint start, jlong length)
+  JNIEnv* env, jclass, jlong input_column, jint start, jlong length, jboolean check_start_length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, length, "length column is null", 0);
@@ -46,13 +47,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
     // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start, length_cv));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::list_slice(lcv, start, length_cv, check_start_length));
   }
   CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceColInt(
-  JNIEnv* env, jclass, jlong input_column, jlong start, jint length)
+  JNIEnv* env, jclass, jlong input_column, jlong start, jint length, jboolean check_start_length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, start, "start column is null", 0);
@@ -63,13 +65,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
     // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv = *reinterpret_cast<cudf::column_view const*>(start);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start_cv, length));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::list_slice(lcv, start_cv, length, check_start_length));
   }
   CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listSliceColCol(
-  JNIEnv* env, jclass, jlong input_column, jlong start, jlong length)
+  JNIEnv* env, jclass, jlong input_column, jlong start, jlong length, jboolean check_start_length)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, start, "start column is null", 0);
@@ -82,7 +85,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuListSliceUtils_listS
     cudf::lists_column_view lcv{*reinterpret_cast<cudf::column_view const*>(input_column)};
     auto const& start_cv  = *reinterpret_cast<cudf::column_view const*>(start);
     auto const& length_cv = *reinterpret_cast<cudf::column_view const*>(length);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::list_slice(lcv, start_cv, length_cv));
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::list_slice(lcv, start_cv, length_cv, check_start_length));
   }
   CATCH_STD(env, 0);
 }
