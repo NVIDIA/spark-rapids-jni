@@ -504,15 +504,15 @@ public class KudoSerializerTest {
     return values;
   }
 
-  private static HostColumnVector.StructData struct(Object... values) {
+  public static HostColumnVector.StructData struct(Object... values) {
     return new HostColumnVector.StructData(values);
   }
 
-  private static List<HostColumnVector.StructData> structs(HostColumnVector.StructData... values) {
+  public static List<HostColumnVector.StructData> structs(HostColumnVector.StructData... values) {
     return asList(values);
   }
 
-  static String[] strings(String... values) {
+  public static String[] strings(String... values) {
     return values;
   }
 

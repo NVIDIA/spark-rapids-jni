@@ -26,8 +26,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.schemaOf;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.strings;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializerTest.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class KudoGpuSerializerTest {
@@ -375,6 +374,24 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  public void testCPUWriteGPURead(String name, Table table, int[] slices) throws Exception {
+    Schema s = KudoSerializerTest.schemaOf(table);
+    byte[] data = writeCPU(table, slices);
+    try(Table t = readGPU(name, s, data)) {
+      TableDebug.get().debug(name + " GPU", t);
+      TableDebug.get().debug(name + " BASE", table);
+      assertTablesAreEqual(table, t);
+    }
+  }
+
+  public void testGPUWriteCPURead(String name, Table table, int[] slices) throws Exception {
+    Schema s = KudoSerializerTest.schemaOf(table);
+    byte[] data = writeGPU(table, slices);
+    try(Table t = readCPU(name, s, data)) {
+      assertTablesAreEqual(table, t);
+    }
+  }
+
 //  public void doSinglePartGPUWriteCPUReadTest(String name, Table table) throws Exception {
 //    DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
 //    assertEquals(2, buffers.length);
@@ -588,14 +605,47 @@ public class KudoGpuSerializerTest {
         .build();
   }
 
+  public static Table buildHalfEmtpyStructTable() {
+    HostColumnVector.StructType st = new HostColumnVector.StructType(
+        true,
+        new HostColumnVector.BasicType(true, DType.INT32)
+    );
+    HostColumnVector.ListType lt = new HostColumnVector.ListType(true, st);
+    return new Table.TestBuilder()
+        .column(lt, structs(struct(1), struct(2), null),
+            structs(struct(4), struct(5), struct(6)),
+            structs(struct(7), struct(8), struct(9)),
+            null,
+            structs(),
+            structs())
+        .build();
+  }
+
   @Test
   public void testMediumRoundTrip() throws Exception {
     try (Table table = buildMediumTable()) {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
         System.err.println("TEST WITH "+ numSlices);
         int[] slices = calcEvenSlices(table, numSlices);
-        testCPUOnlyRoundTrip("medium", table, slices);
-        testGPUOnlyRoundTrip("medium", table, slices);
+//        testCPUOnlyRoundTrip("medium", table, slices);
+//        testGPUOnlyRoundTrip("medium", table, slices);
+//        testCPUWriteGPURead("medium", table, slices);
+        //testGPUWriteCPURead("medium", table, slices);
+        testRoundTrip("medium", table, slices);
+      }
+    }
+  }
+
+  @Test
+  public void testHalfEmtpyStructRoundTrip() throws Exception {
+    try (Table table = buildHalfEmtpyStructTable()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+//        testCPUOnlyRoundTrip("medium", table, slices);
+//        testGPUOnlyRoundTrip("medium", table, slices);
+//        testCPUWriteGPURead("medium", table, slices);
+        //testGPUWriteCPURead("medium", table, slices);
         testRoundTrip("medium", table, slices);
       }
     }

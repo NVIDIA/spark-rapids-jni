@@ -77,12 +77,13 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     SliceInfo parent = sliceInfos.getLast();
 
     long validityBufferLength = 0;
-    if (col.hasValidityVector()) {
+    boolean includeValidity = col.hasValidityVector() && parent.rowCount > 0;
+    if (includeValidity) {
       validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     this.validityBufferLen += validityBufferLength;
-    this.setHasValidity(col.hasValidityVector());
+    this.setHasValidity(includeValidity);
   }
 
   @Override
@@ -94,9 +95,10 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   public void preVisitList(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
+    boolean includeValidity = col.hasValidityVector() && parent.rowCount > 0;
 
     long validityBufferLength = 0;
-    if (col.hasValidityVector() && parent.rowCount > 0) {
+    if (includeValidity) {
       validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
@@ -108,7 +110,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     this.validityBufferLen += validityBufferLength;
     this.offsetBufferLen += offsetBufferLength;
 
-    this.setHasValidity(col.hasValidityVector());
+    this.setHasValidity(includeValidity);
 
     SliceInfo current;
 
@@ -141,7 +143,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     this.offsetBufferLen += offsetBufferLen;
     this.dataOnlyLen += dataBufferLen;
 
-    this.setHasValidity(col.hasValidityVector());
+    this.setHasValidity(col.hasValidityVector() && parent.rowCount > 0);
   }
 
   @Override
