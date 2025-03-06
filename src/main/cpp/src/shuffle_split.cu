@@ -22,6 +22,7 @@
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/hashing/detail/hash_functions.cuh>
@@ -124,6 +125,15 @@ struct dst_buf_info {
 bool is_offset_type(type_id id) { return (id == type_id::STRING or id == type_id::LIST); }
 
 /**
+ * @brief Whether or not nullability should be included in the data for this column.
+ *
+ * The edge case we're catching here is a column that is nullable, but has no rows. CPU
+ * kud0 optimizes that case out. In the future if we also wanted to ignore columns has are
+ * nullable but have no nulls, we would add that logic here.
+ */
+bool include_nulls(column_view const& col) { return col.nullable() && col.size() > 0; }
+
+/**
  * @brief Compute total device memory stack size needed to process nested
  * offsets per-output buffer.
  *
@@ -147,7 +157,7 @@ template <typename InputIter>
 size_t compute_offset_stack_size(InputIter begin, InputIter end, int offset_depth = 0)
 {
   return std::accumulate(begin, end, 0, [offset_depth](auto stack_size, column_view const& col) {
-    auto const num_buffers = 1 + (col.nullable() ? 1 : 0);
+    auto const num_buffers = 1 + (include_nulls(col) ? 1 : 0);
     return stack_size + (offset_depth * num_buffers) +
            compute_offset_stack_size(
              col.child_begin(), col.child_end(), offset_depth + is_offset_type(col.type().id()));
@@ -193,7 +203,7 @@ src_buf_count count_src_bufs(InputIter begin, InputIter end)
     auto const has_offsets_child =
       type == cudf::type_id::LIST || (type == cudf::type_id::STRING && col.num_children() > 0);
     src_buf_count const counts{
-      static_cast<size_t>(col.nullable()),
+      static_cast<size_t>(include_nulls(col)),
       static_cast<size_t>(has_offsets_child),
       size_t{
         1}};  // this is 1 for all types because even lists and structs have stubs for data buffers
@@ -279,8 +289,8 @@ struct buf_info_functor {
                   int offset_depth,
                   rmm::cuda_stream_view)
   {
-    flattened_col_has_validity.push_back(col.nullable());
-    if (col.nullable()) {
+    flattened_col_has_validity.push_back(include_nulls(col));
+    if (include_nulls(col)) {
       add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
     }
 
@@ -334,8 +344,8 @@ void buf_info_functor::operator()<cudf::string_view>(
   int offset_depth,
   rmm::cuda_stream_view)
 {
-  flattened_col_has_validity.push_back(col.nullable());
-  if (col.nullable()) {
+  flattened_col_has_validity.push_back(include_nulls(col));
+  if (include_nulls(col)) {
     add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
   }
 
@@ -392,8 +402,8 @@ void buf_info_functor::operator()<cudf::list_view>(column_view const& col,
 {
   lists_column_view lcv(col);
 
-  flattened_col_has_validity.push_back(col.nullable());
-  if (col.nullable()) {
+  flattened_col_has_validity.push_back(include_nulls(col));
+  if (include_nulls(col)) {
     add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
   }
 
@@ -449,8 +459,8 @@ void buf_info_functor::operator()<cudf::struct_view>(
   int offset_depth,
   rmm::cuda_stream_view stream)
 {
-  flattened_col_has_validity.push_back(col.nullable());
-  if (col.nullable()) {
+  flattened_col_has_validity.push_back(include_nulls(col));
+  if (include_nulls(col)) {
     add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
   }
 
@@ -765,6 +775,8 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   // empty inputs
   CUDF_EXPECTS(input.num_columns() != 0, "Encountered input with no columns.");
   if (input.num_rows() == 0) {
