@@ -873,11 +873,6 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
     cudf::util::round_up_safe(num_partitions * sizeof(partition_size_info) * 2, split_align);
   size_t const dst_buf_info_size =
     cudf::util::round_up_safe(num_bufs * sizeof(dst_buf_info), split_align);
-  // host-side
-  std::vector<uint8_t> h_buf_sizes_and_dst_info(partition_sizes_size + dst_buf_info_size);
-  size_t* h_buf_sizes = reinterpret_cast<size_t*>(h_buf_sizes_and_dst_info.data());
-  dst_buf_info* h_dst_buf_info =
-    reinterpret_cast<dst_buf_info*>(h_buf_sizes_and_dst_info.data() + partition_sizes_size);
   // device-side
   rmm::device_buffer d_buf_sizes_and_dst_info(
     partition_sizes_size + dst_buf_info_size, stream, temp_mr);
