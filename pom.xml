@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>25.02.0</version>
+  <version>25.02.1-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -81,6 +81,7 @@
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
     <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
+    <LIBCUDF_CONFIGURE_ONLY>OFF</LIBCUDF_CONFIGURE_ONLY>
     <CUDF_BUILD_TYPE>Release</CUDF_BUILD_TYPE>
     <BUILD_TESTS>OFF</BUILD_TESTS>
     <BUILD_BENCHMARKS>OFF</BUILD_BENCHMARKS>
@@ -460,6 +461,7 @@
                   <env key="SPARK_JNI_BUILD_PATH" value="${native.build.path}"/>
                   <env key="RMM_LOGGING_LEVEL" value="${RMM_LOGGING_LEVEL}"/>
                   <env key="USE_GDS" value="${USE_GDS}"/>
+                  <env key="LIBCUDF_CONFIGURE_ONLY" value="${LIBCUDF_CONFIGURE_ONLY}"/>
                 </exec>
               </target>
             </configuration>
