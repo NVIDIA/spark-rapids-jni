@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,13 +64,13 @@ constexpr auto JCUDF_ROW_ALIGNMENT = 8;
 
 constexpr auto MAX_BATCH_SIZE = std::numeric_limits<cudf::size_type>::max();
 
+constexpr auto BLOCK_SIZE = 1024;
+
 // Number of rows each block processes in the two kernels. Tuned via nsight
-constexpr auto NUM_STRING_ROWS_PER_BLOCK_TO_ROWS   = 1024;
+constexpr auto NUM_STRING_ROWS_PER_BLOCK_TO_ROWS   = BLOCK_SIZE;
 constexpr auto NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS = 64;
 constexpr auto MIN_STRING_BLOCKS                   = 32;
 constexpr auto MAX_STRING_BLOCKS                   = MAX_BATCH_SIZE;
-
-constexpr auto NUM_WARPS_IN_BLOCK = 32;
 
 }  // anonymous namespace
 
@@ -557,6 +557,7 @@ CUDF_KERNEL void copy_to_rows_fixed_width_optimized(const size_type start_row,
 /**
  * @brief copy data from cudf columns into JCUDF format, which is row-based
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator that gives the size of a specific row of the table.
  * @param num_rows total number of rows in the table
  * @param num_columns total number of columns in the table
@@ -570,17 +571,17 @@ CUDF_KERNEL void copy_to_rows_fixed_width_optimized(const size_type start_row,
  * @param output_data pointer to output data
  *
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_to_rows(const size_type num_rows,
-                              const size_type num_columns,
-                              const size_type shmem_used_per_tile,
-                              device_span<const tile_info> tile_infos,
-                              const int8_t** input_data,
-                              const size_type* col_sizes,
-                              const size_type* col_offsets,
-                              RowOffsetFunctor row_offsets,
-                              size_type const* batch_row_boundaries,
-                              int8_t** output_data)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL void copy_to_rows(const size_type num_rows,
+                                                            const size_type num_columns,
+                                                            const size_type shmem_used_per_tile,
+                                                            device_span<const tile_info> tile_infos,
+                                                            const int8_t** input_data,
+                                                            const size_type* col_sizes,
+                                                            const size_type* col_offsets,
+                                                            RowOffsetFunctor row_offsets,
+                                                            size_type const* batch_row_boundaries,
+                                                            int8_t** output_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -689,6 +690,7 @@ CUDF_KERNEL void copy_to_rows(const size_type num_rows,
 /**
  * @brief copy data from row-based format to cudf columns
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator that gives the size of a specific row of the table.
  * @param num_rows total number of rows in the table
  * @param num_columns total number of columns in the table
@@ -701,16 +703,17 @@ CUDF_KERNEL void copy_to_rows(const size_type num_rows,
  * @param input_nm pointer to input data
  *
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_validity_to_rows(const size_type num_rows,
-                                       const size_type num_columns,
-                                       const size_type shmem_used_per_tile,
-                                       RowOffsetFunctor row_offsets,
-                                       size_type const* batch_row_boundaries,
-                                       int8_t** output_data,
-                                       const size_type validity_offset,
-                                       device_span<const tile_info> tile_infos,
-                                       const bitmask_type** input_nm)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void copy_validity_to_rows(const size_type num_rows,
+                             const size_type num_columns,
+                             const size_type shmem_used_per_tile,
+                             RowOffsetFunctor row_offsets,
+                             size_type const* batch_row_boundaries,
+                             int8_t** output_data,
+                             const size_type validity_offset,
+                             device_span<const tile_info> tile_infos,
+                             const bitmask_type** input_nm)
 {
   extern __shared__ int8_t shared_data[];
 
@@ -797,6 +800,7 @@ CUDF_KERNEL void copy_validity_to_rows(const size_type num_rows,
 /**
  * @brief kernel to copy string data to JCUDF row format
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator for row offsets into the destination data
  * @param num_rows number of rows in this portion of the table
  * @param num_variable_columns number of columns of variable-width data
@@ -809,16 +813,17 @@ CUDF_KERNEL void copy_validity_to_rows(const size_type num_rows,
  * @param output_data pointer to output data for this batch
  *
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_strings_to_rows(size_type const num_rows,
-                                      size_type const num_variable_columns,
-                                      int8_t const** variable_input_data,
-                                      size_type const* variable_col_output_offsets,
-                                      cudf::detail::input_offsetalator* variable_col_offsets,
-                                      size_type fixed_width_row_size,
-                                      RowOffsetFunctor row_offsets,
-                                      size_type const batch_row_offset,
-                                      int8_t* output_data)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void copy_strings_to_rows(size_type const num_rows,
+                            size_type const num_variable_columns,
+                            int8_t const** variable_input_data,
+                            size_type const* variable_col_output_offsets,
+                            cudf::detail::input_offsetalator* variable_col_offsets,
+                            size_type fixed_width_row_size,
+                            RowOffsetFunctor row_offsets,
+                            size_type const batch_row_offset,
+                            int8_t* output_data)
 {
   // Each block will take a group of rows controlled by NUM_STRING_ROWS_PER_BLOCK_TO_ROWS. Each warp
   // will copy a row at a time. The base thread will first go through column data and fill out
@@ -857,6 +862,7 @@ CUDF_KERNEL void copy_strings_to_rows(size_type const num_rows,
 /**
  * @brief copy data from row-based format to cudf columns
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator that gives the size of a specific row of the table.
  * @param num_rows total number of rows in the table
  * @param num_columns total number of columns in the table
@@ -870,17 +876,18 @@ CUDF_KERNEL void copy_strings_to_rows(size_type const num_rows,
  * @param input_data pointer to input data
  *
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_from_rows(const size_type num_rows,
-                                const size_type num_columns,
-                                const size_type shmem_used_per_tile,
-                                RowOffsetFunctor row_offsets,
-                                size_type const* batch_row_boundaries,
-                                int8_t** output_data,
-                                const size_type* col_sizes,
-                                const size_type* col_offsets,
-                                device_span<const tile_info> tile_infos,
-                                const int8_t* input_data)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void copy_from_rows(const size_type num_rows,
+                      const size_type num_columns,
+                      const size_type shmem_used_per_tile,
+                      RowOffsetFunctor row_offsets,
+                      size_type const* batch_row_boundaries,
+                      int8_t** output_data,
+                      const size_type* col_sizes,
+                      const size_type* col_offsets,
+                      device_span<const tile_info> tile_infos,
+                      const int8_t* input_data)
 {
   // We are going to copy the data in two passes.
   // The first pass copies a chunk of data into shared memory.
@@ -964,6 +971,7 @@ CUDF_KERNEL void copy_from_rows(const size_type num_rows,
 /**
  * @brief copy data from row-based format to cudf columns
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator that gives the size of a specific row of the table.
  * @param num_rows total number of rows in the table
  * @param num_columns total number of columns in the table
@@ -976,16 +984,17 @@ CUDF_KERNEL void copy_from_rows(const size_type num_rows,
  * @param input_data pointer to input data
  *
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_validity_from_rows(const size_type num_rows,
-                                         const size_type num_columns,
-                                         const size_type shmem_used_per_tile,
-                                         RowOffsetFunctor row_offsets,
-                                         size_type const* batch_row_boundaries,
-                                         bitmask_type** output_nm,
-                                         const size_type validity_offset,
-                                         device_span<const tile_info> tile_infos,
-                                         const int8_t* input_data)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void copy_validity_from_rows(const size_type num_rows,
+                               const size_type num_columns,
+                               const size_type shmem_used_per_tile,
+                               RowOffsetFunctor row_offsets,
+                               size_type const* batch_row_boundaries,
+                               bitmask_type** output_nm,
+                               const size_type validity_offset,
+                               device_span<const tile_info> tile_infos,
+                               const int8_t* input_data)
 {
   extern __shared__ int8_t shared[];
 
@@ -1087,6 +1096,7 @@ CUDF_KERNEL void copy_validity_from_rows(const size_type num_rows,
 /**
  * @brief copies string data from jcudf row format to cudf columns
  *
+ * @tparam block_size number of threads in a block.
  * @tparam RowOffsetFunctor iterator for row offsets into the destination data
  * @param row_offsets offsets for each row in input data
  * @param string_row_offsets offset data into jcudf row data for each string
@@ -1097,15 +1107,16 @@ CUDF_KERNEL void copy_validity_from_rows(const size_type num_rows,
  * @param num_rows number of rows in data
  * @param num_string_columns number of string columns in the table
  */
-template <typename RowOffsetFunctor>
-CUDF_KERNEL void copy_strings_from_rows(RowOffsetFunctor row_offsets,
-                                        int32_t** string_row_offsets,
-                                        int32_t** string_lengths,
-                                        size_type** string_column_offsets,
-                                        char** string_col_data,
-                                        int8_t const* row_data,
-                                        size_type const num_rows,
-                                        size_type const num_string_columns)
+template <int block_size, typename RowOffsetFunctor>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void copy_strings_from_rows(RowOffsetFunctor row_offsets,
+                              int32_t** string_row_offsets,
+                              int32_t** string_lengths,
+                              size_type** string_column_offsets,
+                              char** string_col_data,
+                              int8_t const* row_data,
+                              size_type const num_rows,
+                              size_type const num_string_columns)
 {
   // Each warp takes a tile, which is a single column and up to ROWS_PER_BLOCK rows. A tile will not
   // wrap around the bottom of the table. The warp will copy the strings for each row in the tile.
@@ -1873,33 +1884,31 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   auto const validity_offset = column_info.column_starts.back();
 
   // blast through the entire table and convert it
-  detail::copy_to_rows<<<gpu_tile_infos.size(),
-                         NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                         total_shmem_in_bytes,
-                         stream.value()>>>(num_rows,
-                                           tbl.num_columns(),
-                                           shmem_limit_per_tile,
-                                           gpu_tile_infos,
-                                           dev_input_data.data(),
-                                           dev_col_sizes.data(),
-                                           dev_col_starts.data(),
-                                           offset_functor,
-                                           batch_info.d_batch_row_boundaries.data(),
-                                           reinterpret_cast<int8_t**>(dev_output_data.data()));
+  detail::copy_to_rows<BLOCK_SIZE>
+    <<<gpu_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+      num_rows,
+      tbl.num_columns(),
+      shmem_limit_per_tile,
+      gpu_tile_infos,
+      dev_input_data.data(),
+      dev_col_sizes.data(),
+      dev_col_starts.data(),
+      offset_functor,
+      batch_info.d_batch_row_boundaries.data(),
+      reinterpret_cast<int8_t**>(dev_output_data.data()));
 
   // note that validity gets the entire table and not the fixed-width portion
-  detail::copy_validity_to_rows<<<validity_tile_infos.size(),
-                                  NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                                  total_shmem_in_bytes,
-                                  stream.value()>>>(num_rows,
-                                                    tbl.num_columns(),
-                                                    shmem_limit_per_tile,
-                                                    offset_functor,
-                                                    batch_info.d_batch_row_boundaries.data(),
-                                                    dev_output_data.data(),
-                                                    validity_offset,
-                                                    dev_validity_tile_infos,
-                                                    dev_input_nm.data());
+  detail::copy_validity_to_rows<BLOCK_SIZE>
+    <<<validity_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+      num_rows,
+      tbl.num_columns(),
+      shmem_limit_per_tile,
+      offset_functor,
+      batch_info.d_batch_row_boundaries.data(),
+      dev_output_data.data(),
+      validity_offset,
+      dev_validity_tile_infos,
+      dev_input_nm.data());
 
   if (!fixed_width_only) {
     // build table view for variable-width data only
@@ -1928,18 +1937,17 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
         std::min(MAX_STRING_BLOCKS,
                  util::div_rounding_up_unsafe(batch_num_rows, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS)));
 
-      detail::copy_strings_to_rows<<<string_blocks,
-                                     NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                                     0,
-                                     stream.value()>>>(batch_num_rows,
-                                                       variable_width_table.num_columns(),
-                                                       dev_variable_input_data.data(),
-                                                       dev_variable_col_output_offsets.data(),
-                                                       variable_width_offsets->data(),
-                                                       column_info.size_per_row,
-                                                       offset_functor,
-                                                       batch_row_offset,
-                                                       reinterpret_cast<int8_t*>(output_data[i]));
+      detail::copy_strings_to_rows<NUM_STRING_ROWS_PER_BLOCK_TO_ROWS>
+        <<<string_blocks, NUM_STRING_ROWS_PER_BLOCK_TO_ROWS, 0, stream.value()>>>(
+          batch_num_rows,
+          variable_width_table.num_columns(),
+          dev_variable_input_data.data(),
+          dev_variable_col_output_offsets.data(),
+          variable_width_offsets->data(),
+          column_info.size_per_row,
+          offset_functor,
+          batch_row_offset,
+          reinterpret_cast<int8_t*>(output_data[i]));
     }
   }
 
@@ -2311,61 +2319,57 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   if (dev_string_row_offsets.size() == 0) {
     detail::fixed_width_row_offset_functor offset_functor(size_per_row);
 
-    detail::copy_from_rows<<<gpu_tile_infos.size(),
-                             NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                             total_shmem_in_bytes,
-                             stream.value()>>>(num_rows,
-                                               num_columns,
-                                               shmem_limit_per_tile,
-                                               offset_functor,
-                                               gpu_batch_row_boundaries.data(),
-                                               dev_output_data.data(),
-                                               dev_col_sizes.data(),
-                                               dev_col_starts.data(),
-                                               gpu_tile_infos,
-                                               child.data<int8_t>());
+    detail::copy_from_rows<BLOCK_SIZE>
+      <<<gpu_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+        num_rows,
+        num_columns,
+        shmem_limit_per_tile,
+        offset_functor,
+        gpu_batch_row_boundaries.data(),
+        dev_output_data.data(),
+        dev_col_sizes.data(),
+        dev_col_starts.data(),
+        gpu_tile_infos,
+        child.data<int8_t>());
 
-    detail::copy_validity_from_rows<<<validity_tile_infos.size(),
-                                      NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                                      total_shmem_in_bytes,
-                                      stream.value()>>>(num_rows,
-                                                        num_columns,
-                                                        shmem_limit_per_tile,
-                                                        offset_functor,
-                                                        gpu_batch_row_boundaries.data(),
-                                                        dev_output_nm.data(),
-                                                        column_info.column_starts.back(),
-                                                        dev_validity_tile_infos,
-                                                        child.data<int8_t>());
+    detail::copy_validity_from_rows<BLOCK_SIZE>
+      <<<validity_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+        num_rows,
+        num_columns,
+        shmem_limit_per_tile,
+        offset_functor,
+        gpu_batch_row_boundaries.data(),
+        dev_output_nm.data(),
+        column_info.column_starts.back(),
+        dev_validity_tile_infos,
+        child.data<int8_t>());
 
   } else {
     detail::string_row_offset_functor offset_functor(device_span<size_type const>{input.offsets()});
-    detail::copy_from_rows<<<gpu_tile_infos.size(),
-                             NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                             total_shmem_in_bytes,
-                             stream.value()>>>(num_rows,
-                                               num_columns,
-                                               shmem_limit_per_tile,
-                                               offset_functor,
-                                               gpu_batch_row_boundaries.data(),
-                                               dev_output_data.data(),
-                                               dev_col_sizes.data(),
-                                               dev_col_starts.data(),
-                                               gpu_tile_infos,
-                                               child.data<int8_t>());
+    detail::copy_from_rows<BLOCK_SIZE>
+      <<<gpu_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+        num_rows,
+        num_columns,
+        shmem_limit_per_tile,
+        offset_functor,
+        gpu_batch_row_boundaries.data(),
+        dev_output_data.data(),
+        dev_col_sizes.data(),
+        dev_col_starts.data(),
+        gpu_tile_infos,
+        child.data<int8_t>());
 
-    detail::copy_validity_from_rows<<<validity_tile_infos.size(),
-                                      NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                                      total_shmem_in_bytes,
-                                      stream.value()>>>(num_rows,
-                                                        num_columns,
-                                                        shmem_limit_per_tile,
-                                                        offset_functor,
-                                                        gpu_batch_row_boundaries.data(),
-                                                        dev_output_nm.data(),
-                                                        column_info.column_starts.back(),
-                                                        dev_validity_tile_infos,
-                                                        child.data<int8_t>());
+    detail::copy_validity_from_rows<BLOCK_SIZE>
+      <<<validity_tile_infos.size(), BLOCK_SIZE, total_shmem_in_bytes, stream.value()>>>(
+        num_rows,
+        num_columns,
+        shmem_limit_per_tile,
+        offset_functor,
+        gpu_batch_row_boundaries.data(),
+        dev_output_nm.data(),
+        column_info.column_starts.back(),
+        dev_validity_tile_infos,
+        child.data<int8_t>());
 
     std::vector<device_uvector<size_type>> string_col_offsets;
     std::vector<rmm::device_uvector<char>> string_data_cols;
@@ -2401,18 +2405,16 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
       std::min(std::max(MIN_STRING_BLOCKS, num_rows / NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS),
                MAX_STRING_BLOCKS));
 
-    detail::copy_strings_from_rows<<<string_blocks,
-                                     NUM_WARPS_IN_BLOCK * cudf::detail::warp_size,
-                                     0,
-                                     stream.value()>>>(
-      offset_functor,
-      dev_string_row_offsets.data(),
-      dev_string_lengths.data(),
-      dev_string_col_offsets.data(),
-      dev_string_data_cols.data(),
-      child.data<int8_t>(),
-      num_rows,
-      static_cast<cudf::size_type>(string_col_offsets.size()));
+    detail::copy_strings_from_rows<NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS>
+      <<<string_blocks, NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS, 0, stream.value()>>>(
+        offset_functor,
+        dev_string_row_offsets.data(),
+        dev_string_lengths.data(),
+        dev_string_col_offsets.data(),
+        dev_string_data_cols.data(),
+        child.data<int8_t>(),
+        num_rows,
+        static_cast<cudf::size_type>(string_col_offsets.size()));
 
     // merge strings back into output_columns
     int string_idx = 0;
