@@ -418,6 +418,57 @@ TEST_F(ShuffleSplitTests, PurgeNulls)
   CUDF_EXPECTS(!result->get_column(0).nullable(), "Got a nullable column when none was expected");
 }
 
+TEST_F(ShuffleSplitTests, EmptyOffsets)
+{
+  // test various cases where there are no offsets in offset-based columns:
+  // - string columns that have no offset child at all
+  // - string or list columns with no rows
+  // both cases should propagate no offset data, instead of just naively sending (num_rows+1)
+
+  // list<string> with empty strings
+  cudf::test::strings_column_wrapper strings0{};
+  cudf::test::fixed_width_column_wrapper<int> offsets0{0, 0, 0};
+  auto col0 = cudf::make_lists_column(2,
+                                      offsets0.release(),
+                                      strings0.release(),
+                                      0,
+                                      {},
+                                      cudf::get_default_stream(),
+                                      rmm::mr::get_current_device_resource());
+  cudf::lists_column_view lcv(*col0);
+  CUDF_EXPECTS(lcv.child().num_children() == 0, "String column is expected to have no offsets");
+
+  // list<list<int>> with empty inner list
+  cudf::test::lists_column_wrapper<int> list0{};
+  cudf::test::fixed_width_column_wrapper<int> offsets1{0, 0, 0};
+  auto col1 = cudf::make_lists_column(2,
+                                      offsets1.release(),
+                                      list0.release(),
+                                      0,
+                                      {},
+                                      cudf::get_default_stream(),
+                                      rmm::mr::get_current_device_resource());
+
+  // list<struct<int, int>>
+  cudf::test::fixed_width_column_wrapper<int> ints0{-210, 311};
+  cudf::test::fixed_width_column_wrapper<int> ints1{293, 992};
+  std::vector<std::unique_ptr<cudf::column>> inner_children;
+  inner_children.push_back(ints0.release());
+  inner_children.push_back(ints1.release());
+  cudf::test::structs_column_wrapper inner_struct(std::move(inner_children));
+  cudf::test::fixed_width_column_wrapper<int> offsets2{0, 1, 2};
+  auto col2 = cudf::make_lists_column(2,
+                                      offsets2.release(),
+                                      inner_struct.release(),
+                                      0,
+                                      {},
+                                      cudf::get_default_stream(),
+                                      rmm::mr::get_current_device_resource());
+
+  cudf::table_view tbl{{*col0, *col1, *col2, *col1}};
+  auto result = run_split(tbl, {});
+}
+
 TEST_F(ShuffleSplitTests, EmptySplits)
 {
   cudf::size_type const num_rows = 100;
