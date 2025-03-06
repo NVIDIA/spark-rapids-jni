@@ -253,6 +253,22 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  public static void writeCPUCore(HostColumnVector[] columns, KudoSerializer serializer,
+                           int [] slices, int numRows, OutputStream out) {
+    int start = 0;
+    int end;
+    for (int i = 0; i < slices.length + 1; i++) {
+      if (i >= slices.length) {
+        end = numRows;
+      } else {
+        end = slices[i];
+      }
+      int len = end - start;
+      serializer.writeToStreamWithMetrics(columns, out, start, len);
+      start = end;
+    }
+  }
+
   public static byte[] writeCPU(Table table, int[] slices) {
     int numRows = (int)table.getRowCount();
     int numColumns = table.getNumberOfColumns();
@@ -264,18 +280,7 @@ public class KudoGpuSerializerTest {
       Schema s = KudoSerializerTest.schemaOf(table);
       KudoSerializer serializer = new KudoSerializer(s);
       ByteArrayOutputStream baos = new ByteArrayOutputStream();
-      int start = 0;
-      int end;
-      for (int i = 0; i < slices.length + 1; i++) {
-        if (i >= slices.length) {
-          end = numRows;
-        } else {
-          end = slices[i];
-        }
-        int len = end - start;
-        serializer.writeToStreamWithMetrics(columns, baos, start, len);
-        start = end;
-      }
+      writeCPUCore(columns, serializer, slices, numRows, baos);
       return baos.toByteArray();
     } finally {
       for (HostColumnVector hcv: columns) {
@@ -392,60 +397,6 @@ public class KudoGpuSerializerTest {
     }
   }
 
-//  public void doSinglePartGPUWriteCPUReadTest(String name, Table table) throws Exception {
-//    DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
-//    assertEquals(2, buffers.length);
-//    try (DeviceMemoryBuffer data = buffers[0];
-//         DeviceMemoryBuffer offsets = buffers[1]) {
-//      // Ignoring the offsets for now because it should just be the start to the end of the buffer (one split)
-//      Schema s = KudoSerializerTest.schemaOf(table);
-//      KudoSerializer serializer = new KudoSerializer(s);
-//      ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
-//      serializer.writeToStreamWithMetrics(table, tmpOut, 0, (int)table.getRowCount());
-//      byte[] hDataCPU = tmpOut.toByteArray();
-//      byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
-//      try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
-//        tmp.copyFromDeviceBuffer(data);
-//        tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
-//      }
-//      logPartitionComparison(name, hDataGPU, hDataCPU);
-//
-//      // TODO verify that there is nothing more to read
-//      ByteArrayInputStream bin = new ByteArrayInputStream(hDataGPU);
-//      try (KudoTable kt = KudoTable.from(bin).get();
-//           Table combined = serializer.mergeToTable(Collections.singletonList(kt)).getLeft()) {
-//        TableDebug.get().debug("FROM CPU", combined);
-//        TableDebug.get().debug("expected", table);
-//        assertTablesAreEqual(table, combined);
-//      }
-//    }
-//  }
-//
-//  public void doSinglePartGPUWriteGPUReadTest(String name, Table table) throws Exception {
-//    DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(table);
-//    assertEquals(2, buffers.length);
-//    try (DeviceMemoryBuffer data = buffers[0];
-//         DeviceMemoryBuffer offsets = buffers[1]) {
-//      Schema s = KudoSerializerTest.schemaOf(table);
-//      KudoSerializer serializer = new KudoSerializer(s);
-//      ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
-//      serializer.writeToStreamWithMetrics(table, tmpOut, 0, (int)table.getRowCount());
-//      byte[] hDataCPU = tmpOut.toByteArray();
-//      byte[] hDataGPU = new byte[(int) data.getLength()]; // It will not be so large we need a long
-//      try (HostMemoryBuffer tmp = HostMemoryBuffer.allocate(data.getLength())) {
-//        tmp.copyFromDeviceBuffer(data);
-//        tmp.getBytes(hDataGPU, 0, 0, hDataGPU.length);
-//      }
-//      logPartitionComparison(name, hDataGPU, hDataCPU);
-//      TableDebug.get().debug("EXPECTED", table);
-//
-//      try (Table combined = KudoGpuSerializer.assembleFromDeviceRaw(s, data, offsets)) {
-//        TableDebug.get().debug("FROM GPU", combined);
-//        assertTablesAreEqual(table, combined);
-//      }
-//    }
-//  }
-
   static Table perfTable(int numRows, int numColumns) {
     try (Scalar s = Scalar.fromLong(1);
       ColumnVector cv = ColumnVector.sequence(s, numRows)) {
@@ -455,20 +406,16 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  public static void main(String [] args) {
-    KudoGpuSerializerTest t = new KudoGpuSerializerTest();
-    t.writePerfTest();
-  }
-
-  //@Test
-  public void writePerfTest() {
+  public static void main(String [] args) throws Exception {
     Rmm.initialize(RmmAllocationMode.CUDA_ASYNC, null, 5L * 1024 * 1024 * 1024);
-    int numColumns = 10;
-    int numIters = 9;
+    KudoGpuSerializerTest t = new KudoGpuSerializerTest();
     int[] rowOptions = {10, 200, 1000, 10000, 100000, 1000000, 10000000};
     int[] sliceOptions = {10, 200, 1000, 10000, 100000};
-    //int[] rowOptions = {10000000};
-    //int[] sliceOptions = {200, 1000};
+    t.writePerfTest(10, 9, rowOptions, sliceOptions);
+    t.readPerfTest(10, 9, rowOptions, sliceOptions);
+  }
+
+  public void writePerfTest(int numColumns, int numIters, int [] rowOptions, int[] sliceOptions) {
     ArrayList<Long> cpuTimes = new ArrayList<>();
     ArrayList<Long> gpuTimes = new ArrayList<>();
     for (int numSlices : sliceOptions) {
@@ -480,19 +427,10 @@ public class KudoGpuSerializerTest {
         }
         cpuTimes.clear();
         gpuTimes.clear();
-        int rowsPerSlice = numRows / numSlices;
         long size = -1;
-        int[] slices = new int[numSlices - 1];
-        int offset = 0;
-        //int strt;
-        for (int i = 0; i < slices.length; i++) {
-          //strt = offset;
-          offset += rowsPerSlice;
-          //System.err.println("EXPECTED " + i + " " + strt + " TO " + offset);
-          slices[i] = offset;
-        }
-        //System.err.println("EXPECTED END " + offset + " TO " + numRows);
+
         try (Table t = perfTable(numRows, numColumns)) {
+          int [] slices = calcEvenSlices(t, numSlices);
           // CPU TEST!!!
           HostColumnVector[] columns = new HostColumnVector[numColumns];
           try (NvtxRange r = new NvtxRange("PRE COPY TABLE TO HOST", NvtxColor.RED)) {
@@ -504,20 +442,9 @@ public class KudoGpuSerializerTest {
             for (int iter = 0; iter < numIters; iter++) {
               KudoSerializer ser = new KudoSerializer(schemaOf(t));
               JustCountOutputStream jc = new JustCountOutputStream();
-              try (NvtxRange r = new NvtxRange(numSlices + " " + numRows + " CPU", NvtxColor.BLUE)) {
+              try (NvtxRange r = new NvtxRange("WRITE " + numSlices + " " + numRows + " CPU", NvtxColor.BLUE)) {
                 long cpuStart = System.nanoTime();
-                int start = 0;
-                int end;
-                for (int i = 0; i < numSlices; i++) {
-                  if (i >= slices.length) {
-                    end = numRows;
-                  } else {
-                    end = slices[i];
-                  }
-                  int len = end - start;
-                  ser.writeToStreamWithMetrics(columns, jc, start, len);
-                  start = end;
-                }
+                writeCPUCore(columns, ser, slices, numRows, jc);
                 long cpuEnd = System.nanoTime();
                 size = jc.length;
                 cpuTimes.add((cpuEnd - cpuStart));
@@ -528,13 +455,13 @@ public class KudoGpuSerializerTest {
               columns[c].close();
             }
           }
-          System.err.println("CPU: " +
+          System.err.println("WRITE CPU: " +
               " SIZE " + size +
               " WITH COPY\n=MEDIAN(" + cpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
 
           // GPU Test
           for (int iter = 0; iter < numIters; iter++) {
-            try (NvtxRange r = new NvtxRange(numSlices + " " + numRows + " GPU", NvtxColor.GREEN)) {
+            try (NvtxRange r = new NvtxRange("WRITE " + numSlices + " " + numRows + " GPU", NvtxColor.GREEN)) {
               long gpuStart = System.nanoTime();
               DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(t, slices);
               try {
@@ -549,7 +476,76 @@ public class KudoGpuSerializerTest {
             }
           }
 
-          System.err.println("GPU: " +
+          System.err.println("WRITE GPU: " +
+              " SIZE " + size +
+              " WITH COPY\n=MEDIAN(" + gpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
+          System.err.println();
+        }
+      }
+    }
+  }
+
+
+  public void readPerfTest(int numColumns, int numIters, int [] rowOptions, int[] sliceOptions) throws Exception {
+    ArrayList<Long> cpuTimes = new ArrayList<>();
+    ArrayList<Long> gpuTimes = new ArrayList<>();
+    for (int numSlices : sliceOptions) {
+      System.err.println("\nSLICES: " + String.format("%,d", numSlices));
+      for (int numRows : rowOptions) {
+        System.err.println("ROWS: " + String.format("%,d", numRows));
+        if (numSlices > numRows) {
+          continue;
+        }
+        cpuTimes.clear();
+        gpuTimes.clear();
+        long size = -1;
+
+        try (Table t = perfTable(numRows, numColumns)) {
+          Schema schema = schemaOf(t);
+          int [] slices = calcEvenSlices(t, numSlices);
+          // CPU TEST!!!
+          byte[] data = writeCPU(t, slices);
+          size = data.length;
+
+          for (int iter = 0; iter < numIters; iter++) {
+            KudoSerializer ser = new KudoSerializer(schema);
+            DataInputStream din = new DataInputStream(new ByteArrayInputStream(data));
+            try (NvtxRange r = new NvtxRange("READ " + numSlices + " " + numRows + " CPU", NvtxColor.BLUE)) {
+              long cpuStart = System.nanoTime();
+              ArrayList<KudoTable> kudoTables = new ArrayList<>(numSlices);
+              Optional<KudoTable> kt;
+              do {
+                kt = KudoTable.from(din);
+                kt.ifPresent(kudoTables::add);
+              } while(kt.isPresent());
+              ser.mergeOnHost(kudoTables.toArray(new KudoTable[kudoTables.size()])).close();
+              long cpuEnd = System.nanoTime();
+              cpuTimes.add((cpuEnd - cpuStart));
+            }
+          }
+          System.err.println("READ CPU: " +
+              " SIZE " + size +
+              " WITH COPY\n=MEDIAN(" + cpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
+
+          // GPU Test
+          DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(t, slices);
+          try {
+            size = buffers[0].getLength();
+            for (int iter = 0; iter < numIters; iter++) {
+              try (NvtxRange r = new NvtxRange("READ " + numSlices + " " + numRows + " GPU", NvtxColor.GREEN)) {
+                long gpuStart = System.nanoTime();
+                KudoGpuSerializer.assembleFromDeviceRaw(schema, buffers[0], buffers[1]).close();
+                // We are not going to copy them back to the host here.
+                long gpuEnd = System.nanoTime();
+                gpuTimes.add(gpuEnd - gpuStart);
+              }
+            }
+          } finally {
+            buffers[0].close();
+            buffers[1].close();
+          }
+
+          System.err.println("READ GPU: " +
               " SIZE " + size +
               " WITH COPY\n=MEDIAN(" + gpuTimes.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")");
           System.err.println();
