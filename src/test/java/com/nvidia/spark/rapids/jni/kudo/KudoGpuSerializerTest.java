@@ -23,6 +23,7 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
@@ -411,11 +412,46 @@ public class KudoGpuSerializerTest {
     Cuda.autoSetDevice();
     // 5 GiB device memory pool for now...
     Rmm.initialize(RmmAllocationMode.CUDA_ASYNC, null, 5L * 1024 * 1024 * 1024);
-    // 2 GiB pinned pool for now...
-    PinnedMemoryPool.initialize(2L * 1024 * 1024 * 1024);
-    KudoGpuSerializerTest t = new KudoGpuSerializerTest();
-    int[] rowOptions = {10, 200, 1000, 10000, 100000, 1000000, 10000000};
-    int[] sliceOptions = {10, 200, 1000, 10000, 100000};
+    // 5 GiB pinned pool for now...
+    PinnedMemoryPool.initialize(5L * 1024 * 1024 * 1024);
+    // This is the 10 column test
+//    int[] rowOptions = {10, 200, 1000, 10000, 100000, 1000000, 10000000};
+//    int[] sliceOptions = {10, 200, 1000, 10000, 100000};
+//    runRoundTripPerTests(10, rowOptions, sliceOptions, 9);
+    for (int numColumns: new int[]{1, 10, 100, 200, 500, 1000, 2000}) {
+      int[] sizes = new int[]{1024*2, 1024*64, 1024*1024, 10*1024*1024, 100*1024*1024, 1024*1024*1024};
+      runRoundTripPerTests(numColumns, sizes, 9);
+    }
+  }
+
+  static String toMedian(ArrayList<Long> numbers) {
+    return "=MEDIAN(" + numbers.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")";
+  }
+
+  public static void runRoundTripPerTests(int numColumns, int[] sizes, int numIters) throws Exception {
+    int sizePerRow = numColumns * 8;
+    int[] rowOptions = new int[sizes.length];
+    int[] sliceOptions = {1, 10, 200, 1000, 10000, 100000};
+    //TreeSet<Integer> slices = new TreeSet<>();
+    //slices.add(1);
+    //slices.add(200);
+    for (int i = 0; i < sizes.length; i++) {
+      int value = Math.max(1, sizes[i] / sizePerRow);
+      rowOptions[i] = value;
+      //if (value <= 100000) {
+      //  slices.add(value);
+      //}
+    }
+    //int[] sliceOptions = new int[slices.size()];
+    //int i = 0;
+    //for (Integer slice : slices) {
+    //  sliceOptions[i] = slice;
+    //  i++;
+    //}
+    runRoundTripPerTests(numColumns, rowOptions, sliceOptions, numIters);
+  }
+
+  public static void runRoundTripPerTests(int numColumns, int[] rowOptions, int[] sliceOptions, int numIters) throws Exception {
     for (int numRows : rowOptions) {
       System.err.println();
       System.err.println("ROWS: "+ numRows);
@@ -424,17 +460,13 @@ public class KudoGpuSerializerTest {
         if (numSlices > numRows) {
           continue;
         }
-        t.roundTripPerfTestCPU(10, numRows, numSlices, 9);
-        t.roundTripPerfTestGPU(10, numRows, numSlices, 9);
+        roundTripPerfTestCPU(numColumns, numRows, numSlices, numIters);
+        roundTripPerfTestGPU(numColumns, numRows, numSlices, numIters);
       }
     }
   }
 
-  String toMedian(ArrayList<Long> numbers) {
-    return "=MEDIAN(" + numbers.stream().map(String::valueOf).collect(Collectors.joining(",")) + ")";
-  }
-
-  public void roundTripPerfTestCPU(int numColumns, int numRows, int numSlices, int numIters) throws Exception {
+  public static void roundTripPerfTestCPU(int numColumns, int numRows, int numSlices, int numIters) throws Exception {
     if (numSlices > numRows) {
       return;
     }
@@ -544,7 +576,7 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  public void roundTripPerfTestGPU(int numColumns, int numRows, int numSlices, int numIters) throws Exception {
+  public static void roundTripPerfTestGPU(int numColumns, int numRows, int numSlices, int numIters) throws Exception {
     if (numSlices > numRows) {
       return;
     }
@@ -614,11 +646,11 @@ public class KudoGpuSerializerTest {
           try (NvtxRange r = new NvtxRange("READ GPU", NvtxColor.BLUE)) {
             byte[] arr = innerBao.toByteArray();
             DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
-            // Target batch size for allocation 1 GiB (need some things to deal with single batch too large, but...)
+            // Target batch size for allocation 2 GiB (need some things to deal with single batch too large, but...)
             DeviceMemoryBuffer devDataRead = null;
             DeviceMemoryBuffer devOffsetsRead = null;
             try {
-              try (HostMemoryBuffer hostDataRead = HostMemoryBuffer.allocate(1024 * 1024 * 1024, true)) {
+              try (HostMemoryBuffer hostDataRead = HostMemoryBuffer.allocate(Integer.MAX_VALUE, true)) {
                 ArrayList<Long> offsets = new ArrayList<>();
                 long currentOffset = 0;
                 offsets.add(currentOffset);
