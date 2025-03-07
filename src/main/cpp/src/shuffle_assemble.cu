@@ -22,6 +22,7 @@
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/hashing/detail/hash_functions.cuh>
@@ -252,7 +253,8 @@ __global__ void compute_offset_child_row_counts(
           auto const last_num_rows = num_rows;
           src_row_index            = offsets[0];
           num_rows                 = offsets[num_rows] - offsets[0];
-          offsets += (last_num_rows + 1);
+          // columns with no rows have no offsets at all
+          offsets += (last_num_rows > 0 ? (last_num_rows + 1) : 0);
         } break;
         // structs are a branch point, so we record the current num_rows, how many children are
         // left to be processed, and current row index.
@@ -270,7 +272,8 @@ __global__ void compute_offset_child_row_counts(
         // end of a chain of children
         case cudf::type_id::STRING:
           col_inst.num_chars = offsets[num_rows] - offsets[0];
-          offsets += (num_rows + 1);
+          // columns with no rows have no offsets at all
+          offsets += (num_rows > 0 ? (num_rows + 1) : 0);
           // fallthrough
         default: {
           if (rc_stack_pos >= 0) {
@@ -588,7 +591,7 @@ struct assemble_src_buffer_size_functor {
       col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
 
     // offsets
-    *offsets_out = sizeof(size_type) * (col.num_rows + 1);
+    *offsets_out = col.num_rows > 0 ? (sizeof(size_type) * (col.num_rows + 1)) : 0;
 
     // no data for lists
     *data_out = 0;
@@ -623,7 +626,7 @@ struct assemble_src_buffer_size_functor {
     *data_out = sizeof(int8_t) * col.num_chars;
 
     // offsets
-    *offsets_out = sizeof(size_type) * (col.num_rows + 1);
+    *offsets_out = col.num_rows > 0 ? (sizeof(size_type) * (col.num_rows + 1)) : 0;
   }
 
   template <typename T,
@@ -1201,9 +1204,6 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
           return src_sizes_unpadded[src_buf_index];
         }();
 
-        partition_header const* const pheader = reinterpret_cast<partition_header const*>(
-          partitions + partition_offsets[partition_index]);
-
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
@@ -1752,6 +1752,8 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+
   // if the input is empty, just generate an empty table
   if (partition_offsets.size() == 1) { return build_empty_table(metadata.col_info, stream, mr); }
 
