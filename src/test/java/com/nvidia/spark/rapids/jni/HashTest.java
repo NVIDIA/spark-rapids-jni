@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -843,6 +843,31 @@ public class HashTest {
          ColumnVector result = Hash.hiveHash(new ColumnView[]{structListCV});
          ColumnVector expected = ColumnVector.fromInts(0, 89581538, -1201635432, 1272817854, -323360610, 0)) {
       assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void testHiveHashCornerCases() {
+    try (ColumnVector emptyListCV = ColumnVector.fromLists(
+             new ListType(true, new BasicType(true, DType.INT32)),
+             Collections.emptyList());
+         ColumnVector int1 = ColumnVector.fromBoxedInts(1);
+         ColumnVector int2 = ColumnVector.fromBoxedInts(2);
+         ColumnView structContainsEmptyList = ColumnView.makeStructView(int1, emptyListCV, int2);
+         ColumnView structContainsNoChild = ColumnVector.makeStructView(1);
+         ColumnView nestedStruct = ColumnView.makeStructView(int1, structContainsNoChild, int2);
+         ColumnVector nestedListCV = ColumnVector.fromLists(
+             new ListType(true, new ListType(true, new BasicType(true, DType.INT32))),
+             Arrays.asList(Collections.singletonList(1), null, Collections.singletonList(2)));
+         ColumnVector result1 = Hash.hiveHash(new ColumnView[]{structContainsEmptyList});
+         ColumnVector result2 = Hash.hiveHash(new ColumnView[]{nestedStruct});
+         ColumnVector result3 = Hash.hiveHash(new ColumnView[]{nestedListCV});
+         ColumnVector expected1 = ColumnVector.fromInts(963);
+         ColumnVector expected2 = ColumnVector.fromInts(963);
+         ColumnVector expected3 = ColumnVector.fromInts(963)) {
+      assertColumnsAreEqual(expected1, result1);
+      assertColumnsAreEqual(expected2, result2);
+      assertColumnsAreEqual(expected3, result3);
     }
   }
 
