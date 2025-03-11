@@ -598,7 +598,10 @@ public class KudoSerializerTest {
       kudoTables[1] = KudoTable.from(bin).get();
       
       // merge the two tables and dump the result to the temp file
-      serializer.mergeOnHostDebug(kudoTables, dumpPath, true);
+      KudoSerializer.MergeOptions options = serializer.new MergeOptions();
+      options.dumpOption = KudoSerializer.DumpOption.Always;
+      options.path = dumpPath;
+      serializer.mergeOnHost(kudoTables, options);
       
       // Verify dump file exists and has content
       assertTrue(tempFile.exists(), "Dump file should exist");

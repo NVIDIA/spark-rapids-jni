@@ -43,6 +43,11 @@ import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.FSDataOutputStream;
+
 /**
  * This class is used to serialize/deserialize a table using the Kudo format.
  *
@@ -284,31 +289,60 @@ public class KudoSerializer {
   }
 
   /**
-   * Dump a list of kudo tables to a file.
+   * Dump a list of kudo tables to a file (local filesystem or HDFS).
    *
    * @param kudoTables list of kudo tables.
    * @param dumpPath path to dump the kudo tables to a file.
    */
-  public void dumpToFile(KudoTable[] kudoTables, String dumpPath) throws Exception {
-    // dump the kudoTables to a file
-    File file = new File(dumpPath);
-    try (FileOutputStream fos = new FileOutputStream(file)) {
-      // write the schema information as a string representation
-      fos.write(schema.toString().getBytes());
-    
-      for (int i = 0; i < kudoTables.length; i++) {
-        // write the buffer
-        ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
-        if (buffer != null) {
-          DataWriter writer = null;
-          try {
-            writer = writerFrom(fos);
-            KudoTableHeader header = kudoTables[i].getHeader();
-            header.writeTo(writer);
-            writer.copyDataFrom(buffer, 0, buffer.getLength());
-          } finally {
-            if (writer != null) {
-              writer.flush();
+  private void dumpToFile(KudoTable[] kudoTables, String dumpPath) throws Exception {
+    if (dumpPath.startsWith("hdfs://")) {
+      // HDFS path
+      Configuration conf = new Configuration();
+      FileSystem fs = FileSystem.get(conf);
+      Path path = new Path(dumpPath);
+      try (FSDataOutputStream fos = fs.create(path)) {
+        // write the schema information as a string representation
+        fos.write(schema.toString().getBytes());
+      
+        for (int i = 0; i < kudoTables.length; i++) {
+          // write the buffer
+          ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
+          if (buffer != null) {
+            DataWriter writer = null;
+            try {
+              writer = writerFrom(fos);
+              KudoTableHeader header = kudoTables[i].getHeader();
+              header.writeTo(writer);
+              writer.copyDataFrom(buffer, 0, buffer.getLength());
+            } finally {
+              if (writer != null) {
+                writer.flush();
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // Local file path
+      File file = new File(dumpPath);
+      try (FileOutputStream fos = new FileOutputStream(file)) {
+        // write the schema information as a string representation
+        fos.write(schema.toString().getBytes());
+      
+        for (int i = 0; i < kudoTables.length; i++) {
+          // write the buffer
+          ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
+          if (buffer != null) {
+            DataWriter writer = null;
+            try {
+              writer = writerFrom(fos);
+              KudoTableHeader header = kudoTables[i].getHeader();
+              header.writeTo(writer);
+              writer.copyDataFrom(buffer, 0, buffer.getLength());
+            } finally {
+              if (writer != null) {
+                writer.flush();
+              }
             }
           }
         }
@@ -331,6 +365,17 @@ public class KudoSerializer {
     return KudoTableMerger.merge(schema, mergedInfoCalc);
   }
 
+  enum DumpOption {
+    Always,
+    OnFailure,
+    Never
+  }
+
+  class MergeOptions {
+    DumpOption dumpOption;
+    String path;
+  }
+
  /**
    * Merge a list of kudo tables into a table on host memory.
    * <br/>
@@ -343,15 +388,15 @@ public class KudoSerializer {
    * @param alwaysDump if true, always dump the kudo tables to a file, otherwise only dump when an exception is thrown.
    * @return the merged table.
    */
-  public KudoHostMergeResult mergeOnHostDebug(KudoTable[] kudoTables, String dumpPath, boolean alwaysDump) throws Exception {
-    if (alwaysDump) {
-      dumpToFile(kudoTables, dumpPath);
+  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables, MergeOptions options) throws Exception {
+    if (options.dumpOption == DumpOption.Always) {
+      dumpToFile(kudoTables, options.path);
     }
     try {
       return mergeOnHost(kudoTables);
     } catch (Exception e) {
-      if (!alwaysDump && dumpPath != "") {
-        dumpToFile(kudoTables, dumpPath);
+      if (options.dumpOption == DumpOption.OnFailure) {
+        dumpToFile(kudoTables, options.path);
       }
       throw new RuntimeException(e);
     }
