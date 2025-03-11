@@ -43,11 +43,6 @@ import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.FSDataOutputStream;
-
 /**
  * This class is used to serialize/deserialize a table using the Kudo format.
  *
@@ -289,60 +284,31 @@ public class KudoSerializer {
   }
 
   /**
-   * Dump a list of kudo tables to a file (local filesystem or HDFS).
+   * Dump a list of kudo tables to a file.
    *
    * @param kudoTables list of kudo tables.
    * @param dumpPath path to dump the kudo tables to a file.
    */
   private void dumpToFile(KudoTable[] kudoTables, String dumpPath) throws Exception {
-    if (dumpPath.startsWith("hdfs://")) {
-      // HDFS path
-      Configuration conf = new Configuration();
-      FileSystem fs = FileSystem.get(conf);
-      Path path = new Path(dumpPath);
-      try (FSDataOutputStream fos = fs.create(path)) {
-        // write the schema information as a string representation
-        fos.write(schema.toString().getBytes());
-      
-        for (int i = 0; i < kudoTables.length; i++) {
-          // write the buffer
-          ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
-          if (buffer != null) {
-            DataWriter writer = null;
-            try {
-              writer = writerFrom(fos);
-              KudoTableHeader header = kudoTables[i].getHeader();
-              header.writeTo(writer);
-              writer.copyDataFrom(buffer, 0, buffer.getLength());
-            } finally {
-              if (writer != null) {
-                writer.flush();
-              }
-            }
-          }
-        }
-      }
-    } else {
-      // Local file path
-      File file = new File(dumpPath);
-      try (FileOutputStream fos = new FileOutputStream(file)) {
-        // write the schema information as a string representation
-        fos.write(schema.toString().getBytes());
-      
-        for (int i = 0; i < kudoTables.length; i++) {
-          // write the buffer
-          ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
-          if (buffer != null) {
-            DataWriter writer = null;
-            try {
-              writer = writerFrom(fos);
-              KudoTableHeader header = kudoTables[i].getHeader();
-              header.writeTo(writer);
-              writer.copyDataFrom(buffer, 0, buffer.getLength());
-            } finally {
-              if (writer != null) {
-                writer.flush();
-              }
+    // dump the kudoTables to a file
+    File file = new File(dumpPath);
+    try (FileOutputStream fos = new FileOutputStream(file)) {
+      // write the schema information as a string representation
+      fos.write(schema.toString().getBytes());
+    
+      for (int i = 0; i < kudoTables.length; i++) {
+        // write the buffer
+        ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
+        if (buffer != null) {
+          DataWriter writer = null;
+          try {
+            writer = writerFrom(fos);
+            KudoTableHeader header = kudoTables[i].getHeader();
+            header.writeTo(writer);
+            writer.copyDataFrom(buffer, 0, buffer.getLength());
+          } finally {
+            if (writer != null) {
+              writer.flush();
             }
           }
         }
