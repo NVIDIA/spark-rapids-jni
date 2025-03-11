@@ -348,8 +348,7 @@ public class KudoSerializer {
       dumpToFile(kudoTables, dumpPath);
     }
     try {
-      MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
-      return KudoTableMerger.merge(schema, mergedInfoCalc);
+      return mergeOnHost(kudoTables);
     } catch (Exception e) {
       if (!alwaysDump && dumpPath != null) {
         dumpToFile(kudoTables, dumpPath);
