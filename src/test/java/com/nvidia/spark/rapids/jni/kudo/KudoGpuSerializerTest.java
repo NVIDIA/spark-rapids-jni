@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
@@ -410,18 +411,16 @@ public class KudoGpuSerializerTest {
   public static void main(String [] args) throws Exception {
     Cuda.freeZero();
     Cuda.autoSetDevice();
-    // 5 GiB device memory pool for now...
-    Rmm.initialize(RmmAllocationMode.CUDA_ASYNC, null, 5L * 1024 * 1024 * 1024);
+    // 15 GiB device memory pool for now...
+    Rmm.initialize(RmmAllocationMode.CUDA_ASYNC, null, 15L * 1024 * 1024 * 1024);
     // 5 GiB pinned pool for now...
     PinnedMemoryPool.initialize(5L * 1024 * 1024 * 1024);
-    // This is the 10 column test
-//    int[] rowOptions = {10, 200, 1000, 10000, 100000, 1000000, 10000000};
-//    int[] sliceOptions = {10, 200, 1000, 10000, 100000};
-//    runRoundTripPerTests(10, rowOptions, sliceOptions, 9);
-    for (int numColumns: new int[]{1, 10, 100, 200, 500, 1000, 2000}) {
       int[] sizes = new int[]{1024*2, 1024*64, 1024*1024, 10*1024*1024, 100*1024*1024, 1024*1024*1024};
-      runRoundTripPerTests(numColumns, sizes, 9);
-    }
+//    for (int numColumns: new int[]{1, 10, 100, 200, 500, 1000, 2000}) {
+//      runRoundTripPerTests(numColumns, sizes, 9);
+//    }
+    roundTripJustCopyTestPartiallyPinnedTest(sizes, 9);
+    roundTripJustCopyTestFullyPinnedTest(sizes, 9);
   }
 
   static String toMedian(ArrayList<Long> numbers) {
@@ -432,22 +431,10 @@ public class KudoGpuSerializerTest {
     int sizePerRow = numColumns * 8;
     int[] rowOptions = new int[sizes.length];
     int[] sliceOptions = {1, 10, 200, 1000, 10000, 100000};
-    //TreeSet<Integer> slices = new TreeSet<>();
-    //slices.add(1);
-    //slices.add(200);
     for (int i = 0; i < sizes.length; i++) {
       int value = Math.max(1, sizes[i] / sizePerRow);
       rowOptions[i] = value;
-      //if (value <= 100000) {
-      //  slices.add(value);
-      //}
     }
-    //int[] sliceOptions = new int[slices.size()];
-    //int i = 0;
-    //for (Integer slice : slices) {
-    //  sliceOptions[i] = slice;
-    //  i++;
-    //}
     runRoundTripPerTests(numColumns, rowOptions, sliceOptions, numIters);
   }
 
@@ -461,8 +448,175 @@ public class KudoGpuSerializerTest {
           continue;
         }
         roundTripPerfTestCPU(numColumns, numRows, numSlices, numIters);
+        roundTripPerfTestCPUJcudf(numColumns, numRows, numSlices, numIters);
         roundTripPerfTestGPU(numColumns, numRows, numSlices, numIters);
       }
+    }
+  }
+
+  public static void roundTripJustCopyTestPartiallyPinnedTest(int[] sizes, int numIters) throws Exception {
+    for (int size: sizes) {
+      ArrayList<Long> copyToHostTimes = new ArrayList<>(numIters);
+      ArrayList<Long> writeTimes = new ArrayList<>(numIters);
+      ArrayList<Long> readTimes = new ArrayList<>(numIters);
+      ArrayList<Long> mergeTimes = new ArrayList<>(numIters);
+      ArrayList<Long> copyToDeviceTimes = new ArrayList<>(numIters);
+      ArrayList<Long> endToEndTimes = new ArrayList<>(numIters);
+      boolean dnf = false;
+      try {
+        try (DeviceMemoryBuffer t = DeviceMemoryBuffer.allocate(size)) {
+          // the 1.5 is just extra space
+          int estimatedSize = (int) Math.min((long) (size * 1.5), Integer.MAX_VALUE);
+
+          // we will start off with the CPU test
+          for (int iter = 0; iter < numIters; iter++) {
+            ByteArrayOutputStream bao = new ByteArrayOutputStream(estimatedSize);
+            long start;
+            long copyEndWriteStart;
+            long writeEndReadStart;
+            long readEndMergeStart;
+            long mergeEndTableStart;
+            long copyToDeviceEnd;
+            try (NvtxRange run = new NvtxRange(size + " PARTIAL PINNED", NvtxColor.BLUE)) {
+              start = System.nanoTime();
+              HostMemoryBuffer fromDev = HostMemoryBuffer.allocate(size, true);
+              try (NvtxRange cp = new NvtxRange("PARTIAL PINNED COPY TO HOST", NvtxColor.RED)) {
+                fromDev.copyFromDeviceBuffer(t);
+              }
+              copyEndWriteStart = System.nanoTime();
+              ByteArrayOutputStreamWriter wrapped = new ByteArrayOutputStreamWriter(bao);
+              try {
+                try (NvtxRange r = new NvtxRange("WRITE PARTLY PINNED", NvtxColor.BLUE)) {
+                  wrapped.copyDataFrom(fromDev, 0, size);
+                  wrapped.flush();
+                  writeEndReadStart = System.nanoTime();
+                }
+              } finally {
+                fromDev.close();
+              }
+              byte[] arr = bao.toByteArray();
+              size = arr.length;
+              DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
+              try (NvtxRange r = new NvtxRange("READ PARTLY PINNED", NvtxColor.BLUE)) {
+                HostMemoryBuffer merged = null;
+                try {
+                  try (HostMemoryBuffer readIn = HostMemoryBuffer.allocate(size, false)) {
+                    readIn.copyFromStream(0, din, size);
+                    readEndMergeStart = System.nanoTime();
+                    merged = HostMemoryBuffer.allocate(size, true);
+                    merged.copyFromHostBuffer(0, readIn, 0, size);
+                  }
+                  mergeEndTableStart = System.nanoTime();
+                  try (DeviceMemoryBuffer dest = DeviceMemoryBuffer.allocate(size)) {
+                    dest.copyFromHostBuffer(merged);
+                    copyToDeviceEnd = System.nanoTime();
+                  }
+                } finally {
+                  if (merged != null) {
+                    merged.close();
+                  }
+                }
+              }
+            }
+            // Add in the metrics
+            copyToHostTimes.add(copyEndWriteStart - start);
+            writeTimes.add(writeEndReadStart - copyEndWriteStart);
+            readTimes.add(readEndMergeStart - writeEndReadStart);
+            mergeTimes.add(mergeEndTableStart - readEndMergeStart);
+            copyToDeviceTimes.add(copyToDeviceEnd - mergeEndTableStart);
+            endToEndTimes.add(copyToDeviceEnd - start);
+          }
+        }
+      } catch (Throwable e) {
+        dnf = true;
+        System.err.println(e);
+        e.printStackTrace(System.err);
+      }
+      System.err.println("JUST COPY PARTLY PINNED:" + (dnf ? " DID NOT FINISH!!!" : "") +
+          "\n\tSIZE: " + size +
+          "\n\tEND2END:\n" + toMedian(endToEndTimes) +
+          "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
+          "\n\tWRITE:\n" + toMedian(writeTimes) +
+          "\n\tREAD:\n" + toMedian(readTimes) +
+          "\n\tMERGED:\n" + toMedian(mergeTimes) +
+          "\n\tCOPY_TO_DEVICE:\n" + toMedian(copyToDeviceTimes)
+      );
+    }
+  }
+
+  public static void roundTripJustCopyTestFullyPinnedTest(int[] sizes, int numIters) throws Exception {
+    for (int size: sizes) {
+      ArrayList<Long> copyToHostTimes = new ArrayList<>(numIters);
+      ArrayList<Long> writeTimes = new ArrayList<>(numIters);
+      ArrayList<Long> readTimes = new ArrayList<>(numIters);
+      ArrayList<Long> copyToDeviceTimes = new ArrayList<>(numIters);
+      ArrayList<Long> endToEndTimes = new ArrayList<>(numIters);
+      boolean dnf = false;
+      try {
+        try (DeviceMemoryBuffer t = DeviceMemoryBuffer.allocate(size)) {
+          // the 1.5 is just extra space
+          int estimatedSize = (int) Math.min((long) (size * 1.5), Integer.MAX_VALUE);
+
+          // we will start off with the CPU test
+          for (int iter = 0; iter < numIters; iter++) {
+            ByteArrayOutputStream bao = new ByteArrayOutputStream(estimatedSize);
+            long start;
+            long copyEndWriteStart;
+            long writeEndReadStart;
+            long readEndToDeviceStart;
+            long copyToDeviceEnd;
+            try (NvtxRange run = new NvtxRange(size + " FULLY PINNED", NvtxColor.BLUE)) {
+              start = System.nanoTime();
+              HostMemoryBuffer fromDev = HostMemoryBuffer.allocate(size, true);
+              try (NvtxRange cp = new NvtxRange("FULLY PINNED COPY TO HOST", NvtxColor.RED)) {
+                fromDev.copyFromDeviceBuffer(t);
+              }
+              copyEndWriteStart = System.nanoTime();
+              ByteArrayOutputStreamWriter wrapped = new ByteArrayOutputStreamWriter(bao);
+              try {
+                try (NvtxRange r = new NvtxRange("WRITE FULLY PINNED", NvtxColor.BLUE)) {
+                  wrapped.copyDataFrom(fromDev, 0, size);
+                  wrapped.flush();
+                  writeEndReadStart = System.nanoTime();
+                }
+              } finally {
+                fromDev.close();
+              }
+              byte[] arr = bao.toByteArray();
+              size = arr.length;
+              DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
+              try (NvtxRange r = new NvtxRange("READ FULLY PINNED", NvtxColor.BLUE)) {
+                try (HostMemoryBuffer readIn = HostMemoryBuffer.allocate(size, true)) {
+                    readIn.copyFromStream(0, din, size);
+                    readEndToDeviceStart = System.nanoTime();
+                  try (DeviceMemoryBuffer dest = DeviceMemoryBuffer.allocate(size)) {
+                    dest.copyFromHostBuffer(readIn);
+                    copyToDeviceEnd = System.nanoTime();
+                  }
+                }
+              }
+            }
+            // Add in the metrics
+            copyToHostTimes.add(copyEndWriteStart - start);
+            writeTimes.add(writeEndReadStart - copyEndWriteStart);
+            readTimes.add(readEndToDeviceStart - writeEndReadStart);
+            copyToDeviceTimes.add(copyToDeviceEnd - readEndToDeviceStart);
+            endToEndTimes.add(copyToDeviceEnd - start);
+          }
+        }
+      } catch (Throwable e) {
+        dnf = true;
+        System.err.println(e);
+        e.printStackTrace(System.err);
+      }
+      System.err.println("JUST COPY FULLY PINNED:" + (dnf ? " DID NOT FINISH!!!" : "") +
+          "\n\tSIZE: " + size +
+          "\n\tEND2END:\n" + toMedian(endToEndTimes) +
+          "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
+          "\n\tWRITE:\n" + toMedian(writeTimes) +
+          "\n\tREAD:\n" + toMedian(readTimes) +
+          "\n\tCOPY_TO_DEVICE:\n" + toMedian(copyToDeviceTimes)
+      );
     }
   }
 
@@ -477,84 +631,219 @@ public class KudoGpuSerializerTest {
     ArrayList<Long> tableTimes = new ArrayList<>(numIters);
     ArrayList<Long> endToEndTimes = new ArrayList<>(numIters);
     long size = -1;
+    boolean dnf = false;
+    try {
+      try (Table t = perfTable(numRows, numColumns)) {
+        // the 1.5 is just extra space
+        int estimatedSize = (int) Math.min((long) ((8L * numColumns * numRows) * 1.5), Integer.MAX_VALUE);
+        int[] slices = calcEvenSlices(t, numSlices);
+        Schema schema = schemaOf(t);
 
-    try (Table t = perfTable(numRows, numColumns)) {
-      // the 1.5 is just extra space
-      int estimatedSize = (int)Math.min((long)((8L * numColumns * numRows) * 1.5), Integer.MAX_VALUE);
-      int [] slices = calcEvenSlices(t, numSlices);
-      Schema schema = schemaOf(t);
-
-      // we will start off with the CPU test
-      for (int iter = 0; iter < numIters; iter++) {
-        ByteArrayOutputStream bao = new ByteArrayOutputStream(estimatedSize);
-        long start;
-        long copyEndWriteStart;
-        long writeEndReadStart;
-        long readEndMergeStart;
-        long mergeEndTableStart;
-        long tableEnd;
-        try (NvtxRange run = new NvtxRange(numSlices + " " + numRows + " CPU", NvtxColor.BLUE)) {
-          start = System.nanoTime();
-          KudoSerializer ser = new KudoSerializer(schema);
-          HostColumnVector[] columns = new HostColumnVector[numColumns];
-          try (NvtxRange cp = new NvtxRange("CPU COPY TABLE TO HOST", NvtxColor.RED)) {
-            for (int c = 0; c < numColumns; c++) {
-              columns[c] = t.getColumn(c).copyToHost();
+        // we will start off with the CPU test
+        for (int iter = 0; iter < numIters; iter++) {
+          ByteArrayOutputStream bao = new ByteArrayOutputStream(estimatedSize);
+          long start;
+          long copyEndWriteStart;
+          long writeEndReadStart;
+          long readEndMergeStart;
+          long mergeEndTableStart;
+          long tableEnd;
+          try (NvtxRange run = new NvtxRange(numSlices + " " + numRows + " CPU", NvtxColor.BLUE)) {
+            start = System.nanoTime();
+            KudoSerializer ser = new KudoSerializer(schema);
+            HostColumnVector[] columns = new HostColumnVector[numColumns];
+            try (NvtxRange cp = new NvtxRange("CPU COPY TABLE TO HOST", NvtxColor.RED)) {
+              for (int c = 0; c < numColumns; c++) {
+                columns[c] = t.getColumn(c).copyToHost();
+              }
             }
-          }
-          copyEndWriteStart = System.nanoTime();
-          try {
-            try (NvtxRange r = new NvtxRange("WRITE CPU", NvtxColor.BLUE)) {
-              writeCPUCore(columns, ser, slices, numRows, bao);
-              writeEndReadStart = System.nanoTime();
+            copyEndWriteStart = System.nanoTime();
+            try {
+              try (NvtxRange r = new NvtxRange("WRITE CPU", NvtxColor.BLUE)) {
+                writeCPUCore(columns, ser, slices, numRows, bao);
+                writeEndReadStart = System.nanoTime();
+              }
+            } finally {
+              for (int c = 0; c < numColumns; c++) {
+                if (columns[c] != null) {
+                  columns[c].close();
+                }
+              }
             }
-          } finally {
-            for (int c = 0; c < numColumns; c++) {
-              if (columns[c] != null) {
-                columns[c].close();
+            byte[] arr = bao.toByteArray();
+            size = arr.length;
+            DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
+            try (NvtxRange r = new NvtxRange("READ CPU", NvtxColor.BLUE)) {
+              ArrayList<KudoTable> kudoTables = new ArrayList<>(numSlices);
+              Optional<KudoTable> kt;
+              do {
+                kt = KudoTable.from(din);
+                kt.ifPresent(kudoTables::add);
+              } while (kt.isPresent());
+              readEndMergeStart = System.nanoTime();
+              try (KudoHostMergeResult merged = ser.mergeOnHost(kudoTables.toArray(new KudoTable[kudoTables.size()]))) {
+                mergeEndTableStart = System.nanoTime();
+                merged.toTable().close();
+                tableEnd = System.nanoTime();
               }
             }
           }
-          byte[] arr = bao.toByteArray();
-          size = arr.length;
-          DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
-          try (NvtxRange r = new NvtxRange("READ CPU", NvtxColor.BLUE)) {
-            ArrayList<KudoTable> kudoTables = new ArrayList<>(numSlices);
-            Optional<KudoTable> kt;
-            do {
-              kt = KudoTable.from(din);
-              kt.ifPresent(kudoTables::add);
-            } while(kt.isPresent());
-            readEndMergeStart = System.nanoTime();
-            try (KudoHostMergeResult merged = ser.mergeOnHost(kudoTables.toArray(new KudoTable[kudoTables.size()]))) {
-              mergeEndTableStart = System.nanoTime();
-              merged.toTable().close();
-              tableEnd = System.nanoTime();
+          // Add in the metrics
+          copyToHostTimes.add(copyEndWriteStart - start);
+          writeTimes.add(writeEndReadStart - copyEndWriteStart);
+          readTimes.add(readEndMergeStart - writeEndReadStart);
+          mergeTimes.add(mergeEndTableStart - readEndMergeStart);
+          tableTimes.add(tableEnd - mergeEndTableStart);
+          endToEndTimes.add(tableEnd - start);
+        }
+      }
+    } catch (Throwable e) {
+      dnf = true;
+      System.err.println(e);
+      e.printStackTrace(System.err);
+    }
+    System.err.println("CPU:" + (dnf ? " DID NOT FINISH!!!" : "") +
+        "\n\tROW: " + numRows +
+        "\n\tSLICES: " + numSlices +
+        "\n\tCOLS: " + numColumns +
+        "\n\tSIZE: " + size +
+        "\n\tEND2END:\n" + toMedian(endToEndTimes) +
+        "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
+        "\n\tWRITE:\n" + toMedian(writeTimes) +
+        "\n\tREAD:\n" + toMedian(readTimes) +
+        "\n\tMERGED:\n" + toMedian(mergeTimes) +
+        "\n\tTO_TABLE:\n" + toMedian(tableTimes)
+    );
+  }
+
+  public static void roundTripPerfTestCPUJcudf(int numColumns, int numRows, int numSlices, int numIters) throws Exception {
+    if (numSlices > numRows) {
+      return;
+    }
+    ArrayList<Long> copyToHostTimes = new ArrayList<>(numIters);
+    ArrayList<Long> writeTimes = new ArrayList<>(numIters);
+    ArrayList<Long> readTimes = new ArrayList<>(numIters);
+    ArrayList<Long> mergeTimes = new ArrayList<>(numIters);
+    ArrayList<Long> tableTimes = new ArrayList<>(numIters);
+    ArrayList<Long> endToEndTimes = new ArrayList<>(numIters);
+    long size = -1;
+    boolean dnf = false;
+    try {
+      try (Table t = perfTable(numRows, numColumns)) {
+        // the 1.5 is just extra space
+        int estimatedSize = (int) Math.min((long) ((8L * numColumns * numRows) * 1.5), Integer.MAX_VALUE);
+        int[] slices = calcEvenSlices(t, numSlices);
+
+        // we will start off with the CPU test
+        for (int iter = 0; iter < numIters; iter++) {
+          ByteArrayOutputStream bao = new ByteArrayOutputStream(estimatedSize);
+          long start;
+          long copyEndWriteStart;
+          long writeEndReadStart;
+          long readEndMergeStart;
+          long mergeEndTableStart;
+          long tableEnd;
+          try (NvtxRange run = new NvtxRange(numSlices + " " + numRows + " JCUDF", NvtxColor.DARK_GREEN)) {
+            start = System.nanoTime();
+            HostColumnVector[] columns = new HostColumnVector[numColumns];
+            try (NvtxRange cp = new NvtxRange("CPU COPY TABLE TO HOST", NvtxColor.RED)) {
+              for (int c = 0; c < numColumns; c++) {
+                columns[c] = t.getColumn(c).copyToHost();
+              }
+            }
+            copyEndWriteStart = System.nanoTime();
+            try {
+              try (NvtxRange r = new NvtxRange("WRITE JCUDF", NvtxColor.BLUE)) {
+                int startOffset = 0;
+                int endOffset;
+                for (int i = 0; i < slices.length + 1; i++) {
+                  if (i >= slices.length) {
+                    endOffset = numRows;
+                  } else {
+                    endOffset = slices[i];
+                  }
+                  int len = endOffset - startOffset;
+                  JCudfSerialization.writeToStream(columns, bao, startOffset, len);
+                  startOffset = endOffset;
+                }
+                writeEndReadStart = System.nanoTime();
+              }
+            } finally {
+              for (int c = 0; c < numColumns; c++) {
+                if (columns[c] != null) {
+                  columns[c].close();
+                }
+              }
+            }
+            byte[] arr = bao.toByteArray();
+            size = arr.length;
+            DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
+            try (NvtxRange r = new NvtxRange("READ JCUDF", NvtxColor.BLUE)) {
+              JCudfSerialization.HostConcatResult merged;
+              ArrayList<JCudfSerialization.SerializedTableHeader> headers = new ArrayList<>(numSlices);
+              ArrayList<HostMemoryBuffer> payloads = new ArrayList<>(numSlices);
+              try {
+                boolean done = false;
+                while (!done) {
+                  JCudfSerialization.SerializedTableHeader header = new JCudfSerialization.SerializedTableHeader(din);
+                  if (header.wasInitialized()) {
+                    headers.add(header);
+                    // We will concat on the CPU
+                    HostMemoryBuffer tmp = HostMemoryBuffer.allocate(header.getDataLen(), false);
+                    payloads.add(tmp);
+                    JCudfSerialization.readTableIntoBuffer(din, header, tmp);
+                  } else {
+                    done = true;
+                  }
+                }
+                readEndMergeStart = System.nanoTime();
+                merged = JCudfSerialization.concatToHostBuffer(
+                    headers.toArray(new JCudfSerialization.SerializedTableHeader[headers.size()]),
+                    payloads.toArray(new HostMemoryBuffer[payloads.size()]));
+                mergeEndTableStart = System.nanoTime();
+              } finally {
+                for (HostMemoryBuffer hmb : payloads) {
+                  if (hmb != null) {
+                    hmb.close();
+                  }
+                }
+              }
+              try {
+                merged.toContiguousTable().close();
+                tableEnd = System.nanoTime();
+              } finally {
+                merged.close();
+              }
             }
           }
+          // Add in the metrics
+          copyToHostTimes.add(copyEndWriteStart - start);
+          writeTimes.add(writeEndReadStart - copyEndWriteStart);
+          readTimes.add(readEndMergeStart - writeEndReadStart);
+          mergeTimes.add(mergeEndTableStart - readEndMergeStart);
+          tableTimes.add(tableEnd - mergeEndTableStart);
+          endToEndTimes.add(tableEnd - start);
         }
-        // Add in the metrics
-        copyToHostTimes.add(copyEndWriteStart - start);
-        writeTimes.add(writeEndReadStart - copyEndWriteStart);
-        readTimes.add(readEndMergeStart - writeEndReadStart);
-        mergeTimes.add(mergeEndTableStart - readEndMergeStart);
-        tableTimes.add(tableEnd - mergeEndTableStart);
-        endToEndTimes.add(tableEnd - start);
       }
-      System.err.println("CPU:" +
-          "\n\tROW: " + numRows +
-          "\n\tSLICES: " + numSlices +
-          "\n\tCOLS: " + numColumns +
-          "\n\tSIZE: " + size +
-          "\n\tEND2END:\n" + toMedian(endToEndTimes) +
-          "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
-          "\n\tWRITE:\n" + toMedian(writeTimes) +
-          "\n\tREAD:\n" + toMedian(readTimes) +
-          "\n\tMERGED:\n" + toMedian(mergeTimes) +
-          "\n\tTO_TABLE:\n" + toMedian(tableTimes)
-      );
+    } catch (Throwable e) {
+      dnf = true;
+      System.err.println(e);
+      e.printStackTrace(System.err);
     }
+    System.err.println("JCUDF:" + (dnf ? " DID NOT FINISH!!!" : "") +
+        "\n\tROW: " + numRows +
+        "\n\tSLICES: " + numSlices +
+        "\n\tCOLS: " + numColumns +
+        "\n\tSIZE: " + size +
+        "\n\tEND2END:\n" + toMedian(endToEndTimes) +
+        "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
+        "\n\tWRITE:\n" + toMedian(writeTimes) +
+        "\n\tREAD:\n" + toMedian(readTimes) +
+        "\n\tMERGED:\n" + toMedian(mergeTimes) +
+        "\n\tTO_TABLE:\n" + toMedian(tableTimes)
+    );
   }
+
 
   // TODO this needs to go into the KudoGpuSerializer in some form...
   public static long readTableIfFits(DataInputStream din, HostMemoryBuffer target, long offset) throws IOException {
@@ -588,130 +877,136 @@ public class KudoGpuSerializerTest {
     ArrayList<Long> decodeTimes = new ArrayList<>(numIters);
     ArrayList<Long> endToEndTimes = new ArrayList<>(numIters);
     long size = -1;
+    boolean dnf = false;
+    try {
+      try (Table t = perfTable(numRows, numColumns)) {
+        // the 1.5 is just extra space
+        int estimatedSize = (int) Math.min((long) ((8L * numColumns * numRows) * 1.5), Integer.MAX_VALUE);
+        int[] slices = calcEvenSlices(t, numSlices);
+        Schema schema = schemaOf(t);
 
-    try (Table t = perfTable(numRows, numColumns)) {
-      // the 1.5 is just extra space
-      int estimatedSize = (int)Math.min((long)((8L * numColumns * numRows) * 1.5), Integer.MAX_VALUE);
-      int [] slices = calcEvenSlices(t, numSlices);
-      Schema schema = schemaOf(t);
-
-      // we will start off with the CPU test
-      for (int iter = 0; iter < numIters; iter++) {
-        ByteArrayOutputStream innerBao = new ByteArrayOutputStream(estimatedSize);
-        ByteArrayOutputStreamWriter bao = new ByteArrayOutputStreamWriter(innerBao);
-        long start;
-        long encodeEndCopyToHostStart;
-        long copyToHostEndWriteStart;
-        long writeEndReadStart;
-        long readEndCopyStart;
-        long copyEndDecodeStart;
-        long tableEnd;
-        try (NvtxRange run = new NvtxRange(numSlices + " " + numRows + " GPU", NvtxColor.GREEN)) {
-          start = System.nanoTime();
-          HostMemoryBuffer hostData = null;
-          HostMemoryBuffer hostOffsets = null;
-          try {
-            DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(t, slices);
+        // we will start off with the CPU test
+        for (int iter = 0; iter < numIters; iter++) {
+          ByteArrayOutputStream innerBao = new ByteArrayOutputStream(estimatedSize);
+          ByteArrayOutputStreamWriter bao = new ByteArrayOutputStreamWriter(innerBao);
+          long start;
+          long encodeEndCopyToHostStart;
+          long copyToHostEndWriteStart;
+          long writeEndReadStart;
+          long readEndCopyStart;
+          long copyEndDecodeStart;
+          long tableEnd;
+          try (NvtxRange run = new NvtxRange(numSlices + " " + numRows + " GPU", NvtxColor.GREEN)) {
+            start = System.nanoTime();
+            HostMemoryBuffer hostData = null;
+            HostMemoryBuffer hostOffsets = null;
             try {
-              size = buffers[0].getLength();
-              encodeEndCopyToHostStart = System.nanoTime();
-              hostData = HostMemoryBuffer.allocate(buffers[0].getLength(), true);
-              hostData.copyFromDeviceBuffer(buffers[0]);
-              hostOffsets = HostMemoryBuffer.allocate(buffers[1].getLength(), true);
-              hostOffsets.copyFromDeviceBuffer(buffers[1]);
-            } finally {
-              buffers[0].close();
-              buffers[1].close();
-            }
-            copyToHostEndWriteStart = System.nanoTime();
-            try (NvtxRange r = new NvtxRange("WRITE GPU", NvtxColor.BLUE)) {
-              // This is needed so we can slice things similar to what would happen in the real shuffle
-              long startDataOffset = 0;
-              for (int index = 8; index < hostOffsets.getLength(); index += 8) {
-                long endOffset = hostOffsets.getLong(index);
-                bao.copyDataFrom(hostData, startDataOffset, endOffset - startDataOffset);
-                startDataOffset = endOffset;
+              DeviceMemoryBuffer[] buffers = KudoGpuSerializer.splitAndSerializeToDevice(t, slices);
+              try {
+                size = buffers[0].getLength();
+                encodeEndCopyToHostStart = System.nanoTime();
+                hostData = HostMemoryBuffer.allocate(buffers[0].getLength(), true);
+                hostData.copyFromDeviceBuffer(buffers[0]);
+                hostOffsets = HostMemoryBuffer.allocate(buffers[1].getLength(), true);
+                hostOffsets.copyFromDeviceBuffer(buffers[1]);
+              } finally {
+                buffers[0].close();
+                buffers[1].close();
               }
-            }
-            writeEndReadStart = System.nanoTime();
-          } finally {
-            if (hostData != null) {
-              hostData.close();
-            }
-            if (hostOffsets != null) {
-              hostOffsets.close();
-            }
-          }
-
-          try (NvtxRange r = new NvtxRange("READ GPU", NvtxColor.BLUE)) {
-            byte[] arr = innerBao.toByteArray();
-            DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
-            // Target batch size for allocation 2 GiB (need some things to deal with single batch too large, but...)
-            DeviceMemoryBuffer devDataRead = null;
-            DeviceMemoryBuffer devOffsetsRead = null;
-            try {
-              try (HostMemoryBuffer hostDataRead = HostMemoryBuffer.allocate(Integer.MAX_VALUE, true)) {
-                ArrayList<Long> offsets = new ArrayList<>();
-                long currentOffset = 0;
-                offsets.add(currentOffset);
-                boolean done = false;
-                while (!done) {
-                  long newOffset = readTableIfFits(din, hostDataRead, currentOffset);
-                  if (newOffset == currentOffset) {
-                    done = true;
-                  } else {
-                    offsets.add(newOffset);
-                    currentOffset = newOffset;
-                  }
-                }
-                try (HostMemoryBuffer hostOffsetsRead = HostMemoryBuffer.allocate(8L * offsets.size(), true)) {
-                  for (int i = 0; i < offsets.size(); i++) {
-                    hostOffsetsRead.setLong(i * 8L, offsets.get(i));
-                  }
-                  readEndCopyStart = System.nanoTime();
-                  devDataRead = DeviceMemoryBuffer.allocate(currentOffset);
-                  devDataRead.copyFromHostBuffer(hostDataRead, 0, currentOffset);
-                  devOffsetsRead = DeviceMemoryBuffer.allocate(hostOffsetsRead.getLength());
-                  devOffsetsRead.copyFromHostBuffer(hostOffsetsRead);
-                  copyEndDecodeStart = System.nanoTime();
+              copyToHostEndWriteStart = System.nanoTime();
+              try (NvtxRange r = new NvtxRange("WRITE GPU", NvtxColor.BLUE)) {
+                // This is needed so we can slice things similar to what would happen in the real shuffle
+                long startDataOffset = 0;
+                for (int index = 8; index < hostOffsets.getLength(); index += 8) {
+                  long endOffset = hostOffsets.getLong(index);
+                  bao.copyDataFrom(hostData, startDataOffset, endOffset - startDataOffset);
+                  startDataOffset = endOffset;
                 }
               }
-              KudoGpuSerializer.assembleFromDeviceRaw(schema, devDataRead, devOffsetsRead).close();
-              tableEnd = System.nanoTime();
+              writeEndReadStart = System.nanoTime();
             } finally {
-              if (devDataRead != null) {
-                devDataRead.close();
+              if (hostData != null) {
+                hostData.close();
               }
+              if (hostOffsets != null) {
+                hostOffsets.close();
+              }
+            }
 
-              if (devOffsetsRead != null) {
-                devOffsetsRead.close();
+            try (NvtxRange r = new NvtxRange("READ GPU", NvtxColor.BLUE)) {
+              byte[] arr = innerBao.toByteArray();
+              DataInputStream din = new DataInputStream(new ByteArrayInputStream(arr));
+              // Target batch size for allocation 2 GiB (need some things to deal with single batch too large, but...)
+              DeviceMemoryBuffer devDataRead = null;
+              DeviceMemoryBuffer devOffsetsRead = null;
+              try {
+                try (HostMemoryBuffer hostDataRead = HostMemoryBuffer.allocate(Integer.MAX_VALUE, true)) {
+                  ArrayList<Long> offsets = new ArrayList<>();
+                  long currentOffset = 0;
+                  offsets.add(currentOffset);
+                  boolean done = false;
+                  while (!done) {
+                    long newOffset = readTableIfFits(din, hostDataRead, currentOffset);
+                    if (newOffset == currentOffset) {
+                      done = true;
+                    } else {
+                      offsets.add(newOffset);
+                      currentOffset = newOffset;
+                    }
+                  }
+                  try (HostMemoryBuffer hostOffsetsRead = HostMemoryBuffer.allocate(8L * offsets.size(), true)) {
+                    for (int i = 0; i < offsets.size(); i++) {
+                      hostOffsetsRead.setLong(i * 8L, offsets.get(i));
+                    }
+                    readEndCopyStart = System.nanoTime();
+                    devDataRead = DeviceMemoryBuffer.allocate(currentOffset);
+                    devDataRead.copyFromHostBuffer(hostDataRead, 0, currentOffset);
+                    devOffsetsRead = DeviceMemoryBuffer.allocate(hostOffsetsRead.getLength());
+                    devOffsetsRead.copyFromHostBuffer(hostOffsetsRead);
+                    copyEndDecodeStart = System.nanoTime();
+                  }
+                }
+                KudoGpuSerializer.assembleFromDeviceRaw(schema, devDataRead, devOffsetsRead).close();
+                tableEnd = System.nanoTime();
+              } finally {
+                if (devDataRead != null) {
+                  devDataRead.close();
+                }
+
+                if (devOffsetsRead != null) {
+                  devOffsetsRead.close();
+                }
               }
             }
           }
+          // ITER is done add in the metrics
+          encodeTimes.add(encodeEndCopyToHostStart - start);
+          copyToHostTimes.add(copyToHostEndWriteStart - encodeEndCopyToHostStart);
+          writeTimes.add(writeEndReadStart - copyToHostEndWriteStart);
+          readTimes.add(readEndCopyStart - writeEndReadStart);
+          copyToDevTimes.add(copyEndDecodeStart - readEndCopyStart);
+          decodeTimes.add(tableEnd - copyEndDecodeStart);
+          endToEndTimes.add(tableEnd - start);
         }
-        // ITER is done add in the metrics
-        encodeTimes.add(encodeEndCopyToHostStart - start);
-        copyToHostTimes.add(copyToHostEndWriteStart - encodeEndCopyToHostStart);
-        writeTimes.add(writeEndReadStart - copyToHostEndWriteStart);
-        readTimes.add(readEndCopyStart - writeEndReadStart);
-        copyToDevTimes.add(copyEndDecodeStart - readEndCopyStart);
-        decodeTimes.add(tableEnd - copyEndDecodeStart);
-        endToEndTimes.add(tableEnd - start);
       }
-      System.err.println("GPU:" +
-          "\n\tROW: " + numRows +
-          "\n\tSLICES: " + numSlices +
-          "\n\tCOLS: " + numColumns +
-          "\n\tSIZE: " + size +
-          "\n\tEND2END:\n" + toMedian(endToEndTimes) +
-          "\n\tENCODE:\n" + toMedian(encodeTimes) +
-          "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
-          "\n\tWRITE:\n" + toMedian(writeTimes) +
-          "\n\tREAD:\n" + toMedian(readTimes) +
-          "\n\tCOPY_TO_DEV:\n" + toMedian(copyToDevTimes) +
-          "\n\tTO_TABLE:\n" + toMedian(decodeTimes)
-      );
+    } catch (Throwable e) {
+      dnf = true;
+      System.err.println(e);
+      e.printStackTrace(System.err);
     }
+    System.err.println("GPU:" + (dnf ? " DID NOT FINISH!!!" : "") +
+        "\n\tROW: " + numRows +
+        "\n\tSLICES: " + numSlices +
+        "\n\tCOLS: " + numColumns +
+        "\n\tSIZE: " + size +
+        "\n\tEND2END:\n" + toMedian(endToEndTimes) +
+        "\n\tENCODE:\n" + toMedian(encodeTimes) +
+        "\n\tCOPY_TO_HOST:\n" + toMedian(copyToHostTimes) +
+        "\n\tWRITE:\n" + toMedian(writeTimes) +
+        "\n\tREAD:\n" + toMedian(readTimes) +
+        "\n\tCOPY_TO_DEV:\n" + toMedian(copyToDevTimes) +
+        "\n\tTO_TABLE:\n" + toMedian(decodeTimes)
+    );
   }
 
   @Test
