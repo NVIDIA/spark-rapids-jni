@@ -339,7 +339,7 @@ public class KudoSerializer {
    *
    * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @param dumpPath path to dump the kudo tables to a file. If null, no dump will be done.
+   * @param dumpPath path to dump the kudo tables to a file. If empty string, no dump will be done.
    * @param alwaysDump if true, always dump the kudo tables to a file, otherwise only dump when an exception is thrown.
    * @return the merged table.
    */
@@ -350,7 +350,7 @@ public class KudoSerializer {
     try {
       return mergeOnHost(kudoTables);
     } catch (Exception e) {
-      if (!alwaysDump && dumpPath != null) {
+      if (!alwaysDump && dumpPath != "") {
         dumpToFile(kudoTables, dumpPath);
       }
       throw new RuntimeException(e);
