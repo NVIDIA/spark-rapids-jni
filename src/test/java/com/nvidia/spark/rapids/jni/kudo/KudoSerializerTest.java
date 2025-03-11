@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -557,4 +559,64 @@ public class KudoSerializerTest {
     }
   }
 
+  @Test
+  public void testMergeWithDumpPath() {
+    File tempFile = null;
+    try {
+      //Create a temporary file for dumping
+      tempFile = File.createTempFile("kudo_dump_test", ".bin");
+      tempFile.deleteOnExit();
+
+      String dumpPath = tempFile.getAbsolutePath();
+      
+      Table table1 = new Table.TestBuilder()
+          .column(1, 2, 3, 4)
+          .column("a", "b", "c", "d")
+          .build();
+      
+      Table table2 = new Table.TestBuilder()
+          .column(5, 6, 7, 8)
+          .column("e", "f", "g", "h")
+          .build();
+      
+      // Create KudoSerializer with table1's schema
+      KudoSerializer serializer = new KudoSerializer(schemaOf(table1));
+      
+      // Serialize both tables
+      ByteArrayOutputStream bout = new ByteArrayOutputStream();
+      serializer.writeToStreamWithMetrics(table1, bout, 0, (int)table1.getRowCount());
+      
+      // Serialize table2 using same serializer - this will create an inconsistent state
+      serializer.writeToStreamWithMetrics(table2, bout, 0, (int)table2.getRowCount());
+      bout.flush();
+      
+      ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
+      KudoTable[] kudoTables = new KudoTable[2];
+      
+      // Read the KudoTables from the stream
+      kudoTables[0] = KudoTable.from(bin).get();
+      kudoTables[1] = KudoTable.from(bin).get();
+      
+      // merge the two tables and dump the result to the temp file
+      serializer.mergeOnHostDebug(kudoTables, dumpPath, true);
+      
+      // Verify dump file exists and has content
+      assertTrue(tempFile.exists(), "Dump file should exist");
+      assertTrue(tempFile.length() > 0, "Dump file should not be empty");
+      
+      // Basic check that file contains schema info
+      byte[] fileContent = java.nio.file.Files.readAllBytes(tempFile.toPath());
+      String contentStart = new String(fileContent, 0, Math.min(100, fileContent.length));
+      assertTrue(contentStart.contains("col_0_0") || contentStart.contains("Schema"), 
+          "Dump file should contain schema information");
+      
+    } catch (Exception e) {
+      fail("Test failed with exception: " + e.getMessage());
+    } finally {
+      // Cleanup
+      if (tempFile != null && tempFile.exists()) {
+        tempFile.delete();
+      }
+    }
+  }
 }

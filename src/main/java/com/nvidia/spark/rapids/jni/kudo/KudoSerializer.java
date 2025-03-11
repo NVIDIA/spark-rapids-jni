@@ -32,6 +32,8 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -170,6 +172,10 @@ public class KudoSerializer {
   private final Schema schema;
   private final int flattenedColumnCount;
 
+  public Schema getSchema() {
+    return schema;
+  }
+
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
     ensure(schema.getNumChildren() > 0, "Top schema can't be empty");
@@ -282,6 +288,54 @@ public class KudoSerializer {
   }
 
   /**
+   * Dump a list of kudo tables to a file.
+   *
+   * @param kudoTables list of kudo tables.
+   * @param dumpPath path to dump the kudo tables to a file.
+   */
+  public void dumpToFile(KudoTable[] kudoTables, String dumpPath) throws Exception {
+    // dump the kudoTables to a file
+    File file = new File(dumpPath);
+    try (FileOutputStream fos = new FileOutputStream(file)) {
+      // write the schema information as a string representation
+      fos.write(schema.toString().getBytes());
+    
+      for (int i = 0; i < kudoTables.length; i++) {
+        // write the buffer
+        ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
+        if (buffer != null) {
+          DataWriter writer = null;
+          try {
+            writer = writerFrom(fos);
+            KudoTableHeader header = kudoTables[i].getHeader();
+            header.writeTo(writer);
+            writer.copyDataFrom(buffer, 0, buffer.getLength());
+          } finally {
+            if (writer != null) {
+              writer.flush();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Merge a list of kudo tables into a table on host memory.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table.
+   */
+  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables) throws Exception {
+    MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
+    return KudoTableMerger.merge(schema, mergedInfoCalc);
+  }
+
+ /**
    * Merge a list of kudo tables into a table on host memory.
    * <br/>
    * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
@@ -289,29 +343,22 @@ public class KudoSerializer {
    *
    * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
+   * @param dumpPath path to dump the kudo tables to a file. If null, no dump will be done.
    * @return the merged table.
    */
-  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables) {
-    MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
-    return KudoTableMerger.merge(schema, mergedInfoCalc);
-  }
-
-  /**
-   * See {@link #mergeOnHost(KudoTable[])}.
-   * @deprecated Use {@link #mergeOnHost(KudoTable[])} instead.
-   */
-  @Deprecated
-  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
-    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
-
-    KudoHostMergeResult result;
-    KudoTable[] newTables = kudoTables.toArray(new KudoTable[0]);
-    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, newTables),
-              metricsBuilder::calcHeaderTime);
-    result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
-              metricsBuilder::mergeIntoHostBufferTime);
-
-    return Pair.of(result, metricsBuilder.build());
+  public KudoHostMergeResult mergeOnHostDebug(KudoTable[] kudoTables, String dumpPath, boolean alwaysDump) throws Exception {
+    if (alwaysDump) {
+      dumpToFile(kudoTables, dumpPath);
+    }
+    try {
+      MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
+      return KudoTableMerger.merge(schema, mergedInfoCalc);
+    } catch (Exception e) {
+      if (!alwaysDump && dumpPath != null) {
+        dumpToFile(kudoTables, dumpPath);
+      }
+      throw new RuntimeException(e);
+    }
   }
 
   /**
@@ -333,20 +380,21 @@ public class KudoSerializer {
 
 
   /**
-   * See {@link #mergeToTable(KudoTable[])}.
-   *
-   * @deprecated Use {@link #mergeToTable(KudoTable[])} instead.
+   * See {@link #mergeOnHost(KudoTable[])}.
+   * @deprecated Use {@link #mergeOnHost(KudoTable[])} instead.
    */
   @Deprecated
-  public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) throws Exception {
-    Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
-    MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
-    try (KudoHostMergeResult children = result.getLeft()) {
-      Table table = withTime(children::toTable,
-          builder::convertToTableTime);
+  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
+    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
 
-      return Pair.of(table, builder.build());
-    }
+    KudoHostMergeResult result;
+    KudoTable[] newTables = kudoTables.toArray(new KudoTable[0]);
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, newTables),
+              metricsBuilder::calcHeaderTime);
+    result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
+              metricsBuilder::mergeIntoHostBufferTime);
+
+    return Pair.of(result, metricsBuilder.build());
   }
 
   private WriteMetrics writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset,
