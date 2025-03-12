@@ -289,12 +289,11 @@ public class KudoSerializer {
    * @param kudoTables list of kudo tables.
    * @param dumpPath path to dump the kudo tables to a file.
    */
-  private void dumpToFile(KudoTable[] kudoTables, String dumpPath) throws Exception {
+  private void dumpToStream(KudoTable[] kudoTables, OutputStream outputStream) throws Exception {
     // dump the kudoTables to a file
-    File file = new File(dumpPath);
-    try (FileOutputStream fos = new FileOutputStream(file)) {
+    try (DataOutputStream dos = new DataOutputStream(outputStream)) {
       // write the schema information as a string representation
-      fos.write(schema.toString().getBytes());
+      dos.write(schema.toString().getBytes());
     
       for (int i = 0; i < kudoTables.length; i++) {
         // write the buffer
@@ -302,7 +301,7 @@ public class KudoSerializer {
         if (buffer != null) {
           DataWriter writer = null;
           try {
-            writer = writerFrom(fos);
+            writer = writerFrom(dos);
             KudoTableHeader header = kudoTables[i].getHeader();
             header.writeTo(writer);
             writer.copyDataFrom(buffer, 0, buffer.getLength());
@@ -331,17 +330,6 @@ public class KudoSerializer {
     return KudoTableMerger.merge(schema, mergedInfoCalc);
   }
 
-  enum DumpOption {
-    Always,
-    OnFailure,
-    Never
-  }
-
-  class MergeOptions {
-    DumpOption dumpOption;
-    String path;
-  }
-
  /**
    * Merge a list of kudo tables into a table on host memory.
    * <br/>
@@ -355,14 +343,14 @@ public class KudoSerializer {
    * @return the merged table.
    */
   public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables, MergeOptions options) throws Exception {
-    if (options.dumpOption == DumpOption.Always) {
-      dumpToFile(kudoTables, options.path);
+    if (options.getDumpOption() == DumpOption.Always) {
+      dumpToStream(kudoTables, options.getOutputStream());
     }
     try {
       return mergeOnHost(kudoTables);
     } catch (Exception e) {
-      if (options.dumpOption == DumpOption.OnFailure) {
-        dumpToFile(kudoTables, options.path);
+      if (options.getDumpOption() == DumpOption.OnFailure) {
+        dumpToStream(kudoTables, options.getOutputStream());
       }
       throw new RuntimeException(e);
     }
