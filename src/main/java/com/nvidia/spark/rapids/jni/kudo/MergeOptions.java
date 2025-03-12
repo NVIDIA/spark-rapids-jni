@@ -19,8 +19,8 @@ package com.nvidia.spark.rapids.jni.kudo;
 import java.io.OutputStream;
 
 public class MergeOptions {
-  private DumpOption dumpOption;
-  private OutputStream outputStream;
+  private final DumpOption dumpOption;
+  private final OutputStream outputStream;
 
   public MergeOptions(DumpOption dumpOption, OutputStream outputStream) {
     this.dumpOption = dumpOption;
