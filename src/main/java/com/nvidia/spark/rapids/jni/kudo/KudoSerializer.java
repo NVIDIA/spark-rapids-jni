@@ -287,7 +287,7 @@ public class KudoSerializer {
    * Dump a list of kudo tables to a file.
    *
    * @param kudoTables list of kudo tables.
-   * @param dumpPath path to dump the kudo tables to a file.
+   * @param outputStream output stream to dump the kudo tables to. The output stream will be closed after the dump.
    */
   private void dumpToStream(KudoTable[] kudoTables, OutputStream outputStream) throws Exception {
     // dump the kudoTables to a file
@@ -312,6 +312,8 @@ public class KudoSerializer {
           }
         }
       }
+    } finally {
+      outputStream.close();
     }
   }
 
@@ -338,8 +340,7 @@ public class KudoSerializer {
    *
    * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @param dumpPath path to dump the kudo tables to a file. If empty string, no dump will be done.
-   * @param alwaysDump if true, always dump the kudo tables to a file, otherwise only dump when an exception is thrown.
+   * @param options merge options, including dump option and output stream. The output stream will be closed after the merge.
    * @return the merged table.
    */
   public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables, MergeOptions options) throws Exception {
