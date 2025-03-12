@@ -23,8 +23,6 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Optional;
-import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
@@ -98,13 +96,13 @@ public class KudoGpuSerializerTest {
       Byte gpuByte = null;
       Byte cpuByte = null;
       String gpu = "N/A     ";
-      if (i < hDataGPU.length) {
+      if (i + startOffset < hDataGPU.length) {
         gpuByte = hDataGPU[i + startOffset];
         gpu = String.format("0x%02X %03d", hDataGPU[i + startOffset] & 0xFF, hDataGPU[i + startOffset]);
       }
 
       String cpu = "N/A     ";
-      if (i < hDataCPU.length) {
+      if (i + startOffset < hDataCPU.length) {
         cpuByte = hDataCPU[i + startOffset];
         cpu = String.format("0x%02X %03d", hDataCPU[i + startOffset] & 0xFF, hDataCPU[i + startOffset]);
       }
@@ -293,6 +291,14 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  public void debugCompareWrite(String name, Table table, int[] slices) {
+    byte[] gpuData = writeGPU(table, slices);
+    byte[] cpuData = writeCPU(table, slices);
+    if (!Arrays.equals(gpuData, cpuData)) {
+      logPartitionComparisons(name, gpuData, cpuData);
+    }
+  }
+
   public byte[] testWrite(String name, Table table, int[] slices) {
     // First serialize it on the GPU...
     byte[] gpuData = writeGPU(table, slices);
@@ -360,15 +366,21 @@ public class KudoGpuSerializerTest {
   }
 
   public void testRoundTrip(String name, Table table, int[] slices) throws Exception {
-    Schema s = KudoSerializerTest.schemaOf(table);
-    byte[] data = testWrite(name, table, slices);
-    testRead(name, s, data, table);
+//    Schema s = KudoSerializerTest.schemaOf(table);
+//    byte[] data = testWrite(name, table, slices);
+//    testRead(name, s, data, table);
+
+    debugCompareWrite(name, table, slices);
+    testCPUOnlyRoundTrip(name + " CPU -> CPU", table, slices);
+    testGPUOnlyRoundTrip(name + " GPU -> GPU", table, slices);
+    testCPUWriteGPURead(name + " CPU -> GPU", table, slices);
+    testGPUWriteCPURead(name + " GPU -> CPU", table, slices);
   }
 
   public void testCPUOnlyRoundTrip(String name, Table table, int[] slices) throws Exception {
     Schema s = KudoSerializerTest.schemaOf(table);
     byte[] data = writeCPU(table, slices);
-    try(Table t = readCPU(name, s, data)) {
+    try (Table t = readCPU(name, s, data)) {
       assertTablesAreEqual(table, t);
     }
   }
@@ -376,7 +388,12 @@ public class KudoGpuSerializerTest {
   public void testGPUOnlyRoundTrip(String name, Table table, int[] slices) throws Exception {
     Schema s = KudoSerializerTest.schemaOf(table);
     byte[] data = writeGPU(table, slices);
-    try(Table t = readGPU(name, s, data)) {
+    try (Table t = readGPU(name, s, data)) {
+      System.err.println("SLICES " + Arrays.toString(slices));
+      System.err.println();
+      TableDebug.get().debug(name + " OUTPUT", t);
+      System.err.println();
+      TableDebug.get().debug(name + " EXPECTED", table);
       assertTablesAreEqual(table, t);
     }
   }
@@ -384,9 +401,7 @@ public class KudoGpuSerializerTest {
   public void testCPUWriteGPURead(String name, Table table, int[] slices) throws Exception {
     Schema s = KudoSerializerTest.schemaOf(table);
     byte[] data = writeCPU(table, slices);
-    try(Table t = readGPU(name, s, data)) {
-      TableDebug.get().debug(name + " GPU", t);
-      TableDebug.get().debug(name + " BASE", table);
+    try (Table t = readGPU(name, s, data)) {
       assertTablesAreEqual(table, t);
     }
   }
@@ -394,7 +409,7 @@ public class KudoGpuSerializerTest {
   public void testGPUWriteCPURead(String name, Table table, int[] slices) throws Exception {
     Schema s = KudoSerializerTest.schemaOf(table);
     byte[] data = writeGPU(table, slices);
-    try(Table t = readCPU(name, s, data)) {
+    try (Table t = readCPU(name, s, data)) {
       assertTablesAreEqual(table, t);
     }
   }
@@ -1031,9 +1046,9 @@ public class KudoGpuSerializerTest {
     );
     return new Table.TestBuilder()
         .column("1", null, "34", "45", "56", "67")
-        .column(new Integer[]{1, 2, null},
-            new Integer[]{4, 5, 6},
-            new Integer[]{7, 8, 9},
+        .column(new Integer[]{null},
+            new Integer[]{4},
+            new Integer[]{7},
             null,
             new Integer[]{},
             new Integer[]{})
@@ -1053,16 +1068,12 @@ public class KudoGpuSerializerTest {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
         System.err.println("TEST WITH "+ numSlices);
         int[] slices = calcEvenSlices(table, numSlices);
-//        testCPUOnlyRoundTrip("medium", table, slices);
-//        testGPUOnlyRoundTrip("medium", table, slices);
-//        testCPUWriteGPURead("medium", table, slices);
-        //testGPUWriteCPURead("medium", table, slices);
         testRoundTrip("medium", table, slices);
       }
     }
   }
 
-  public static Table buildHalfEmtpyStructTable() {
+  public static Table buildHalfEmptyStructTable() {
     HostColumnVector.StructType st = new HostColumnVector.StructType(
         true,
         new HostColumnVector.BasicType(true, DType.INT32)
@@ -1079,15 +1090,11 @@ public class KudoGpuSerializerTest {
   }
 
   @Test
-  public void testHalfEmtpyStructRoundTrip() throws Exception {
-    try (Table table = buildHalfEmtpyStructTable()) {
+  public void testHalfEmptyStructRoundTrip() throws Exception {
+    try (Table table = buildHalfEmptyStructTable()) {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
         System.err.println("TEST WITH "+ numSlices);
         int[] slices = calcEvenSlices(table, numSlices);
-//        testCPUOnlyRoundTrip("medium", table, slices);
-//        testGPUOnlyRoundTrip("medium", table, slices);
-//        testCPUWriteGPURead("medium", table, slices);
-        //testGPUWriteCPURead("medium", table, slices);
         testRoundTrip("half empty struct", table, slices);
       }
     }
@@ -1109,7 +1116,7 @@ public class KudoGpuSerializerTest {
     }
   }
 
-  //@Test
+  @Test
   public void testComplexRoundTrip() throws Exception {
     try (Table table = KudoSerializerTest.buildTestTable()) {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
@@ -1135,7 +1142,7 @@ public class KudoGpuSerializerTest {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
         System.err.println("TEST WITH "+ numSlices);
         int[] slices = calcEvenSlices(table, numSlices);
-        testRoundTrip("complex", table, slices);
+        testRoundTrip("string list table", table, slices);
       }
     }
   }

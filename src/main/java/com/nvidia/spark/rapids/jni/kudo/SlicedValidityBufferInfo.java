@@ -58,7 +58,7 @@ class SlicedValidityBufferInfo {
     }
     int bufferOffset = rowOffset / 8;
     int beginBit = rowOffset % 8;
-    int bufferLength = 0;
+    int bufferLength = 1;
     if (numRows > 0) {
       bufferLength = (rowOffset + numRows - 1) / 8 - bufferOffset + 1;
     }
