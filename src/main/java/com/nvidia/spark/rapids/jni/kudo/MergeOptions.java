@@ -21,10 +21,12 @@ import java.io.OutputStream;
 public class MergeOptions {
   private final DumpOption dumpOption;
   private final OutputStream outputStream;
+  private final String filePath;
 
-  public MergeOptions(DumpOption dumpOption, OutputStream outputStream) {
+  public MergeOptions(DumpOption dumpOption, OutputStream outputStream, String filePath) {
     this.dumpOption = dumpOption;
     this.outputStream = outputStream;
+    this.filePath = filePath;
   }
 
   public DumpOption getDumpOption() {
@@ -33,5 +35,9 @@ public class MergeOptions {
 
   public OutputStream getOutputStream() {
     return outputStream;
+  }
+
+  public String getFilePath() {
+    return filePath;
   }
 }

@@ -26,6 +26,8 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.JCudfSerialization;
 import ai.rapids.cudf.Schema;
 import ai.rapids.cudf.Table;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
@@ -164,6 +166,7 @@ public class KudoSerializer {
   private static final BufferType[] ALL_BUFFER_TYPES =
       new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
           BufferType.DATA};
+  private static final Logger log = LoggerFactory.getLogger(KudoSerializer.class);
 
   static {
     Arrays.fill(PADDING, (byte) 0);
@@ -289,7 +292,7 @@ public class KudoSerializer {
    * @param kudoTables list of kudo tables.
    * @param outputStream output stream to dump the kudo tables to. The output stream will be closed after the dump.
    */
-  private void dumpToStream(KudoTable[] kudoTables, OutputStream outputStream) throws Exception {
+  private void dumpToStream(KudoTable[] kudoTables, OutputStream outputStream, String filePath) throws Exception {
     // dump the kudoTables to a file
     try (DataOutputStream dos = new DataOutputStream(outputStream)) {
       // write the schema information as a string representation
@@ -312,6 +315,9 @@ public class KudoSerializer {
           }
         }
       }
+
+      // log warning the file path
+      log.warn("Dumped kudo tables to file: {}", filePath);
     } finally {
       outputStream.close();
     }
@@ -345,13 +351,13 @@ public class KudoSerializer {
    */
   public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables, MergeOptions options) throws Exception {
     if (options.getDumpOption() == DumpOption.Always) {
-      dumpToStream(kudoTables, options.getOutputStream());
+      dumpToStream(kudoTables, options.getOutputStream(), options.getFilePath());
     }
     try {
       return mergeOnHost(kudoTables);
     } catch (Exception e) {
       if (options.getDumpOption() == DumpOption.OnFailure) {
-        dumpToStream(kudoTables, options.getOutputStream());
+        dumpToStream(kudoTables, options.getOutputStream(), options.getFilePath());
       }
       throw new RuntimeException(e);
     }
