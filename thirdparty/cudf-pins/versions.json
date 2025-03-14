@@ -120,6 +120,14 @@
       "git_url" : "https://github.com/google/googletest.git",
       "version" : "1.16.0"
     },
+    "benchmark" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "2dd015dfef425c866d9a43f2c67d8b52d709acb6",
+      "git_url" : "https://github.com/google/benchmark.git",
+      "version" : "1.8.0"
+    },
     "bs_thread_pool" : 
     {
       "always_download" : true,
@@ -172,7 +180,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "3adbe7e6435c728dc8a03aba97094519f2a299c5",
+      "git_tag" : "f5268f98ad1be8b5707cd59118a618892db9fcae",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.04"
     },
