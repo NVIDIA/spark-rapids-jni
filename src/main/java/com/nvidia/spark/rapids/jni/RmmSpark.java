@@ -325,6 +325,19 @@ public class RmmSpark {
   }
 
   /**
+   * Bind two threads together so that if one is blocked the other should be blocked too.
+   * @param firstThreadId the ID of the first thread (not java thread id).
+   * @param secondThreadId the ID of the second thread (not java thread id).
+   */
+  public static void bindPropagateThreads(long firstThreadId, long secondThreadId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.bindPropagateThreads(firstThreadId, secondThreadId);
+      }
+    }
+  }
+
+  /**
    * Indicate that a given task is done and if there are any threads still associated with it
    * then they should also be removed.
    * @param taskId the ID of the task that has completed.

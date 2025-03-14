@@ -172,6 +172,15 @@ public class SparkResourceAdaptor
   }
 
   /**
+   * Bind two threads together so that if one is blocked the other should be blocked too.
+   * @param firstThreadId the ID of the first thread (not java thread id).
+   * @param secondThreadId the ID of the second thread (not java thread id).
+   */
+  public void bindPropagateThreads(long firstThreadId, long secondThreadId) {
+    bindPropagateThreads(getHandle(), firstThreadId, secondThreadId);
+  }
+
+  /**
    * Indicate that a given task is done and if there are any threads still associated with it
    * then they should also be removed.
    * @param taskId the ID of the task that has completed.
@@ -331,6 +340,7 @@ public class SparkResourceAdaptor
   private static native void poolThreadWorkingOnTasks(long handle, boolean isForShuffle, long threadId, long[] taskIds);
   private static native void poolThreadFinishedForTasks(long handle, long threadId, long[] taskIds);
   private static native void removeThreadAssociation(long handle, long threadId, long taskId);
+  private static native void bindPropagateThreads(long handle, long firstThreadId, long secondThreadId);
   private static native void taskDone(long handle, long taskId);
   private static native void submittingToPool(long handle, long threadId);
   private static native void waitingOnPool(long handle, long threadId);
