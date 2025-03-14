@@ -17,15 +17,16 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import java.io.OutputStream;
+import java.util.function.Supplier;
 
 public class MergeOptions {
   private final DumpOption dumpOption;
-  private final OutputStream outputStream;
+  private final Supplier<OutputStream> outputStreamSupplier;
   private final String filePath;
 
-  public MergeOptions(DumpOption dumpOption, OutputStream outputStream, String filePath) {
+  public MergeOptions(DumpOption dumpOption, Supplier<OutputStream> outputStreamSupplier, String filePath) {
     this.dumpOption = dumpOption;
-    this.outputStream = outputStream;
+    this.outputStreamSupplier = outputStreamSupplier;
     this.filePath = filePath;
   }
 
@@ -33,8 +34,8 @@ public class MergeOptions {
     return dumpOption;
   }
 
-  public OutputStream getOutputStream() {
-    return outputStream;
+  public Supplier<OutputStream> getOutputStreamSupplier() {
+    return outputStreamSupplier;
   }
 
   public String getFilePath() {

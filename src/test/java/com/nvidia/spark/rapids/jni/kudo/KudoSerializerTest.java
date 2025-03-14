@@ -25,11 +25,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.function.Supplier;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Arrays.asList;
@@ -598,7 +600,14 @@ public class KudoSerializerTest {
       kudoTables[1] = KudoTable.from(bin).get();
       
       // merge the two tables and dump the result to the temp file
-      MergeOptions options = new MergeOptions(DumpOption.Always, new FileOutputStream(dumpPath), dumpPath);
+      Supplier<OutputStream> outputStreamSupplier = () -> {
+        try {
+          return new FileOutputStream(dumpPath);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      };
+      MergeOptions options = new MergeOptions(DumpOption.Always, outputStreamSupplier, dumpPath);
       serializer.mergeOnHost(kudoTables, options);
       
       // Verify dump file exists and has content
