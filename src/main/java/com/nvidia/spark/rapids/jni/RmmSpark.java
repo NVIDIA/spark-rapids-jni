@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -322,6 +322,19 @@ public class RmmSpark {
    */
   public static void removeAllCurrentThreadAssociation() {
     removeAllThreadAssociation(getCurrentThreadId());
+  }
+
+  /**
+   * Bind two threads together so that if one is blocked the other should be blocked too.
+   * @param firstThreadId the ID of the first thread (not java thread id).
+   * @param secondThreadId the ID of the second thread (not java thread id).
+   */
+  public static void bindPropagateThreads(long firstThreadId, long secondThreadId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        sra.bindPropagateThreads(firstThreadId, secondThreadId);
+      }
+    }
   }
 
   /**
