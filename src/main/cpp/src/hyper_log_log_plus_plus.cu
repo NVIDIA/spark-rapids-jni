@@ -665,7 +665,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
                            cudf::device_span<int64_t*> output,
                            int precision)
 {
-  __shared__ int32_t shared_data[block_size];
+  extern __shared__ int32_t shared_data[];
 
   auto const tid                          = cudf::detail::grid_1d::global_thread_id();
   auto const num_hashs                    = hashs.size();
@@ -699,19 +699,19 @@ __launch_bounds__(block_size) CUDF_KERNEL
   // compact from register values (int array) to long array
   // each long holds 10 integers, note reg value < 64 which means the bits from
   // 7 to highest are all 0.
-  if (tid * REGISTERS_PER_LONG < num_registers_per_sketch) {
-    int start = tid * REGISTERS_PER_LONG;
-    int end   = (tid + 1) * REGISTERS_PER_LONG;
+  for (int i = tid; i * REGISTERS_PER_LONG < num_registers_per_sketch; i += block_size) {
+    int start = i * REGISTERS_PER_LONG;
+    int end   = (i + 1) * REGISTERS_PER_LONG;
     if (end > num_registers_per_sketch) { end = num_registers_per_sketch; }
 
     int64_t ret = 0;
-    for (int i = 0; i < end - start; i++) {
-      int shift   = i * REGISTER_VALUE_BITS;
-      int64_t reg = shared_data[start + i];
+    for (int j = 0; j < end - start; j++) {
+      int shift   = j * REGISTER_VALUE_BITS;
+      int64_t reg = shared_data[start + j];
       ret |= (reg << shift);
     }
 
-    output[tid][0] = ret;
+    output[i][0] = ret;
   }
 }
 
