@@ -525,8 +525,7 @@ struct assemble_src_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out =
-      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
+    *validity_out = validity_size(col);
 
     // no offsets for fixed width types
     *offsets_out = 0;
@@ -542,11 +541,10 @@ struct assemble_src_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out =
-      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
+    *validity_out = validity_size(col);
 
     // offsets
-    *offsets_out = col.num_rows > 0 ? (sizeof(size_type) * (col.num_rows + 1)) : 0;
+    *offsets_out = offsets_size(col);
 
     // no data for lists
     *data_out = 0;
@@ -559,8 +557,7 @@ struct assemble_src_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out =
-      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
+    *validity_out = validity_size(col);
 
     // no offsets or data for structs
     *offsets_out = 0;
@@ -574,14 +571,13 @@ struct assemble_src_buffer_size_functor {
                              OutputIter data_out)
   {
     // validity
-    *validity_out =
-      col.has_validity ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1) : 0;
+    *validity_out = validity_size(col);
 
     // chars
     *data_out = sizeof(int8_t) * col.num_chars;
 
     // offsets
-    *offsets_out = col.num_rows > 0 ? (sizeof(size_type) * (col.num_rows + 1)) : 0;
+    *offsets_out = offsets_size(col);
   }
 
   template <typename T,
@@ -594,6 +590,23 @@ struct assemble_src_buffer_size_functor {
                              OutputIter offsets_out,
                              OutputIter data_out)
   {
+  }
+
+  __device__ size_t validity_size(assemble_column_info const& col) const
+  {
+    // if we have no validity, or no rows, include nothing.
+    return col.has_validity ?
+                            // handle the validity edge case from the function header
+             (col.num_rows > 0
+                ? bitmask_allocation_size_bytes(col.num_rows + (src_row_index % 8), 1)
+                : 0)
+                            : 0;
+  }
+
+  __device__ size_t offsets_size(assemble_column_info const& col) const
+  {
+    // if we have no rows, don't even generate the blank offset
+    return col.num_rows > 0 ? (sizeof(size_type) * (col.num_rows + 1)) : 0;
   }
 };
 
@@ -703,9 +716,7 @@ struct assemble_buffer_functor {
       col.has_validity ? alloc_validity(col.num_rows) : rmm::device_buffer(0, stream, mr);
 
     // offsets
-    auto const offsets_size =
-      cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align);
-    *offsets_out = rmm::device_buffer(offsets_size, stream, mr);
+    *offsets_out = rmm::device_buffer(offsets_size(col), stream, mr);
 
     // no data for lists
   }
@@ -737,9 +748,7 @@ struct assemble_buffer_functor {
     *data_out = rmm::device_buffer(col.num_chars, stream, mr);
 
     // offsets
-    auto const offsets_size =
-      cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align);
-    *offsets_out = rmm::device_buffer(offsets_size, stream, mr);
+    *offsets_out = rmm::device_buffer(offsets_size(col), stream, mr);
   }
 
   template <typename T,
@@ -756,7 +765,15 @@ struct assemble_buffer_functor {
   }
 
  private:
-  rmm::device_buffer alloc_validity(size_type num_rows)
+  size_t offsets_size(assemble_column_info const& col) const
+  {
+    // if we have no rows, don't even generate the blank offset
+    return col.num_rows > 0
+             ? cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align)
+             : 0;
+  }
+
+  rmm::device_buffer alloc_validity(size_type num_rows) const
   {
     auto res = rmm::device_buffer(bitmask_allocation_size_bytes(num_rows, split_align), stream, mr);
     // necessary because of the way the validity copy step works (use of atomicOr instead of stores
@@ -1117,10 +1134,13 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
        src_buf_to_dst_buf,
        src_buf_to_dst_offset,
        src_buf_to_type] __device__(size_t src_buf_index, size_t batch_index) {
-        auto const batch_offset       = batch_index * desired_assemble_batch_size;
-        auto const partition_index    = src_buf_index / buffers_per_partition;
+        auto const batch_offset    = batch_index * desired_assemble_batch_size;
+        auto const partition_index = src_buf_index / buffers_per_partition;
+
         auto const col_index          = src_buf_index % num_columns;
         auto const col_instance_index = (partition_index * num_columns) + col_index;
+        auto& cinfo                   = column_info[col_index];
+        auto const& cinfo_inst        = column_instance_info[col_instance_index];
 
         auto const src_offset = src_offsets[src_buf_index];
 
@@ -1147,9 +1167,24 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
               if (!end_of_buffer) {
                 return desired_assemble_batch_size;
               } else {
+                // if we are the last partition to be copied, include the terminating offset.
+                // there is an edge case to catch here. we may be the last partition that has rows
+                // to be copied, but not the actual -last- partition.  For example, if the last 3
+                // partitions had the row counts:  5, 0, 0 The final two partitions have no offset
+                // data in them at all, so they can't provide the terminating offset. instead, the
+                // partition containing 5 rows is the "last" partition, so it must do the
+                // termination. to identify if we are this "last" partition, we check to see if our
+                // final row index == the final row index of the true last partition.
+                auto const last_partition_index = num_partitions - 1;
+                auto const last_col_inst_index  = (last_partition_index * num_columns) + col_index;
+                auto const& last_cinfo_inst     = column_instance_info[last_col_inst_index];
+                auto const last_row_index = last_cinfo_inst.row_index + last_cinfo_inst.num_rows;
+                bool const is_terminating_partition =
+                  cinfo_inst.row_index + cinfo_inst.num_rows == last_row_index;
+
                 auto const size = std::min(src_sizes_unpadded[src_buf_index] - batch_offset,
                                            desired_assemble_batch_size);
-                return partition_index == num_partitions - 1 ? size : size - 4;
+                return is_terminating_partition ? size : size - 4;
               }
             }
             default: break;
@@ -1162,29 +1197,27 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
         auto const validity_batch_row_index = (batch_index * validity_rows_per_batch);
         auto const validity_row_count =
-          min(column_instance_info[col_instance_index].num_rows - validity_batch_row_index,
-              validity_rows_per_batch);
+          min(cinfo_inst.num_rows - validity_batch_row_index, validity_rows_per_batch);
 
-        auto const dst_bit_shift = (column_instance_info[col_instance_index].row_index) % 32;
+        auto const dst_bit_shift = (cinfo_inst.row_index) % 32;
         // since the initial split copy is done on simple byte boundaries, the first bit we want to
         // copy may not be the first bit in the source buffer. so we need to shift right by these
         // leading bits. for example, the partition may start at row 3. but in that case, we will
         // have started copying from byte 0. so we have to shift right 3 rows.
         // Important: we need to know the -source- row index to do this, as that ultimately is what
         // affects what is in the incoming buffer. the destination row index is irrelevant.
-        auto const src_bit_shift = column_instance_info[col_instance_index].src_row_index % 8;
+        auto const src_bit_shift = cinfo_inst.src_row_index % 8;
 
         // transform the incoming raw offsets into final offsets
         int const offset_shift = [&] __device__() {
-          if (btype != buffer_type::OFFSETS) { return 0; }
+          if (btype != buffer_type::OFFSETS || src_sizes_unpadded[src_buf_index] == 0) { return 0; }
 
-          auto const& col = column_info[col_index];
           auto const root_partition_offset =
             (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
           // subtract the first offset value in the buffer, then add the row/char index
-          if (col.type == cudf::type_id::STRING) {
-            return column_instance_info[col_instance_index].char_index - root_partition_offset;
-          } else if (col.type == cudf::type_id::LIST) {
+          if (cinfo.type == cudf::type_id::STRING) {
+            return cinfo_inst.char_index - root_partition_offset;
+          } else if (cinfo.type == cudf::type_id::LIST) {
             auto const& child_inst = column_instance_info[col_instance_index + 1];
             return child_inst.row_index - root_partition_offset;
           }
@@ -1192,7 +1225,6 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
           return 0;
         }();
 
-        auto& cinfo = column_info[col_index];
         return assemble_batch{partitions + src_offset + batch_offset,
                               dst_buffers[dst_buf_index] + dst_offset + batch_offset,
                               bytes,
@@ -1376,7 +1408,7 @@ __global__ void copy_offsets(cudf::device_span<assemble_batch> batches)
 {
   int batch_index = blockIdx.x;
   auto& batch     = batches[batch_index];
-  if (batch.size <= 0 || (batch.btype != buffer_type::OFFSETS)) { return; }
+  if ((batch.size <= 0) || (batch.btype != buffer_type::OFFSETS)) { return; }
 
   auto const offset_shift = batch.value_shift;
   auto num_offsets =
@@ -1508,7 +1540,6 @@ struct assemble_column_functor {
                                      std::move(*data),
                                      col.has_validity ? std::move(*validity) : rmm::device_buffer{},
                                      col.has_validity ? col.num_rows - col.valid_count : 0));
-
     return {col_index + 1, buffer + 3};
   }
 
@@ -1520,9 +1551,9 @@ struct assemble_column_functor {
     auto const validity = buffer;
     buffer += 3;
 
-    // build children
     std::vector<std::unique_ptr<cudf::column>> children;
     auto const& col = columns[col_index];
+    // build children
     children.reserve(col.num_children);
     auto next = col_index + 1;
     for (size_type i = 0; i < col.num_children; i++) {
@@ -1554,7 +1585,6 @@ struct assemble_column_functor {
     auto const chars    = buffer + 2;
 
     auto const& col = columns[col_index];
-
     out.push_back(col.num_rows > 0
                     ? cudf::make_strings_column(
                         col.num_rows,
@@ -1589,6 +1619,7 @@ struct assemble_column_functor {
                             next,
                             buffer,
                             child_col);
+
     // build the final column
     out.push_back(cudf::make_lists_column(
       col.num_rows,
