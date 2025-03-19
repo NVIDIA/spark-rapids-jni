@@ -1,5 +1,5 @@
 #=============================================================================
-# Copyright (c) 2022-2024, NVIDIA CORPORATION.
+# Copyright (c) 2022-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,6 +58,9 @@ ConfigureTest(FORMAT_FLOAT
 ConfigureTest(CAST_FLOAT_TO_STRING
     cast_float_to_string.cpp)
 
+ConfigureTest(CAST_LONG_TO_BINARY_STRING
+    cast_long_to_binary_string.cpp)
+
 ConfigureTest(DATETIME_REBASE
     datetime_rebase.cpp)
 
@@ -79,6 +82,12 @@ ConfigureTest(UTILITIES
 ConfigureTest(PARSE_URI
     parse_uri.cpp)
 
+ConfigureTest(LIST_SLICE
+    list_slice.cpp)
+
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
+
+ConfigureTest(HLLPP
+    hyper_log_log_plus_plus.cu)
 

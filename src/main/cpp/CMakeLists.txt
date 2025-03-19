@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2022-2024, NVIDIA CORPORATION.
+# Copyright (c) 2022-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.28.6 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.02.00
+  VERSION 25.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -199,7 +199,10 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
+  src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
+  src/ListSliceJni.cpp
+  src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
@@ -211,6 +214,7 @@ add_library(
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/cast_float_to_string.cu
+  src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/datetime_rebase.cu
@@ -221,7 +225,12 @@ add_library(
   src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
+  src/hive_hash.cu
+  src/hyper_log_log_plus_plus.cu
+  src/hyper_log_log_plus_plus_host_udf.cu
   src/json_utils.cu
+  src/list_slice.cu
+  src/map.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
@@ -230,7 +239,6 @@ add_library(
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
-  src/hive_hash.cu
   src/zorder.cu
 )
 

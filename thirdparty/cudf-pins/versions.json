@@ -10,13 +10,103 @@
       "patches" : 
       [
         {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_sort_compile_times.diff",
           "fixed_in" : "",
+          "inline_patch" : 
+          {
+            "content" : 
+            [
+              "diff --git a/cub/cub/block/block_merge_sort.cuh b/cub/cub/block/block_merge_sort.cuh",
+              "index 29510db5e..cf57e5786 100644",
+              "--- a/cub/cub/block/block_merge_sort.cuh",
+              "+++ b/cub/cub/block/block_merge_sort.cuh",
+              "@@ -95,7 +95,7 @@ _CCCL_DEVICE _CCCL_FORCEINLINE void SerialMerge(",
+              "   KeyT key1 = keys_shared[keys1_beg];",
+              "   KeyT key2 = keys_shared[keys2_beg];",
+              "",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "   for (int item = 0; item < ITEMS_PER_THREAD; ++item)",
+              "   {",
+              "     const bool p  = (keys2_beg < keys2_end) && ((keys1_beg >= keys1_end) || compare_op(key2, key1));",
+              "@@ -374,7 +374,7 @@ public:",
+              "       //",
+              "       KeyT max_key = oob_default;",
+              "",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "       for (int item = 1; item < ITEMS_PER_THREAD; ++item)",
+              "       {",
+              "         if (ITEMS_PER_THREAD * linear_tid + item < valid_items)",
+              "diff --git a/cub/cub/thread/thread_sort.cuh b/cub/cub/thread/thread_sort.cuh",
+              "index 7d9e8622f..da5627306 100644",
+              "--- a/cub/cub/thread/thread_sort.cuh",
+              "+++ b/cub/cub/thread/thread_sort.cuh",
+              "@@ -87,10 +87,10 @@ StableOddEvenSort(KeyT (&keys)[ITEMS_PER_THREAD], ValueT (&items)[ITEMS_PER_THRE",
+              " {",
+              "   constexpr bool KEYS_ONLY = ::cuda::std::is_same<ValueT, NullType>::value;",
+              "",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "   for (int i = 0; i < ITEMS_PER_THREAD; ++i)",
+              "   {",
+              "-#pragma unroll",
+              "+#pragma unroll 1",
+              "     for (int j = 1 & i; j < ITEMS_PER_THREAD - 1; j += 2)",
+              "     {",
+              "       if (compare_op(keys[j + 1], keys[j]))"
+            ],
+            "type" : "diff"
+          },
           "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
         },
         {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/thrust_faster_scan_compile_times.diff",
           "fixed_in" : "",
+          "inline_patch" : 
+          {
+            "content" : 
+            [
+              "diff --git a/cub/cub/device/dispatch/dispatch_radix_sort.cuh b/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
+              "index 0606485bb..dbb99ff13 100644",
+              "--- a/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
+              "+++ b/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
+              "@@ -1085,7 +1085,7 @@ struct DeviceRadixSortPolicy",
+              "   };",
+              " ",
+              "   /// SM60 (GP100)",
+              "-  struct Policy600 : ChainedPolicy<600, Policy600, Policy500>",
+              "+  struct Policy600 : ChainedPolicy<600, Policy600, Policy600>",
+              "   {",
+              "     enum",
+              "     {",
+              "diff --git a/cub/cub/device/dispatch/dispatch_reduce.cuh b/cub/cub/device/dispatch/dispatch_reduce.cuh",
+              "index f39613adb..75bd16ff9 100644",
+              "--- a/cub/cub/device/dispatch/dispatch_reduce.cuh",
+              "+++ b/cub/cub/device/dispatch/dispatch_reduce.cuh",
+              "@@ -488,7 +488,7 @@ struct DeviceReducePolicy",
+              "   };",
+              " ",
+              "   /// SM60",
+              "-  struct Policy600 : ChainedPolicy<600, Policy600, Policy350>",
+              "+  struct Policy600 : ChainedPolicy<600, Policy600, Policy600>",
+              "   {",
+              "     static constexpr int threads_per_block  = 256;",
+              "     static constexpr int items_per_thread   = 16;",
+              "diff --git a/cub/cub/device/dispatch/tuning/tuning_scan.cuh b/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
+              "index 419908c4e..6ab0840e1 100644",
+              "--- a/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
+              "+++ b/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
+              "@@ -339,7 +339,7 @@ struct DeviceScanPolicy",
+              "   /// SM600",
+              "   struct Policy600",
+              "       : DefaultTuning",
+              "-      , ChainedPolicy<600, Policy600, Policy520>",
+              "+      , ChainedPolicy<600, Policy600, Policy600>",
+              "   {};",
+              " ",
+              "   /// SM800"
+            ],
+            "type" : "diff"
+          },
           "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
         }
       ],
@@ -26,9 +116,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b796f7d44681514f58a683a3a71ff17c94edb0c1",
+      "git_tag" : "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
       "git_url" : "https://github.com/google/googletest.git",
-      "version" : "1.13.0"
+      "version" : "1.16.0"
+    },
+    "benchmark" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "2dd015dfef425c866d9a43f2c67d8b52d709acb6",
+      "git_url" : "https://github.com/google/benchmark.git",
+      "version" : "1.8.0"
     },
     "bs_thread_pool" : 
     {
@@ -42,7 +140,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "95f338d233e1365fb3841439e39235ae0ca7ca7e",
+      "git_tag" : "7b422c00f3541e2472e8d1047b7c3bb4e83c7e2c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -68,13 +166,6 @@
       "git_shallow" : false,
       "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
       "git_url" : "https://github.com/fmtlib/fmt.git",
-      "patches" : 
-      [
-        {
-          "file" : "fmt/fix_11_0_2_unreachable_loop.diff",
-          "issue" : "fmt 11.0.2 produces a warning about an unreachable loop when compiled with nvcc"
-        }
-      ],
       "version" : "11.0.2"
     },
     "jitify" : 
@@ -89,25 +180,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "288535770abbe950ab8ec655d44f5aa9d6704cea",
+      "git_tag" : "a4170fc098e80d339a42c5da9a605796eb864c9f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.02"
+      "version" : "25.04"
     },
     "nanoarrow" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "1e2664a70ec14907409cadcceb14d79b9670bcdb",
+      "git_tag" : "4bf5a9322626e95e3717e43de7616c0a256179eb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
-      "patches" : 
-      [
-        {
-          "file" : "${current_json_dir}/../cudf/cpp/cmake/thirdparty/patches/nanoarrow_clang_tidy_compliance.diff",
-          "fixed_in" : "",
-          "issue" : "https://github.com/apache/arrow-nanoarrow/issues/537"
-        }
-      ],
-      "version" : "0.6.0.dev"
+      "version" : "0.7.0.dev"
     },
     "nvcomp" : 
     {
@@ -125,7 +208,7 @@
         "11" : "11",
         "12" : "12"
       },
-      "version" : "4.1.0.6"
+      "version" : "4.2.0.11"
     },
     "nvtx3" : 
     {
@@ -139,17 +222,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55",
+      "git_tag" : "46070bb255482f0782ca840ae45de9354380e298",
       "git_url" : "https://github.com/rapidsai/rapids-logger.git",
-      "version" : "c510947ae9d3a67530cfe3e5eaccb5a3b8ea0e55"
+      "version" : "0.1.0"
     },
     "rmm" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c7798bd815c156a1c658dcf1fa7dd5c23dc790ba",
+      "git_tag" : "7f0cead1b9c6970687ce6ef84091d08471b913cd",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.02"
+      "version" : "25.04"
     },
     "spdlog" : 
     {
@@ -158,6 +241,14 @@
       "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
       "git_url" : "https://github.com/gabime/spdlog.git",
       "version" : "1.14.1"
+    },
+    "zstd" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "git_url" : "https://github.com/facebook/zstd.git",
+      "version" : "1.5.7"
     }
   }
 }
