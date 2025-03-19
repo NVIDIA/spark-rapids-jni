@@ -291,6 +291,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
 {
   __shared__ int8_t shared_data[block_size];
   auto const tid = cudf::detail::grid_1d::global_thread_id();
+  if (tid >= num_registers_per_sketch) { return; }
   int shared_idx = tid % block_size;
 
   // register idx is tid
