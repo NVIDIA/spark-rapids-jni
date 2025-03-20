@@ -764,3 +764,50 @@ TEST_F(ShuffleSplitTests, FixedPoint)
   run_split(tbl, {100});
   run_split(tbl, {1000, num_rows - 1000});
 }
+
+TEST_F(ShuffleSplitTests, NestedTerminatingEmptyPartition)
+{
+  // edge case: non-root columns that contain offsets, where the trailing partitions
+  // are completely empty. the situation this causes is that there are no offsets for
+  // these partitions, so the code that was selecting which copy batch should apply the terminating
+  // offset to the destination was incorrect.  It was selecting "the last partition"
+  // when it should have been "the last non-empty partition". In the case where there are no rows in
+  // any partition, there are no offsets to terminate.
+
+  // empty trailing partitions
+  {
+    // list<list<struct<string, string>>>
+    cudf::test::strings_column_wrapper str0{"k1", "k4", "k8", "k14", "k16", "k19", "k22", "k22"};
+    cudf::test::strings_column_wrapper str1{{"v1", "v4", "v8", "v14", "v16", "v19", "v22", ""},
+                                            {1, 1, 1, 1, 1, 1, 1, 0}};
+    std::vector<std::unique_ptr<cudf::column>> children;
+    children.push_back(str0.release());
+    children.push_back(str1.release());
+    cudf::test::structs_column_wrapper str(std::move(children));
+
+    cudf::test::fixed_width_column_wrapper<int> inner_offsets{0, 1, 2, 3, 4, 5, 6, 7, 8};
+    auto inner_list = cudf::make_lists_column(8, inner_offsets.release(), str.release(), 0, {});
+
+    cudf::test::fixed_width_column_wrapper<int> outer_offsets{
+      0, 1, 2, 2, 2, 2, 3, 4, 4, 4, 4, 4, 5, 6, 7, 7, 8, 8, 8};
+    std::vector<int> outer_valids{1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0};
+    auto outer_validity =
+      cudf::test::detail::make_null_mask(outer_valids.begin(), outer_valids.end());
+    auto outer_list = cudf::make_lists_column(
+      18, outer_offsets.release(), std::move(inner_list), 9, std::move(outer_validity.first));
+
+    cudf::table_view tbl{{*outer_list}};
+    run_split(tbl, {2, 4, 6, 8, 10, 12, 14, 16});
+  }
+
+  // list<string>
+  // the string in this case is completely empty, so none of the partitions for it contain any rows,
+  // hence no terminating offset.
+  {
+    cudf::test::strings_column_wrapper str{};
+    cudf::test::fixed_width_column_wrapper<int> offsets{0, 0, 0, 0, 0, 0, 0, 0, 0};
+    auto list = cudf::make_lists_column(8, offsets.release(), str.release(), 0, {});
+    cudf::table_view tbl{{*list}};
+    run_split(tbl, {2, 4, 6});
+  }
+}
