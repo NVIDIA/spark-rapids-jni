@@ -76,6 +76,13 @@ public class KudoHostMergeResult implements AutoCloseable {
     return toTableStatic(hostBuf, schema, columnInfoList);
   }
 
+  /**
+   * Convert the host buffer into a cudf table. This method does not close the host buffer.
+   * @param hostBuf the host buffer to convert
+   * @param schema the schema of the table
+   * @param columnInfoList the column info list
+   * @return the cudf table
+   */
   public static Table toTableStatic(HostMemoryBuffer hostBuf,
       Schema schema, ColumnViewInfo[] columnInfoList) {
     try (DeviceMemoryBuffer deviceMemBuf = DeviceMemoryBuffer.allocate(hostBuf.getLength())) {
