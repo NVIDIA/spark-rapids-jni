@@ -22,6 +22,7 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -128,9 +129,10 @@ static std::shared_ptr<spdlog::logger> make_logger()
 
 static auto make_logger(std::string const& filename)
 {
-  return std::make_shared<spdlog::logger>(
-    "SPARK_RMM",
-    std::make_shared<spdlog::sinks::basic_file_sink_mt>(filename, true /*truncate file*/));
+  // We don't want single log file to grow too big, it would be difficult to download, open and
+  // process. 100MB at most for a single log file, and at most 1000 files. (That's 100GB in total)
+  // This should work for most cases so we don't need to introduce additional configs for now.
+  return spdlog::rotating_logger_mt("SPARK_RMM", filename, 100 << 20, 1000);
 }
 
 /**
@@ -1371,7 +1373,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const thread = threads.find(thread_id);
     if (!was_recursive && thread != threads.end()) {
       // The allocation succeeded so we are no longer doing a retry
-      thread->second.is_retry_alloc_before_bufn = false;
+      if (thread->second.is_retry_alloc_before_bufn) {
+        thread->second.is_retry_alloc_before_bufn = false;
+        logger->debug(
+          "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
+          thread_id);
+      }
       switch (thread->second.state) {
         case thread_state::THREAD_ALLOC:
           // fall through
@@ -1665,6 +1672,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
+            logger->debug("thread (id: {}) is_retry_alloc_before_bufn set to true", thread_id);
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
@@ -1749,11 +1757,21 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           break;
         case thread_state::THREAD_ALLOC:
           if (is_oom && thread->second.is_retry_alloc_before_bufn) {
-            thread->second.is_retry_alloc_before_bufn = false;
+            if (thread->second.is_retry_alloc_before_bufn) {
+              thread->second.is_retry_alloc_before_bufn = false;
+              logger->debug(
+                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+                thread_id);
+            }
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
             thread->second.wake_condition->notify_all();
           } else if (is_oom && blocking) {
-            thread->second.is_retry_alloc_before_bufn = false;
+            if (thread->second.is_retry_alloc_before_bufn) {
+              thread->second.is_retry_alloc_before_bufn = false;
+              logger->debug(
+                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+                thread_id);
+            }
             transition(thread->second, thread_state::THREAD_BLOCKED);
           } else {
             // don't block unless it is OOM on a blocking allocation
