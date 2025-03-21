@@ -1672,7 +1672,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
-            logger->debug("thread (id: {}) is_retry_alloc_before_bufn set to true", thread_id);
+            logger->debug("thread (id: {}) is_retry_alloc_before_bufn set to true",
+                          thread_id_to_bufn);
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
