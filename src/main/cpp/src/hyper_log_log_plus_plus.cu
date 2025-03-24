@@ -46,13 +46,13 @@ namespace {
  * is bigger than this value, then leverage global memory to do the reduction to avoid the
  * limitation of shared memory.
  */
-constexpr int MAX_SHARED_MEM_PRECISION = 12
+constexpr int MAX_SHARED_MEM_PRECISION = 12;
 
-  /**
-   * @brief The seed used for the XXHash64 hash function.
-   * It's consistent with Spark
-   */
-  constexpr int64_t SEED = 42L;
+/**
+ * @brief The seed used for the XXHash64 hash function.
+ * It's consistent with Spark
+ */
+constexpr int64_t SEED = 42L;
 
 /**
  * @brief 6 binary MASK bits: 111-111
