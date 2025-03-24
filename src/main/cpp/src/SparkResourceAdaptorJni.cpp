@@ -505,6 +505,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (thread != threads.end()) { thread->second.reset_retry_state(false); }
   }
 
+  bool is_working_on_task_as_pool_thread(long const thread_id)
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto const thread = threads.find(thread_id);
+    if (thread != threads.end()) { return !thread->second.pool_task_ids.empty(); }
+
+    return false;
+  }
+
   /**
    * Update the internal state so that a specific thread is associated with transitive
    * thread pools and is working on a set of tasks.
@@ -600,34 +609,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   }
 
   /**
-   * Bind two threads together so that if one is blocked the other should be blocked too.
-   */
-  void bind_propagate_threads(long const first, long const second)
-  {
-    if (first == second) { throw std::runtime_error("Cannot bind a thread to itself"); }
-
-    auto firstExists  = propagate_threads.find(first) != propagate_threads.end();
-    auto secondExists = propagate_threads.find(second) != propagate_threads.end();
-
-    if (firstExists && secondExists) {
-      if (propagate_threads[first] == propagate_threads[second]) { return; }
-      throw std::runtime_error("Threads are already bound to different propagate threads");
-    }
-
-    if (firstExists) {
-      propagate_threads[first]->emplace(second);
-      propagate_threads.emplace(second, propagate_threads[first]);
-    } else if (secondExists) {
-      propagate_threads[second]->emplace(first);
-      propagate_threads.emplace(first, propagate_threads[second]);
-    } else {
-      auto set = std::make_shared<std::set<long>>(std::set{first, second});
-      propagate_threads.emplace(first, set);
-      propagate_threads.emplace(second, set);
-    }
-  }
-
-  /**
    * Update the internal state so that all threads associated with a task are
    * cleared. Just like with remove_thread_association if one or more of these
    * threads are currently blocked/waiting then the state will not be totally
@@ -642,9 +623,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // we want to make a copy so there is no conflict here...
       std::set<long> const threads_to_remove = task_at->second;
       for (auto const thread_id : threads_to_remove) {
-        if (propagate_threads.find(thread_id) != propagate_threads.end()) {
-          propagate_threads.erase(thread_id);
-        }
         run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
       }
     }
@@ -672,7 +650,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
 
     if (run_checks) { wake_up_threads_after_task_finishes(lock); }
-
     task_to_threads.erase(task_id);
   }
 
@@ -931,15 +908,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   std::condition_variable task_has_woken_condition;
   std::map<long, full_thread_state> threads;
   std::map<long, std::set<long>> task_to_threads;
-  // A running thread (denoted by key)'s thread state will be overwritten by its
-  // peers (denoted by value). This is used for dealing with the case another thread
-  // is spawned to handle the same task in python UDF case. Usually, for a given task,
-  // there will be two entries: TID1 -> {TID1, TID2} and TID2 -> {TID1, TID2}. But in
-  // theory it is possible that a task further spawns more threads to handle. Then you
-  // will see TID1 -> {TID1, TID2, TID3} and TID2 -> {TID1, TID2, TID3} and
-  // TID3 -> {TID1, TID2, TID3}.
-  std::map<long, std::shared_ptr<std::set<long>>> propagate_threads;
-
   long gpu_memory_allocated_bytes = 0;
 
   // Metrics are a little complicated. Spark reports metrics at a task level
@@ -1601,7 +1569,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // task threads are used for a single task. One will write data to the python
     // process and another will read results from it. Because both involve
     // I/O we need a solution. For now we assume that a task is blocked if any
-    // all of the dedicated task threads are blocked and if all of the pool
+    // one of the dedicated task threads are blocked and if all of the pool
     // threads working on that task are also blocked. This is because the pool
     // threads, even if they are blocked on I/O will eventually finish without
     // needing to worry about it.
@@ -1609,74 +1577,21 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // We also need a way to detect if we need to split the input and retry.
     // This happens when all of the tasks are also blocked until
     // further notice. So we are going to treat a task as blocked until
-    // further notice if all of the dedicated threads for it are blocked until
+    // further notice if any of the dedicated threads for it are blocked until
     // further notice, or all of the pool threads working on things for it are
     // blocked until further notice.
     std::unordered_set<long> blocked_task_ids;
 
     // We are going to do two passes through the threads to deal with this.
     // First pass is to look at the dedicated task threads
-    std::map<long, bool> is_bufn_plus_map;
-    std::map<long, bool> is_blocked_map;
-    for (auto const& [thread_id, t_state] : threads) {
-      long const task_id = t_state.task_id;
-      if (task_id >= 0) {
-        bool const is_bufn_plus     = is_thread_bufn_or_above(env, t_state);
-        is_bufn_plus_map[thread_id] = is_bufn_plus;
-        is_blocked_map[thread_id]   = is_bufn_plus || t_state.state == thread_state::THREAD_BLOCKED;
-      }
-    }
-    // Overwrite the is_blocked and is_bufn_plus with peer's status, if peer is in more advanced
-    // state
-    for (auto const& [thread_id, t_state] : threads) {
-      long const task_id = t_state.task_id;
-      if (task_id >= 0) {
-        if (!is_bufn_plus_map[thread_id]) {
-          if (propagate_threads.find(thread_id) != propagate_threads.end()) {
-            for (auto const& peer : *propagate_threads[thread_id]) {
-              if (is_bufn_plus_map[peer]) {
-                is_bufn_plus_map[thread_id] = true;
-                break;
-              }
-            }
-          }
-        }
-        if (!is_blocked_map[thread_id]) {
-          if (propagate_threads.find(thread_id) != propagate_threads.end()) {
-            for (auto const& peer : *propagate_threads[thread_id]) {
-              if (is_blocked_map[peer]) {
-                is_blocked_map[thread_id] = true;
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-    // If any dedicated thread of a task is NOT blocked, then it will make the
-    // whole task NOT blocked
-    std::unordered_set<long> non_blocked_task_ids;
-    // If any dedicated thread of a task is NOT BUFN, then it will make the
-    // whole task NOT BUFN
-    std::unordered_set<long> non_bufn_task_ids;
     for (auto const& [thread_id, t_state] : threads) {
       long const task_id = t_state.task_id;
       if (task_id >= 0) {
         all_task_ids.insert(task_id);
-        if (is_bufn_plus_map[thread_id] &&
-            non_bufn_task_ids.find(task_id) == non_bufn_task_ids.end()) {
-          bufn_task_ids.insert(task_id);
-        } else {
-          non_bufn_task_ids.insert(task_id);
-          bufn_task_ids.erase(task_id);
-        }
-
-        if (is_blocked_map[thread_id] &&
-            non_blocked_task_ids.find(task_id) == non_blocked_task_ids.end()) {
+        bool const is_bufn_plus = is_thread_bufn_or_above(env, t_state);
+        if (is_bufn_plus) { bufn_task_ids.insert(task_id); }
+        if (is_bufn_plus || t_state.state == thread_state::THREAD_BLOCKED) {
           blocked_task_ids.insert(task_id);
-        } else {
-          non_blocked_task_ids.insert(task_id);
-          blocked_task_ids.erase(task_id);
         }
       }
     }
@@ -2023,6 +1938,18 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_startDedicatedTaskThread(
   CATCH_STD(env, )
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_isThreadWorkingOnTaskAsPoolThread(
+  JNIEnv* env, jclass, jlong ptr, jlong thread_id)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    return mr->is_working_on_task_as_pool_thread(thread_id);
+  }
+  CATCH_STD(env, false)
+}
+
 JNIEXPORT void JNICALL
 Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_poolThreadWorkingOnTasks(
   JNIEnv* env, jclass, jlong ptr, jboolean is_for_shuffle, jlong thread_id, jlongArray task_ids)
@@ -2064,18 +1991,6 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeThreadAssociation(
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
     mr->remove_thread_association(thread_id, task_id);
-  }
-  CATCH_STD(env, )
-}
-
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_bindPropagateThreads(
-  JNIEnv* env, jclass, jlong ptr, jlong first_thread_id, jlong second_thread_id)
-{
-  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
-  try {
-    cudf::jni::auto_set_device(env);
-    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
-    mr->bind_propagate_threads(first_thread_id, second_thread_id);
   }
   CATCH_STD(env, )
 }

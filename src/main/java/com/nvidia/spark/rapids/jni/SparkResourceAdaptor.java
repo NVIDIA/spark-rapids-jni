@@ -162,6 +162,10 @@ public class SparkResourceAdaptor
     }
   }
 
+  public boolean isThreadWorkingOnTaskAsPoolThread(long threadId) {
+    return isThreadWorkingOnTaskAsPoolThread(getHandle(), threadId);
+  }
+
   /**
    * Remove the given thread ID from any association.
    * @param threadId the ID of the thread that is no longer a part of a task or shuffle (not java thread id).
@@ -169,15 +173,6 @@ public class SparkResourceAdaptor
    */
   public void removeThreadAssociation(long threadId, long taskId) {
     removeThreadAssociation(getHandle(), threadId, taskId);
-  }
-
-  /**
-   * Bind two threads together so that if one is blocked the other should be blocked too.
-   * @param firstThreadId the ID of the first thread (not java thread id).
-   * @param secondThreadId the ID of the second thread (not java thread id).
-   */
-  public void bindPropagateThreads(long firstThreadId, long secondThreadId) {
-    bindPropagateThreads(getHandle(), firstThreadId, secondThreadId);
   }
 
   /**
@@ -338,9 +333,9 @@ public class SparkResourceAdaptor
   private native static void releaseAdaptor(long handle);
   private static native void startDedicatedTaskThread(long handle, long threadId, long taskId);
   private static native void poolThreadWorkingOnTasks(long handle, boolean isForShuffle, long threadId, long[] taskIds);
+  private static native boolean isThreadWorkingOnTaskAsPoolThread(long handle, long threadId);
   private static native void poolThreadFinishedForTasks(long handle, long threadId, long[] taskIds);
   private static native void removeThreadAssociation(long handle, long threadId, long taskId);
-  private static native void bindPropagateThreads(long handle, long firstThreadId, long secondThreadId);
   private static native void taskDone(long handle, long taskId);
   private static native void submittingToPool(long handle, long threadId);
   private static native void waitingOnPool(long handle, long threadId);

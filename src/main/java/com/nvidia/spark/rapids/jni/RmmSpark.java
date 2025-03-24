@@ -169,6 +169,15 @@ public class RmmSpark {
     shuffleThreadWorkingTasks(getCurrentThreadId(), Thread.currentThread(), taskIds);
   }
 
+  public static boolean isThreadWorkingOnTaskAsPoolThread() {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.isThreadWorkingOnTaskAsPoolThread(getCurrentThreadId());
+      }
+    }
+    return false;
+  }
+
   /**
    * The current thread which is in a thread pool that could transitively block other tasks has
    * started to work on a task.
@@ -322,19 +331,6 @@ public class RmmSpark {
    */
   public static void removeAllCurrentThreadAssociation() {
     removeAllThreadAssociation(getCurrentThreadId());
-  }
-
-  /**
-   * Bind two threads together so that if one is blocked the other should be blocked too.
-   * @param firstThreadId the ID of the first thread (not java thread id).
-   * @param secondThreadId the ID of the second thread (not java thread id).
-   */
-  public static void bindPropagateThreads(long firstThreadId, long secondThreadId) {
-    synchronized (Rmm.class) {
-      if (sra != null && sra.isOpen()) {
-        sra.bindPropagateThreads(firstThreadId, secondThreadId);
-      }
-    }
   }
 
   /**
