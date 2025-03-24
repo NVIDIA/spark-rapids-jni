@@ -243,7 +243,7 @@ TEST_F(HyperLogLogPlusPlusUDFTest, Groupby)
   // each grouped sketches has 3 rows for keys: 1, 2, 3
   auto const grouped_sketches_for_vals1 = grp_result.second[0].results[0]->view();
   auto const grouped_sketches_for_vals2 = grp_result.second[1].results[0]->view();
-  auto const grouped_sketches_for_vals3 = grp_result.second[1].results[0]->view();
+  auto const grouped_sketches_for_vals3 = grp_result.second[2].results[0]->view();
 
   // 3. Execute merge sketches
   auto stream = cudf::get_default_stream();
@@ -271,7 +271,6 @@ TEST_F(HyperLogLogPlusPlusUDFTest, Groupby)
 
   // 5. Check result
   // each key in (1, 2, 3) has 9 distinct values: (1.0, 2.0, ..., 9.0)
-  // Note: 9 != 6, estimation result is an approximate value, not 100 accurate
-  auto const expected = int64_col{6, 6, 6};
+  auto const expected = int64_col{9, 9, 9};
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, *result);
 }
