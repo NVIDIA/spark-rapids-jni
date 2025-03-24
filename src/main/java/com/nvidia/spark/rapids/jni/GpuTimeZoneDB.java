@@ -26,9 +26,11 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +57,9 @@ public class GpuTimeZoneDB {
   private static Map<String, Integer> zoneIdToTable;
 
   // use this reference to indicate if time zone cache is initialized.
-  private static HostColumnVector fixedTransitions;
+  private static HostColumnVector transitions;
+  private final static int start_year = 1900;
+  private final static int end_year = 2170;
 
   /**
    * This should be called on startup of an executor.
@@ -94,7 +98,7 @@ public class GpuTimeZoneDB {
   }
 
   private static synchronized void cacheDatabaseImpl() {
-    if (fixedTransitions == null) {
+    if (transitions == null) {
       try {
         loadData();
       } catch (Exception e) {
@@ -109,19 +113,13 @@ public class GpuTimeZoneDB {
       zoneIdToTable.clear();
       zoneIdToTable = null;
     }
-    if (fixedTransitions != null) {
-      fixedTransitions.close();
-      fixedTransitions = null;
+    if (transitions != null) {
+      transitions.close();
+      transitions = null;
     }
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(currentTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          currentTimeZone.toString()));
-    }
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
@@ -134,12 +132,6 @@ public class GpuTimeZoneDB {
   }
   
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
-    // TODO: Remove this check when all timezones are supported
-    // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-    if (!isSupportedTimeZone(desiredTimeZone)) {
-      throw new IllegalArgumentException(String.format("Unsupported timezone: %s",
-          desiredTimeZone.toString()));
-    }
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
@@ -150,22 +142,7 @@ public class GpuTimeZoneDB {
           transitions.getNativeView(), tzIndex));
     }
   }
-  
-  // TODO: Deprecate this API when we support all timezones 
-  // (See https://github.com/NVIDIA/spark-rapids/issues/6840)
-  public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
-    return desiredTimeZone != null &&
-      (desiredTimeZone.getRules().isFixedOffset() ||
-      desiredTimeZone.getRules().getTransitionRules().isEmpty());
-  }
 
-  public static boolean isSupportedTimeZone(String zoneId) {
-    try {
-      return isSupportedTimeZone(getZoneId(zoneId));
-    } catch (ZoneRulesException e) {
-      return false;
-    }
-  }
 
   // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
@@ -193,12 +170,24 @@ public class GpuTimeZoneDB {
           continue;
         }
         ZoneRules zoneRules = zoneId.getRules();
-        // Filter by non-repeating rules
-        if (!zoneRules.isFixedOffset() && !zoneRules.getTransitionRules().isEmpty()) {
-          continue;
-        }
         if (!zoneIdToTable.containsKey(zoneId.getId())) {
-          List<ZoneOffsetTransition> transitions = zoneRules.getTransitions();
+          List<ZoneOffsetTransition> zoneOffsetTransitions = new ArrayList<>(zoneRules.getTransitions());
+          long lastTransitionEpochSecond = Long.MIN_VALUE;
+          if (!zoneOffsetTransitions.isEmpty()) {
+            long transitionInstant = zoneOffsetTransitions.get(zoneOffsetTransitions.size()-1).getInstant().getEpochSecond();
+            lastTransitionEpochSecond = Math.max(transitionInstant, lastTransitionEpochSecond);
+          }
+          List<ZoneOffsetTransitionRule> transitionRules = zoneRules.getTransitionRules();
+          for (ZoneOffsetTransitionRule transitionRule : transitionRules){
+            for (int year = start_year; year <= end_year; year++){
+              ZoneOffsetTransition transition = transitionRule.createTransition(year);
+              if (transition.getInstant().getEpochSecond() > lastTransitionEpochSecond){
+                zoneOffsetTransitions.add(transition);
+              }
+            }
+          }
+          // sort the transitions
+          zoneOffsetTransitions.sort(Comparator.comparing(ZoneOffsetTransition::getInstant));
           int idx = masterTransitions.size();
           List<HostColumnVector.StructData> data = new ArrayList<>();
           if (zoneRules.isFixedOffset()) {
@@ -208,12 +197,12 @@ public class GpuTimeZoneDB {
             );
           } else {
             // Capture the first official offset (before any transition) using Long min
-            ZoneOffsetTransition first = transitions.get(0);
+            ZoneOffsetTransition first = zoneOffsetTransitions.get(0);
             data.add(
                 new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                     first.getOffsetBefore().getTotalSeconds())
             );
-            transitions.forEach(t -> {
+            zoneOffsetTransitions.forEach(t -> {
               // Whether transition is an overlap vs gap.
               // In Spark:
               // if it's a gap, then we use the offset after *on* the instant
@@ -247,7 +236,7 @@ public class GpuTimeZoneDB {
           new HostColumnVector.BasicType(false, DType.INT32));
       HostColumnVector.DataType resultType =
           new HostColumnVector.ListType(false, childType);
-      fixedTransitions = HostColumnVector.fromLists(resultType,
+      transitions = HostColumnVector.fromLists(resultType,
           masterTransitions.toArray(new List[0]));
     } catch (Exception e) {
       throw new IllegalStateException("load time zone DB cache failed!", e);
@@ -261,7 +250,7 @@ public class GpuTimeZoneDB {
   }
 
   private static synchronized ColumnVector getFixedTransitions() {
-    return fixedTransitions.copyToDevice();
+    return transitions.copyToDevice();
   }
 
   /**
@@ -280,7 +269,7 @@ public class GpuTimeZoneDB {
     if (idx == null) {
       return null;
     }
-    return fixedTransitions.getList(idx);
+    return transitions.getList(idx);
   }
 
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);

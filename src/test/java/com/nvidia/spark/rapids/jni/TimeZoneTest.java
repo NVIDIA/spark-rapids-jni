@@ -84,6 +84,74 @@ public class TimeZoneTest {
   }
 
   @Test
+  void convertToUtcSecondsTestTzRules() {
+    try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
+          -1262289600L,
+          -908866800L,
+          -908869500L,
+          -888829200L,
+          -888828300L,
+          -868822000L,
+          -25825600L,
+          -23125600L,
+          -20122000L,
+          -28800L,
+          1699542834L,
+          2299542834L,
+          568008000L
+        );
+        ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
+          -1262260800L,
+          -908838000L,
+          -908840700L,
+          -888800400L,
+          -888799500L,
+          -868796800L,
+          -25796800L,
+          -23096800L,
+          -20096800L,
+          0L,
+          1699571634L,
+          2299571634L,
+          568036800L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("US/Pacific"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertToUtcMilliSecondsTestTzRules() {
+    try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+          -1262289600000L,
+          -908866800000L,
+          -908869500000L,
+          -888829200000L,
+          -888828300000L,
+          -888825600000L,
+          -28800000L,
+          1699542834312L,
+          568008000000L
+        );
+        ColumnVector expected = ColumnVector.timestampMilliSecondsFromBoxedLongs(
+          -1262260800000L,
+          -908838000000L,
+          -908840700000L,
+          -888800400000L,
+          -888799500000L,
+          -888796800000L,
+          0L,
+          1699571634312L,
+          568036800000L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("America/Los_Angeles"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
   void convertToUtcMilliSecondsTest() {
     try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
           -1262260800000L,
