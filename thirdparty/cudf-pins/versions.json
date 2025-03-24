@@ -116,9 +116,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b796f7d44681514f58a683a3a71ff17c94edb0c1",
+      "git_tag" : "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
       "git_url" : "https://github.com/google/googletest.git",
-      "version" : "1.13.0"
+      "version" : "1.16.0"
+    },
+    "benchmark" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "2dd015dfef425c866d9a43f2c67d8b52d709acb6",
+      "git_url" : "https://github.com/google/benchmark.git",
+      "version" : "1.8.0"
     },
     "bs_thread_pool" : 
     {
@@ -172,7 +180,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5c710f37236bda76e447e929e17b1efbc6c632c3",
+      "git_tag" : "a4170fc098e80d339a42c5da9a605796eb864c9f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.04"
     },
@@ -222,7 +230,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "d8b7dacdeda302d2e37313c02d14ef5e1d1e98ea",
+      "git_tag" : "c6773f2780b4c7dd463245dce4c6ea27799914dc",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.04"
     },
@@ -233,6 +241,14 @@
       "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
       "git_url" : "https://github.com/gabime/spdlog.git",
       "version" : "1.14.1"
+    },
+    "zstd" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "git_url" : "https://github.com/facebook/zstd.git",
+      "version" : "1.5.7"
     }
   }
 }
