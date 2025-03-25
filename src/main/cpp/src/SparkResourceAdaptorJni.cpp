@@ -206,10 +206,16 @@ struct task_metrics {
   // The amount of time that this thread has lost due to retries (not including blocked time)
   long time_lost_nanos = 0;
   // The amount of time total that this task has been blocked or lost to retry.
+  // This is effectively time_lost_nanos + time_blocked_nanos, but I don't
+  // want this value to be reset when it is read.
   long time_lost_or_blocked = 0;
 
   long gpu_max_memory_allocated = 0;
 
+  // This is the amount of "active" memory per task. It effectively means that
+  // it ignored feeing data when it is spilled and allocating data when that
+  // spilled data is read back in. The goal is to get a measurement of
+  // how much memory a task used to complete it's processing.
   long gpu_memory_active_footprint = 0;
   long gpu_memory_max_footprint    = 0;
 
@@ -228,6 +234,11 @@ struct task_metrics {
     this->time_lost_or_blocked += other.time_lost_or_blocked;
     this->gpu_max_memory_allocated =
       std::max(this->gpu_max_memory_allocated, other.gpu_max_memory_allocated);
+    // each task_metric represents a separate thread that contributed to a task
+    // We don't know if those threads were run at the same time or not so
+    // to be conservative in the measurement we are adding them. If we assumed
+    // that they never used memory at the same time, then we could take the max
+    // of both of them.
     this->gpu_memory_max_footprint += other.gpu_memory_max_footprint;
     this->gpu_memory_active_footprint += other.gpu_memory_active_footprint;
   }
