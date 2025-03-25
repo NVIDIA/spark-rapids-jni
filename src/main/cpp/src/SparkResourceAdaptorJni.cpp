@@ -507,6 +507,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (thread != threads.end()) { thread->second.reset_retry_state(false); }
   }
 
+  bool is_working_on_task_as_pool_thread(long const thread_id)
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto const thread = threads.find(thread_id);
+    if (thread != threads.end()) { return !thread->second.pool_task_ids.empty(); }
+
+    return false;
+  }
+
   /**
    * Update the internal state so that a specific thread is associated with transitive
    * thread pools and is working on a set of tasks.
@@ -1626,7 +1635,17 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
     }
     // Now if all of the tasks are blocked, then we need to break a deadlock
-    return all_task_ids.size() == blocked_task_ids.size();
+    bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
+    if (ret) {
+      logger->info(
+        "deadlock state is reached with all_task_ids size: {}, blocked_task_ids: {}, "
+        "bufn_task_ids: {}, threads size: {}",
+        all_task_ids.size(),
+        blocked_task_ids.size(),
+        bufn_task_ids.size(),
+        threads.size());
+    }
+    return ret;
   }
 
   /**
@@ -1698,6 +1717,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       bool const all_bufn = all_task_ids.size() == bufn_task_ids.size();
 
       if (all_bufn) {
+        logger->info("all_bufn state is reached with all_task_ids size: {}", all_task_ids.size());
         thread_priority to_wake(-1, -1);
         bool is_to_wake_set = false;
         for (auto const& [thread_id, t_state] : threads) {
@@ -1935,6 +1955,18 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_startDedicatedTaskThread(
     mr->start_dedicated_task_thread(thread_id, task_id);
   }
   CATCH_STD(env, )
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_isThreadWorkingOnTaskAsPoolThread(
+  JNIEnv* env, jclass, jlong ptr, jlong thread_id)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    return mr->is_working_on_task_as_pool_thread(thread_id);
+  }
+  CATCH_STD(env, false)
 }
 
 JNIEXPORT void JNICALL
