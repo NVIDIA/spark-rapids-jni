@@ -24,14 +24,17 @@ ARG CUDA_VERSION=11.8.0
 ARG OS_RELEASE=8
 ARG TARGETPLATFORM=linux/amd64
 
-# Software versions for development
+# multi-platform build with: docker buildx build --platform linux/arm64,linux/amd64 <ARGS> on either amd64 or arm64 host
+# check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
+FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
+
+### Software versions for development
 ARG TOOLSET_VERSION=11
 ARG CMAKE_VERSION=3.30.4
 ARG CCACHE_VERSION=4.6
 
-# multi-platform build with: docker buildx build --platform linux/arm64,linux/amd64 <ARGS> on either amd64 or arm64 host
-# check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
-FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
+# Default x86_64 from x86 build, aarch64 cmake for arm build
+ARG CMAKE_ARCH=x86_64
 
 ### Install basic requirements
 # pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
@@ -48,8 +51,6 @@ ENV BASH_ENV=/etc/bashrc
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir -m 777 /usr/local/rapids /rapids
 
-# default x86_64 from x86 build, aarch64 cmake for arm build
-ARG CMAKE_ARCH=x86_64
 RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    tar zxf cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    rm cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz
