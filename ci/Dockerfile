@@ -32,6 +32,13 @@ ARG TOOLSET_VERSION=11
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSION} python39 zlib-devel maven tar wget patch ninja-build git && \
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
+
+# Enable the toolset by default for all users
+RUN echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashrc
+
+# Execute every time a new non-interactive bash shell is started to enable gcc-toolset
+ENV BASH_ENV=/etc/bashrc
+
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
 RUN mkdir -m 777 /usr/local/rapids /rapids
 
