@@ -54,7 +54,9 @@ RUN mkdir -m 777 /usr/local/rapids /rapids
 RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    tar zxf cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz && \
    rm cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz
-ENV PATH /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin:$PATH
+
+# Make version-less alias for external reference such as when cmake is called by an IDE outside of the container
+RUN ln -s /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/cmake /usr/local/bin/cmake
 
 # ccache for interactive builds
 RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}.tar.gz && \
