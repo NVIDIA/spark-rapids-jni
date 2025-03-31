@@ -234,17 +234,19 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           int lastOffset = offsetOf(tableIdx, rowCnt);
           long inputOffset = offsetOffsets[tableIdx];
 
-          if (firstOffset < 0 || lastOffset < firstOffset) {
-            int[] offsetValues = new int[rowCnt];
-            for (int i = 0; i < rowCnt; i++) {
-              offsetValues[i] = offsetOf(tableIdx, i);
+          if (KUDO_SANITY_CHECK) {
+            if (firstOffset < 0 || lastOffset < firstOffset) {
+              int[] offsetValues = new int[rowCnt];
+              for (int i = 0; i < rowCnt; i++) {
+                offsetValues[i] = offsetOf(tableIdx, i);
+              }
+              LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
+                      "first offset: {}, last offset: {}, kudo table header: {}",
+                  Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
+                  kudoTables[tableIdx].getHeader());
+              throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
+                  + firstOffset + ", last offset: " + lastOffset);
             }
-            LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
-                    "first offset: {}, last offset: {}, kudo table header: {}",
-                Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
-                kudoTables[tableIdx].getHeader());
-            throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
-                + firstOffset + ", last offset: " + lastOffset);
           }
 
           while (rowCnt > 0) {
