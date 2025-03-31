@@ -232,6 +232,7 @@ add_library(
   src/list_slice.cu
   src/map.cu
   src/murmur_hash.cu
+  src/number_converter.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
