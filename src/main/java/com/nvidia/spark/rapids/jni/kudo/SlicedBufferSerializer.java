@@ -174,6 +174,15 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
     }
     long bytesToCopy = (sliceInfo.rowCount + 1) * Integer.BYTES;
     long srcOffset = sliceInfo.offset * Integer.BYTES;
+
+    int startOffset = column.getOffsets().getInt(srcOffset);
+    int endOffset = column.getOffsets()
+        .getInt((sliceInfo.offset + sliceInfo.rowCount) * Integer.BYTES);
+
+    if (startOffset < 0 || endOffset < startOffset) {
+      throw new IllegalArgumentException("Invalid kudo offset: " + startOffset + ", " + endOffset);
+    }
+
     return copyBufferAndPadForHost(column.getOffsets(), srcOffset, bytesToCopy);
   }
 
