@@ -234,8 +234,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           int lastOffset = offsetOf(tableIdx, rowCnt);
           long inputOffset = offsetOffsets[tableIdx];
 
-          if (KUDO_SANITY_CHECK) {
-            if (firstOffset < 0 || lastOffset < firstOffset) {
+          if (firstOffset < 0 || lastOffset < firstOffset) {
+            if (KUDO_SANITY_CHECK) {
               int[] offsetValues = new int[rowCnt];
               for (int i = 0; i < rowCnt; i++) {
                 offsetValues[i] = offsetOf(tableIdx, i);
@@ -244,9 +244,9 @@ class KudoTableMerger implements SimpleSchemaVisitor {
                       "first offset: {}, last offset: {}, kudo table header: {}",
                   Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
                   kudoTables[tableIdx].getHeader());
-              throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
-                  + firstOffset + ", last offset: " + lastOffset);
             }
+            throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
+                + firstOffset + ", last offset: " + lastOffset);
           }
 
           while (rowCnt > 0) {
@@ -255,6 +255,18 @@ class KudoTableMerger implements SimpleSchemaVisitor {
 
             for (int i = 0; i < arrLen; i++) {
               outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
+              if (outputBuf[i] < 0) {
+                if (KUDO_SANITY_CHECK) {
+                  int[] offsetValues = new int[sliceInfo.getRowCount()];
+                  for (int x = 0; x < sliceInfo.getRowCount(); x++) {
+                    offsetValues[x] = offsetOf(tableIdx, x);
+                  }
+                  LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
+                          "kudo table header: {}", Arrays.toString(offsetValues), tableIdx,
+                      sliceInfo.getRowCount(), kudoTables[tableIdx].getHeader());
+                }
+                throw new IllegalArgumentException("Invalid offset value: " + outputBuf[i]);
+              }
             }
 
             offsetBuf.setInts(outputOffset, outputBuf, 0, arrLen);
