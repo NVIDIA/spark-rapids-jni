@@ -158,8 +158,9 @@ __device__ thrust::pair<result_type, int> convert(
         // overflow for ansi mode, which means throw exception
         return thrust::make_pair(result_type::OVERFLOW, 0);
       } else {
-        // overflow for non-ansi mode, which means null
-        return thrust::make_pair(result_type::NULL_VALUE, 0);
+        // overflow for non-ansi mode, use -1
+        v = -1L;
+        break;
       }
     }
 
@@ -173,16 +174,15 @@ __device__ thrust::pair<result_type, int> convert(
           // overflow for ansi mode, which means throw exception
           return thrust::make_pair(result_type::OVERFLOW, 0);
         } else {
-          // overflow for non-ansi mode, which means null
-          return thrust::make_pair(result_type::NULL_VALUE, 0);
+          // overflow for non-ansi mode, use -1
+          v = -1L;
+          break;
         }
       }
     }
 
     v = v * from_base + b;
   }
-
-  printf("v is %ld\n");
 
   if (negative && to_base > 0) {
     if (v < 0) {
@@ -200,8 +200,6 @@ __device__ thrust::pair<result_type, int> convert(
   auto to_base_abs = std::abs(to_base);
   int out_idx      = out_len - 1;
   uint64_t uv      = static_cast<uint64_t>(v);
-
-  printf("uv is %ul\n", uv);
 
   if (uv == 0) {
     if (out != nullptr) {
