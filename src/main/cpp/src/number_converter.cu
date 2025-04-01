@@ -441,26 +441,6 @@ bool is_convert_overflow_impl(cudf::strings_column_view const& input,
 
 }  // anonymous namespace
 
-std::unique_ptr<cudf::column> convert_cv_s_s(cudf::strings_column_view const& input,
-                                             int const from_base,
-                                             int const to_base,
-                                             rmm::cuda_stream_view stream,
-                                             rmm::device_async_resource_ref mr)
-{
-  return convert_impl<const_base, const_base, /*is_const_bases*/ true>(
-    input, const_base{from_base}, const_base{to_base}, stream, mr);
-}
-
-bool is_convert_overflow_cv_s_s(cudf::strings_column_view const& input,
-                                int const from_base,
-                                int const to_base,
-                                rmm::cuda_stream_view stream,
-                                rmm::device_async_resource_ref mr)
-{
-  return is_convert_overflow_impl<const_base, const_base, /*is_const_bases*/ true>(
-    input, const_base{from_base}, const_base{to_base}, stream, mr);
-}
-
 std::unique_ptr<cudf::column> convert_cv_cv_cv(cudf::strings_column_view const& input,
                                                cudf::column_view const& from_base,
                                                cudf::column_view const& to_base,
@@ -471,6 +451,36 @@ std::unique_ptr<cudf::column> convert_cv_cv_cv(cudf::strings_column_view const& 
     input, base_iter{from_base.data<int>()}, base_iter{to_base.data<int>()}, stream, mr);
 }
 
+std::unique_ptr<cudf::column> convert_cv_cv_s(cudf::strings_column_view const& input,
+                                              cudf::column_view const& from_base,
+                                              int const to_base,
+                                              rmm::cuda_stream_view stream,
+                                              rmm::device_async_resource_ref mr)
+{
+  return convert_impl<base_iter, const_base, /*is_const_bases*/ false>(
+    input, base_iter{from_base.data<int>()}, const_base{to_base}, stream, mr);
+}
+
+std::unique_ptr<cudf::column> convert_cv_s_cv(cudf::strings_column_view const& input,
+                                              int const from_base,
+                                              cudf::column_view const& to_base,
+                                              rmm::cuda_stream_view stream,
+                                              rmm::device_async_resource_ref mr)
+{
+  return convert_impl<const_base, base_iter, /*is_const_bases*/ false>(
+    input, const_base{from_base}, base_iter{to_base.data<int>()}, stream, mr);
+}
+
+std::unique_ptr<cudf::column> convert_cv_s_s(cudf::strings_column_view const& input,
+                                             int const from_base,
+                                             int const to_base,
+                                             rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+{
+  return convert_impl<const_base, const_base, /*is_const_bases*/ true>(
+    input, const_base{from_base}, const_base{to_base}, stream, mr);
+}
+
 bool is_convert_overflow_cv_cv_cv(cudf::strings_column_view const& input,
                                   cudf::column_view const& from_base,
                                   cudf::column_view const& to_base,
@@ -479,6 +489,36 @@ bool is_convert_overflow_cv_cv_cv(cudf::strings_column_view const& input,
 {
   return is_convert_overflow_impl<base_iter, base_iter, /*is_const_bases*/ false>(
     input, base_iter{from_base.data<int>()}, base_iter{to_base.data<int>()}, stream, mr);
+}
+
+bool is_convert_overflow_cv_cv_s(cudf::strings_column_view const& input,
+                                 cudf::column_view const& from_base,
+                                 int const to_base,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+{
+  return is_convert_overflow_impl<base_iter, const_base, /*is_const_bases*/ false>(
+    input, base_iter{from_base.data<int>()}, const_base{to_base}, stream, mr);
+}
+
+bool is_convert_overflow_cv_s_cv(cudf::strings_column_view const& input,
+                                 int const from_base,
+                                 cudf::column_view const& to_base,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::device_async_resource_ref mr)
+{
+  return is_convert_overflow_impl<const_base, base_iter, /*is_const_bases*/ false>(
+    input, const_base{from_base}, base_iter{to_base.data<int>()}, stream, mr);
+}
+
+bool is_convert_overflow_cv_s_s(cudf::strings_column_view const& input,
+                                int const from_base,
+                                int const to_base,
+                                rmm::cuda_stream_view stream,
+                                rmm::device_async_resource_ref mr)
+{
+  return is_convert_overflow_impl<const_base, const_base, /*is_const_bases*/ true>(
+    input, const_base{from_base}, const_base{to_base}, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
