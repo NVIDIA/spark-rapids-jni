@@ -45,9 +45,8 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> convert(
   cudf::strings_column_view const& input,
-  int from_base,
-  int to_base,
-  bool ansi_mode,
+  int const from_base,
+  int const to_base,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
@@ -65,8 +64,8 @@ std::unique_ptr<cudf::column> convert(
  */
 bool is_convert_overflow(
   cudf::strings_column_view const& input,
-  int from_base,
-  int to_base,
+  int const from_base,
+  int const to_base,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

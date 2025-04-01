@@ -128,24 +128,24 @@ __device__ thrust::pair<result_type, int> convert(
   char const* ptr, int len, int from_base, int to_base, char* out, int out_len, bool ansi_mode)
 {
   // trim spaces
-  auto [s, e] = trim(ptr, len);
-  if (e - s < 0) {
+  auto [first, last] = trim(ptr, len);
+  if (last - first < 0) {
     // return null if the trimmed string is empty
     return thrust::make_pair(result_type::NULL_VALUE, 0);
   }
 
   // handle sign
   bool negative = false;
-  if (ptr[s] == '-') {
+  if (ptr[first] == '-') {
     negative = true;
-    ++s;
+    ++first;
   }
 
   // convert to long value
   int64_t v  = 0;
   auto bound = static_cast<unsigned long>(-1L - from_base) / from_base;
-  for (int i = s; i <= e; ++i) {
-    int b = char_to_byte(ptr[i], from_base);
+  for (int char_idx = first; char_idx <= last; ++char_idx) {
+    int b = char_to_byte(ptr[char_idx], from_base);
     if (b < 0) {
       // meet invalid char, ignore the suffix starting there
       break;
@@ -227,36 +227,10 @@ __device__ thrust::pair<result_type, int> convert(
   return thrust::make_pair(result_type::SUCCESS, out_len - 1 - out_idx);
 }
 
-/**
- * @brief Check if the convert function will cause overflow
- * @return true if overflow, false otherwise
- */
-__device__ bool is_convert_overflow(char const* ptr, int len, int from_base, int to_base)
-{
-  auto pair = convert(ptr, len, from_base, to_base, nullptr, -1, /*ansi_mode*/ true);
-  return pair.first == result_type::OVERFLOW;
-}
-
-struct is_overflow_fn {
-  cudf::column_device_view input;
-  int from_base;
-  int to_base;
-
-  __device__ bool operator()(int idx)
-  {
-    if (input.is_null(idx)) {
-      return false;
-    } else {
-      auto str = input.element<cudf::string_view>(idx);
-      return is_convert_overflow(str.data(), str.length(), from_base, to_base);
-    }
-  }
-};
-
 struct convert_fn {
   cudf::column_device_view input;
-  int from_base;
-  int to_base;
+  int const from_base;
+  int const to_base;
 
   // For the first phase: calculate the lengths/nulls of the converted strings
   int* out_lens;
@@ -305,8 +279,8 @@ struct convert_fn {
 };
 
 std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& input,
-                                           int from_base,
-                                           int to_base,
+                                           int const from_base,
+                                           int const to_base,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
@@ -371,9 +345,35 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
     input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
 }
 
+/**
+ * @brief Check if the convert function will cause overflow
+ * @return true if overflow, false otherwise
+ */
+__device__ bool is_convert_overflow(char const* ptr, int len, int from_base, int to_base)
+{
+  auto pair = convert(ptr, len, from_base, to_base, nullptr, -1, /*ansi_mode*/ true);
+  return pair.first == result_type::OVERFLOW;
+}
+
+struct is_overflow_fn {
+  cudf::column_device_view input;
+  int from_base;
+  int to_base;
+
+  __device__ bool operator()(int idx)
+  {
+    if (input.is_null(idx)) {
+      return false;
+    } else {
+      auto str = input.element<cudf::string_view>(idx);
+      return is_convert_overflow(str.data(), str.length(), from_base, to_base);
+    }
+  }
+};
+
 bool is_convert_overflow_impl(cudf::strings_column_view const& input,
-                              int from_base,
-                              int to_base,
+                              int const from_base,
+                              int const to_base,
                               rmm::cuda_stream_view stream,
                               rmm::device_async_resource_ref mr)
 {
@@ -397,8 +397,8 @@ bool is_convert_overflow_impl(cudf::strings_column_view const& input,
 }  // anonymous namespace
 
 std::unique_ptr<cudf::column> convert(cudf::strings_column_view const& input,
-                                      int from_base,
-                                      int to_base,
+                                      int const from_base,
+                                      int const to_base,
                                       rmm::cuda_stream_view stream,
                                       rmm::device_async_resource_ref mr)
 {
@@ -406,8 +406,8 @@ std::unique_ptr<cudf::column> convert(cudf::strings_column_view const& input,
 }
 
 bool is_convert_overflow(cudf::strings_column_view const& input,
-                         int from_base,
-                         int to_base,
+                         int const from_base,
+                         int const to_base,
                          rmm::cuda_stream_view stream,
                          rmm::device_async_resource_ref mr)
 {
