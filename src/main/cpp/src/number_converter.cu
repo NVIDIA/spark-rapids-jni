@@ -359,7 +359,6 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
 
   // allocate chars memory
   rmm::device_uvector<char> chars(n_chars, stream, mr);
-  cudf::experimental::prefetch::detail::prefetch("gather", chars, stream);
 
   // Second phase: convert the strings to the target base
   thrust::for_each(
