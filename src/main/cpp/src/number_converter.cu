@@ -335,11 +335,8 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
                                              cudf::mask_state::UNALLOCATED,
                                              stream,
                                              cudf::get_current_device_resource_ref());
-  auto out_mask  = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT8},
-                                            input.size(),
-                                            cudf::mask_state::UNALLOCATED,
-                                            stream,
-                                            cudf::get_current_device_resource_ref());
+  auto out_mask =
+    rmm::device_uvector<int8_t>(input.size(), stream, cudf::get_current_device_resource_ref());
 
   // First phase: calculate the lengths/nulls of the converted strings
   thrust::for_each(rmm::exec_policy_nosync(stream),
@@ -350,15 +347,12 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
                      from_base,
                      to_base,
                      out_sizes->mutable_view().data<int>(),
-                     out_mask->mutable_view().data<int8_t>(),
+                     out_mask.data(),
                      nullptr,
                      nullptr});
   // make null mask and null count
-  auto [null_mask, null_count] = cudf::detail::valid_if(out_mask->view().begin<int8_t>(),
-                                                        out_mask->view().end<int8_t>(),
-                                                        thrust::identity<bool>{},
-                                                        stream,
-                                                        mr);
+  auto [null_mask, null_count] = cudf::detail::valid_if(
+    out_mask.data(), out_mask.data() + out_mask.size(), thrust::identity<bool>{}, stream, mr);
   // make offsets
   auto const sizes_input_it =
     cudf::detail::indexalator_factory::make_input_iterator(out_sizes->view());
