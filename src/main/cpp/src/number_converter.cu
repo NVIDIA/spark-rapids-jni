@@ -182,6 +182,8 @@ __device__ thrust::pair<result_type, int> convert(
     v = v * from_base + b;
   }
 
+  printf("v is %ld\n");
+
   if (negative && to_base > 0) {
     if (v < 0) {
       v = -1;
@@ -198,6 +200,9 @@ __device__ thrust::pair<result_type, int> convert(
   auto to_base_abs = std::abs(to_base);
   int out_idx      = out_len - 1;
   uint64_t uv      = static_cast<uint64_t>(v);
+
+  printf("uv is %ul\n", uv);
+
   if (uv == 0) {
     if (out != nullptr) {
       out[out_idx--] = '0';
@@ -349,8 +354,8 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
                      nullptr,
                      nullptr});
   // make null mask and null count
-  auto [null_mask, null_count] = cudf::detail::valid_if(out_mask->view().begin<cudf::size_type>(),
-                                                        out_mask->view().end<cudf::size_type>(),
+  auto [null_mask, null_count] = cudf::detail::valid_if(out_mask->view().begin<int8_t>(),
+                                                        out_mask->view().end<int8_t>(),
                                                         thrust::identity<bool>{},
                                                         stream,
                                                         mr);
