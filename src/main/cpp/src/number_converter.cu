@@ -239,7 +239,7 @@ struct base_iter {
   __device__ int operator()(int idx) const { return bases[idx]; }
 };
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool is_const_bases = false>
 struct convert_fn {
   cudf::column_device_view input;
   FROM_BASE_ITERATOR from_base_iter;
@@ -257,6 +257,16 @@ struct convert_fn {
   {
     int from_base = from_base_iter(idx);
     int to_base   = to_base_iter(idx);
+
+    if constexpr (!is_const_bases) {
+      // if not const bases, check bases for each row
+      if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
+          std::abs(to_base) > MAX_BASE) {
+        // if base is invalid, return all nulls
+        if (out == nullptr) { out_mask[idx] = 0; }
+        return;
+      }
+    }
 
     if (input.is_null(idx)) {
       if (out == nullptr) {
@@ -294,20 +304,24 @@ struct convert_fn {
   }
 };
 
-std::unique_ptr<cudf::column> convert_cv_s_s_impl(cudf::strings_column_view const& input,
-                                                  int const from_base,
-                                                  int const to_base,
-                                                  rmm::cuda_stream_view stream,
-                                                  rmm::device_async_resource_ref mr)
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool is_const_bases = false>
+std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& input,
+                                           FROM_BASE_ITERATOR from_base,
+                                           TO_BASE_ITERATOR to_base,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
 {
   if (input.size() == 0) return cudf::make_empty_column(cudf::type_id::STRING);
 
   // check base is in range: [2, 36]
-  if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
-      std::abs(to_base) > MAX_BASE) {
-    cudf::string_scalar null_s("", false);
-    // if base is invalid, return all nulls
-    return cudf::make_column_from_scalar(null_s, input.size(), stream, mr);
+  if constexpr (is_const_bases) {
+    // if const bases, check bases only once
+    if (from_base(0) < MIN_BASE || from_base(0) > MAX_BASE || std::abs(to_base(0)) < MIN_BASE ||
+        std::abs(to_base(0)) > MAX_BASE) {
+      cudf::string_scalar null_s("", false);
+      // if base is invalid, return all nulls
+      return cudf::make_column_from_scalar(null_s, input.size(), stream, mr);
+    }
   }
 
   auto d_strings = cudf::column_device_view::create(input.parent(), stream);
@@ -326,13 +340,14 @@ std::unique_ptr<cudf::column> convert_cv_s_s_impl(cudf::strings_column_view cons
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    thrust::make_counting_iterator<cudf::size_type>(0),
                    thrust::make_counting_iterator<cudf::size_type>(input.size()),
-                   convert_fn<const_base, const_base>{*d_strings,
-                                                      const_base{from_base},
-                                                      const_base{to_base},
-                                                      out_sizes->mutable_view().data<int>(),
-                                                      out_mask->mutable_view().data<int8_t>(),
-                                                      nullptr,
-                                                      nullptr});
+                   convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, is_const_bases>{
+                     *d_strings,
+                     from_base,
+                     to_base,
+                     out_sizes->mutable_view().data<int>(),
+                     out_mask->mutable_view().data<int8_t>(),
+                     nullptr,
+                     nullptr});
   // make null mask and null count
   auto [null_mask, null_count] = cudf::detail::valid_if(out_mask->view().begin<cudf::size_type>(),
                                                         out_mask->view().end<cudf::size_type>(),
@@ -350,16 +365,12 @@ std::unique_ptr<cudf::column> convert_cv_s_s_impl(cudf::strings_column_view cons
   cudf::experimental::prefetch::detail::prefetch("gather", chars, stream);
 
   // Second phase: convert the strings to the target base
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   thrust::make_counting_iterator<cudf::size_type>(0),
-                   thrust::make_counting_iterator<cudf::size_type>(input.size()),
-                   convert_fn<const_base, const_base>{*d_strings,
-                                                      const_base{from_base},
-                                                      const_base{to_base},
-                                                      nullptr,
-                                                      nullptr,
-                                                      chars.data(),
-                                                      offsets->view().data<int>()});
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(input.size()),
+    convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, is_const_bases>{
+      *d_strings, from_base, to_base, nullptr, nullptr, chars.data(), offsets->view().data<int>()});
 
   return cudf::make_strings_column(
     input.size(), std::move(offsets), chars.release(), null_count, std::move(null_mask));
@@ -375,7 +386,7 @@ __device__ bool is_convert_overflow(char const* ptr, int len, int from_base, int
   return pair.first == result_type::OVERFLOW;
 }
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool is_const_bases = false>
 struct is_overflow_fn {
   cudf::column_device_view input;
   FROM_BASE_ITERATOR from_base_iter;
@@ -386,6 +397,15 @@ struct is_overflow_fn {
     int from_base = from_base_iter(idx);
     int to_base   = to_base_iter(idx);
 
+    if constexpr (!is_const_bases) {
+      // if not const bases, check bases for each row
+      if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
+          std::abs(to_base) > MAX_BASE) {
+        // if base is invalid, return all nulls thus no overflow
+        return false;
+      }
+    }
+
     if (input.is_null(idx)) {
       return false;
     } else {
@@ -395,28 +415,28 @@ struct is_overflow_fn {
   }
 };
 
-bool is_convert_overflow_cv_s_s_impl(cudf::strings_column_view const& input,
-                                     int const from_base,
-                                     int const to_base,
-                                     rmm::cuda_stream_view stream,
-                                     rmm::device_async_resource_ref mr)
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool is_const_bases = false>
+bool is_convert_overflow_impl(cudf::strings_column_view const& input,
+                              FROM_BASE_ITERATOR from_base,
+                              TO_BASE_ITERATOR to_base,
+                              rmm::cuda_stream_view stream,
+                              rmm::device_async_resource_ref mr)
 {
-  if (input.size() == 0) return false;
-  // check base is in range: [2, 36]
-  if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
-      std::abs(to_base) > MAX_BASE) {
-    // if base is invalid, return all nulls thus no overflow
-    return false;
+  if constexpr (is_const_bases) {
+    // if not const bases, check bases only once
+    if (from_base(0) < MIN_BASE || from_base(0) > MAX_BASE || std::abs(to_base(0)) < MIN_BASE ||
+        std::abs(to_base(0)) > MAX_BASE) {
+      // if base is invalid, return all nulls thus no overflow
+      return false;
+    }
   }
 
   auto d_strings = cudf::column_device_view::create(input.parent(), stream);
-  return thrust::any_of(
-    rmm::exec_policy_nosync(stream),
-    thrust::counting_iterator<cudf::size_type>(0),
-    thrust::counting_iterator<cudf::size_type>(input.size()),
-    is_overflow_fn<const_base, const_base>{*d_strings, const_base{from_base}, const_base{to_base}});
-
-  return false;
+  return thrust::any_of(rmm::exec_policy_nosync(stream),
+                        thrust::counting_iterator<cudf::size_type>(0),
+                        thrust::counting_iterator<cudf::size_type>(input.size()),
+                        is_overflow_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, is_const_bases>{
+                          *d_strings, from_base, to_base});
 }
 
 }  // anonymous namespace
@@ -427,7 +447,8 @@ std::unique_ptr<cudf::column> convert_cv_s_s(cudf::strings_column_view const& in
                                              rmm::cuda_stream_view stream,
                                              rmm::device_async_resource_ref mr)
 {
-  return convert_cv_s_s_impl(input, from_base, to_base, stream, mr);
+  return convert_impl<const_base, const_base, /*is_const_bases*/ true>(
+    input, const_base{from_base}, const_base{to_base}, stream, mr);
 }
 
 bool is_convert_overflow_cv_s_s(cudf::strings_column_view const& input,
@@ -436,25 +457,28 @@ bool is_convert_overflow_cv_s_s(cudf::strings_column_view const& input,
                                 rmm::cuda_stream_view stream,
                                 rmm::device_async_resource_ref mr)
 {
-  return is_convert_overflow_cv_s_s_impl(input, from_base, to_base, stream, mr);
+  return is_convert_overflow_impl<const_base, const_base, /*is_const_bases*/ true>(
+    input, const_base{from_base}, const_base{to_base}, stream, mr);
 }
 
-// std::unique_ptr<cudf::column> convert_cv_cv_cv(cudf::strings_column_view const& input,
-//                                                cudf::column_view const& from_base,
-//                                                cudf::column_view const& to_base,
-//                                                rmm::cuda_stream_view stream,
-//                                                rmm::device_async_resource_ref mr)
-// {
-//   return convert_cv_cv_cv_impl(input, from_base, to_base, stream, mr);
-// }
+std::unique_ptr<cudf::column> convert_cv_cv_cv(cudf::strings_column_view const& input,
+                                               cudf::column_view const& from_base,
+                                               cudf::column_view const& to_base,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
+{
+  return convert_impl<base_iter, base_iter, /*is_const_bases*/ false>(
+    input, base_iter{from_base.data<int>()}, base_iter{to_base.data<int>()}, stream, mr);
+}
 
-// bool is_convert_overflow_cv_cv_cv(cudf::strings_column_view const& input,
-//                                   cudf::column_view const& from_base,
-//                                   cudf::column_view const& to_base,
-//                                   rmm::cuda_stream_view stream,
-//                                   rmm::device_async_resource_ref mr)
-// {
-//   return is_convert_overflow_cv_cv_cv_impl(input, from_base, to_base, stream, mr);
-// }
+bool is_convert_overflow_cv_cv_cv(cudf::strings_column_view const& input,
+                                  cudf::column_view const& from_base,
+                                  cudf::column_view const& to_base,
+                                  rmm::cuda_stream_view stream,
+                                  rmm::device_async_resource_ref mr)
+{
+  return is_convert_overflow_impl<base_iter, base_iter, /*is_const_bases*/ false>(
+    input, base_iter{from_base.data<int>()}, base_iter{to_base.data<int>()}, stream, mr);
+}
 
 }  // namespace spark_rapids_jni
