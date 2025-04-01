@@ -255,17 +255,23 @@ class KudoTableMerger implements SimpleSchemaVisitor {
 
             for (int i = 0; i < arrLen; i++) {
               outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
-              if (outputBuf[i] < 0) {
-                if (KUDO_SANITY_CHECK) {
-                  int[] offsetValues = new int[sliceInfo.getRowCount()];
-                  for (int x = 0; x < sliceInfo.getRowCount(); x++) {
-                    offsetValues[x] = offsetOf(tableIdx, x);
-                  }
-                  LOG.error("Invalid offset values: [{}], table index: {}, row count: {}, " +
-                          "kudo table header: {}", Arrays.toString(offsetValues), tableIdx,
-                      sliceInfo.getRowCount(), kudoTables[tableIdx].getHeader());
+            }
+
+            if (KUDO_SANITY_CHECK) {
+              boolean isValid = true;
+              for (int i=0; i < arrLen; i++) {
+                isValid = isValid && (outputBuf[i] >= 0);
+              }
+
+              if (!isValid) {
+                int[] offsetValues = new int[sliceInfo.getRowCount()];
+                for (int i = 0; i < sliceInfo.getRowCount(); i++) {
+                  offsetValues[i] = offsetOf(tableIdx, i);
                 }
-                throw new IllegalArgumentException("Invalid offset value: " + outputBuf[i]);
+                LOG.error("Negative output offset found, invalid offset values: [{}], " +
+                        "table index: {}, row count: {}, kudo table header: {}",
+                    Arrays.toString(offsetValues), tableIdx, sliceInfo.getRowCount(),
+                    kudoTables[tableIdx].getHeader());
               }
             }
 
