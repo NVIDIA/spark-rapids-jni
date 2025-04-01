@@ -34,10 +34,8 @@ TEST_F(ConvertTests, SparkCase)
 {
   auto const input_strings = cudf::test::strings_column_wrapper{
     " 3 ", "-15 ", "  -15 ", " big", "9223372036854775807 ", "   11abc", "-10"};
-
   auto const from_base =
     cudf::test::fixed_width_column_wrapper<int32_t>{10, 10, 10, 36, 36, 10, 11};
-
   auto const to_base = cudf::test::fixed_width_column_wrapper<int32_t>{2, -16, 16, 16, 16, 16, 7};
 
   auto results =
@@ -45,7 +43,130 @@ TEST_F(ConvertTests, SparkCase)
 
   auto const expected = cudf::test::strings_column_wrapper{
     "11", "-F", "FFFFFFFFFFFFFFF1", "3A48", "FFFFFFFFFFFFFFFF", "B", "45012021522523134134555"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
 
+TEST_F(ConvertTests, Null)
+{
+  auto const input_strings = cudf::test::strings_column_wrapper{"", " ", "11"};
+  auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{2, 2, 2};
+  auto const to_base       = cudf::test::fixed_width_column_wrapper<int32_t>{10, 10, 10};
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
+
+  auto const expected = cudf::test::strings_column_wrapper({"", "", "3"}, {0, 0, 1});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
+TEST_F(ConvertTests, BaseOutOfRange)
+{
+  constexpr int out_of_range = 37;
+  auto const input_strings   = cudf::test::strings_column_wrapper{"11", "12", "13"};
+  auto const from_base       = cudf::test::fixed_width_column_wrapper<int32_t>{5, 5, 5};
+  auto const to_base =
+    cudf::test::fixed_width_column_wrapper<int32_t>{out_of_range, 7, out_of_range};
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
+  auto expected = cudf::test::strings_column_wrapper({"", "10", ""}, {0, 1, 0});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+  results  = spark_rapids_jni::convert_cv_s_s(strings_column_view(input_strings), 5, out_of_range);
+  expected = cudf::test::strings_column_wrapper({"", "", ""}, {0, 0, 0});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
+TEST_F(ConvertTests, Overflow)
+{
+  constexpr int out_of_range = 37;
+
+  std::vector<std::pair<std::string, int>> tests = {{"184467440737095515991", 10},
+                                                    {"9223372036854775807", 36}};
+
+  for (auto& t : tests) {
+    auto const input_strings = cudf::test::strings_column_wrapper{t.first};
+    auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{t.second};
+    auto const to_base       = cudf::test::fixed_width_column_wrapper<int32_t>{10};
+
+    bool result = spark_rapids_jni::is_convert_overflow_cv_cv_cv(
+      strings_column_view(input_strings), from_base, to_base);
+    EXPECT_TRUE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_cv_s(
+      strings_column_view(input_strings), from_base, 10);
+    EXPECT_TRUE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_s_cv(
+      strings_column_view(input_strings), t.second, to_base);
+    EXPECT_TRUE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_s_s(
+      strings_column_view(input_strings), t.second, 10);
+    EXPECT_TRUE(result);
+  }
+
+  tests = {{"184467440737095515991", out_of_range}, {"16", 36}};
+
+  for (auto& t : tests) {
+    auto const input_strings = cudf::test::strings_column_wrapper{t.first};
+    auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{t.second};
+    auto const to_base       = cudf::test::fixed_width_column_wrapper<int32_t>{10};
+
+    bool result = spark_rapids_jni::is_convert_overflow_cv_cv_cv(
+      strings_column_view(input_strings), from_base, to_base);
+    EXPECT_FALSE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_cv_s(
+      strings_column_view(input_strings), from_base, 10);
+    EXPECT_FALSE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_s_cv(
+      strings_column_view(input_strings), t.second, to_base);
+    EXPECT_FALSE(result);
+
+    result = spark_rapids_jni::is_convert_overflow_cv_s_s(
+      strings_column_view(input_strings), t.second, 10);
+    EXPECT_FALSE(result);
+  }
+}
+
+TEST_F(ConvertTests, Negative)
+{
+  auto const input_strings =
+    cudf::test::strings_column_wrapper{"-18446744073709551599", "-15", "18446744073709551599"};
+  auto const from_base = cudf::test::fixed_width_column_wrapper<int32_t>{10, 10, 10};
+  auto const to_base   = cudf::test::fixed_width_column_wrapper<int32_t>{16, 16, -16};
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
+
+  auto const expected =
+    cudf::test::strings_column_wrapper{"FFFFFFFFFFFFFFFF", "FFFFFFFFFFFFFFF1", "-11"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
+TEST_F(ConvertTests, OverloadFunctions)
+{
+  auto const input_strings = cudf::test::strings_column_wrapper{"0123456789"};
+  auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{4};
+  auto const to_base       = cudf::test::fixed_width_column_wrapper<int32_t>{-7};
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
+  auto expected = cudf::test::strings_column_wrapper{"36"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+  results  = spark_rapids_jni::convert_cv_cv_s(strings_column_view(input_strings), from_base, -7);
+  expected = cudf::test::strings_column_wrapper{"36"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+  results  = spark_rapids_jni::convert_cv_s_cv(strings_column_view(input_strings), 4, to_base);
+  expected = cudf::test::strings_column_wrapper{"36"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+
+  results  = spark_rapids_jni::convert_cv_s_s(strings_column_view(input_strings), 4, -7);
+  expected = cudf::test::strings_column_wrapper{"36"};
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 }
 
@@ -1302,19 +1423,4 @@ TEST_F(ConvertTests, AllBases)
     spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
   auto const expected = cudf::test::strings_column_wrapper{expects.begin(), expects.end()};
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
-}
-
-TEST_F(ConvertTests, Overflow)
-{
-  std::vector<std::pair<std::string, int>> tests = {{"184467440737095515991", 10},
-                                                    {"9223372036854775807", 36}};
-
-  for (auto& t : tests) {
-    auto const input_strings = cudf::test::strings_column_wrapper{t.first};
-    auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{t.second};
-    auto const to_base       = cudf::test::fixed_width_column_wrapper<int32_t>{10};
-    bool result              = spark_rapids_jni::is_convert_overflow_cv_cv_cv(
-      strings_column_view(input_strings), from_base, to_base);
-    EXPECT_TRUE(result);
-  }
 }
