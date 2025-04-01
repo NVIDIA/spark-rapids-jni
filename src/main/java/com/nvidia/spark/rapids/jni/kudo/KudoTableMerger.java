@@ -253,17 +253,14 @@ class KudoTableMerger implements SimpleSchemaVisitor {
             int arrLen = min(rowCnt, min(inputBuf.length, outputBuf.length));
             kudoTables[tableIdx].getBuffer().getInts(inputBuf, 0, inputOffset, arrLen);
 
+            boolean isValid = true;
             for (int i = 0; i < arrLen; i++) {
               outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
+              isValid = isValid && (outputBuf[i] >= 0);
             }
 
-            if (KUDO_SANITY_CHECK) {
-              boolean isValid = true;
-              for (int i=0; i < arrLen; i++) {
-                isValid = isValid && (outputBuf[i] >= 0);
-              }
-
-              if (!isValid) {
+            if (!isValid) {
+              if (KUDO_SANITY_CHECK) {
                 int[] offsetValues = new int[sliceInfo.getRowCount()];
                 for (int i = 0; i < sliceInfo.getRowCount(); i++) {
                   offsetValues[i] = offsetOf(tableIdx, i);
@@ -273,6 +270,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
                     Arrays.toString(offsetValues), tableIdx, sliceInfo.getRowCount(),
                     kudoTables[tableIdx].getHeader());
               }
+              throw new IllegalArgumentException("Invalid kudo offset buffer content: " +
+                  "negative output offset found");
             }
 
             offsetBuf.setInts(outputOffset, outputBuf, 0, arrLen);
