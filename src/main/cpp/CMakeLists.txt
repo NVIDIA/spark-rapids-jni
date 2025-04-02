@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.04.00
+  VERSION 25.06.00
   LANGUAGES C CXX CUDA
 )
 
@@ -236,6 +236,8 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/shuffle_assemble.cu
+  src/shuffle_split.cu
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu

@@ -30,6 +30,18 @@ public class KudoHostMergeResult implements AutoCloseable {
   private final ColumnViewInfo[] columnInfoList;
   private HostMemoryBuffer hostBuf;
 
+  public Schema getSchema() {
+    return schema;
+  }
+
+  public ColumnViewInfo[] getColumnInfoList() {
+    return columnInfoList;
+  }
+
+  public HostMemoryBuffer getHostBuf() {
+    return hostBuf;
+  }
+
   KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, ColumnViewInfo[] columnInfoList) {
     requireNonNull(schema, "schema is null");
     requireNonNull(columnInfoList, "columnInfoList is null");
@@ -61,6 +73,18 @@ public class KudoHostMergeResult implements AutoCloseable {
    * @return the cudf table
    */
   public Table toTable() {
+    return toTableStatic(hostBuf, schema, columnInfoList);
+  }
+
+  /**
+   * Convert the host buffer into a cudf table. This method does not close the host buffer.
+   * @param hostBuf the host buffer to convert
+   * @param schema the schema of the table
+   * @param columnInfoList the column info list
+   * @return the cudf table
+   */
+  public static Table toTableStatic(HostMemoryBuffer hostBuf,
+      Schema schema, ColumnViewInfo[] columnInfoList) {
     try (DeviceMemoryBuffer deviceMemBuf = DeviceMemoryBuffer.allocate(hostBuf.getLength())) {
       if (hostBuf.getLength() > 0) {
         deviceMemBuf.copyFromHostBufferAsync(hostBuf, Cuda.DEFAULT_STREAM);

@@ -88,6 +88,9 @@ ConfigureTest(LIST_SLICE
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
+ConfigureTest(SHUFFLE_SPLIT
+    shuffle_split.cu)
+    
 ConfigureTest(HLLPP
     hyper_log_log_plus_plus.cu)
 
