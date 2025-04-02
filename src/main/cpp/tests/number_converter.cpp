@@ -72,8 +72,8 @@ TEST_F(ConvertTests, SparkCase)
 //   auto expected = cudf::test::strings_column_wrapper({"", "10", ""}, {0, 1, 0});
 //   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 
-//   results  = spark_rapids_jni::convert_cv_s_s(strings_column_view(input_strings), 5, out_of_range);
-//   expected = cudf::test::strings_column_wrapper({"", "", ""}, {0, 0, 0});
+//   results  = spark_rapids_jni::convert_cv_s_s(strings_column_view(input_strings), 5,
+//   out_of_range); expected = cudf::test::strings_column_wrapper({"", "", ""}, {0, 0, 0});
 //   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 // }
 
@@ -157,8 +157,8 @@ TEST_F(ConvertTests, SparkCase)
 //   auto expected = cudf::test::strings_column_wrapper{"36"};
 //   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 
-//   results  = spark_rapids_jni::convert_cv_cv_s(strings_column_view(input_strings), from_base, -7);
-//   expected = cudf::test::strings_column_wrapper{"36"};
+//   results  = spark_rapids_jni::convert_cv_cv_s(strings_column_view(input_strings), from_base,
+//   -7); expected = cudf::test::strings_column_wrapper{"36"};
 //   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 
 //   results  = spark_rapids_jni::convert_cv_s_cv(strings_column_view(input_strings), 4, to_base);
