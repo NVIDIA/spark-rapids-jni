@@ -233,13 +233,13 @@ __device__ thrust::pair<result_type, int> convert(
 struct const_base {
   int const base;
 
-  __device__ int operator()(int idx) const { return base; }
+  CUDF_HOST_DEVICE int operator()(int idx) const { return base; }
 };
 
 struct base_iter {
   int const* bases;
 
-  __device__ int operator()(int idx) const { return bases[idx]; }
+  CUDF_HOST_DEVICE int operator()(int idx) const { return bases[idx]; }
 };
 
 template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool is_const_bases = false>
