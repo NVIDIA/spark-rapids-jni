@@ -59,6 +59,19 @@ TEST_F(ConvertTests, Null)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 }
 
+TEST_F(ConvertTests, NullBase)
+{
+  auto const input_strings = cudf::test::strings_column_wrapper{"11", "11", "11"};
+  auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>({2, 0, 2}, {1, 0, 1});
+  auto const to_base = cudf::test::fixed_width_column_wrapper<int32_t>({10, 10, 0}, {1, 1, 0});
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_cv(strings_column_view(input_strings), from_base, to_base);
+
+  auto const expected = cudf::test::strings_column_wrapper({"3", "", ""}, {1, 0, 0});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
 TEST_F(ConvertTests, BaseOutOfRange)
 {
   constexpr int out_of_range = 37;
