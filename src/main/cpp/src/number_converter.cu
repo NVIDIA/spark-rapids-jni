@@ -283,7 +283,14 @@ struct convert_fn {
       if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
           std::abs(to_base) > MAX_BASE) {
         // if base is invalid, return all nulls
-        if (out == nullptr) { out_mask[idx] = 0; }
+        if (out == nullptr) {
+          // first phase
+          out_lens[idx] = 0;
+          out_mask[idx] = 0;
+        } else {
+          // second phase
+          return;
+        }
         return;
       }
     }
