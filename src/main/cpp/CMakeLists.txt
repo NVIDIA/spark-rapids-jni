@@ -204,6 +204,7 @@ add_library(
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
+  src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
