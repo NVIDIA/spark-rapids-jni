@@ -161,7 +161,7 @@ import java.util.stream.IntStream;
  *  </ol>
  */
 public class KudoSerializer {
-
+  static final boolean KUDO_SANITY_CHECK = Boolean.getBoolean("com.nvidia.spark.rapids.jni.kudo.check");
   private static final byte[] PADDING = new byte[64];
   private static final BufferType[] ALL_BUFFER_TYPES =
       new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
