@@ -87,7 +87,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_convert
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvCvCv(
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvCvCv(
   JNIEnv* env, jclass, jlong input, jlong from_base, jlong to_base)
 {
   JNI_NULL_CHECK(env, input, "input column handle is null", 0);
@@ -99,14 +99,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConve
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input)};
     auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
     auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
-
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::convert_cv_cv_cv(input_view, from_base_view, to_base_view));
+    return spark_rapids_jni::is_convert_overflow_cv_cv_cv(input_view, from_base_view, to_base_view);
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvCvS(
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvCvS(
   JNIEnv* env, jclass, jlong input, jlong from_base, int to_base)
 {
   JNI_NULL_CHECK(env, input, "input column handle is null", 0);
@@ -116,14 +114,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConve
     cudf::jni::auto_set_device(env);
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input)};
     auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
-
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::convert_cv_cv_s(input_view, from_base_view, to_base));
+    return spark_rapids_jni::is_convert_overflow_cv_cv_s(input_view, from_base_view, to_base);
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvSCv(
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvSCv(
   JNIEnv* env, jclass, jlong input, int from_base, jlong to_base)
 {
   JNI_NULL_CHECK(env, input, "input column handle is null", 0);
@@ -133,14 +129,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConve
     cudf::jni::auto_set_device(env);
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input)};
     auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
-
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::convert_cv_s_cv(input_view, from_base, to_base_view));
+    return spark_rapids_jni::is_convert_overflow_cv_s_cv(input_view, from_base, to_base_view);
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvSS(
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvSS(
   JNIEnv* env, jclass, jlong input, int from_base, int to_base)
 {
   JNI_NULL_CHECK(env, input, "input column handle is null", 0);
@@ -148,8 +142,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConve
   try {
     cudf::jni::auto_set_device(env);
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input)};
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::convert_cv_s_s(input_view, from_base, to_base));
+    return spark_rapids_jni::is_convert_overflow_cv_s_s(input_view, from_base, to_base);
   }
   CATCH_STD(env, 0);
 }
