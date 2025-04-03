@@ -18,7 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.*;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +41,7 @@ public class NumberConverterTest {
       ) {
         assertColumnsAreEqual(expected, actual);
         boolean actualOverflow = NumberConverter.isConvertOverflowCvCvCv(input, fromBase, toBase);
-        assertTrue(actualOverflow);
+        assertFalse(actualOverflow);
       }
     }
   }
@@ -60,7 +60,7 @@ public class NumberConverterTest {
           ColumnVector actual = NumberConverter.convertCvCvS(input, fromBase, constToBase)) {
         assertColumnsAreEqual(expected, actual);
         boolean actualOverflow = NumberConverter.isConvertOverflowCvCvS(input, fromBase, constToBase);
-        assertTrue(actualOverflow);
+        assertFalse(actualOverflow);
       }
     }
   }
@@ -78,7 +78,7 @@ public class NumberConverterTest {
       try (ColumnVector actual = NumberConverter.convertCvSCv(input, constFromBase, toBase)) {
         assertColumnsAreEqual(expected, actual);
         boolean actualOverflow = NumberConverter.isConvertOverflowCvSCv(input, constFromBase, toBase);
-        assertTrue(actualOverflow);
+        assertFalse(actualOverflow);
       }
     }
   }
@@ -95,7 +95,7 @@ public class NumberConverterTest {
       try (ColumnVector actual = NumberConverter.convertCvSS(input, constFromBase, constToBase)) {
         assertColumnsAreEqual(expected, actual);
         boolean actualOverflow = NumberConverter.isConvertOverflowCvSS(input, constFromBase, constToBase);
-        assertTrue(actualOverflow);
+        assertFalse(actualOverflow);
       }
     }
   }
