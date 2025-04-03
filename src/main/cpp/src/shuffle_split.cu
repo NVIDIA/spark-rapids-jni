@@ -945,10 +945,11 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
         } else if (src_info.btype == buffer_type::VALIDITY) {
           // edge case: we are going to be copying at the nearest byte boundary, so
           // if we are at row 2 and we need 8 rows, we are actually copying 10 rows of info.
-          return (num_rows + (row_start % 8) + 7) / 8;
+          return num_rows > 0 ? (num_rows + (row_start % 8) + 7) / 8 : 0;
         }
         return num_rows;
       }();
+
       int const element_size =
         src_info.btype == buffer_type::VALIDITY
           ? 1
