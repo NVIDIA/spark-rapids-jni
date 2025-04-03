@@ -214,7 +214,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_tag" : "4808eeda29bb6dcfd38291d1a8ea280b48562c57",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
       "version" : "3.1.0"
     },
