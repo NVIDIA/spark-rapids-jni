@@ -15,6 +15,7 @@
  */
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/debug_utilities.hpp>
 
 #include <cudf/strings/strings_column_view.hpp>
 
@@ -43,6 +44,20 @@ TEST_F(ConvertTests, SparkCase)
 
   auto const expected = cudf::test::strings_column_wrapper{
     "11", "-F", "FFFFFFFFFFFFFFF1", "3A48", "FFFFFFFFFFFFFFFF", "B", "45012021522523134134555"};
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
+}
+
+TEST_F(ConvertTests, AllResultIsNull)
+{
+  auto const input_strings = cudf::test::strings_column_wrapper({"qTa1WZsl", ""}, {1, 0});
+  auto const from_base     = cudf::test::fixed_width_column_wrapper<int32_t>{38, 20};
+  auto const to_base       = -18;
+
+  auto results =
+    spark_rapids_jni::convert_cv_cv_s(strings_column_view(input_strings), from_base, to_base);
+  spark_rapids_jni::is_convert_overflow_cv_cv_s(
+    strings_column_view(input_strings), from_base, to_base);
+  auto const expected = cudf::test::strings_column_wrapper({"", ""}, {0, 0});
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*results, expected);
 }
 

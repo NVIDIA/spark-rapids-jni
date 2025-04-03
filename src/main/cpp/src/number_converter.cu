@@ -246,7 +246,10 @@ struct base_iter {
   __device__ int get(cudf::size_type idx) const { return d_bases.element<int>(idx); }
 };
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES = false>
+template <typename FROM_BASE_ITERATOR,
+          typename TO_BASE_ITERATOR,
+          bool IS_CONST_BASES,
+          bool FIRST_PHASE>
 struct convert_fn {
   cudf::column_device_view input;
   FROM_BASE_ITERATOR from_base_iter;
@@ -264,7 +267,7 @@ struct convert_fn {
   {
     if (from_base_iter.is_null(idx) || to_base_iter.is_null(idx)) {
       // if base is invalid, set null and zero length
-      if (out == nullptr) {
+      if constexpr (FIRST_PHASE) {
         // first phase
         out_lens[idx] = 0;
         out_mask[idx] = 0;
@@ -283,7 +286,7 @@ struct convert_fn {
       if (from_base < MIN_BASE || from_base > MAX_BASE || std::abs(to_base) < MIN_BASE ||
           std::abs(to_base) > MAX_BASE) {
         // if base is invalid, return all nulls
-        if (out == nullptr) {
+        if constexpr (FIRST_PHASE) {
           // first phase
           out_lens[idx] = 0;
           out_mask[idx] = 0;
@@ -296,14 +299,14 @@ struct convert_fn {
     }
 
     if (input.is_null(idx)) {
-      if (out == nullptr) {
+      if constexpr (FIRST_PHASE) {
         // first phase, set null/length
         out_lens[idx] = 0;
         out_mask[idx] = 0;
       }
     } else {
       auto str = input.element<cudf::string_view>(idx);
-      if (out == nullptr) {
+      if constexpr (FIRST_PHASE) {
         // first phase, set null/length
         auto [ret_type, len] = convert(str.data(),
                                        str.length(),
@@ -331,7 +334,7 @@ struct convert_fn {
   }
 };
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES = false>
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES>
 std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& input,
                                            FROM_BASE_ITERATOR from_base,
                                            TO_BASE_ITERATOR to_base,
@@ -361,17 +364,18 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
     rmm::device_uvector<int8_t>(input.size(), stream, cudf::get_current_device_resource_ref());
 
   // First phase: calculate the lengths/nulls of the converted strings
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   thrust::make_counting_iterator<cudf::size_type>(0),
-                   thrust::make_counting_iterator<cudf::size_type>(input.size()),
-                   convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, IS_CONST_BASES>{
-                     *d_strings,
-                     from_base,
-                     to_base,
-                     out_sizes->mutable_view().data<int>(),
-                     out_mask.data(),
-                     nullptr,
-                     nullptr});
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(input.size()),
+    convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, IS_CONST_BASES, /*phase 1*/ true>{
+      *d_strings,
+      from_base,
+      to_base,
+      out_sizes->mutable_view().data<int>(),
+      out_mask.data(),
+      nullptr,
+      nullptr});
   // make null mask and null count
   auto [null_mask, null_count] = cudf::detail::valid_if(
     out_mask.data(), out_mask.data() + out_mask.size(), thrust::identity<bool>{}, stream, mr);
@@ -389,7 +393,7 @@ std::unique_ptr<cudf::column> convert_impl(cudf::strings_column_view const& inpu
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(input.size()),
-    convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, IS_CONST_BASES>{
+    convert_fn<FROM_BASE_ITERATOR, TO_BASE_ITERATOR, IS_CONST_BASES, /*phase 2*/ false>{
       *d_strings, from_base, to_base, nullptr, nullptr, chars.data(), offsets->view().data<int>()});
 
   return cudf::make_strings_column(
@@ -406,7 +410,7 @@ __device__ bool is_convert_overflow(char const* ptr, int len, int from_base, int
   return pair.first == result_type::OVERFLOW;
 }
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES = false>
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES>
 struct is_overflow_fn {
   cudf::column_device_view input;
   FROM_BASE_ITERATOR from_base_iter;
@@ -437,7 +441,7 @@ struct is_overflow_fn {
   }
 };
 
-template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES = false>
+template <typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR, bool IS_CONST_BASES>
 bool is_convert_overflow_impl(cudf::strings_column_view const& input,
                               FROM_BASE_ITERATOR from_base,
                               TO_BASE_ITERATOR to_base,
