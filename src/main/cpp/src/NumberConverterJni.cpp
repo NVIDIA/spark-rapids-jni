@@ -87,6 +87,57 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_convert
   CATCH_STD(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_convertSCvCv(
+  JNIEnv* env, jclass, jlong input, jlong from_base, jlong to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, from_base, "from_base column handle is null", 0);
+  JNI_NULL_CHECK(env, to_base, "to_base column handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
+    auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
+
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::convert_s_cv_cv(input_scalar, from_base_view, to_base_view));
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_convertSCvS(
+  JNIEnv* env, jclass, jlong input, jlong from_base, int to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, from_base, "from_base column handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
+
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::convert_s_cv_s(input_scalar, from_base_view, to_base));
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_convertSSCv(
+  JNIEnv* env, jclass, jlong input, int from_base, jlong to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, to_base, "to_base column handle is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
+    return cudf::jni::release_as_jlong(
+      spark_rapids_jni::convert_s_s_cv(input_scalar, from_base, to_base_view));
+  }
+  CATCH_STD(env, 0);
+}
+
 JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowCvCvCv(
   JNIEnv* env, jclass, jlong input, jlong from_base, jlong to_base)
 {
@@ -143,6 +194,54 @@ JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isCo
     cudf::jni::auto_set_device(env);
     auto input_view{*reinterpret_cast<cudf::column_view const*>(input)};
     return spark_rapids_jni::is_convert_overflow_cv_s_s(input_view, from_base, to_base);
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowSCvCv(
+  JNIEnv* env, jclass, jlong input, jlong from_base, jlong to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, from_base, "from_base column handle is null", 0);
+  JNI_NULL_CHECK(env, to_base, "to_base column handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
+    auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
+    return spark_rapids_jni::is_convert_overflow_s_cv_cv(
+      input_scalar, from_base_view, to_base_view);
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowSCvS(
+  JNIEnv* env, jclass, jlong input, jlong from_base, int to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, from_base, "from_base column handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto from_base_view{*reinterpret_cast<cudf::column_view const*>(from_base)};
+    return spark_rapids_jni::is_convert_overflow_s_cv_s(input_scalar, from_base_view, to_base);
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflowSSCv(
+  JNIEnv* env, jclass, jlong input, int from_base, jlong to_base)
+{
+  JNI_NULL_CHECK(env, input, "input string scalar is null", 0);
+  JNI_NULL_CHECK(env, to_base, "to_base column handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const& input_scalar = *reinterpret_cast<cudf::string_scalar*>(input);
+    auto to_base_view{*reinterpret_cast<cudf::column_view const*>(to_base)};
+    return spark_rapids_jni::is_convert_overflow_s_s_cv(input_scalar, from_base, to_base_view);
   }
   CATCH_STD(env, 0);
 }
