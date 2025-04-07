@@ -54,13 +54,15 @@ class ThreadStateRegistry {
         // fall through
       case WAITING:
         // fall through
-      case TIMED_WAITING:
-        return true;
       case TERMINATED:
         // Technically there is a race with `!t.isAlive` check above, and dead is as good as
         // blocked.
         return true;
       default:
+        // For the case of TIMED_WAITING, we don't want to consider it blocked because with
+        // a backend producer thread blocking on a BlockingQueue, a task (even if it is actually
+        // running) will be treated as a blocked task. So this will cause premature concensus on
+        // "all blocked" state in OOM state machine.
         return false;
     }
   }
