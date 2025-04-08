@@ -16,15 +16,19 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import ai.rapids.cudf.BinaryOp;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
+import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
@@ -58,19 +62,21 @@ public class GpuTimeZoneDB {
 
   // use this reference to indicate if time zone cache is initialized.
   private static HostColumnVector transitions;
-  private final static int start_year = 1900;
-  private final static int end_year = 2170;
+  private static final int initialTransitionYear = 2000;
+  private static int finalTransitionYear = 2200;
+  private static long maxTimestamp;
+  private static ZoneId utcZoneId = ZoneId.of("UTC");
 
   /**
    * This should be called on startup of an executor.
    * Runs in a thread asynchronously.
    * If `shutdown` was called ever, then will not load the cache
    */
-  public static void cacheDatabaseAsync() {
+  public static void cacheDatabaseAsync(int maxYear) {
     // start a new thread to load
     Runnable runnable = () -> {
       try {
-        cacheDatabaseImpl();
+        cacheDatabaseImpl(maxYear);
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
       }
@@ -86,8 +92,8 @@ public class GpuTimeZoneDB {
    * If one `cacheDatabase` is running, other `cacheDatabase` will wait until caching is done.
    * If cache is exits, do not load cache again.
    */
-  public static void cacheDatabase() {
-    cacheDatabaseImpl();
+  public static void cacheDatabase(int maxYear) {
+    cacheDatabaseImpl(maxYear);
   }
 
   /**
@@ -97,9 +103,12 @@ public class GpuTimeZoneDB {
     closeResources();
   }
 
-  private static synchronized void cacheDatabaseImpl() {
+  private static synchronized void cacheDatabaseImpl(int maxYear) {
     if (transitions == null) {
       try {
+        finalTransitionYear = maxYear;
+        maxTimestamp = LocalDateTime.of(maxYear+1, 1, 1, 0, 0, 0)
+          .atZone(utcZoneId).toEpochSecond();
         loadData();
       } catch (Exception e) {
         closeResources();
@@ -119,11 +128,80 @@ public class GpuTimeZoneDB {
     }
   }
 
-  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
+  private static long getScalefactor(ColumnVector input){
+    DType inputType = input.getType();
+    if (inputType == DType.TIMESTAMP_SECONDS){
+      return 1;
+    } else if (inputType == DType.TIMESTAMP_MILLISECONDS){
+      return 1000;
+    } else if (inputType == DType.TIMESTAMP_MICROSECONDS){
+      return 1000*1000;
+    }
+    return 1;
+  }
+
+  // enforce that all timestamps, regardless of timezone, be less than the desired date
+  private static boolean isValidInput(ColumnVector input, ZoneId zoneId){
+    if (zoneId.getRules().isFixedOffset()){
+      return true;
+    }
+    boolean isValid = false;
+    long scaleFactor = getScalefactor(input);
+    try (Scalar targetTimestamp = Scalar.timestampFromLong(input.getType(), maxTimestamp*scaleFactor);
+         ColumnVector isGreater = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8)) {
+      isValid = !isGreater.any().getBoolean();
+    } catch (Exception e) {
+      log.error("Error validating input timestamps", e);
+      // don't need to throw error, can try CPU processing
+      return false;
+    }
+    return isValid;
+  }
+
+  private static ColumnVector cpuChangeTimestampTz(ColumnVector input, ZoneId currentTimeZone, ZoneId targetTimeZone) {
+    ColumnVector resultCV = null;
+    try (HostColumnVector hostCV = input.copyToHost();) {
+      // assuming we don't have more than 2^31-1 rows
+      int rows = (int) hostCV.getRowCount();
+      DType inputType = input.getType();
+      long[] resultRows = new long[rows];
+      long scaleFactor = getScalefactor(input);
+      for (int i = 0; i < rows; i++){
+        if (hostCV.isNull(i)) {
+          resultRows[i] = 0;
+          continue;
+        }
+        long timestamp = hostCV.getLong(i);
+        long unitOffset = timestamp%scaleFactor;
+        timestamp /= scaleFactor;
+        Instant instant = Instant.ofEpochSecond(timestamp);
+        int currentZoneOffset = instant.atZone(currentTimeZone).getOffset().getTotalSeconds();
+        int targetZoneOffset = instant.atZone(targetTimeZone).getOffset().getTotalSeconds();
+        timestamp += targetZoneOffset-currentZoneOffset;
+        timestamp = timestamp*scaleFactor+unitOffset;
+        resultRows[i] = timestamp;
+      }
+      if (inputType == DType.TIMESTAMP_SECONDS) {
+        resultCV = HostColumnVector.timestampSecondsFromLongs(resultRows).copyToDevice();
+      } else if (inputType == DType.TIMESTAMP_MILLISECONDS) {
+        resultCV = HostColumnVector.timestampMilliSecondsFromLongs(resultRows).copyToDevice();
+      } else {
+        resultCV = HostColumnVector.timestampMicroSecondsFromLongs(resultRows).copyToDevice();
+      }
+    } catch (Exception e) {
+      throw e;
+    }
+    return resultCV;
+  }
+
+  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone, int maxYear) {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase();
+    cacheDatabase(maxYear);
+    if (!isValidInput(input, currentTimeZone)) {
+      return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
+    }
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
@@ -131,11 +209,14 @@ public class GpuTimeZoneDB {
     }
   }
   
-  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
+  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone, int maxYear) {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase();
+    cacheDatabase(maxYear);
+    if (!isValidInput(input, desiredTimeZone)) {
+      return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
+    }
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
@@ -172,18 +253,11 @@ public class GpuTimeZoneDB {
         ZoneRules zoneRules = zoneId.getRules();
         if (!zoneIdToTable.containsKey(zoneId.getId())) {
           List<ZoneOffsetTransition> zoneOffsetTransitions = new ArrayList<>(zoneRules.getTransitions());
-          long lastTransitionEpochSecond = Long.MIN_VALUE;
-          if (!zoneOffsetTransitions.isEmpty()) {
-            long transitionInstant = zoneOffsetTransitions.get(zoneOffsetTransitions.size()-1).getInstant().getEpochSecond();
-            lastTransitionEpochSecond = Math.max(transitionInstant, lastTransitionEpochSecond);
-          }
           List<ZoneOffsetTransitionRule> transitionRules = zoneRules.getTransitionRules();
           for (ZoneOffsetTransitionRule transitionRule : transitionRules){
-            for (int year = start_year; year <= end_year; year++){
+            for (int year = initialTransitionYear; year <= finalTransitionYear; year++){
               ZoneOffsetTransition transition = transitionRule.createTransition(year);
-              if (transition.getInstant().getEpochSecond() > lastTransitionEpochSecond){
-                zoneOffsetTransitions.add(transition);
-              }
+              zoneOffsetTransitions.add(transition);
             }
           }
           // sort the transitions
