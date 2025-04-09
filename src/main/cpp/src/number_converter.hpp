@@ -22,334 +22,53 @@
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <memory>
+#include <variant>
 
 namespace spark_rapids_jni {
 
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_cv_cv_cv(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+using convert_number_t = std::variant<cudf::column_view, cudf::string_scalar, int>;
 
 /**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_cv_cv_s(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_cv_s_cv(
-  cudf::strings_column_view const& input,
-  int const from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_cv_s_s(
-  cudf::strings_column_view const& input,
-  int const from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_s_cv_cv(
-  cudf::string_scalar const& input,
-  cudf::column_view const& from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_s_cv_s(
-  cudf::string_scalar const& input,
-  cudf::column_view const& from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Convert numbers(in string column) between different number bases. If toBase>0 the
-result
-* is unsigned, otherwise it is signed.
-* First trim the space characters (ASCII 32).
-* Return null if len(trim_ascii_32(str)) == 0.
-* Return all nulls if `from_base` or `to_base` is not in range [2, 36].
-*
-* e.g.:
-*   convert('11', 2, 10) = '3'
-*   convert('F', 16, 10) = '15'
-*   convert('17', 10, 16) = '11'
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return the string column contains numbers with `to_base` base
-*/
-std::unique_ptr<cudf::column> convert_s_s_cv(
-  cudf::string_scalar const& input,
-  int const from_base,
-  cudf::column_view const& to_base,
+ *
+ * @brief Convert numbers(in string column) between different number bases. If toBase>0 the result
+ * is unsigned, otherwise it is signed. First trim the space characters (ASCII 32). Return null if
+ * len(trim_ascii_32(str)) == 0. Return all nulls if `from_base` or `to_base` is not in range [2,
+ * 36]
+ *
+ * e.g.:
+ *   convert('11', 2, 10) = '3'
+ *   convert('F', 16, 10) = '15'
+ *   convert('17', 10, 16) = '11'
+ *
+ * @param input the input string column or string scalar
+ * @param from_base the number base of input, valid range is [2, 36]
+ * @param to_base the number base of output, valid range is [2, 36]
+ *
+ * @return the string column contains numbers with `to_base` base
+ */
+std::unique_ptr<cudf::column> convert(
+  convert_number_t const& input,
+  convert_number_t const& from_base,
+  convert_number_t const& to_base,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  *
  * @brief Check if overflow occurs for converting numbers(in string column) between different
- number
- * bases. This is for the checking when it's ANSI mode. For more details, please refer to the
+ * number bases. This is for the checking when it's ANSI mode. For more details, please refer to the
  * convert function.
  *
- * @param input the input string column contains numbers
+ * @param input the input string column or string scalar
  * @param from_base the number base of input, valid range is [2, 36]
  * @param to_base the number base of output, valid range is [2, 36]
  *
  * @return If overflow occurs, return true; otherwise, return false.
  */
-bool is_convert_overflow_cv_cv_cv(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Check if overflow occurs for converting numbers(in string column) between different
-number
-* bases. This is for the checking when it's ANSI mode. For more details, please refer to the
-* convert function.
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return If overflow occurs, return true; otherwise, return false.
-*/
-bool is_convert_overflow_cv_cv_s(
-  cudf::strings_column_view const& input,
-  cudf::column_view const& from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Check if overflow occurs for converting numbers(in string column) between different
-number
-* bases. This is for the checking when it's ANSI mode. For more details, please refer to the
-* convert function.
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return If overflow occurs, return true; otherwise, return false.
-*/
-bool is_convert_overflow_cv_s_cv(
-  cudf::strings_column_view const& input,
-  int const from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
- *
- * @brief Check if overflow occurs for converting numbers(in string column) between different number
- * bases. This is for the checking when it's ANSI mode. For more details, please refer to the
- * convert function.
- *
- * @param input the input string column contains numbers
- * @param from_base the number base of input, valid range is [2, 36]
- * @param to_base the number base of output, valid range is [2, 36]
- *
- * @return If overflow occurs, return true; otherwise, return false.
- */
-bool is_convert_overflow_cv_s_s(
-  cudf::strings_column_view const& input,
-  int const from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
- *
- * @brief Check if overflow occurs for converting numbers(in string column) between different
- number
- * bases. This is for the checking when it's ANSI mode. For more details, please refer to the
- * convert function.
- *
- * @param input the input string column contains numbers
- * @param from_base the number base of input, valid range is [2, 36]
- * @param to_base the number base of output, valid range is [2, 36]
- *
- * @return If overflow occurs, return true; otherwise, return false.
- */
-bool is_convert_overflow_s_cv_cv(
-  cudf::string_scalar const& input,
-  cudf::column_view const& from_base,
-  cudf::column_view const& to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Check if overflow occurs for converting numbers(in string column) between different
-number
-* bases. This is for the checking when it's ANSI mode. For more details, please refer to the
-* convert function.
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return If overflow occurs, return true; otherwise, return false.
-*/
-bool is_convert_overflow_s_cv_s(
-  cudf::string_scalar const& input,
-  cudf::column_view const& from_base,
-  int const to_base,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
-*
-* @brief Check if overflow occurs for converting numbers(in string column) between different
-number
-* bases. This is for the checking when it's ANSI mode. For more details, please refer to the
-* convert function.
-*
-* @param input the input string column contains numbers
-* @param from_base the number base of input, valid range is [2, 36]
-* @param to_base the number base of output, valid range is [2, 36]
-*
-* @return If overflow occurs, return true; otherwise, return false.
-*/
-bool is_convert_overflow_s_s_cv(
-  cudf::string_scalar const& input,
-  int const from_base,
-  cudf::column_view const& to_base,
+bool is_convert_overflow(
+  convert_number_t const& input,
+  convert_number_t const& from_base,
+  convert_number_t const& to_base,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

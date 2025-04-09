@@ -22,9 +22,7 @@ public class NumberConverter {
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -48,15 +46,15 @@ public class NumberConverter {
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
 
-    return new ColumnVector(
-      convertCvCvCv(input.getNativeView(), fromBase.getNativeView(), toBase.getNativeView()));
+    return new ColumnVector(convert(
+      input.getNativeView(), true,
+      fromBase.getNativeView(), true,
+      toBase.getNativeView(), true));
   }
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -78,14 +76,15 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
 
-    return new ColumnVector(convertCvCvS(input.getNativeView(), fromBase.getNativeView(), toBase));
+    return new ColumnVector(convert(
+      input.getNativeView(), true,
+      fromBase.getNativeView(), true,
+      toBase, false));
   }
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -107,14 +106,15 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
 
-    return new ColumnVector(convertCvSCv(input.getNativeView(), fromBase, toBase.getNativeView()));
+    return new ColumnVector(convert(
+      input.getNativeView(), true,
+      fromBase, false,
+      toBase.getNativeView(), true));
   }
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -135,15 +135,15 @@ public class NumberConverter {
 
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
 
-    return new ColumnVector(convertCvSS(input.getNativeView(), fromBase, toBase));
+    return new ColumnVector(convert(
+      input.getNativeView(), true,
+      fromBase, false,
+      toBase, false));
   }
-
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -154,7 +154,7 @@ public class NumberConverter {
    * convert('F', 16, 10) = '15'
    * convert('17', 10, 16) = '11'
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -165,15 +165,15 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
-    return new ColumnVector(
-      convertSCvCv(input.getScalarHandle(), fromBase.getNativeView(), toBase.getNativeView()));
+    return new ColumnVector(convert(
+      input.getScalarHandle(), false,
+      fromBase.getNativeView(), true,
+      toBase.getNativeView(), true));
   }
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -184,7 +184,7 @@ public class NumberConverter {
    * convert('F', 16, 10) = '15'
    * convert('17', 10, 16) = '11'
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -193,14 +193,15 @@ public class NumberConverter {
   public static ColumnVector convertSCvS(Scalar input, ColumnVector fromBase, int toBase) {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
-    return new ColumnVector(convertSCvS(input.getScalarHandle(), fromBase.getNativeView(), toBase));
+    return new ColumnVector(convert(
+      input.getScalarHandle(), false,
+      fromBase.getNativeView(), true,
+      toBase, false));
   }
 
   /**
    *
-   * Convert numbers(in string column) between different number bases. If toBase>0
-   * the
-   * result
+   * Convert numbers in a string column between different number bases. If toBase>0 the result
    * is unsigned, otherwise it is signed.
    * First trim the space characters (ASCII 32).
    * Return null if len(trim_ascii_32(str)) == 0.
@@ -211,7 +212,7 @@ public class NumberConverter {
    * convert('F', 16, 10) = '15'
    * convert('17', 10, 16) = '11'
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -220,15 +221,17 @@ public class NumberConverter {
   public static ColumnVector convertSSCv(Scalar input, int fromBase, ColumnVector toBase) {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
-    return new ColumnVector(convertSSCv(input.getScalarHandle(), fromBase, toBase.getNativeView()));
+    return new ColumnVector(convert(
+      input.getScalarHandle(), false,
+      fromBase, false,
+      toBase.getNativeView(), true));
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number bases.
-   * This is for the checking when it's ANSI mode. For more details, please refer
-   * to the convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
    * @param input    the input string column contains numbers
    * @param fromBase the number base of input, valid range is [2, 36]
@@ -241,17 +244,17 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
-    return isConvertOverflowCvCvCv(
-      input.getNativeView(), fromBase.getNativeView(), toBase.getNativeView());
+    return isConvertOverflow(
+      input.getNativeView(), true,
+      fromBase.getNativeView(), true,
+      toBase.getNativeView(), true);
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number
-   * bases. This is for the checking when it's ANSI mode. For more details, please
-   * refer to the
-   * convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
    * @param input    the input string column contains numbers
    * @param fromBase the number base of input, valid range is [2, 36]
@@ -265,16 +268,17 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
 
-    return isConvertOverflowCvCvS(input.getNativeView(), fromBase.getNativeView(), toBase);
+    return isConvertOverflow(
+      input.getNativeView(), true,
+      fromBase.getNativeView(), true,
+      toBase, false);
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number
-   * bases. This is for the checking when it's ANSI mode. For more details, please
-   * refer to the
-   * convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
    * @param input    the input string column contains numbers
    * @param fromBase the number base of input, valid range is [2, 36]
@@ -288,16 +292,17 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
 
-    return isConvertOverflowCvSCv(input.getNativeView(), fromBase, toBase.getNativeView());
+    return isConvertOverflow(
+      input.getNativeView(), true,
+      fromBase, false,
+      toBase.getNativeView(), true);
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number
-   * bases. This is for the checking when it's ANSI mode. For more details, please
-   * refer to the
-   * convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
    * @param input    the input string column contains numbers
    * @param fromBase the number base of input, valid range is [2, 36]
@@ -309,18 +314,19 @@ public class NumberConverter {
 
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
 
-    return isConvertOverflowCvSS(input.getNativeView(), fromBase, toBase);
+    return isConvertOverflow(
+      input.getNativeView(), true,
+      fromBase, false,
+      toBase, false);
   }
-
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number bases.
-   * This is for the checking when it's ANSI mode. For more details, please refer
-   * to the convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -333,19 +339,19 @@ public class NumberConverter {
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
 
-    return isConvertOverflowSCvCv(
-      input.getScalarHandle(), fromBase.getNativeView(), toBase.getNativeView());
+    return isConvertOverflow(
+      input.getScalarHandle(), false,
+      fromBase.getNativeView(), true,
+      toBase.getNativeView(),true);
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number
-   * bases. This is for the checking when it's ANSI mode. For more details, please
-   * refer to the
-   * convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -356,18 +362,19 @@ public class NumberConverter {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (fromBase.getType().equals(DType.INT32)) : "From base must be Integers";
 
-    return isConvertOverflowSCvS(input.getScalarHandle(), fromBase.getNativeView(), toBase);
+    return isConvertOverflow(
+      input.getScalarHandle(), false,
+      fromBase.getNativeView(), true,
+      toBase, false);
   }
 
   /**
    *
-   * Check if overflow occurs for converting numbers(in string column) between
-   * different number
-   * bases. This is for the checking when it's ANSI mode. For more details, please
-   * refer to the
-   * convert function.
+   * Check if overflow occurs for converting numbers(in string column) between different
+   * number bases. This is for the checking when it's ANSI mode. For more details,
+   * please refer to the convert function.
    *
-   * @param input    the input string column contains numbers
+   * @param input    the input string scalar
    * @param fromBase the number base of input, valid range is [2, 36]
    * @param toBase   the number base of output, valid range is [2, 36]
    *
@@ -376,35 +383,20 @@ public class NumberConverter {
   public static boolean isConvertOverflowSSCv(Scalar input, int fromBase, ColumnVector toBase) {
     assert (input.getType().equals(DType.STRING)) : "Input must be strings";
     assert (toBase.getType().equals(DType.INT32)) : "To base must be Integers";
-    return isConvertOverflowSSCv(input.getScalarHandle(), fromBase, toBase.getNativeView());
+    return isConvertOverflow(
+      input.getScalarHandle(), false,
+      fromBase, false,
+      toBase.getNativeView(), true);
   }
 
-  private static native long convertCvCvCv(long input, long fromBase, long toBase);
+  private static native long convert(
+    long input, boolean isInputCv,
+    long fromBase, boolean isFromCv,
+    long toBase, boolean isToCv);
 
-  private static native long convertCvCvS(long input, long fromBase, int toBase);
-
-  private static native long convertCvSCv(long input, int fromBase, long toBase);
-
-  private static native long convertCvSS(long input, int fromBase, int toBase);
-
-  private static native long convertSCvCv(long input, long fromBase, long toBase);
-
-  private static native long convertSCvS(long input, long fromBase, int toBase);
-
-  private static native long convertSSCv(long input, int fromBase, long toBase);
-
-  private static native boolean isConvertOverflowCvCvCv(long input, long fromBase, long toBase);
-
-  private static native boolean isConvertOverflowCvCvS(long input, long fromBase, int toBase);
-
-  private static native boolean isConvertOverflowCvSCv(long input, int fromBase, long toBase);
-
-  private static native boolean isConvertOverflowCvSS(long input, int fromBase, int toBase);
-
-  private static native boolean isConvertOverflowSCvCv(long input, long fromBase, long toBase);
-
-  private static native boolean isConvertOverflowSCvS(long input, long fromBase, int toBase);
-
-  private static native boolean isConvertOverflowSSCv(long input, int fromBase, long toBase);
+  private static native boolean isConvertOverflow(
+    long input, boolean isInputCv,
+    long fromBase, boolean isFromCv,
+    long toBase, boolean isToCv);
 
 }
