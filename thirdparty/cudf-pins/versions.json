@@ -5,7 +5,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "05e019afe53f9b0e4454cbd822f9bdda18df49bb",
+      "git_tag" : "b5fe509fd11a925f90d6495176707cc1184eed9d",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "patches" : 
       [
@@ -180,9 +180,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8e11ed2edc0c392ec409d2309793c11af8e91ee2",
+      "git_tag" : "414d24a8ce24842fc311ec24b0630e5599cbaf60",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.04"
+      "version" : "25.06"
     },
     "nanoarrow" : 
     {
@@ -196,7 +196,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "v2.2.0",
+      "git_tag" : "a6e4e64a177e07cd2e5c8c5e07bb66ffefceae84",
       "git_url" : "https://github.com/NVIDIA/nvcomp.git",
       "proprietary_binary" : 
       {
@@ -214,7 +214,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e170594ac7cf1dac584da473d4ca9301087090c1",
+      "git_tag" : "4808eeda29bb6dcfd38291d1a8ea280b48562c57",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
       "version" : "3.1.0"
     },
@@ -230,9 +230,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6c23695f25f9891cdac6c3d9a921d9bb4898c156",
+      "git_tag" : "412d6a0df1e9434114ff265c961c4a56df3fdcbd",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.04"
+      "version" : "25.06"
     },
     "spdlog" : 
     {
