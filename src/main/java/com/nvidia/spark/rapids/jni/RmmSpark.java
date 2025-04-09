@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -167,6 +167,15 @@ public class RmmSpark {
    */
   public static void shuffleThreadWorkingOnTasks(long[] taskIds) {
     shuffleThreadWorkingTasks(getCurrentThreadId(), Thread.currentThread(), taskIds);
+  }
+
+  public static boolean isThreadWorkingOnTaskAsPoolThread() {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+        return sra.isThreadWorkingOnTaskAsPoolThread(getCurrentThreadId());
+      }
+    }
+    return false;
   }
 
   /**

@@ -42,6 +42,13 @@ namespace spark_rapids_jni {
 namespace {
 
 /**
+ * @brief The max precision that will leverage shared memory to do the reduction. If the precision
+ * is bigger than this value, then leverage global memory to do the reduction to avoid the
+ * limitation of shared memory.
+ */
+constexpr int MAX_SHARED_MEM_PRECISION = 12;
+
+/**
  * @brief The seed used for the XXHash64 hash function.
  * It's consistent with Spark
  */
@@ -291,6 +298,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
 {
   __shared__ int8_t shared_data[block_size];
   auto const tid = cudf::detail::grid_1d::global_thread_id();
+  if (tid >= num_registers_per_sketch) { return; }
   int shared_idx = tid % block_size;
 
   // register idx is tid
@@ -663,9 +671,11 @@ template <int block_size>
 __launch_bounds__(block_size) CUDF_KERNEL
   void reduce_hllpp_kernel(cudf::column_device_view hashs,
                            cudf::device_span<int64_t*> output,
-                           int precision)
+                           int precision,
+                           int32_t* mem_cache)
 {
-  __shared__ int32_t shared_data[block_size];
+  extern __shared__ int32_t shared_mem_cache[];
+  int32_t* cache = mem_cache != nullptr ? mem_cache : shared_mem_cache;
 
   auto const tid                          = cudf::detail::grid_1d::global_thread_id();
   auto const num_hashs                    = hashs.size();
@@ -675,7 +685,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
 
   // init tmp data
   for (int i = tid; i < num_registers_per_sketch; i += block_size) {
-    shared_data[i] = 0;
+    cache[i] = 0;
   }
   __syncthreads();
 
@@ -691,7 +701,7 @@ __launch_bounds__(block_size) CUDF_KERNEL
       reg_v = static_cast<int>(cuda::std::countl_zero((hash << precision) | w_padding) + 1ULL);
     }
 
-    cuda::atomic_ref<int32_t, cuda::thread_scope_block> register_ref(shared_data[reg_idx]);
+    cuda::atomic_ref<int32_t, cuda::thread_scope_block> register_ref(cache[reg_idx]);
     register_ref.fetch_max(reg_v, cuda::memory_order_relaxed);
   }
   __syncthreads();
@@ -699,19 +709,19 @@ __launch_bounds__(block_size) CUDF_KERNEL
   // compact from register values (int array) to long array
   // each long holds 10 integers, note reg value < 64 which means the bits from
   // 7 to highest are all 0.
-  if (tid * REGISTERS_PER_LONG < num_registers_per_sketch) {
-    int start = tid * REGISTERS_PER_LONG;
-    int end   = (tid + 1) * REGISTERS_PER_LONG;
+  for (int i = tid; i * REGISTERS_PER_LONG < num_registers_per_sketch; i += block_size) {
+    int start = i * REGISTERS_PER_LONG;
+    int end   = (i + 1) * REGISTERS_PER_LONG;
     if (end > num_registers_per_sketch) { end = num_registers_per_sketch; }
 
     int64_t ret = 0;
-    for (int i = 0; i < end - start; i++) {
-      int shift   = i * REGISTER_VALUE_BITS;
-      int64_t reg = shared_data[start + i];
+    for (int j = 0; j < end - start; j++) {
+      int shift   = j * REGISTER_VALUE_BITS;
+      int64_t reg = cache[start + j];
       ret |= (reg << shift);
     }
 
-    output[tid][0] = ret;
+    output[i][0] = ret;
   }
 }
 
@@ -752,10 +762,17 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
 
   // 2. reduce and generate compacted long values
   constexpr int64_t block_size = 256;
-  // max shared memory is 2^18 * 4 = 1M
-  auto const shared_mem_size = num_registers_per_sketch * sizeof(int32_t);
-  reduce_hllpp_kernel<block_size>
-    <<<1, block_size, shared_mem_size, stream.value()>>>(*d_hashs, d_results, precision);
+  if (precision <= MAX_SHARED_MEM_PRECISION) {
+    // use shared memory, max shared memory is 2^12 * 4 = 16M
+    auto shared_mem_size = num_registers_per_sketch * sizeof(int32_t);
+    reduce_hllpp_kernel<block_size>
+      <<<1, block_size, shared_mem_size, stream.value()>>>(*d_hashs, d_results, precision, nullptr);
+  } else {
+    // use global memory because shared memory may be not enough
+    auto mem_cache = rmm::device_uvector<int32_t>(num_registers_per_sketch, stream, default_mr);
+    reduce_hllpp_kernel<block_size>
+      <<<1, block_size, 0, stream.value()>>>(*d_hashs, d_results, precision, mem_cache.data());
+  }
 
   // 3. create struct scalar
   return std::make_unique<cudf::struct_scalar>(cudf::table{std::move(children)}, true, stream, mr);
