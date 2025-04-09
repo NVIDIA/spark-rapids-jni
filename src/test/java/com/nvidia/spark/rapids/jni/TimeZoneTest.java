@@ -320,7 +320,8 @@ public class TimeZoneTest {
           -888825600000000L,
           0L,
           1699542834312000L,
-          568008000000000L);
+          568008000000000L,
+          null);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
           -1262260800000000L,
           -908838000000000L,
@@ -330,7 +331,8 @@ public class TimeZoneTest {
           -888796800000000L,
           28800000000L,
           1699571634312000L,
-          568036800000000L);
+          568036800000000L,
+          null);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
           ZoneId.of("Asia/Shanghai"), 2200)) {
       assertColumnsAreEqual(expected, actual);

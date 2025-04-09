@@ -140,6 +140,15 @@ public class GpuTimeZoneDB {
     return 1;
   }
 
+  public static boolean isSupportedTimeZone(String zoneId) {
+    try {
+      getZoneId(zoneId); // check that zoneId is a valid zone
+      return true;
+    } catch (ZoneRulesException e) {
+      return false;
+    }
+  }
+
   // enforce that all timestamps, regardless of timezone, be less than the desired date
   private static boolean isValidInput(ColumnVector input, ZoneId zoneId){
     if (zoneId.getRules().isFixedOffset()){
@@ -160,33 +169,31 @@ public class GpuTimeZoneDB {
 
   private static ColumnVector cpuChangeTimestampTz(ColumnVector input, ZoneId currentTimeZone, ZoneId targetTimeZone) {
     ColumnVector resultCV = null;
-    try (HostColumnVector hostCV = input.copyToHost();) {
+    try (HostColumnVector hostCV = input.copyToHost()) {
       // assuming we don't have more than 2^31-1 rows
       int rows = (int) hostCV.getRowCount();
       DType inputType = input.getType();
-      long[] resultRows = new long[rows];
       long scaleFactor = getScalefactor(input);
-      for (int i = 0; i < rows; i++){
-        if (hostCV.isNull(i)) {
-          resultRows[i] = 0;
-          continue;
+      
+      try (HostColumnVector.Builder builder = HostColumnVector.builder(inputType, rows)) {
+        for (int i = 0; i < rows; i++) {
+          if (hostCV.isNull(i)) {
+            builder.appendNull();
+            continue;
+          }
+          
+          long timestamp = hostCV.getLong(i);
+          long unitOffset = timestamp % scaleFactor;
+          timestamp /= scaleFactor;
+          Instant instant = Instant.ofEpochSecond(timestamp);
+          int currentZoneOffset = instant.atZone(currentTimeZone).getOffset().getTotalSeconds();
+          int targetZoneOffset = instant.atZone(targetTimeZone).getOffset().getTotalSeconds();
+          timestamp += targetZoneOffset - currentZoneOffset;
+          timestamp = timestamp * scaleFactor + unitOffset;
+          builder.append(timestamp);
         }
-        long timestamp = hostCV.getLong(i);
-        long unitOffset = timestamp%scaleFactor;
-        timestamp /= scaleFactor;
-        Instant instant = Instant.ofEpochSecond(timestamp);
-        int currentZoneOffset = instant.atZone(currentTimeZone).getOffset().getTotalSeconds();
-        int targetZoneOffset = instant.atZone(targetTimeZone).getOffset().getTotalSeconds();
-        timestamp += targetZoneOffset-currentZoneOffset;
-        timestamp = timestamp*scaleFactor+unitOffset;
-        resultRows[i] = timestamp;
-      }
-      if (inputType == DType.TIMESTAMP_SECONDS) {
-        resultCV = HostColumnVector.timestampSecondsFromLongs(resultRows).copyToDevice();
-      } else if (inputType == DType.TIMESTAMP_MILLISECONDS) {
-        resultCV = HostColumnVector.timestampMilliSecondsFromLongs(resultRows).copyToDevice();
-      } else {
-        resultCV = HostColumnVector.timestampMicroSecondsFromLongs(resultRows).copyToDevice();
+        
+        resultCV = builder.buildAndPutOnDevice();
       }
     } catch (Exception e) {
       throw e;
