@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,9 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
-import com.nvidia.spark.rapids.jni.Arms;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
-import java.util.List;
 
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -30,15 +27,28 @@ import static java.util.Objects.requireNonNull;
  */
 public class KudoHostMergeResult implements AutoCloseable {
   private final Schema schema;
-  private final List<ColumnViewInfo> columnInfoList;
+  private final ColumnViewInfo[] columnInfoList;
   private HostMemoryBuffer hostBuf;
 
-  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, List<ColumnViewInfo> columnInfoList) {
+  public Schema getSchema() {
+    return schema;
+  }
+
+  public ColumnViewInfo[] getColumnInfoList() {
+    return columnInfoList;
+  }
+
+  public HostMemoryBuffer getHostBuf() {
+    return hostBuf;
+  }
+
+  KudoHostMergeResult(Schema schema, HostMemoryBuffer hostBuf, ColumnViewInfo[] columnInfoList) {
     requireNonNull(schema, "schema is null");
     requireNonNull(columnInfoList, "columnInfoList is null");
-    ensure(schema.getFlattenedColumnNames().length == columnInfoList.size(), () ->
-        "Column offsets size does not match flattened schema size, column offsets size: " + columnInfoList.size() +
-            ", flattened schema size: " + schema.getFlattenedColumnNames().length);
+    assert schema.getFlattenedColumnNames().length == columnInfoList.length :
+        "Column offsets size does not match flattened schema size, column offsets size: " +
+                columnInfoList.length + ", flattened schema size: " +
+                schema.getFlattenedColumnNames().length;
     this.schema = schema;
     this.columnInfoList = columnInfoList;
     this.hostBuf = requireNonNull(hostBuf, "hostBuf is null");
@@ -63,6 +73,18 @@ public class KudoHostMergeResult implements AutoCloseable {
    * @return the cudf table
    */
   public Table toTable() {
+    return toTableStatic(hostBuf, schema, columnInfoList);
+  }
+
+  /**
+   * Convert the host buffer into a cudf table. This method does not close the host buffer.
+   * @param hostBuf the host buffer to convert
+   * @param schema the schema of the table
+   * @param columnInfoList the column info list
+   * @return the cudf table
+   */
+  public static Table toTableStatic(HostMemoryBuffer hostBuf,
+      Schema schema, ColumnViewInfo[] columnInfoList) {
     try (DeviceMemoryBuffer deviceMemBuf = DeviceMemoryBuffer.allocate(hostBuf.getLength())) {
       if (hostBuf.getLength() > 0) {
         deviceMemBuf.copyFromHostBufferAsync(hostBuf, Cuda.DEFAULT_STREAM);

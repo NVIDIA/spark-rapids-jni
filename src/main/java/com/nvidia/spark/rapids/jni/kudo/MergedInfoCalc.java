@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,153 +16,258 @@
 
 package com.nvidia.spark.rapids.jni.kudo;
 
+import ai.rapids.cudf.BufferType;
 import ai.rapids.cudf.Schema;
+import com.nvidia.spark.rapids.jni.schema.SimpleSchemaVisitor;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
+import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.getValidityLengthInBytes;
-import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padFor64byteAlignment;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.*;
 
 
 /**
  * This class is used to calculate column offsets of merged buffer.
  */
-class MergedInfoCalc extends MultiKudoTableVisitor<Void, Void, Void> {
-  // Total data len in gpu, which accounts for 64 byte alignment
-  private long totalDataLen;
-  // Column offset in gpu device buffer, it has one field for each flattened column
-  private final List<ColumnOffsetInfo> columnOffsets;
+class MergedInfoCalc implements SimpleSchemaVisitor {
 
-  public MergedInfoCalc(List<KudoTable> tables) {
-    super(tables);
-    this.totalDataLen = 0;
-    this.columnOffsets = new ArrayList<>(tables.get(0).getHeader().getNumColumns());
-  }
+    private final KudoTable[] kudoTables;
+    // Total data len in gpu, which accounts for 64 byte alignment
+    private long totalDataLen;
+    private final boolean[] hasNull;
+    private final int[] rowCount;
+    private final int[] dataLen;
 
-  @Override
-  protected Void doVisitTopSchema(Schema schema, List<Void> children) {
-    return null;
-  }
+    // Column offset in gpu device buffer, it has one field for each flattened column
+    private final ColumnOffsetInfo[] columnOffsets;
+    private int curColIdx = 0;
 
-  @Override
-  protected Void doVisitStruct(Schema structType, List<Void> children) {
-    long validityBufferLen = 0;
-    long validityOffset = INVALID_OFFSET;
-    if (hasNull()) {
-      validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
-      validityOffset = totalDataLen;
-      totalDataLen += validityBufferLen;
+
+    MergedInfoCalc(KudoTable[] tables) {
+        this.kudoTables = tables;
+        this.totalDataLen = 0;
+        int columnCount = tables[0].getHeader().getNumColumns();
+        this.hasNull = new boolean[columnCount];
+        initHasNull();
+        this.rowCount = new int[columnCount];
+        this.dataLen = new int[columnCount];
+        this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
 
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, INVALID_OFFSET, 0));
-    return null;
-  }
-
-  @Override
-  protected Void doPreVisitList(Schema listType) {
-    long validityBufferLen = 0;
-    long validityOffset = INVALID_OFFSET;
-    if (hasNull()) {
-      validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
-      validityOffset = totalDataLen;
-      totalDataLen += validityBufferLen;
+    private void doCalc(Schema schema) {
+        for (KudoTable kudoTable : kudoTables) {
+            Visitors.visitSchema(schema, new SingleTableVisitor(kudoTable));
+        }
     }
 
-    long offsetBufferLen = 0;
-    long offsetBufferOffset = INVALID_OFFSET;
-    if (getTotalRowCount() > 0) {
-      offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
-      offsetBufferOffset = totalDataLen;
-      totalDataLen += offsetBufferLen;
+    public long getTotalDataLen() {
+        return totalDataLen;
     }
 
-
-    columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, INVALID_OFFSET, 0));
-    return null;
-  }
-
-  @Override
-  protected Void doVisitList(Schema listType, Void preVisitResult, Void childResult) {
-    return null;
-  }
-
-  @Override
-  protected Void doVisit(Schema primitiveType) {
-    // String type
-    if (primitiveType.getType().hasOffsets()) {
-      long validityBufferLen = 0;
-      long validityOffset = INVALID_OFFSET;
-      if (hasNull()) {
-        validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(getTotalRowCount()));
-        validityOffset = totalDataLen;
-        totalDataLen += validityBufferLen;
-      }
-
-      long offsetBufferLen = 0;
-      long offsetBufferOffset = INVALID_OFFSET;
-      if (getTotalRowCount() > 0) {
-        offsetBufferLen = padFor64byteAlignment((getTotalRowCount() + 1) * Integer.BYTES);
-        offsetBufferOffset = totalDataLen;
-        totalDataLen += offsetBufferLen;
-      }
-
-      long dataBufferLen = 0;
-      long dataBufferOffset = INVALID_OFFSET;
-      if (getTotalStrDataLen() > 0) {
-        dataBufferLen = padFor64byteAlignment(getTotalStrDataLen());
-        dataBufferOffset = totalDataLen;
-        totalDataLen += dataBufferLen;
-      }
-
-      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, offsetBufferOffset, offsetBufferLen, dataBufferOffset, dataBufferLen));
-    } else {
-      long totalRowCount = getTotalRowCount();
-      long validityBufferLen = 0;
-      long validityOffset = INVALID_OFFSET;
-      if (hasNull()) {
-        validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(totalRowCount));
-        validityOffset = totalDataLen;
-        totalDataLen += validityBufferLen;
-      }
-
-      long dataBufferLen = 0;
-      long dataBufferOffset = INVALID_OFFSET;
-      if (totalRowCount > 0) {
-        dataBufferLen = padFor64byteAlignment(totalRowCount * primitiveType.getType().getSizeInBytes());
-        dataBufferOffset = totalDataLen;
-        totalDataLen += dataBufferLen;
-      }
-
-      columnOffsets.add(new ColumnOffsetInfo(validityOffset, validityBufferLen, INVALID_OFFSET, 0, dataBufferOffset, dataBufferLen));
+    ColumnOffsetInfo[] getColumnOffsets() {
+        return columnOffsets;
     }
 
-    return null;
-  }
+    public KudoTable[] getTables() {
+        return kudoTables;
+    }
+
+    public int[] getRowCount() {
+        return rowCount;
+    }
+
+    @Override
+    public String toString() {
+        return "MergedInfoCalc{" +
+                "totalDataLen=" + totalDataLen +
+                ", columnOffsets=" + columnOffsets +
+                ", hasNull=" + Arrays.toString(hasNull) +
+                ", rowCount=" + Arrays.toString(rowCount) +
+                ", dataLen=" + Arrays.toString(dataLen) +
+                '}';
+    }
+
+    static MergedInfoCalc calc(Schema schema, KudoTable[] tables) {
+        MergedInfoCalc calc = new MergedInfoCalc(tables);
+        calc.doCalc(schema);
+        Visitors.visitSchema(schema, calc);
+        return calc;
+    }
+
+    private void initHasNull() {
+        int colNum = kudoTables[0].getHeader().getNumColumns();
+        int nullBytesLen = KudoTableHeader.lengthOfHasValidityBuffer(colNum);
+        byte[] nullBytes = new byte[nullBytesLen];
+        for (KudoTable table : kudoTables) {
+            byte[] hasValidityBuffer = table.getHeader().getHasValidityBuffer();
+            for (int i =0; i < nullBytesLen; i++) {
+                nullBytes[i] = (byte) (nullBytes[i] | hasValidityBuffer[i]);
+            }
+        }
+        for (int i = 0; i < colNum; i++) {
+            int pos = i / 8;
+            int bit = i % 8;
+            hasNull[i] = (nullBytes[pos] & (1 << bit)) != 0;
+        }
+    }
+
+    @Override
+    public void visitTopSchema(Schema schema) {
+    }
+
+    @Override
+    public void visitStruct(Schema structType) {
+        long validityOffset = INVALID_OFFSET;
+        long validityBufferLen = 0;
+
+        if (hasNull[curColIdx]) {
+            validityOffset = totalDataLen;
+            validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(rowCount[curColIdx]));
+            totalDataLen += validityBufferLen;
+        }
+
+        columnOffsets[curColIdx] = new ColumnOffsetInfo(validityOffset, validityBufferLen,
+            INVALID_OFFSET, 0, INVALID_OFFSET, 0);
+        curColIdx++;
+    }
+
+    @Override
+    public void preVisitList(Schema listType) {
+        long validityOffset = INVALID_OFFSET;
+        long validityBufferLen = 0;
+
+        if (hasNull[curColIdx]) {
+            validityOffset = totalDataLen;
+            validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(rowCount[curColIdx]));
+            totalDataLen += validityBufferLen;
+        }
 
 
-  public long getTotalDataLen() {
-    return totalDataLen;
-  }
+        long offsetOffset = INVALID_OFFSET;
+        long offsetBufferLen = 0;
+        if (rowCount[curColIdx] > 0) {
+            offsetOffset = totalDataLen;
+            offsetBufferLen = padFor64byteAlignment((rowCount[curColIdx] + 1) * Integer.BYTES);
+            totalDataLen += offsetBufferLen;
+        }
 
-  List<ColumnOffsetInfo> getColumnOffsets() {
-    return Collections.unmodifiableList(columnOffsets);
-  }
+        columnOffsets[curColIdx] = new ColumnOffsetInfo(validityOffset, validityBufferLen,
+                offsetOffset,
+                offsetBufferLen,
+                INVALID_OFFSET, 0);
+        curColIdx++;
 
-  @Override
-  public String toString() {
-    return "MergedInfoCalc{" +
-        "totalDataLen=" + totalDataLen +
-        ", columnOffsets=" + columnOffsets +
-        '}';
-  }
+    }
 
-  static MergedInfoCalc calc(Schema schema, List<KudoTable> table) {
-    MergedInfoCalc calc = new MergedInfoCalc(table);
-    Visitors.visitSchema(schema, calc);
-    return calc;
-  }
+    @Override
+    public void visitList(Schema listType) {
+    }
+
+    @Override
+    public void visit(Schema primitiveType) {
+        long validityOffset = INVALID_OFFSET;
+        long validityBufferLen = 0;
+
+        if (hasNull[curColIdx]) {
+            validityOffset = totalDataLen;
+            validityBufferLen = padFor64byteAlignment(getValidityLengthInBytes(rowCount[curColIdx]));
+            totalDataLen += validityBufferLen;
+        }
+
+        long offsetOffset = INVALID_OFFSET;
+        long offsetBufferLen = 0;
+
+        long dataOffset = INVALID_OFFSET;
+        long dataBufferLen = 0;
+
+        if (rowCount[curColIdx] > 0) {
+            if (primitiveType.getType().hasOffsets()) {
+                offsetOffset = totalDataLen;
+                offsetBufferLen = padFor64byteAlignment((rowCount[curColIdx] + 1) * Integer.BYTES);
+                totalDataLen += offsetBufferLen;
+
+                dataOffset = totalDataLen;
+                dataBufferLen = padFor64byteAlignment(dataLen[curColIdx]);
+                totalDataLen += dataBufferLen;
+            } else {
+                dataOffset = totalDataLen;
+                dataBufferLen = padFor64byteAlignment(rowCount[curColIdx] * primitiveType.getType().getSizeInBytes());
+                totalDataLen += dataBufferLen;
+            }
+        }
+
+        columnOffsets[curColIdx] = new ColumnOffsetInfo(validityOffset, validityBufferLen,
+            offsetOffset,
+                offsetBufferLen,
+                dataOffset, dataBufferLen);
+        curColIdx++;
+    }
+
+    private class SingleTableVisitor implements SimpleSchemaVisitor {
+        private final KudoTable table;
+        private final Deque<SliceInfo> sliceInfos = new ArrayDeque<>(8);
+        private int curColIdx = 0;
+        private long bufferOffset;
+
+        SingleTableVisitor(KudoTable table) {
+            this.table = table;
+            this.bufferOffset = table.getHeader().startOffsetOf(BufferType.OFFSET);
+            sliceInfos.addLast(new SliceInfo(table.getHeader().getOffset(), table.getHeader().getNumRows()));
+        }
+
+        @Override
+        public void visitTopSchema(Schema schema) {
+        }
+
+        @Override
+        public void visitStruct(Schema structType) {
+            SliceInfo sliceInfo = sliceInfos.getLast();
+            rowCount[curColIdx] += sliceInfo.getRowCount();
+
+            curColIdx++;
+        }
+
+        @Override
+        public void preVisitList(Schema listType) {
+            SliceInfo sliceInfo = sliceInfos.getLast();
+            rowCount[curColIdx] += sliceInfo.getRowCount();
+
+            if (sliceInfo.getRowCount() > 0) {
+                int startOffset = table.getBuffer().getInt(bufferOffset);
+                int endOffset = table.getBuffer().getInt(bufferOffset + sliceInfo.getRowCount() * Integer.BYTES);
+                SliceInfo nextSliceInfo = new SliceInfo(startOffset, endOffset - startOffset);
+                sliceInfos.addLast(nextSliceInfo);
+
+                bufferOffset += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+            } else {
+                sliceInfos.addLast(new SliceInfo(0, 0));
+            }
+
+            curColIdx++;
+        }
+
+        @Override
+        public void visitList(Schema listType) {
+            sliceInfos.removeLast();
+        }
+
+        @Override
+        public void visit(Schema primitiveType) {
+            SliceInfo sliceInfo = sliceInfos.getLast();
+            rowCount[curColIdx] += sliceInfo.getRowCount();
+            if (primitiveType.getType().hasOffsets()) {
+                // string type
+                if (sliceInfo.getRowCount() > 0) {
+                    int startOffset = table.getBuffer().getInt(bufferOffset);
+                    int endOffset = table.getBuffer().getInt(bufferOffset + sliceInfo.getRowCount() * Integer.BYTES);
+                    dataLen[curColIdx] += (endOffset - startOffset);
+                    bufferOffset += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+                }
+            }
+            // We don't need to update data len for non string primitive type
+            curColIdx++;
+        }
+    }
 }

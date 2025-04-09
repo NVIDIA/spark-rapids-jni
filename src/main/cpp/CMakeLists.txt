@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.28.6 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.02.01
+  VERSION 25.04.00
   LANGUAGES C CXX CUDA
 )
 
@@ -199,7 +199,10 @@ add_library(
   src/HashJni.cpp
   src/HistogramJni.cpp
   src/HostTableJni.cpp
+  src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
+  src/ListSliceJni.cpp
+  src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
@@ -222,16 +225,22 @@ add_library(
   src/from_json_to_structs.cu
   src/get_json_object.cu
   src/histogram.cu
+  src/hive_hash.cu
+  src/hyper_log_log_plus_plus.cu
+  src/hyper_log_log_plus_plus_host_udf.cu
   src/json_utils.cu
+  src/list_slice.cu
+  src/map.cu
   src/murmur_hash.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/shuffle_assemble.cu
+  src/shuffle_split.cu
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
   src/xxhash64.cu
-  src/hive_hash.cu
   src/zorder.cu
 )
 

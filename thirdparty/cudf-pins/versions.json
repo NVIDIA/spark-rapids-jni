@@ -116,9 +116,17 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b796f7d44681514f58a683a3a71ff17c94edb0c1",
+      "git_tag" : "6910c9d9165801d8827d628cb72eb7ea9dd538c5",
       "git_url" : "https://github.com/google/googletest.git",
-      "version" : "1.13.0"
+      "version" : "1.16.0"
+    },
+    "benchmark" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "2dd015dfef425c866d9a43f2c67d8b52d709acb6",
+      "git_url" : "https://github.com/google/benchmark.git",
+      "version" : "1.8.0"
     },
     "bs_thread_pool" : 
     {
@@ -132,7 +140,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "deab5799f3e4226cb8a49acf2199c03b14941ee4",
+      "git_tag" : "7b422c00f3541e2472e8d1047b7c3bb4e83c7e2c",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -158,43 +166,6 @@
       "git_shallow" : false,
       "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
       "git_url" : "https://github.com/fmtlib/fmt.git",
-      "patches" : 
-      [
-        {
-          "inline_patch" : 
-          {
-            "content" : 
-            [
-              "diff --git a/include/fmt/base.h b/include/fmt/base.h",
-              "index 62764942..60f7483b 100644",
-              "--- a/include/fmt/base.h",
-              "+++ b/include/fmt/base.h",
-              "@@ -464,6 +464,9 @@ template <typename Char> FMT_CONSTEXPR auto length(const Char* s) -> size_t {",
-              "   return len;",
-              " }",
-              " ",
-              "+#if defined(__NVCC__)",
-              "+#pragma nv_diag_suppress 128",
-              "+#endif",
-              " template <typename Char>",
-              " FMT_CONSTEXPR auto compare(const Char* s1, const Char* s2, std::size_t n)",
-              "     -> int {",
-              "@@ -474,6 +477,9 @@ FMT_CONSTEXPR auto compare(const Char* s1, const Char* s2, std::size_t n)",
-              "   }",
-              "   return 0;",
-              " }",
-              "+#if defined(__NVCC__)",
-              "+#pragma nv_diag_default 128",
-              "+#endif",
-              " ",
-              " namespace adl {",
-              " using namespace std;"
-            ],
-            "type" : "diff"
-          },
-          "issue" : "fmt 11.0.2 produces a warning about an unreachable loop when compiled with nvcc"
-        }
-      ],
       "version" : "11.0.2"
     },
     "jitify" : 
@@ -209,9 +180,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "bf564af669ecc69df588618a02a1896df5b68b25",
+      "git_tag" : "a4170fc098e80d339a42c5da9a605796eb864c9f",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.02"
+      "version" : "25.04"
     },
     "nanoarrow" : 
     {
@@ -251,7 +222,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8968ab3337f31c845d4e3bf6c55ae89242ded22b",
+      "git_tag" : "46070bb255482f0782ca840ae45de9354380e298",
       "git_url" : "https://github.com/rapidsai/rapids-logger.git",
       "version" : "0.1.0"
     },
@@ -259,9 +230,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "17ba5ed882ed656180a0ac3e5cac2ad535c5956c",
+      "git_tag" : "c6773f2780b4c7dd463245dce4c6ea27799914dc",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.02"
+      "version" : "25.04"
     },
     "spdlog" : 
     {
@@ -270,6 +241,14 @@
       "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
       "git_url" : "https://github.com/gabime/spdlog.git",
       "version" : "1.14.1"
+    },
+    "zstd" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "git_url" : "https://github.com/facebook/zstd.git",
+      "version" : "1.5.7"
     }
   }
 }
