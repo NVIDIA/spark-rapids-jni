@@ -38,34 +38,28 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_convert(JNIEnv* env,
 
     spark_rapids_jni::convert_number_t input_variant = [&] {
       if (is_input_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(input);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(input);
         return t;
       } else {
-        auto s                               = *reinterpret_cast<cudf::string_scalar*>(input);
-        spark_rapids_jni::convert_number_t t = s;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::string_scalar*>(input);
         return t;
       }
     }();
     spark_rapids_jni::convert_number_t from_base_variant = [&] {
       if (is_from_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(from_base);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(from_base);
         return t;
       } else {
-        auto i                               = static_cast<int>(from_base);
-        spark_rapids_jni::convert_number_t t = i;
+        spark_rapids_jni::convert_number_t t = static_cast<int>(from_base);
         return t;
       }
     }();
     spark_rapids_jni::convert_number_t to_base_variant = [&] {
       if (is_to_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(to_base);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(to_base);
         return t;
       } else {
-        auto i                               = static_cast<int>(to_base);
-        spark_rapids_jni::convert_number_t t = i;
+        spark_rapids_jni::convert_number_t t = static_cast<int>(to_base);
         return t;
       }
     }();
@@ -96,34 +90,28 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflow(JNIEnv* env,
 
     spark_rapids_jni::convert_number_t input_variant = [&] {
       if (is_input_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(input);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(input);
         return t;
       } else {
-        auto s                               = *reinterpret_cast<cudf::string_scalar*>(input);
-        spark_rapids_jni::convert_number_t t = s;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::string_scalar*>(input);
         return t;
       }
     }();
     spark_rapids_jni::convert_number_t from_base_variant = [&] {
       if (is_from_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(from_base);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(from_base);
         return t;
       } else {
-        auto i                               = static_cast<int>(from_base);
-        spark_rapids_jni::convert_number_t t = i;
+        spark_rapids_jni::convert_number_t t = static_cast<int>(from_base);
         return t;
       }
     }();
     spark_rapids_jni::convert_number_t to_base_variant = [&] {
       if (is_to_cv) {
-        auto cv                              = *reinterpret_cast<cudf::column_view*>(to_base);
-        spark_rapids_jni::convert_number_t t = cv;
+        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(to_base);
         return t;
       } else {
-        auto i                               = static_cast<int>(to_base);
-        spark_rapids_jni::convert_number_t t = i;
+        spark_rapids_jni::convert_number_t t = static_cast<int>(to_base);
         return t;
       }
     }();
