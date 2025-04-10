@@ -449,6 +449,7 @@
                   <env key="CUDF_PATH" value="${cudf.path}"/>
                   <env key="CUDF_PIN_PATH" value="${cudf.pin.path}"/>
                   <env key="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
+                  <env key="CUDF_BUILD_STACKTRACE_DEBUG" value="${CUDF_BUILD_STACKTRACE_DEBUG}"/>
                   <env key="FROM_MAVEN" value="true"/>
                   <env key="GPU_ARCHS" value="${GPU_ARCHS}"/>
                   <env key="LIBCUDF_BUILD_CONFIGURE" value="${libcudf.build.configure}"/>

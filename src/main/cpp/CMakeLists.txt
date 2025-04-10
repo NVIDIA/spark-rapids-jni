@@ -59,6 +59,11 @@ project(
 # * build options ---------------------------------------------------------------------------------
 
 option(CUDF_USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
+option(
+  CUDF_BUILD_STACKTRACE_DEBUG
+  "Replace the current optimization flags by the options '-rdynamic -Og', useful for debugging with stacktrace retrieval"
+  OFF
+)
 option(USE_GDS "Build with GPUDirect Storage (GDS)/cuFile support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" OFF)
 option(BUILD_BENCHMARKS "Configure CMake to build (google) benchmarks" OFF)
@@ -69,6 +74,13 @@ message(
   VERBOSE "SPARK_RAPIDS_JNI: Build with per-thread default stream:
             ${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"
 )
+message(
+  VERBOSE
+  "CUDF: Replace the current optimization flags by the options '-rdynamic -Og' (useful for debugging with stacktrace retrieval): ${CUDF_BUILD_STACKTRACE_DEBUG}"
+)
+if(CUDF_BUILD_STACKTRACE_DEBUG AND NOT CMAKE_COMPILER_IS_GNUCXX)
+  message(FATAL_ERROR "CUDF_BUILD_STACKTRACE_DEBUG is only supported with GCC compiler")
+endif()
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build fault injection: ${BUILD_FAULTINJ}")
@@ -282,6 +294,19 @@ target_compile_definitions(
 if(CUDF_USE_PER_THREAD_DEFAULT_STREAM)
   target_compile_definitions(
     spark_rapids_jni PUBLIC CUDA_API_PER_THREAD_DEFAULT_STREAM  CUDF_USE_PER_THREAD_DEFAULT_STREAM
+  )
+endif()
+
+if(CUDF_BUILD_STACKTRACE_DEBUG)
+  # Remove any optimization level to avoid nvcc warning "incompatible redefinition for option
+  # 'optimize'".
+  string(REGEX REPLACE "(\-O[0123])" "" CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS}")
+  string(REGEX REPLACE "(\-O[0123])" "" CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE}")
+  string(REGEX REPLACE "(\-O[0123])" "" CMAKE_CUDA_FLAGS_MINSIZEREL
+                       "${CMAKE_CUDA_FLAGS_MINSIZEREL}"
+  )
+  string(REGEX REPLACE "(\-O[0123])" "" CMAKE_CUDA_FLAGS_RELWITHDEBINFO
+                       "${CMAKE_CUDA_FLAGS_RELWITHDEBINFO}"
   )
 endif()
 
