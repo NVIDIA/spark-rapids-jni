@@ -28,7 +28,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
@@ -62,7 +61,8 @@ public class GpuTimeZoneDB {
 
   // use this reference to indicate if time zone cache is initialized.
   private static HostColumnVector transitions;
-  private static final int initialTransitionYear = 2000;
+  // initial year set to 1900 because some transition rules start early
+  private static final int initialTransitionYear = 1900;
   private static int finalTransitionYear = 2200;
   private static long maxTimestamp;
   private static ZoneId utcZoneId = ZoneId.of("UTC");
@@ -186,9 +186,8 @@ public class GpuTimeZoneDB {
           long unitOffset = timestamp % scaleFactor;
           timestamp /= scaleFactor;
           Instant instant = Instant.ofEpochSecond(timestamp);
-          int currentZoneOffset = instant.atZone(currentTimeZone).getOffset().getTotalSeconds();
-          int targetZoneOffset = instant.atZone(targetTimeZone).getOffset().getTotalSeconds();
-          timestamp += targetZoneOffset - currentZoneOffset;
+          timestamp = instant.atZone(targetTimeZone).toLocalDateTime().atZone(currentTimeZone)
+            .toInstant().getEpochSecond();
           timestamp = timestamp * scaleFactor + unitOffset;
           builder.append(timestamp);
         }
@@ -260,11 +259,19 @@ public class GpuTimeZoneDB {
         ZoneRules zoneRules = zoneId.getRules();
         if (!zoneIdToTable.containsKey(zoneId.getId())) {
           List<ZoneOffsetTransition> zoneOffsetTransitions = new ArrayList<>(zoneRules.getTransitions());
+          // It is desired to get lastTransitionEpochSecond because some rules don't start until late (e.g. 2007)
+          long lastTransitionEpochSecond = Long.MIN_VALUE;
+          if (!zoneOffsetTransitions.isEmpty()) {
+            long transitionInstant = zoneOffsetTransitions.get(zoneOffsetTransitions.size()-1).getInstant().getEpochSecond();
+            lastTransitionEpochSecond = Math.max(transitionInstant, lastTransitionEpochSecond);
+          }
           List<ZoneOffsetTransitionRule> transitionRules = zoneRules.getTransitionRules();
           for (ZoneOffsetTransitionRule transitionRule : transitionRules){
             for (int year = initialTransitionYear; year <= finalTransitionYear; year++){
               ZoneOffsetTransition transition = transitionRule.createTransition(year);
-              zoneOffsetTransitions.add(transition);
+              if (transition.getInstant().getEpochSecond() > lastTransitionEpochSecond){
+                zoneOffsetTransitions.add(transition);
+              }
             }
           }
           // sort the transitions
