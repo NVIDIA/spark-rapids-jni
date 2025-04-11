@@ -19,6 +19,8 @@
 
 extern "C" {
 
+using variant_t = convert_number_t;
+
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_NumberConverter_convert(JNIEnv* env,
                                                          jclass,
@@ -35,38 +37,17 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_convert(JNIEnv* env,
 
   try {
     cudf::jni::auto_set_device(env);
-
-    spark_rapids_jni::convert_number_t input_variant = [&] {
-      if (is_input_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(input);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::string_scalar*>(input);
-        return t;
-      }
-    }();
-    spark_rapids_jni::convert_number_t from_base_variant = [&] {
-      if (is_from_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(from_base);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = static_cast<int>(from_base);
-        return t;
-      }
-    }();
-    spark_rapids_jni::convert_number_t to_base_variant = [&] {
-      if (is_to_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(to_base);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = static_cast<int>(to_base);
-        return t;
-      }
-    }();
-
+    auto const input_variant = is_input_cv
+                                 ? convert_number_t{*reinterpret_cast<cudf::column_view*>(input)}
+                                 : convert_number_t{*reinterpret_cast<cudf::string_scalar*>(input)};
+    auto const from_base_variant =
+      is_from_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(from_base)}
+                 : convert_number_t{static_cast<int>(from_base)};
+    auto const to_base_variant =
+      is_to_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(to_base)}
+               : convert_number_t{static_cast<int>(to_base)};
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::convert(input_variant, from_base_variant, to_base_variant));
-    return 0L;
   }
   CATCH_STD(env, 0);
 }
@@ -87,37 +68,16 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflow(JNIEnv* env,
 
   try {
     cudf::jni::auto_set_device(env);
-
-    spark_rapids_jni::convert_number_t input_variant = [&] {
-      if (is_input_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(input);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::string_scalar*>(input);
-        return t;
-      }
-    }();
-    spark_rapids_jni::convert_number_t from_base_variant = [&] {
-      if (is_from_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(from_base);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = static_cast<int>(from_base);
-        return t;
-      }
-    }();
-    spark_rapids_jni::convert_number_t to_base_variant = [&] {
-      if (is_to_cv) {
-        spark_rapids_jni::convert_number_t t = *reinterpret_cast<cudf::column_view*>(to_base);
-        return t;
-      } else {
-        spark_rapids_jni::convert_number_t t = static_cast<int>(to_base);
-        return t;
-      }
-    }();
-
+    auto const input_variant = is_input_cv
+                                 ? convert_number_t{*reinterpret_cast<cudf::column_view*>(input)}
+                                 : convert_number_t{*reinterpret_cast<cudf::string_scalar*>(input)};
+    auto const from_base_variant =
+      is_from_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(from_base)}
+                 : convert_number_t{static_cast<int>(from_base)};
+    auto const to_base_variant =
+      is_to_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(to_base)}
+               : convert_number_t{static_cast<int>(to_base)};
     return spark_rapids_jni::is_convert_overflow(input_variant, from_base_variant, to_base_variant);
-    return 0L;
   }
   CATCH_STD(env, 0);
 }
