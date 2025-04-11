@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 import ai.rapids.cudf.BufferType;
@@ -25,11 +26,16 @@ import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.JCudfSerialization;
 import ai.rapids.cudf.Schema;
 import ai.rapids.cudf.Table;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.nvidia.spark.rapids.jni.Pair;
 import com.nvidia.spark.rapids.jni.schema.Visitors;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -155,11 +161,12 @@ import java.util.stream.IntStream;
  *  </ol>
  */
 public class KudoSerializer {
-
+  static final boolean KUDO_SANITY_CHECK = Boolean.getBoolean("com.nvidia.spark.rapids.jni.kudo.check");
   private static final byte[] PADDING = new byte[64];
   private static final BufferType[] ALL_BUFFER_TYPES =
       new BufferType[] {BufferType.VALIDITY, BufferType.OFFSET,
           BufferType.DATA};
+  private static final Logger log = LoggerFactory.getLogger(KudoSerializer.class);
 
   static {
     Arrays.fill(PADDING, (byte) 0);
@@ -170,6 +177,7 @@ public class KudoSerializer {
 
   public KudoSerializer(Schema schema) {
     requireNonNull(schema, "schema is null");
+    ensure(schema.getNumChildren() > 0, "Top schema can't be empty");
     this.schema = schema;
     this.flattenedColumnCount = schema.getFlattenedColumnNames().length;
   }
@@ -195,7 +203,14 @@ public class KudoSerializer {
           .toArray(HostColumnVector[]::new);
 
       Cuda.DEFAULT_STREAM.sync();
-      return writeToStreamWithMetrics(columns, out, rowOffset, numRows);
+
+      WriteInput input = WriteInput.builder()
+          .setColumns(columns)
+          .setOutputStream(out)
+          .setNumRows(numRows)
+          .setRowOffset(rowOffset)
+          .build();
+      return writeToStreamWithMetrics(input);
     } finally {
       if (columns != null) {
         for (HostColumnVector column : columns) {
@@ -203,18 +218,6 @@ public class KudoSerializer {
         }
       }
     }
-  }
-
-  /**
-   * Write partition of an array of {@link HostColumnVector} to an output stream.
-   * See {@link #writeToStreamWithMetrics(HostColumnVector[], OutputStream, int, int)} for more
-   * details.
-   *
-   * @return number of bytes written
-   */
-  public long writeToStream(HostColumnVector[] columns, OutputStream out, int rowOffset,
-                            int numRows) {
-    return writeToStreamWithMetrics(columns, out, rowOffset, numRows).getWrittenBytes();
   }
 
   /**
@@ -232,12 +235,29 @@ public class KudoSerializer {
    */
   public WriteMetrics writeToStreamWithMetrics(HostColumnVector[] columns, OutputStream out,
                                                int rowOffset, int numRows) {
-    ensure(numRows > 0, () -> "numRows must be > 0, but was " + numRows);
-    ensure(columns.length > 0, () -> "columns must not be empty, for row count only records " +
+    WriteInput input =  WriteInput.builder()
+        .setColumns(columns)
+        .setOutputStream(out)
+        .setNumRows(numRows)
+        .setRowOffset(rowOffset)
+        .build();
+    return writeToStreamWithMetrics(input);
+  }
+
+  /**
+   * Write partition of an array of {@link HostColumnVector} to an output stream.
+   *
+   * @param input Arguments for writing to output stream.
+   * @return Metrics during write.
+   */
+  public WriteMetrics writeToStreamWithMetrics(WriteInput input) {
+    ensure(input.numRows > 0, () -> "numRows must be > 0, but was " + input.numRows);
+    ensure(input.columns.length > 0, () -> "columns must not be empty, for row count only records " +
         "please call writeRowCountToStream");
 
     try {
-      return writeSliced(columns, writerFrom(out), rowOffset, numRows);
+      return writeSliced(input.columns, writerFrom(input.outputStream), input.rowOffset,
+          input.numRows, input.measureCopyBufferTime);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -267,37 +287,123 @@ public class KudoSerializer {
   }
 
   /**
+   * Dump a list of kudo tables to a file.
+   *
+   * @param kudoTables list of kudo tables.
+   * @param outputStreamSupplier supplier for the output stream to dump the kudo tables to. The output stream will be closed after the dump.
+   */
+  private void dumpToStream(KudoTable[] kudoTables, Supplier<OutputStream> outputStreamSupplier, String filePath) throws Exception {
+    // dump the kudoTables to a file
+    try (OutputStream outputStream = outputStreamSupplier.get();
+         DataOutputStream dos = new DataOutputStream(outputStream)) {
+      // write the schema information as a string representation
+      dos.write(schema.toString().getBytes());
+    
+      for (int i = 0; i < kudoTables.length; i++) {
+        // write the buffer
+        ai.rapids.cudf.HostMemoryBuffer buffer = kudoTables[i].getBuffer();
+        if (buffer != null) {
+          DataWriter writer = null;
+          try {
+            writer = writerFrom(dos);
+            KudoTableHeader header = kudoTables[i].getHeader();
+            header.writeTo(writer);
+            writer.copyDataFrom(buffer, 0, buffer.getLength());
+          } finally {
+            if (writer != null) {
+              writer.flush();
+            }
+          }
+        }
+      }
+
+      // log warning the file path
+      log.warn("Dumped kudo tables to file: {}", filePath);
+    }
+  }
+
+  /**
    * Merge a list of kudo tables into a table on host memory.
    * <br/>
    * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
    * {@link KudoSerializer}, otherwise behavior is undefined.
    *
-   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @return the merged table, and metrics during merge.
+   * @return the merged table.
    */
-  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
-    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
-
-    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, kudoTables),
-        metricsBuilder::calcHeaderTime);
-    KudoHostMergeResult result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
-        metricsBuilder::mergeIntoHostBufferTime);
-    return Pair.of(result, metricsBuilder.build());
-
+  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables) {
+    MergedInfoCalc mergedInfoCalc = MergedInfoCalc.calc(schema, kudoTables);
+    return KudoTableMerger.merge(schema, mergedInfoCalc);
   }
 
-  /**
-   * Merge a list of kudo tables into a contiguous table.
+ /**
+   * Merge a list of kudo tables into a table on host memory.
    * <br/>
    * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
    * {@link KudoSerializer}, otherwise behavior is undefined.
    *
-   * @param kudoTables list of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
    *                   take care of closing them after calling this method.
-   * @return the merged table, and metrics during merge.
+   * @param options merge options, including dump option and output stream. The output stream will be closed after the merge.
+   * @return the merged table.
+   */
+  public KudoHostMergeResult mergeOnHost(KudoTable[] kudoTables, MergeOptions options) throws Exception {
+    if (options.getDumpOption() == DumpOption.Always) {
+      dumpToStream(kudoTables, options.getOutputStreamSupplier(), options.getFilePath());
+    }
+    try {
+      return mergeOnHost(kudoTables);
+    } catch (Exception e) {
+      if (options.getDumpOption() == DumpOption.OnFailure) {
+        dumpToStream(kudoTables, options.getOutputStreamSupplier(), options.getFilePath());
+      }
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * See {@link #mergeOnHost(KudoTable[])}.
+   * @deprecated Use {@link #mergeOnHost(KudoTable[])} instead.
+   */
+  @Deprecated
+  public Pair<KudoHostMergeResult, MergeMetrics> mergeOnHost(List<KudoTable> kudoTables) {
+    MergeMetrics.Builder metricsBuilder = MergeMetrics.builder();
+
+    KudoHostMergeResult result;
+    KudoTable[] newTables = kudoTables.toArray(new KudoTable[0]);
+    MergedInfoCalc mergedInfoCalc = withTime(() -> MergedInfoCalc.calc(schema, newTables),
+              metricsBuilder::calcHeaderTime);
+    result = withTime(() -> KudoTableMerger.merge(schema, mergedInfoCalc),
+              metricsBuilder::mergeIntoHostBufferTime);
+
+    return Pair.of(result, metricsBuilder.build());
+  }
+
+  /**
+   * Merge an array of kudo tables into a contiguous table.
+   * <br/>
+   * The caller should ensure that the {@link KudoSerializer} used to generate kudo tables have same schema as current
+   * {@link KudoSerializer}, otherwise behavior is undefined.
+   *
+   * @param kudoTables array of kudo tables. This method doesn't take ownership of the input tables, and caller should
+   *                   take care of closing them after calling this method.
+   * @return the merged table.
    * @throws Exception if any error occurs during merge.
    */
+  public Table mergeToTable(KudoTable[] kudoTables) throws Exception {
+    try (KudoHostMergeResult children = mergeOnHost(kudoTables)) {
+      return children.toTable();
+    }
+  }
+
+
+  /**
+   * See {@link #mergeToTable(KudoTable[])}.
+   *
+   * @deprecated Use {@link #mergeToTable(KudoTable[])} instead.
+   */
+  @Deprecated
   public Pair<Table, MergeMetrics> mergeToTable(List<KudoTable> kudoTables) throws Exception {
     Pair<KudoHostMergeResult, MergeMetrics> result = mergeOnHost(kudoTables);
     MergeMetrics.Builder builder = MergeMetrics.builder(result.getRight());
@@ -310,21 +416,23 @@ public class KudoSerializer {
   }
 
   private WriteMetrics writeSliced(HostColumnVector[] columns, DataWriter out, int rowOffset,
-                                   int numRows) throws Exception {
+                                   int numRows, boolean measureCopyBufferTime) throws Exception {
     WriteMetrics metrics = new WriteMetrics();
     KudoTableHeaderCalc headerCalc =
         new KudoTableHeaderCalc(rowOffset, numRows, flattenedColumnCount);
-    withTime(() -> Visitors.visitColumns(columns, headerCalc), metrics::addCalcHeaderTime);
+    Visitors.visitColumns(columns, headerCalc);
     KudoTableHeader header = headerCalc.getHeader();
-    long currentTime = System.nanoTime();
+
+    out.reserve(toIntExact(header.getSerializedSize() + header.getTotalDataLen()));
+
     header.writeTo(out);
-    metrics.addCopyHeaderTime(System.nanoTime() - currentTime);
     metrics.addWrittenBytes(header.getSerializedSize());
 
     long bytesWritten = 0;
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
-      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset, numRows, bufferType,
-          out, metrics);
+      SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset,
+          numRows, bufferType,
+          out, metrics, measureCopyBufferTime);
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
@@ -342,10 +450,15 @@ public class KudoSerializer {
   }
 
   private static DataWriter writerFrom(OutputStream out) {
-    if (!(out instanceof DataOutputStream)) {
-      out = new DataOutputStream(new BufferedOutputStream(out));
+    if (out instanceof DataOutputStream) {
+      return new DataOutputStreamWriter((DataOutputStream) out);
+    } else if (out instanceof OpenByteArrayOutputStream) {
+      return new OpenByteArrayOutputStreamWriter((OpenByteArrayOutputStream) out);
+    } else if (out instanceof ByteArrayOutputStream) {
+      return new ByteArrayOutputStreamWriter((ByteArrayOutputStream) out);
+    } else {
+      return new DataOutputStreamWriter(new DataOutputStream(new BufferedOutputStream(out)));
     }
-    return new DataOutputStreamWriter((DataOutputStream) out);
   }
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,11 +21,19 @@ import ai.rapids.cudf.HostMemoryBuffer;
 import java.io.IOException;
 
 /**
- * Visible for testing
+ * Output data writer for kudo serializer.
  */
-abstract class DataWriter {
+public interface DataWriter {
 
-  public abstract void writeInt(int i) throws IOException;
+  /**
+   * Write int in network byte order.
+   */
+  void writeInt(int i) throws IOException;
+
+  /**
+   * Reserve space in the buffer for the given size.
+   */
+  default void reserve(int size) throws IOException {}
 
   /**
    * Copy data from src starting at srcOffset and going for len bytes.
@@ -34,11 +42,12 @@ abstract class DataWriter {
    * @param srcOffset offset to start at.
    * @param len       amount to copy.
    */
-  public abstract void copyDataFrom(HostMemoryBuffer src, long srcOffset, long len) throws IOException;
+  void copyDataFrom(HostMemoryBuffer src, long srcOffset, long len) throws IOException;
 
-  public void flush() throws IOException {
-    // NOOP by default
-  }
+  void flush() throws IOException;
 
-  public abstract void write(byte[] arr, int offset, int length) throws IOException;
+  /**
+   * Copy part of byte array to this writer.
+   */
+  void write(byte[] arr, int offset, int length) throws IOException;
 }
