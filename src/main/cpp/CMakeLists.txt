@@ -33,7 +33,7 @@ set(CUDF_CPP_BUILD_DIR
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
-include("${CUDF_DIR}/rapids_config.cmake")
+include("${CUDF_DIR}/cmake/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -51,7 +51,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.04.00
+  VERSION 25.06.00
   LANGUAGES C CXX CUDA
 )
 
