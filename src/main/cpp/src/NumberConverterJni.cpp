@@ -19,7 +19,7 @@
 
 extern "C" {
 
-using variant_t = convert_number_t;
+using variant_t = spark_rapids_jni::convert_number_t;
 
 JNIEXPORT jlong JNICALL
 Java_com_nvidia_spark_rapids_jni_NumberConverter_convert(JNIEnv* env,
@@ -37,15 +37,15 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_convert(JNIEnv* env,
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input_variant = is_input_cv
-                                 ? convert_number_t{*reinterpret_cast<cudf::column_view*>(input)}
-                                 : convert_number_t{*reinterpret_cast<cudf::string_scalar*>(input)};
-    auto const from_base_variant =
-      is_from_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(from_base)}
-                 : convert_number_t{static_cast<int>(from_base)};
-    auto const to_base_variant =
-      is_to_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(to_base)}
-               : convert_number_t{static_cast<int>(to_base)};
+    auto const input_variant     = is_input_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(input)}
+                                     : variant_t{*reinterpret_cast<cudf::string_scalar*>(input)};
+    auto const from_base_variant = is_from_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(from_base)}
+                                     : variant_t{static_cast<int>(from_base)};
+    auto const to_base_variant   = is_to_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(to_base)}
+                                     : variant_t{static_cast<int>(to_base)};
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::convert(input_variant, from_base_variant, to_base_variant));
   }
@@ -68,15 +68,15 @@ Java_com_nvidia_spark_rapids_jni_NumberConverter_isConvertOverflow(JNIEnv* env,
 
   try {
     cudf::jni::auto_set_device(env);
-    auto const input_variant = is_input_cv
-                                 ? convert_number_t{*reinterpret_cast<cudf::column_view*>(input)}
-                                 : convert_number_t{*reinterpret_cast<cudf::string_scalar*>(input)};
-    auto const from_base_variant =
-      is_from_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(from_base)}
-                 : convert_number_t{static_cast<int>(from_base)};
-    auto const to_base_variant =
-      is_to_cv ? convert_number_t{*reinterpret_cast<cudf::column_view*>(to_base)}
-               : convert_number_t{static_cast<int>(to_base)};
+    auto const input_variant     = is_input_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(input)}
+                                     : variant_t{*reinterpret_cast<cudf::string_scalar*>(input)};
+    auto const from_base_variant = is_from_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(from_base)}
+                                     : variant_t{static_cast<int>(from_base)};
+    auto const to_base_variant   = is_to_cv
+                                     ? variant_t{*reinterpret_cast<cudf::column_view*>(to_base)}
+                                     : variant_t{static_cast<int>(to_base)};
     return spark_rapids_jni::is_convert_overflow(input_variant, from_base_variant, to_base_variant);
   }
   CATCH_STD(env, 0);
