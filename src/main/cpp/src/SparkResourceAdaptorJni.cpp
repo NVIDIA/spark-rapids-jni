@@ -213,7 +213,7 @@ struct task_metrics {
   long gpu_max_memory_allocated = 0;
 
   // This is the amount of "active" memory per task. It effectively means that
-  // it ignored feeing data when it is spilled and allocating data when that
+  // it ignored freeing data when it is spilled and allocating data when that
   // spilled data is read back in. The goal is to get a measurement of
   // how much memory a task used to complete it's processing.
   long gpu_memory_active_footprint = 0;
@@ -2420,7 +2420,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cpu
   CATCH_STD(env, )
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_spillRangeStarting(
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_spillRangeStart(
   JNIEnv* env, jclass, jlong ptr)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );

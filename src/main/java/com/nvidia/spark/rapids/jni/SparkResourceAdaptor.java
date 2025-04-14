@@ -330,8 +330,8 @@ public class SparkResourceAdaptor
     cpuDeallocate(getHandle(), ptr, amount);
   }
 
-  public void spillRangeStarting() {
-    spillRangeStarting(getHandle());
+  public void spillRangeStart() {
+    spillRangeStart(getHandle());
   }
 
   public void spillRangeDone() {
@@ -376,6 +376,6 @@ public class SparkResourceAdaptor
   private static native boolean postCpuAllocFailed(long handle, boolean wasOom,
                                                    boolean blocking, boolean wasRecursive);
   private static native void cpuDeallocate(long handle, long ptr, long amount);
-  private static native void spillRangeStarting(long handle);
+  private static native void spillRangeStart(long handle);
   private static native void spillRangeDone(long handle);
 }

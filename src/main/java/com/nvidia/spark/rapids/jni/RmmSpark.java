@@ -23,9 +23,6 @@ import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmException;
 import ai.rapids.cudf.RmmTrackingResourceAdaptor;
 
-import java.util.Arrays;
-import java.util.Map;
-
 /**
  * Initialize RMM in ways that are specific to Spark.
  */
@@ -710,13 +707,13 @@ public class RmmSpark {
     }
   }
 
-  public static void spillRangeStarting() {
+  public static void spillRangeStart() {
     SparkResourceAdaptor local;
     synchronized (Rmm.class) {
       local = sra;
     }
     if (local != null && local.isOpen()) {
-      local.spillRangeStarting();
+      local.spillRangeStart();
     }
   }
 
