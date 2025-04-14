@@ -234,8 +234,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           int lastOffset = offsetOf(tableIdx, rowCnt);
           long inputOffset = offsetOffsets[tableIdx];
 
-          if (KUDO_SANITY_CHECK) {
-            if (firstOffset < 0 || lastOffset < firstOffset) {
+          if (firstOffset < 0 || lastOffset < firstOffset) {
+            if (KUDO_SANITY_CHECK) {
               int[] offsetValues = new int[rowCnt];
               for (int i = 0; i < rowCnt; i++) {
                 offsetValues[i] = offsetOf(tableIdx, i);
@@ -244,17 +244,34 @@ class KudoTableMerger implements SimpleSchemaVisitor {
                       "first offset: {}, last offset: {}, kudo table header: {}",
                   Arrays.toString(offsetValues), tableIdx, rowCnt, firstOffset, lastOffset,
                   kudoTables[tableIdx].getHeader());
-              throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
-                  + firstOffset + ", last offset: " + lastOffset);
             }
+            throw new IllegalArgumentException("Invalid kudo offset buffer content, first offset: "
+                + firstOffset + ", last offset: " + lastOffset);
           }
 
           while (rowCnt > 0) {
             int arrLen = min(rowCnt, min(inputBuf.length, outputBuf.length));
             kudoTables[tableIdx].getBuffer().getInts(inputBuf, 0, inputOffset, arrLen);
 
+            boolean isValid = true;
             for (int i = 0; i < arrLen; i++) {
               outputBuf[i] = inputBuf[i] - firstOffset + accumulatedDataLen;
+              isValid = isValid && (outputBuf[i] >= 0);
+            }
+
+            if (!isValid) {
+              if (KUDO_SANITY_CHECK) {
+                int[] offsetValues = new int[sliceInfo.getRowCount()];
+                for (int i = 0; i < sliceInfo.getRowCount(); i++) {
+                  offsetValues[i] = offsetOf(tableIdx, i);
+                }
+                LOG.error("Negative output offset found, invalid offset values: [{}], " +
+                        "table index: {}, row count: {}, kudo table header: {}",
+                    Arrays.toString(offsetValues), tableIdx, sliceInfo.getRowCount(),
+                    kudoTables[tableIdx].getHeader());
+              }
+              throw new IllegalArgumentException("Invalid kudo offset buffer content: " +
+                  "negative output offset found");
             }
 
             offsetBuf.setInts(outputOffset, outputBuf, 0, arrLen);
