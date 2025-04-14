@@ -65,7 +65,7 @@ public class GpuTimeZoneDB {
   private static final int initialTransitionYear = 1900;
   private static int finalTransitionYear = 2200;
   private static long maxTimestamp;
-  private static ZoneId utcZoneId = ZoneId.of("UTC");
+  private static final ZoneId utcZoneId = ZoneId.of("UTC");
 
   /**
    * This should be called on startup of an executor.
@@ -137,7 +137,7 @@ public class GpuTimeZoneDB {
     } else if (inputType == DType.TIMESTAMP_MICROSECONDS){
       return 1000*1000;
     }
-    return 1;
+    throw new UnsupportedOperationException("Input Type is not of TIMESTAMP type");
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
@@ -157,8 +157,10 @@ public class GpuTimeZoneDB {
     boolean isValid = false;
     long scaleFactor = getScalefactor(input);
     try (Scalar targetTimestamp = Scalar.timestampFromLong(input.getType(), maxTimestamp*scaleFactor);
-         ColumnVector isGreater = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8)) {
-      isValid = !isGreater.any().getBoolean();
+         ColumnVector compareCv = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8);
+         Scalar isGreater = compareCv.any() ) {
+      if (!isGreater.isValid()) isValid = true;
+      else isValid = !isGreater.getBoolean();
     } catch (Exception e) {
       log.error("Error validating input timestamps", e);
       // don't need to throw error, can try CPU processing
@@ -194,8 +196,6 @@ public class GpuTimeZoneDB {
         
         resultCV = builder.buildAndPutOnDevice();
       }
-    } catch (Exception e) {
-      throw e;
     }
     return resultCV;
   }

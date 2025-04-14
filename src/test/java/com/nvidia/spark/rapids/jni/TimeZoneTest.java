@@ -164,6 +164,40 @@ public class TimeZoneTest {
   }
 
   @Test
+  void convertToUtcNullTest() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          233843186247521117L
+        );
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          233843211447521117L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("US/Pacific"), 2200)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertToUtcMicroSecondsTzRulesNullFallbackTest() {
+    try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          null,
+          null,
+          null,
+          null
+        );
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+          null,
+          null,
+          null,
+          null
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("US/Pacific"), 2200)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
   void convertToUtcMilliSecondsTestTzRules() {
     try (ColumnVector input = ColumnVector.timestampMilliSecondsFromBoxedLongs(
           -1262289600000L,
