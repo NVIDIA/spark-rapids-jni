@@ -17,10 +17,9 @@
 #include "number_converter.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/indexalator.cuh>
-#include <cudf/detail/sizes_to_offsets_iterator.cuh>
 #include <cudf/detail/utilities/assert.cuh>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/types.hpp>
 
 #include <thrust/count.h>
@@ -277,88 +276,86 @@ struct const_base {
 };
 
 template <typename STR_ITERATOR, typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
-struct compute_len_fn {
+struct convert_fn {
   static constexpr bool IS_CONST_BASES =
     std::is_same_v<const_base, FROM_BASE_ITERATOR> && std::is_same_v<const_base, TO_BASE_ITERATOR>;
 
   STR_ITERATOR input;
   FROM_BASE_ITERATOR from_base_iter;
   TO_BASE_ITERATOR to_base_iter;
-
-  // For the first phase: calculate the lengths/nulls of the converted strings
-  int* out_lens;
   int8_t* out_mask;
 
+  // For the first phase: calculate the d_sizes and out_mask of the converted strings
+  cudf::size_type* d_sizes{};
+
+  // if d_chars is nullptr, only compute d_sizes and out_mask
+  // if d_chars is not nullptr, convert the strings to the target base
+  char* d_chars{};
+  cudf::detail::input_offsetalator d_offsets;
+
   __device__ void operator()(int idx)
   {
-    // check input null
-    if (input.is_null(idx)) {
-      // if base is invalid, set null and zero length
-      out_lens[idx] = 0;
-      out_mask[idx] = 0;
-      return;
-    }
+    if (!d_chars) {
+      // first phase, set null/length
 
-    // check base range
-    if (!IS_CONST_BASES) {
-      if (from_base_iter.is_null(idx) || to_base_iter.is_null(idx)) {
+      // check input null
+      if (input.is_null(idx)) {
         // if base is invalid, set null and zero length
-        out_lens[idx] = 0;
+        d_sizes[idx]  = 0;
         out_mask[idx] = 0;
         return;
       }
 
-      int from_base = from_base_iter.get(idx);
-      int to_base   = to_base_iter.get(idx);
+      // check base range
+      if (!IS_CONST_BASES) {
+        if (from_base_iter.is_null(idx) || to_base_iter.is_null(idx)) {
+          // if base is invalid, set null and zero length
+          d_sizes[idx]  = 0;
+          out_mask[idx] = 0;
+          return;
+        }
 
-      // if not const bases, check bases for each row
-      if (is_invalid_base_range(from_base, to_base)) {
-        // if base is invalid, return all nulls
-        // first phase
-        out_lens[idx] = 0;
-        out_mask[idx] = 0;
-        return;
+        int from_base = from_base_iter.get(idx);
+        int to_base   = to_base_iter.get(idx);
+
+        // if not const bases, check bases for each row
+        if (is_invalid_base_range(from_base, to_base)) {
+          // if base is invalid, return all nulls
+          // first phase
+          d_sizes[idx]  = 0;
+          out_mask[idx] = 0;
+          return;
+        }
       }
-    }
 
-    auto str      = input.element(idx);
-    int from_base = from_base_iter.get(idx);
-    int to_base   = to_base_iter.get(idx);
-    // first phase, set null/length
-    auto [ret_type, len] = convert(str.data(),
-                                   str.length(),
-                                   from_base,
-                                   to_base,
-                                   /*compute len*/ nullptr,
-                                   /*dummy value*/ -1,
-                                   ansi_mode::OFF);
-    out_lens[idx]        = len;
-    out_mask[idx]        = (ret_type != result_type::NULL_VALUE);
-  }
-};
-
-template <typename STR_ITERATOR, typename FROM_BASE_ITERATOR, typename TO_BASE_ITERATOR>
-struct convert_fn {
-  STR_ITERATOR input;
-  FROM_BASE_ITERATOR from_base_iter;
-  TO_BASE_ITERATOR to_base_iter;
-  char* out;
-  int const* out_offsets;
-
-  __device__ void operator()(int idx)
-  {
-    int len = out_offsets[idx + 1] - out_offsets[idx];
-    if (len > 0) {
       auto str      = input.element(idx);
       int from_base = from_base_iter.get(idx);
       int to_base   = to_base_iter.get(idx);
-      convert(str.data(),
-              str.length(),
-              from_base,
-              to_base,
-              /* convert */ out + out_offsets[idx],
-              /* len */ len,
-              ansi_mode::OFF);
+      // first phase, set null/length
+      auto [ret_type, len] = convert(str.data(),
+                                     str.length(),
+                                     from_base,
+                                     to_base,
+                                     /*compute len*/ nullptr,
+                                     /*dummy value*/ -1,
+                                     ansi_mode::OFF);
+      d_sizes[idx]         = len;
+      out_mask[idx]        = (ret_type != result_type::NULL_VALUE);
+    } else {
+      // second phase, convert the string
+      int len = d_offsets[idx + 1] - d_offsets[idx];
+      if (len > 0) {
+        auto str      = input.element(idx);
+        int from_base = from_base_iter.get(idx);
+        int to_base   = to_base_iter.get(idx);
+        convert(str.data(),
+                str.length(),
+                from_base,
+                to_base,
+                /* convert */ d_chars + d_offsets[idx],
+                /* len */ len,
+                ansi_mode::OFF);
+      }
     }
   }
 };
@@ -385,41 +382,20 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
     }
   }
 
-  auto out_sizes = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT32},
-                                             num_rows,
-                                             cudf::mask_state::UNALLOCATED,
-                                             stream,
-                                             cudf::get_current_device_resource_ref());
   auto out_mask =
     rmm::device_uvector<int8_t>(num_rows, stream, cudf::get_current_device_resource_ref());
 
-  // First phase: calculate the lengths/nulls of the converted strings
-  thrust::for_each(
-    rmm::exec_policy_nosync(stream),
-    thrust::make_counting_iterator<cudf::size_type>(0),
-    thrust::make_counting_iterator<cudf::size_type>(num_rows),
-    compute_len_fn<STR_ITERATOR, FROM_BASE_ITERATOR, TO_BASE_ITERATOR>{
-      input, from_base, to_base, out_sizes->mutable_view().data<int>(), out_mask.data()});
+  auto [offsets, chars] = cudf::strings::detail::make_strings_children(
+    convert_fn<STR_ITERATOR, FROM_BASE_ITERATOR, TO_BASE_ITERATOR>{
+      input, from_base, to_base, out_mask.data()},
+    num_rows,
+    stream,
+    mr);
+
   // make null mask and null count
   auto [null_mask, null_count] = cudf::detail::valid_if(
     out_mask.data(), out_mask.data() + out_mask.size(), thrust::identity<bool>{}, stream, mr);
-  // make offsets
-  auto const sizes_input_it =
-    cudf::detail::indexalator_factory::make_input_iterator(out_sizes->view());
-  auto [offsets, n_chars] = cudf::detail::make_offsets_child_column(
-    sizes_input_it, sizes_input_it + out_sizes->size(), stream, mr);
 
-  // allocate chars memory
-  rmm::device_uvector<char> chars(n_chars, stream, mr);
-
-  // Second phase : convert the strings to the target base if (n_chars > 0)
-  {
-    thrust::for_each(rmm::exec_policy_nosync(stream),
-                     thrust::make_counting_iterator<cudf::size_type>(0),
-                     thrust::make_counting_iterator<cudf::size_type>(num_rows),
-                     convert_fn<STR_ITERATOR, FROM_BASE_ITERATOR, TO_BASE_ITERATOR>{
-                       input, from_base, to_base, chars.data(), offsets->view().data<int>()});
-  }
   return cudf::make_strings_column(
     num_rows, std::move(offsets), chars.release(), null_count, std::move(null_mask));
 }
