@@ -63,7 +63,6 @@ public class GpuTimeZoneDB {
   private static HostColumnVector transitions;
   // initial year set to 1900 because some transition rules start early
   private static final int initialTransitionYear = 1900;
-  private static int finalTransitionYear = 2200;
   private static long maxTimestamp;
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
 
@@ -87,6 +86,10 @@ public class GpuTimeZoneDB {
     thread.start();
   }
 
+  public static synchronized boolean verifyDatabaseCached() {
+    return transitions != null;
+  }
+
   /**
    * Cache the database. This will take some time like several seconds.
    * If one `cacheDatabase` is running, other `cacheDatabase` will wait until caching is done.
@@ -106,10 +109,7 @@ public class GpuTimeZoneDB {
   private static synchronized void cacheDatabaseImpl(int maxYear) {
     if (transitions == null) {
       try {
-        finalTransitionYear = maxYear;
-        maxTimestamp = LocalDateTime.of(maxYear+1, 1, 1, 0, 0, 0)
-          .atZone(utcZoneId).toEpochSecond();
-        loadData();
+        loadData(maxYear);
       } catch (Exception e) {
         closeResources();
         throw e;
@@ -200,11 +200,13 @@ public class GpuTimeZoneDB {
     return resultCV;
   }
 
-  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone, int maxYear) {
+  public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase(maxYear);
+    if (!verifyDatabaseCached()){
+      throw new IllegalStateException("Time Zone DB not loaded!");
+    }
     if (!isValidInput(input, currentTimeZone)) {
       return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
     }
@@ -215,11 +217,13 @@ public class GpuTimeZoneDB {
     }
   }
   
-  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone, int maxYear) {
+  public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase(maxYear);
+    if (!verifyDatabaseCached()){
+      throw new IllegalStateException("Time Zone DB not loaded!");
+    }
     if (!isValidInput(input, desiredTimeZone)) {
       return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
     }
@@ -242,7 +246,7 @@ public class GpuTimeZoneDB {
   }
 
   @SuppressWarnings("unchecked")
-  private static synchronized void loadData() {
+  private static synchronized void loadData(int finalTransitionYear) {
     try {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
       zoneIdToTable = new HashMap<>();

@@ -78,7 +78,7 @@ public class TimeZoneTest {
           568008000L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -116,7 +116,7 @@ public class TimeZoneTest {
           568036800L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("US/Pacific"), 2200)) {
+          ZoneId.of("US/Pacific"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -158,7 +158,7 @@ public class TimeZoneTest {
           16820578557L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("US/Pacific"), 2200)) {
+          ZoneId.of("US/Pacific"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -172,7 +172,7 @@ public class TimeZoneTest {
           233843211447521117L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("US/Pacific"), 2200)) {
+          ZoneId.of("US/Pacific"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -192,7 +192,7 @@ public class TimeZoneTest {
           null
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("US/Pacific"), 2200)) {
+          ZoneId.of("US/Pacific"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -222,7 +222,7 @@ public class TimeZoneTest {
           568036800000L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("America/Los_Angeles"), 2200)) {
+          ZoneId.of("America/Los_Angeles"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -252,7 +252,7 @@ public class TimeZoneTest {
           568008000000L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -282,7 +282,7 @@ public class TimeZoneTest {
           568008000000000L
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -310,7 +310,7 @@ public class TimeZoneTest {
           1699571634L,
           568036800L);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -338,7 +338,7 @@ public class TimeZoneTest {
           1699571634312L,
           568036800000L);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
@@ -368,7 +368,7 @@ public class TimeZoneTest {
           568036800000000L,
           null);
         ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
-          ZoneId.of("Asia/Shanghai"), 2200)) {
+          ZoneId.of("Asia/Shanghai"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
