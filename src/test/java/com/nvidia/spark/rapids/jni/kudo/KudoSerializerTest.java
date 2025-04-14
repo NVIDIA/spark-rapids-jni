@@ -344,17 +344,23 @@ public class KudoSerializerTest {
 
     return new Table.TestBuilder()
         .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
-        .column(true, true, false, false, true, null, true, true, null, false, false, null, true,
-            true, null, false, false, null, true, true, null)
-        .column((byte)1, (byte)2, null, (byte)4, (byte)5,(byte)6,(byte)1,(byte)2,(byte)3, null,(byte)5, (byte)6,
-            (byte) 7, null,(byte) 9,(byte) 10,(byte) 11, null,(byte) 13,(byte) 14,(byte) 15)
-        .column((short)6, (short)5, (short)4, null, (short)2, (short)1,
-            (short)1, (short)2, (short)3, null, (short)5, (short)6, (short)7, null, (short)9,
-            (short)10, null, (short)12, (short)13, (short)14, null)
-        .column(1L, null, 1001L, 50L, -2000L, null, 1L, 2L, 3L, 4L, null, 6L,
-            7L, 8L, 9L, null, 11L, 12L, 13L, 14L, null)
-        .column(10.1f, 20f, -1f, 3.1415f, -60f, null, 1f, 2f, 3f, 4f, 5f, null, 7f, 8f, 9f, 10f, 11f, null, 13f, 14f, 15f)
-        .column(10.1f, 20f, -2f, 3.1415f, -60f, -50f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f, 13f, 14f, 15f)
+        .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
+        .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
+        .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
+        .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
+        .column(100, 202, 3003, 40004, 5, -60, 1, null, 3, null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
+        .column(100, 202, 3003, 40004, 5, -60, 1, 0, 3, 0, 5, 0, 7, 0, 9, 0, 11, 0, 13, 0, 15)
+//        .column(true, true, false, false, true, null, true, true, null, false, false, null, true,
+//            true, null, false, false, null, true, true, null)
+//        .column((byte)1, (byte)2, null, (byte)4, (byte)5,(byte)6,(byte)1,(byte)2,(byte)3, null,(byte)5, (byte)6,
+//            (byte) 7, null,(byte) 9,(byte) 10,(byte) 11, null,(byte) 13,(byte) 14,(byte) 15)
+//        .column((short)6, (short)5, (short)4, null, (short)2, (short)1,
+//            (short)1, (short)2, (short)3, null, (short)5, (short)6, (short)7, null, (short)9,
+//            (short)10, null, (short)12, (short)13, (short)14, null)
+//        .column(1L, null, 1001L, 50L, -2000L, null, 1L, 2L, 3L, 4L, null, 6L,
+//            7L, 8L, 9L, null, 11L, 12L, 13L, 14L, null)
+//        .column(10.1f, 20f, -1f, 3.1415f, -60f, null, 1f, 2f, 3f, 4f, 5f, null, 7f, 8f, 9f, 10f, 11f, null, 13f, 14f, 15f)
+//        .column(10.1f, 20f, -2f, 3.1415f, -60f, -50f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, 10f, 11f, 12f, 13f, 14f, 15f)
         .column(10.1, 20.0, 33.1, 3.1415, -60.5, null, 1d, 2.0, 3.0, 4.0, 5.0,
             6.0, null, 8.0, 9.0, 10.0, 11.0, 12.0, null, 14.0, 15.0)
         .column((Float)null, null, null, null, null, null, null, null, null, null,

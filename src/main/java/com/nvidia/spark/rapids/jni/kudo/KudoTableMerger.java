@@ -116,7 +116,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     for (int i=0; i<kudoTables.length; i++) {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
-      if (header.hasValidityBuffer(curColIdx)) {
+      if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
         validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
     }
@@ -140,7 +140,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     for (int i=0; i<kudoTables.length; i++) {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
-      if (header.hasValidityBuffer(curColIdx)) {
+      if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
         validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
       if (sliceInfo.getRowCount() > 0) {
@@ -177,7 +177,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       for (int i=0; i<kudoTables.length; i++) {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
-        if (header.hasValidityBuffer(curColIdx)) {
+        if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
           validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
@@ -189,7 +189,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       for (int i=0; i<kudoTables.length; i++) {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
-        if (header.hasValidityBuffer(curColIdx)) {
+        if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
           validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
