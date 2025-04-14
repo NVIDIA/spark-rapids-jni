@@ -396,8 +396,11 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
   auto [null_mask, null_count] = cudf::detail::valid_if(
     out_mask.data(), out_mask.data() + out_mask.size(), thrust::identity<bool>{}, stream, mr);
 
-  return cudf::make_strings_column(
-    num_rows, std::move(offsets), chars.release(), null_count, std::move(null_mask));
+  return cudf::make_strings_column(num_rows,
+                                   std::move(offsets),
+                                   chars.release(),
+                                   null_count,
+                                   null_count ? std::move(null_mask) : rmm::device_buffer{});
 }
 
 /**
