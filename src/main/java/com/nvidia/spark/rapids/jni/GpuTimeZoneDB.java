@@ -188,6 +188,19 @@ public class GpuTimeZoneDB {
           long unitOffset = timestamp % scaleFactor;
           timestamp /= scaleFactor;
           Instant instant = Instant.ofEpochSecond(timestamp);
+          /***
+           * .atZone(targetTimeZone) keeps same underlying timestamp, adds tzinfo
+           * .toLocalDateTime() keeps only the local date time
+           * .atZone(currentTimeZone) creates a ZonedDateTime, new underlying timestamp+tzinfo
+           * .toInstant().getEpochSecond() grabs that underlying timestamp
+           * 
+           * Example: input = 0, currentTimeZone = UTC, targetTimeZone = LA
+           * atZone(LA): 1969/12/31 16:00:00, tz=LA, timestamp=0
+           * toLocalDateTime(): 1969/12/31 16:00:00
+           * atZone(UTC): 1969/12/31 16:00:00, tz=UTC, timestamp=-28800
+           * 
+           * We reinterpret the underlying timestamp representation
+          ***/
           timestamp = instant.atZone(targetTimeZone).toLocalDateTime().atZone(currentTimeZone)
             .toInstant().getEpochSecond();
           timestamp = timestamp * scaleFactor + unitOffset;
