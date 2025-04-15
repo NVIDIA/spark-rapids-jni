@@ -174,7 +174,6 @@ public class GpuTimeZoneDB {
   private static ColumnVector cpuChangeTimestampTz(ColumnVector input, ZoneId currentTimeZone, ZoneId targetTimeZone) {
     ColumnVector resultCV = null;
     try (HostColumnVector hostCV = input.copyToHost()) {
-      // assuming we don't have more than 2^31-1 rows
       int rows = (int) hostCV.getRowCount();
       DType inputType = input.getType();
       long scaleFactor = getScaleFactor(input);
