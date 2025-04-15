@@ -89,7 +89,7 @@ public class GpuTimeZoneDB {
   }
 
   public static synchronized void verifyDatabaseCached() {
-    if (transitions != null) throw new IllegalStateException("Time Zone DB not loaded!");
+    if (transitions == null) throw new IllegalStateException("Time Zone DB not loaded!");
   }
 
   /**
