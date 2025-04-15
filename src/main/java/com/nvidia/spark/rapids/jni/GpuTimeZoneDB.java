@@ -76,6 +76,8 @@ public class GpuTimeZoneDB {
     Runnable runnable = () -> {
       try {
         cacheDatabaseImpl(maxYear);
+        maxTimestamp = LocalDateTime.of(maxYear+1, 1, 1, 0, 0, 0)
+          .atZone(utcZoneId).toEpochSecond();
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
       }
@@ -86,8 +88,8 @@ public class GpuTimeZoneDB {
     thread.start();
   }
 
-  public static synchronized boolean verifyDatabaseCached() {
-    return transitions != null;
+  public static synchronized void verifyDatabaseCached() {
+    if (transitions != null) throw new IllegalStateException("Time Zone DB not loaded!");
   }
 
   /**
@@ -128,7 +130,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static long getScalefactor(ColumnVector input){
+  private static long getScaleFactor(ColumnVector input){
     DType inputType = input.getType();
     if (inputType == DType.TIMESTAMP_SECONDS){
       return 1;
@@ -137,7 +139,7 @@ public class GpuTimeZoneDB {
     } else if (inputType == DType.TIMESTAMP_MICROSECONDS){
       return 1000*1000;
     }
-    throw new UnsupportedOperationException("Input Type is not of TIMESTAMP type");
+    throw new UnsupportedOperationException("Unsupported data type: " + inputType);
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
@@ -150,12 +152,12 @@ public class GpuTimeZoneDB {
   }
 
   // enforce that all timestamps, regardless of timezone, be less than the desired date
-  private static boolean isValidInput(ColumnVector input, ZoneId zoneId){
+  private static boolean shouldFallbackToCpu(ColumnVector input, ZoneId zoneId){
     if (zoneId.getRules().isFixedOffset()){
       return true;
     }
     boolean isValid = false;
-    long scaleFactor = getScalefactor(input);
+    long scaleFactor = getScaleFactor(input);
     try (Scalar targetTimestamp = Scalar.timestampFromLong(input.getType(), maxTimestamp*scaleFactor);
          ColumnVector compareCv = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8);
          Scalar isGreater = compareCv.any() ) {
@@ -175,7 +177,7 @@ public class GpuTimeZoneDB {
       // assuming we don't have more than 2^31-1 rows
       int rows = (int) hostCV.getRowCount();
       DType inputType = input.getType();
-      long scaleFactor = getScalefactor(input);
+      long scaleFactor = getScaleFactor(input);
       
       try (HostColumnVector.Builder builder = HostColumnVector.builder(inputType, rows)) {
         for (int i = 0; i < rows; i++) {
@@ -217,10 +219,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (!verifyDatabaseCached()){
-      throw new IllegalStateException("Time Zone DB not loaded!");
-    }
-    if (!isValidInput(input, currentTimeZone)) {
+    if (!shouldFallbackToCpu(input, currentTimeZone)) {
       return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
     }
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
@@ -234,10 +233,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (!verifyDatabaseCached()){
-      throw new IllegalStateException("Time Zone DB not loaded!");
-    }
-    if (!isValidInput(input, desiredTimeZone)) {
+    if (!shouldFallbackToCpu(input, desiredTimeZone)) {
       return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
     }
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
@@ -276,6 +272,7 @@ public class GpuTimeZoneDB {
         ZoneRules zoneRules = zoneId.getRules();
         if (!zoneIdToTable.containsKey(zoneId.getId())) {
           List<ZoneOffsetTransition> zoneOffsetTransitions = new ArrayList<>(zoneRules.getTransitions());
+          zoneOffsetTransitions.sort(Comparator.comparing(ZoneOffsetTransition::getInstant));
           // It is desired to get lastTransitionEpochSecond because some rules don't start until late (e.g. 2007)
           long lastTransitionEpochSecond = Long.MIN_VALUE;
           if (!zoneOffsetTransitions.isEmpty()) {
@@ -291,7 +288,7 @@ public class GpuTimeZoneDB {
               }
             }
           }
-          // sort the transitions
+          // sort the transitions, multiple rules means transitions not added chronologically
           zoneOffsetTransitions.sort(Comparator.comparing(ZoneOffsetTransition::getInstant));
           int idx = masterTransitions.size();
           List<HostColumnVector.StructData> data = new ArrayList<>();
@@ -349,13 +346,10 @@ public class GpuTimeZoneDB {
   }
 
   private static synchronized Table getTransitions() {
-    try (ColumnVector fixedTransitions = getFixedTransitions()) {
+    verifyDatabaseCached();
+    try (ColumnVector fixedTransitions = transitions.copyToDevice();) {
       return new Table(fixedTransitions);
     }
-  }
-
-  private static synchronized ColumnVector getFixedTransitions() {
-    return transitions.copyToDevice();
   }
 
   /**
@@ -368,7 +362,8 @@ public class GpuTimeZoneDB {
    * @param zoneId
    * @return list of fixed transitions
    */
-  static synchronized List getHostFixedTransitions(String zoneId) {
+  static synchronized List getHostTransitions(String zoneId) {
+    verifyDatabaseCached();
     zoneId = ZoneId.of(zoneId).normalized().toString(); // we use the normalized form to dedupe
     Integer idx = zoneIdToTable.get(zoneId);
     if (idx == null) {

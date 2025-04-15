@@ -44,10 +44,10 @@ public class TimeZoneTest {
   @Test
   void databaseLoadedTest() {
     // Check for a few timezones
-    List transitions = GpuTimeZoneDB.getHostFixedTransitions("UTC+8");
+    List transitions = GpuTimeZoneDB.getHostTransitions("UTC+8");
     assertNotNull(transitions);
     assertEquals(1, transitions.size());
-    transitions = GpuTimeZoneDB.getHostFixedTransitions("Asia/Shanghai");
+    transitions = GpuTimeZoneDB.getHostTransitions("Asia/Shanghai");
     assertNotNull(transitions);
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
