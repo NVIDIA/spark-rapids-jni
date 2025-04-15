@@ -80,7 +80,7 @@ export WORKDIR=~/gits/rapidsai/cudf
 Currently libcudf is only configured once and the build relies on cmake to re-configure as needed.
 This is because libcudf currently is rebuilding almost entirely when it is configured with the same
 settings. If an explicit reconfigure of libcudf is needed (e.g.: when changing compile settings via
-`GPU_ARCHS`, `CUDF_USE_PER_THREAD_DEFAULT_STREAM`, etc.) then a configure can be forced via
+`CMAKE_CUDA_ARCHITECTURES`, `CUDF_USE_PER_THREAD_DEFAULT_STREAM`, etc.) then a configure can be forced via
 `-Dlibcudf.build.configure=true`.
 
 ### Build Properties
@@ -91,7 +91,7 @@ to control aspects of the build:
 | Property Name                        | Description                             | Default |
 |--------------------------------------|-----------------------------------------|---------|
 | `CPP_PARALLEL_LEVEL`                 | Parallelism of the C++ builds           | 10      |
-| `GPU_ARCHS`                          | CUDA architectures to target            | RAPIDS  |
+| `CMAKE_CUDA_ARCHITECTURES`           | CUDA architectures to target            | RAPIDS  |
 | `CUDF_USE_PER_THREAD_DEFAULT_STREAM` | CUDA per-thread default stream          | ON      |
 | `RMM_LOGGING_LEVEL`                  | RMM logging control                     | OFF     |
 | `USE_GDS`                            | Compile with GPU Direct Storage support | OFF     |
