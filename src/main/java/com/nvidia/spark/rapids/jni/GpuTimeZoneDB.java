@@ -102,6 +102,14 @@ public class GpuTimeZoneDB {
   }
 
   /**
+   * TO BE DELETED: added to not break spark-rapids build
+   * Will be removed after spark-rapids changes are committed
+   */
+  public static void cacheDatabase() {
+    cacheDatabaseImpl(9999);
+  }
+
+  /**
    * close the cache, used when Plugin is closing
    */
   public static synchronized void shutdown() {
@@ -149,6 +157,18 @@ public class GpuTimeZoneDB {
     } catch (ZoneRulesException e) {
       return false;
     }
+  }
+
+  /**
+   * TO BE DELETED: added to not break spark-rapids build
+   * Will be removed after spark-rapids changes are merged,
+   * since all timezones will be supported.
+   * This function will not be called after spark-rapids changes
+   */
+  public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
+    return desiredTimeZone != null &&
+      (desiredTimeZone.getRules().isFixedOffset() ||
+      desiredTimeZone.getRules().getTransitionRules().isEmpty());
   }
 
   // enforce that all timestamps, regardless of timezone, be less than the desired date
@@ -220,6 +240,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
+    cacheDatabase(); // LINE TO BE DELETED AFTER SPARK-RAPIDS CHANGES MERGED, HERE TO PASS TESTS
     if (shouldFallbackToCpu(input, currentTimeZone)) {
       return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
     }
@@ -234,6 +255,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
+    cacheDatabase(); // LINE TO BE DELETED AFTER SPARK-RAPIDS CHANGES MERGED, HERE TO PASS TESTS
     if (shouldFallbackToCpu(input, desiredTimeZone)) {
       return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
     }
