@@ -154,7 +154,7 @@ public class GpuTimeZoneDB {
   // enforce that all timestamps, regardless of timezone, be less than the desired date
   private static boolean shouldFallbackToCpu(ColumnVector input, ZoneId zoneId){
     if (zoneId.getRules().isFixedOffset()){
-      return true;
+      return false;
     }
     boolean isValid = false;
     long scaleFactor = getScaleFactor(input);
