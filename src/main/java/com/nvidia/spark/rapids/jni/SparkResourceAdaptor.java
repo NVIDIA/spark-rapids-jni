@@ -280,6 +280,13 @@ public class SparkResourceAdaptor
     return getAndResetGpuMaxMemoryAllocated(getHandle(), taskId);
   }
 
+  public long getMaxGpuTaskMemory(long taskId) {
+    return getMaxGpuTaskMemory(getHandle(), taskId);
+  }
+
+  public long getTotalBlockedOrLostTime(long taskId) {
+    return getTotalBlockedOrLostTime(getHandle(), taskId);
+  }
 
   /**
    * Called before doing an allocation on the CPU. This could throw an injected exception to help
@@ -323,6 +330,14 @@ public class SparkResourceAdaptor
     cpuDeallocate(getHandle(), ptr, amount);
   }
 
+  public void spillRangeStart() {
+    spillRangeStart(getHandle());
+  }
+
+  public void spillRangeDone() {
+    spillRangeDone(getHandle());
+  }
+
   /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
@@ -350,6 +365,8 @@ public class SparkResourceAdaptor
   private static native long getAndResetBlockTimeInternal(long handle, long taskId);
   private static native long getAndResetComputeTimeLostToRetry(long handle, long taskId);
   private static native long getAndResetGpuMaxMemoryAllocated(long handle, long taskId);
+  private static native long getMaxGpuTaskMemory(long handle, long taskId);
+  private static native long getTotalBlockedOrLostTime(long handle, long taskId);
   private static native void startRetryBlock(long handle, long threadId);
   private static native void endRetryBlock(long handle, long threadId);
   private static native void checkAndBreakDeadlocks(long handle);
@@ -359,4 +376,6 @@ public class SparkResourceAdaptor
   private static native boolean postCpuAllocFailed(long handle, boolean wasOom,
                                                    boolean blocking, boolean wasRecursive);
   private static native void cpuDeallocate(long handle, long ptr, long amount);
+  private static native void spillRangeStart(long handle);
+  private static native void spillRangeDone(long handle);
 }
