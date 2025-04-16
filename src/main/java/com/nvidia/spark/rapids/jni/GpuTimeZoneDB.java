@@ -102,11 +102,11 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * TO BE DELETED: added to not break spark-rapids build
+   * @deprecated added to not break spark-rapids build
    * Will be removed after spark-rapids changes are committed
    */
   public static void cacheDatabase() {
-    cacheDatabaseImpl(9999);
+    cacheDatabaseImpl(2200);
   }
 
   /**
@@ -160,7 +160,7 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * TO BE DELETED: added to not break spark-rapids build
+   * @deprecated added to not break spark-rapids build
    * Will be removed after spark-rapids changes are merged,
    * since all timezones will be supported.
    * This function will not be called after spark-rapids changes
