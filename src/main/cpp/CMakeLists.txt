@@ -41,6 +41,11 @@ include(rapids-export)
 include(rapids-find)
 rapids_cpm_init()
 
+# Use GPU_ARCHS if it is defined
+if(DEFINED GPU_ARCHS)
+  set(CMAKE_CUDA_ARCHITECTURES "${GPU_ARCHS}")
+endif()
+
 rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
