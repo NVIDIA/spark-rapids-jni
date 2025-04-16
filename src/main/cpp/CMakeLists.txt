@@ -33,7 +33,7 @@ set(CUDF_CPP_BUILD_DIR
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
-include("${CUDF_DIR}/rapids_config.cmake")
+include("${CUDF_DIR}/cmake/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -140,9 +140,6 @@ configure_file(
 
 # find NVTX
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
-
-# find CCCL
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # find spdlog
 include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
@@ -256,6 +253,11 @@ add_library(
   src/zorder.cu
 )
 
+set(SPARK_RAPIDS_JNI_VISIBILITY_PRESET hidden)
+if(CUDF_BUILD_STACKTRACE_DEBUG)
+  set(SPARK_RAPIDS_JNI_VISIBILITY_PRESET default)
+endif()
+
 set_target_properties(
   spark_rapids_jni
   PROPERTIES BUILD_RPATH "\$ORIGIN"
@@ -264,8 +266,10 @@ set_target_properties(
              CXX_STANDARD 17
              CXX_STANDARD_REQUIRED ON
              CXX_EXTENSIONS ON
+             CXX_VISIBILITY_PRESET ${SPARK_RAPIDS_JNI_VISIBILITY_PRESET}
              CUDA_STANDARD 17
              CUDA_STANDARD_REQUIRED ON
+             CUDA_VISIBILITY_PRESET ${SPARK_RAPIDS_JNI_VISIBILITY_PRESET}
              POSITION_INDEPENDENT_CODE ON
              INTERFACE_POSITION_INDEPENDENT_CODE ON
              CUDA_RUNTIME_LIBRARY Static
