@@ -811,3 +811,20 @@ TEST_F(ShuffleSplitTests, NestedTerminatingEmptyPartition)
     run_split(tbl, {2, 4, 6});
   }
 }
+
+TEST_F(ShuffleSplitTests, EmptyPartitionsWithNulls)
+{
+  // tests the case where an input column has nulls, but one of the
+  // partitions of that column does not (because it has no rows).
+  cudf::test::fixed_width_column_wrapper<int> i0{{0, 4, 7}, {0, 1, 1}};
+  cudf::test::fixed_width_column_wrapper<int> o0{0, 1, 2, 3, 3, 3, 3};
+  std::vector<int> list_valids{1, 1, 1, 0, 1, 1};
+  auto list_validity = cudf::test::detail::make_null_mask(list_valids.begin(), list_valids.end());
+  auto col0          = cudf::make_lists_column(
+    6, o0.release(), i0.release(), list_validity.second, std::move(list_validity.first));
+
+  cudf::table_view tbl{{*col0}};
+  // by splitting at row 3, the inner int column will have no rows in the second partition and
+  // should therefore not be including nulls in that partition's header.
+  run_split(tbl, {3});
+}
