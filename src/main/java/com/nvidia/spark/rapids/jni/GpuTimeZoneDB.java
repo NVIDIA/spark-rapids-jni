@@ -161,12 +161,12 @@ public class GpuTimeZoneDB {
     try (Scalar targetTimestamp = Scalar.timestampFromLong(input.getType(), maxTimestamp*scaleFactor);
          ColumnVector compareCv = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8);
          Scalar isGreater = compareCv.any() ) {
-      if (!isGreater.isValid()) isValid = true;
-      else isValid = !isGreater.getBoolean();
+      if (!isGreater.isValid()) isValid = false;
+      else isValid = isGreater.getBoolean();
     } catch (Exception e) {
       log.error("Error validating input timestamps", e);
       // don't need to throw error, can try CPU processing
-      return false;
+      return true;
     }
     return isValid;
   }
@@ -189,7 +189,7 @@ public class GpuTimeZoneDB {
           long unitOffset = timestamp % scaleFactor;
           timestamp /= scaleFactor;
           Instant instant = Instant.ofEpochSecond(timestamp);
-          /***
+          /*
            * .atZone(targetTimeZone) keeps same underlying timestamp, adds tzinfo
            * .toLocalDateTime() keeps only the local date time
            * .atZone(currentTimeZone) creates a ZonedDateTime, new underlying timestamp+tzinfo
@@ -201,7 +201,9 @@ public class GpuTimeZoneDB {
            * atZone(UTC): 1969/12/31 16:00:00, tz=UTC, timestamp=-28800
            * 
            * We reinterpret the underlying timestamp representation
-          ***/
+           * Spark Code For Reference:
+           * https://github.com/apache/spark/blob/ed702c0db71a2d185e9d56567375616170a1d6af/sql/api/src/main/scala/org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L175-L177
+          */
           timestamp = instant.atZone(targetTimeZone).toLocalDateTime().atZone(currentTimeZone)
             .toInstant().getEpochSecond();
           timestamp = timestamp * scaleFactor + unitOffset;
@@ -218,7 +220,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (!shouldFallbackToCpu(input, currentTimeZone)) {
+    if (shouldFallbackToCpu(input, currentTimeZone)) {
       return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
     }
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
@@ -232,7 +234,7 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (!shouldFallbackToCpu(input, desiredTimeZone)) {
+    if (shouldFallbackToCpu(input, desiredTimeZone)) {
       return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
     }
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());

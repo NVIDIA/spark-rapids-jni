@@ -44,6 +44,7 @@ public class TimeZoneTest {
   @Test
   void databaseLoadedTest() {
     // Check for a few timezones
+    GpuTimeZoneDB.verifyDatabaseCached();
     List transitions = GpuTimeZoneDB.getHostTransitions("UTC+8");
     assertNotNull(transitions);
     assertEquals(1, transitions.size());
@@ -51,6 +52,10 @@ public class TimeZoneTest {
     assertNotNull(transitions);
     ZoneId shanghai = ZoneId.of("Asia/Shanghai").normalized();
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
+    transitions = GpuTimeZoneDB.getHostTransitions("America/Los_Angeles");
+    assertNotNull(transitions);
+    // storing up to year 2200, years 2000-2200 have DST
+    assert(transitions.size() > 400);
   }
   
   @Test
