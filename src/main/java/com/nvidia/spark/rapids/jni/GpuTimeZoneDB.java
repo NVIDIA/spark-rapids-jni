@@ -173,16 +173,20 @@ public class GpuTimeZoneDB {
 
   // enforce that all timestamps, regardless of timezone, be less than the desired date
   private static boolean shouldFallbackToCpu(ColumnVector input, ZoneId zoneId){
-    if (zoneId.getRules().isFixedOffset()){
+    if (zoneId.getRules().isFixedOffset() || zoneId.getRules().getTransitionRules().isEmpty()){
       return false;
     }
     boolean isValid = false;
     long scaleFactor = getScaleFactor(input);
     try (Scalar targetTimestamp = Scalar.timestampFromLong(input.getType(), maxTimestamp*scaleFactor);
          ColumnVector compareCv = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8);
-         Scalar isGreater = compareCv.any() ) {
-      if (!isGreater.isValid()) isValid = false;
-      else isValid = isGreater.getBoolean();
+         Scalar isGreater = compareCv.any()) {
+      if (!isGreater.isValid()) {
+        isValid = false;
+      }
+      else {
+        isValid = isGreater.getBoolean();
+      }
     } catch (Exception e) {
       log.error("Error validating input timestamps", e);
       // don't need to throw error, can try CPU processing
@@ -370,7 +374,7 @@ public class GpuTimeZoneDB {
 
   private static synchronized Table getTransitions() {
     verifyDatabaseCached();
-    try (ColumnVector fixedTransitions = transitions.copyToDevice();) {
+    try (ColumnVector fixedTransitions = transitions.copyToDevice()) {
       return new Table(fixedTransitions);
     }
   }
