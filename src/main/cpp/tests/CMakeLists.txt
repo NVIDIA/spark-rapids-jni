@@ -94,3 +94,5 @@ ConfigureTest(SHUFFLE_SPLIT
 ConfigureTest(HLLPP
     hyper_log_log_plus_plus.cu)
 
+ConfigureTest(CONV
+    number_converter.cpp)

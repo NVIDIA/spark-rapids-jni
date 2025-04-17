@@ -71,13 +71,15 @@ struct src_buf_info {
                int _parent_offsets_index,
                uint8_t const* _data,
                buffer_type _btype,
-               size_type _column_offset)
+               size_type _column_offset,
+               size_type _column_index)
     : type(_type),
       offset_stack_pos(_offset_stack_pos),
       parent_offsets_index(_parent_offsets_index),
       data(_data),
       btype(_btype),
-      column_offset(_column_offset)
+      column_offset(_column_offset),
+      column_index(_column_index)
   {
   }
 
@@ -87,6 +89,7 @@ struct src_buf_info {
   uint8_t const* data;
   buffer_type btype;
   size_type column_offset;  // offset in the case of a sliced column
+  size_type column_index;   // (flattened) column index
 };
 
 /**
@@ -130,8 +133,13 @@ bool is_offset_type(type_id id) { return (id == type_id::STRING or id == type_id
  * The edge case we're catching here is a column that is nullable, but has no rows. CPU
  * kud0 optimizes that case out. In the future if we also wanted to ignore columns has are
  * nullable but have no nulls, we would add that logic here.
+ *
+ * A second edge case to be aware of is that while a column may have a > 0 size, and therefore
+ * is eligible to have nulls included, an individual partition may still be of size 0. In that case
+ * the null vector is not included for that partition, even though this function will return true
+ * for the column as a whole.
  */
-bool include_nulls(column_view const& col) { return col.nullable() && col.size() > 0; }
+bool include_nulls_for_column(column_view const& col) { return col.nullable() && col.size() > 0; }
 
 /**
  * @brief Compute total device memory stack size needed to process nested
@@ -157,7 +165,7 @@ template <typename InputIter>
 size_t compute_offset_stack_size(InputIter begin, InputIter end, int offset_depth = 0)
 {
   return std::accumulate(begin, end, 0, [offset_depth](auto stack_size, column_view const& col) {
-    auto const num_buffers = 1 + (include_nulls(col) ? 1 : 0);
+    auto const num_buffers = 1 + (include_nulls_for_column(col) ? 1 : 0);
     return stack_size + (offset_depth * num_buffers) +
            compute_offset_stack_size(
              col.child_begin(), col.child_end(), offset_depth + is_offset_type(col.type().id()));
@@ -203,7 +211,7 @@ src_buf_count count_src_bufs(InputIter begin, InputIter end)
     auto const has_offsets_child =
       type == cudf::type_id::LIST || (type == cudf::type_id::STRING && col.num_children() > 0);
     src_buf_count const counts{
-      static_cast<size_t>(include_nulls(col)),
+      static_cast<size_t>(include_nulls_for_column(col)),
       static_cast<size_t>(has_offsets_child),
       size_t{
         1}};  // this is 1 for all types because even lists and structs have stubs for data buffers
@@ -244,9 +252,8 @@ src_buf_count count_src_bufs(InputIter begin, InputIter end)
  * @param validity_cur[in, out] Current validity source buffer info to be read from
  * @param offset_cur[in, out] Current offset source buffer info to be read from
  * @param data_cur[in, out] Current data source buffer info to be read from
- * @param flattened_col_has_validity[out] A vector representing whether each input column has a
- * validity vector or not.
- * @param offset_stack_pos Integer representing our current offset nesting depth
+ * @param offset_stack_pos[in, out] Integer representing our current offset nesting depth
+ * @param col_index[in, out] Integer representing out current (flattened) column index
  * (how many list or string levels deep we are)
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param parent_offset_index Index into src_buf_info output array indicating our nearest
@@ -263,8 +270,8 @@ void setup_source_buf_info(InputIter begin,
                            src_buf_info*& validity_cur,
                            src_buf_info*& offset_cur,
                            src_buf_info*& data_cur,
-                           std::vector<int8_t>& flattened_col_has_validity,
                            int& offset_stack_pos,
+                           int& col_index,
                            rmm::cuda_stream_view stream,
                            int parent_offset_index = -1,
                            int offset_depth        = 0);
@@ -280,18 +287,18 @@ struct buf_info_functor {
 
   template <typename T>
   void operator()(column_view const& col,
+                  int& col_index,
                   src_buf_info*& validity_cur,
                   src_buf_info*& offset_cur,
                   src_buf_info*& data_cur,
-                  std::vector<int8_t>& flattened_col_has_validity,
                   int& offset_stack_pos,
                   int parent_offset_index,
                   int offset_depth,
                   rmm::cuda_stream_view)
   {
-    flattened_col_has_validity.push_back(include_nulls(col));
-    if (include_nulls(col)) {
-      add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
+    if (include_nulls_for_column(col)) {
+      add_null_buffer(
+        col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth, col_index);
     }
 
     // info for the data buffer
@@ -300,10 +307,12 @@ struct buf_info_functor {
                              parent_offset_index,
                              col.head<uint8_t>(),
                              buffer_type::DATA,
-                             col.offset());
+                             col.offset(),
+                             col_index);
     data_cur++;
 
     offset_stack_pos += offset_depth;
+    col_index++;
   }
 
   template <typename T, typename... Args>
@@ -317,7 +326,8 @@ struct buf_info_functor {
                        src_buf_info*& validity_cur,
                        int& offset_stack_pos,
                        int parent_offset_index,
-                       int offset_depth)
+                       int offset_depth,
+                       int col_index)
   {
     // info for the validity buffer
     *validity_cur = src_buf_info(type_id::INT32,
@@ -325,7 +335,8 @@ struct buf_info_functor {
                                  parent_offset_index,
                                  reinterpret_cast<uint8_t const*>(col.null_mask()),
                                  buffer_type::VALIDITY,
-                                 col.offset());
+                                 col.offset(),
+                                 col_index);
     validity_cur++;
 
     offset_stack_pos += offset_depth;
@@ -333,20 +344,19 @@ struct buf_info_functor {
 };
 
 template <>
-void buf_info_functor::operator()<cudf::string_view>(
-  column_view const& col,
-  src_buf_info*& validity_cur,
-  src_buf_info*& offset_cur,
-  src_buf_info*& data_cur,
-  std::vector<int8_t>& flattened_col_has_validity,
-  int& offset_stack_pos,
-  int parent_offset_index,
-  int offset_depth,
-  rmm::cuda_stream_view)
+void buf_info_functor::operator()<cudf::string_view>(column_view const& col,
+                                                     int& col_index,
+                                                     src_buf_info*& validity_cur,
+                                                     src_buf_info*& offset_cur,
+                                                     src_buf_info*& data_cur,
+                                                     int& offset_stack_pos,
+                                                     int parent_offset_index,
+                                                     int offset_depth,
+                                                     rmm::cuda_stream_view)
 {
-  flattened_col_has_validity.push_back(include_nulls(col));
-  if (include_nulls(col)) {
-    add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
+  if (include_nulls_for_column(col)) {
+    add_null_buffer(
+      col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth, col_index);
   }
 
   // the way strings are arranged, the strings column itself contains char data, but our child
@@ -363,7 +373,8 @@ void buf_info_functor::operator()<cudf::string_view>(
                            has_offsets_child ? (offset_cur - head) : parent_offset_index,
                            col.head<uint8_t>(),
                            buffer_type::DATA,
-                           col.offset());
+                           col.offset(),
+                           col_index);
   data_cur++;
   // if I have offsets, I need to include that in the stack size
   offset_stack_pos += has_offsets_child ? offset_depth + 1 : offset_depth;
@@ -382,19 +393,22 @@ void buf_info_functor::operator()<cudf::string_view>(
       // has been created with empty_like().
       reinterpret_cast<uint8_t const*>(scv.offsets().begin<cudf::id_to_type<type_id::INT32>>()),
       buffer_type::OFFSETS,
-      col.offset());
+      col.offset(),
+      col_index);
 
     offset_cur++;
     offset_stack_pos += offset_depth;
   }
+
+  col_index++;
 }
 
 template <>
 void buf_info_functor::operator()<cudf::list_view>(column_view const& col,
+                                                   int& col_index,
                                                    src_buf_info*& validity_cur,
                                                    src_buf_info*& offset_cur,
                                                    src_buf_info*& data_cur,
-                                                   std::vector<int8_t>& flattened_col_has_validity,
                                                    int& offset_stack_pos,
                                                    int parent_offset_index,
                                                    int offset_depth,
@@ -402,15 +416,20 @@ void buf_info_functor::operator()<cudf::list_view>(column_view const& col,
 {
   lists_column_view lcv(col);
 
-  flattened_col_has_validity.push_back(include_nulls(col));
-  if (include_nulls(col)) {
-    add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
+  if (include_nulls_for_column(col)) {
+    add_null_buffer(
+      col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth, col_index);
   }
 
   // list columns hold no actual data, but we need to keep a record
   // of it so we know it's size when we are constructing the output columns
-  *data_cur = src_buf_info(
-    type_id::LIST, offset_stack_pos, parent_offset_index, nullptr, buffer_type::DATA, col.offset());
+  *data_cur = src_buf_info(type_id::LIST,
+                           offset_stack_pos,
+                           parent_offset_index,
+                           nullptr,
+                           buffer_type::DATA,
+                           col.offset(),
+                           col_index);
   data_cur++;
   offset_stack_pos += offset_depth;
 
@@ -425,13 +444,15 @@ void buf_info_functor::operator()<cudf::list_view>(column_view const& col,
     // has been created with empty_like().
     reinterpret_cast<uint8_t const*>(lcv.offsets().begin<cudf::id_to_type<type_id::INT32>>()),
     buffer_type::OFFSETS,
-    col.offset());
+    col.offset(),
+    col_index);
 
   // since we are crossing an offset boundary, calculate our new depth and parent offset index.
   parent_offset_index = offset_cur - head;
   offset_cur++;
   offset_stack_pos += offset_depth;
   offset_depth++;
+  col_index++;
 
   auto child_col = col.child_begin() + lists_column_view::child_column_index;
   setup_source_buf_info(child_col,
@@ -440,28 +461,27 @@ void buf_info_functor::operator()<cudf::list_view>(column_view const& col,
                         validity_cur,
                         offset_cur,
                         data_cur,
-                        flattened_col_has_validity,
                         offset_stack_pos,
+                        col_index,
                         stream,
                         parent_offset_index,
                         offset_depth);
 }
 
 template <>
-void buf_info_functor::operator()<cudf::struct_view>(
-  column_view const& col,
-  src_buf_info*& validity_cur,
-  src_buf_info*& offset_cur,
-  src_buf_info*& data_cur,
-  std::vector<int8_t>& flattened_col_has_validity,
-  int& offset_stack_pos,
-  int parent_offset_index,
-  int offset_depth,
-  rmm::cuda_stream_view stream)
+void buf_info_functor::operator()<cudf::struct_view>(column_view const& col,
+                                                     int& col_index,
+                                                     src_buf_info*& validity_cur,
+                                                     src_buf_info*& offset_cur,
+                                                     src_buf_info*& data_cur,
+                                                     int& offset_stack_pos,
+                                                     int parent_offset_index,
+                                                     int offset_depth,
+                                                     rmm::cuda_stream_view stream)
 {
-  flattened_col_has_validity.push_back(include_nulls(col));
-  if (include_nulls(col)) {
-    add_null_buffer(col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth);
+  if (include_nulls_for_column(col)) {
+    add_null_buffer(
+      col, validity_cur, offset_stack_pos, parent_offset_index, offset_depth, col_index);
   }
 
   // struct columns hold no actual data, but we need to keep a record
@@ -471,9 +491,11 @@ void buf_info_functor::operator()<cudf::struct_view>(
                            parent_offset_index,
                            nullptr,
                            buffer_type::DATA,
-                           col.offset());
+                           col.offset(),
+                           col_index);
   data_cur++;
   offset_stack_pos += offset_depth;
+  col_index++;
 
   // recurse on children
   cudf::structs_column_view scv(col);
@@ -490,8 +512,8 @@ void buf_info_functor::operator()<cudf::struct_view>(
                         validity_cur,
                         offset_cur,
                         data_cur,
-                        flattened_col_has_validity,
                         offset_stack_pos,
+                        col_index,
                         stream,
                         parent_offset_index,
                         offset_depth);
@@ -504,8 +526,8 @@ void setup_source_buf_info(InputIter begin,
                            src_buf_info*& validity_cur,
                            src_buf_info*& offset_cur,
                            src_buf_info*& data_cur,
-                           std::vector<int8_t>& flattened_col_has_validity,
                            int& offset_stack_pos,
+                           int& col_index,
                            rmm::cuda_stream_view stream,
                            int parent_offset_index,
                            int offset_depth)
@@ -514,10 +536,10 @@ void setup_source_buf_info(InputIter begin,
     cudf::type_dispatcher(col.type(),
                           buf_info_functor{head},
                           col,
+                          col_index,
                           validity_cur,
                           offset_cur,
                           data_cur,
-                          flattened_col_has_validity,
                           offset_stack_pos,
                           parent_offset_index,
                           offset_depth,
@@ -601,8 +623,8 @@ struct partition_size_info {
  * @param num_partitions The number of partitions
  * @param columns_per_partition The number of flattened columns per partition
  * @param split_indices Per-partition row split indices
- * @param flattened_col_has_validity Per-column bool on whether each column contains a validity
- * vector
+ * @param flattened_col_inst_has_validity Per-column bool on whether each column contains a validity
+ * vector, per-partition
  * @param partition_size_info Per-partition size information for each buffer type
  *
  */
@@ -611,7 +633,7 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
                                                    size_t num_partitions,
                                                    size_t columns_per_partition,
                                                    size_type const* split_indices,
-                                                   int8_t const* flattened_col_has_validity,
+                                                   bool const* flattened_col_inst_has_validity,
                                                    partition_size_info const* partition_sizes)
 {
   constexpr uint32_t magic = 0x4b554430;
@@ -659,8 +681,10 @@ __global__ void pack_per_partition_metadata_kernel(uint8_t* out_buffer,
   // store has-validity bits. note that the kudo format only aligns to byte boundaries at the end of
   // the validity section, but we are doing this before anything further is written and we are
   // guaranteed that the overall buffer is padded out to >= 4 bytes.
-  bitmask_type mask = __ballot_sync(
-    0xffffffff, col_index < columns_per_partition ? flattened_col_has_validity[col_index] : 0);
+  auto const col_instance_index = col_index + (partition_index * columns_per_partition);
+  bitmask_type mask             = __ballot_sync(
+    0xffffffff,
+    col_index < columns_per_partition ? flattened_col_inst_has_validity[col_instance_index] : 0);
   if ((col_index % cudf::detail::warp_size == 0) && col_index < columns_per_partition) {
     has_validity[col_index / cudf::detail::warp_size] = mask;
   }
@@ -849,55 +873,67 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
 
   // setup source buf info
   auto const total_flattened_columns = count_flattened_columns(input.begin(), input.end()).first;
-  std::vector<int8_t> flattened_col_has_validity;
-  flattened_col_has_validity.reserve(total_flattened_columns);
-  int offset_stack_pos = 0;
+  int offset_stack_pos               = 0;
+  int col_index                      = 0;
   setup_source_buf_info(input.begin(),
                         input.end(),
                         h_src_buf_head,
                         h_validity_buf_info,
                         h_offset_buf_info,
                         h_data_buf_info,
-                        flattened_col_has_validity,
                         offset_stack_pos,
+                        col_index,
                         stream);
-  auto d_flattened_col_has_validity =
-    cudf::detail::make_device_uvector_async(flattened_col_has_validity, stream.value(), temp_mr);
 
   // HtoD indices and source buf info to device
   CUDF_CUDA_TRY(cudaMemcpyAsync(
     d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
 
-  // packed block of memory 2. partition buffer sizes and dst_buf_info structs
+  // packed block of memory 2. partition buffer sizes, dst_buf_info structs and per-partition
+  // has-validity buffer
   size_t const partition_sizes_size =
     cudf::util::round_up_safe(num_partitions * sizeof(partition_size_info) * 2, split_align);
   size_t const dst_buf_info_size =
     cudf::util::round_up_safe(num_bufs * sizeof(dst_buf_info), split_align);
+  size_t const partition_has_validity_size =
+    cudf::util::round_up_safe(total_flattened_columns * num_partitions * sizeof(bool), split_align);
   // device-side
   rmm::device_buffer d_buf_sizes_and_dst_info(
-    partition_sizes_size + dst_buf_info_size, stream, temp_mr);
+    partition_sizes_size + dst_buf_info_size + partition_has_validity_size, stream, temp_mr);
   partition_size_info* d_partition_sizes_unpadded =
     reinterpret_cast<partition_size_info*>(d_buf_sizes_and_dst_info.data());
   partition_size_info* d_partition_sizes = d_partition_sizes_unpadded + num_partitions;
   dst_buf_info* d_dst_buf_info           = reinterpret_cast<dst_buf_info*>(
     static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + partition_sizes_size);
+  bool* d_flattened_col_inst_has_validity =
+    reinterpret_cast<bool*>(static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) +
+                            partition_sizes_size + dst_buf_info_size);
 
   // this has to be a separate allocation because it gets returned.
   rmm::device_uvector<size_t> d_partition_offsets(num_partitions + 1, stream, mr);
 
+  // set all has-validity bools to false for all column instances by default
+  thrust::fill_n(rmm::exec_policy_nosync(stream),
+                 d_flattened_col_inst_has_validity,
+                 total_flattened_columns * num_partitions,
+                 false);
+
   // compute sizes of each buffer in each partition, including alignment.
-  thrust::transform(
+  thrust::for_each(
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator<size_t>(0),
     thrust::make_counting_iterator<size_t>(num_bufs),
-    d_dst_buf_info,
-    [bufs_per_partition,
+    [d_dst_buf_info,
+     bufs_per_partition,
      d_indices,
      d_src_buf_info,
      d_offset_stack,
-     offset_stack_partition_size] __device__(size_t t) {
+     offset_stack_partition_size,
+     d_flattened_col_inst_has_validity,
+     total_flattened_columns] __device__(size_t t) {
       int const partition_index = t / bufs_per_partition;
       int const src_buf_index   = t % bufs_per_partition;
+      int const dst_buf_index   = (bufs_per_partition * partition_index) + src_buf_index;
       auto const& src_info      = d_src_buf_info[src_buf_index];
 
       // apply nested offsets (for lists and string columns).
@@ -950,14 +986,21 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
         return num_rows;
       }();
 
+      // if this is a validity buffer with a > number of rows, flag this
+      // column as including a validity buffer for this partition
+      if (src_info.btype == buffer_type::VALIDITY && num_rows > 0) {
+        d_flattened_col_inst_has_validity[src_info.column_index +
+                                          (partition_index * total_flattened_columns)] = true;
+      }
+
       int const element_size =
         src_info.btype == buffer_type::VALIDITY
           ? 1
           : cudf::type_dispatcher(data_type{src_info.type}, size_of_helper{});
       size_t const bytes = static_cast<size_t>(num_elements) * static_cast<size_t>(element_size);
 
-      return dst_buf_info{
-        bytes, src_info.btype, src_buf_index, src_element_index * element_size, 0};
+      d_dst_buf_info[dst_buf_index] =
+        dst_buf_info{bytes, src_info.btype, src_buf_index, src_element_index * element_size, 0};
     });
 
   // compute per-partition metadata size
@@ -1106,7 +1149,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
                                                          num_partitions,
                                                          total_flattened_columns,
                                                          d_indices,
-                                                         d_flattened_col_has_validity.data(),
+                                                         d_flattened_col_inst_has_validity,
                                                          d_partition_sizes);
 
   // perform the copy.

@@ -33,7 +33,7 @@ set(CUDF_CPP_BUILD_DIR
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
-include("${CUDF_DIR}/rapids_config.cmake")
+include("${CUDF_DIR}/cmake/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
@@ -204,6 +204,7 @@ add_library(
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
+  src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
@@ -232,6 +233,7 @@ add_library(
   src/list_slice.cu
   src/map.cu
   src/murmur_hash.cu
+  src/number_converter.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
