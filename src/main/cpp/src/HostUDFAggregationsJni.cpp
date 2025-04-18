@@ -15,8 +15,8 @@
  */
 
 #include "cudf_jni_apis.hpp"
+#include "host_udf_aggregations.hpp"
 #include "hyper_log_log_plus_plus.hpp"
-#include "hyper_log_log_plus_plus_host_udf.hpp"
 
 extern "C" {
 
@@ -55,6 +55,28 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_estimateDistinctValu
     auto const sketch_view = reinterpret_cast<cudf::column_view const*>(sketches);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::estimate_from_hll_sketches(*sketch_view, precision).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_createNativeUDFInstance(JNIEnv* env,
+                                                                              jclass,
+                                                                              jint agg_type)
+{
+  try {
+    auto udf_ptr = [&] {
+      switch (agg_type) {
+        // TODO: Create enum type `agg_type`. This will be the follow up work to share common code
+        // with HyperLogLog aggs.
+        case 2: return spark_rapids_jni::create_central_moment_groupby_host_udf();
+        case 3: return spark_rapids_jni::create_central_moment_groupby_merge_host_udf();
+        default: CUDF_FAIL("Invalid aggregation type.");
+      }
+    }();
+    CUDF_EXPECTS(udf_ptr != nullptr,
+                 "Could not create an instance of CentralMoment host_udf aggregation.");
+    return reinterpret_cast<jlong>(udf_ptr);
   }
   CATCH_STD(env, 0);
 }
