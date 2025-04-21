@@ -25,8 +25,8 @@ import ai.rapids.cudf.NativeDepsLoader;
  * CentralMoment groupby aggregation and its pairing aggregation to merge multiple grouped
  * CentralMoment results.
  * <p>
- * This CentralMoment aggregation is a simplified version of Apache Spark's CentralMomentAgg class.
- * In particular, it computes the following values:
+ * This CentralMoment aggregation is a specialized version of Apache Spark's CentralMomentAgg class.
+ * In particular, it computes and outputs the following values:
  *  - Non-null count (n),
  *  - Grouped mean value (avg),
  *  - Sum of squares of differences from the mean value of the input grouped numbers (m2).

@@ -67,7 +67,7 @@ struct sqr_diff_fn {
   __device__ double operator()(cudf::size_type const idx) const
   {
     if constexpr (!std::is_same_v<ValidIter, void*>) {
-      if (!is_valid[idx]) { return 0; }
+      if (!is_valid[idx]) { return 0; }  // ignore nulls
     }
     auto const x         = static_cast<double>(grouped_values[idx]);
     auto const group_idx = value_group_index[idx];
@@ -104,7 +104,7 @@ struct central_moment {
                        d_sum   = group_sum.begin<SumType>()] __device__(cudf::size_type const idx)
                         -> thrust::tuple<double, double> {
                         auto const count = d_count[idx];
-                        if (count == 0) { return {0, 0}; }
+                        if (count == 0) { return {0, 0}; }  // ignore all-nulls and empty groups
                         auto const n = static_cast<double>(d_count[idx]);
                         return {n, static_cast<double>(d_sum[idx]) / n};
                       });
@@ -117,7 +117,8 @@ struct central_moment {
         rmm::exec_policy_nosync(stream),
         sqr_diffs.begin(),
         sqr_diffs.end(),
-        sqr_diff_fn{is_valid_it, grouped_values.begin<T>(), out_avg, value_group_index.begin()});
+        sqr_diff_fn<decltype(is_valid_it), T>{
+          is_valid_it, grouped_values.begin<T>(), out_avg, value_group_index.begin()});
     } else {
       thrust::tabulate(rmm::exec_policy_nosync(stream),
                        sqr_diffs.begin(),
@@ -143,10 +144,10 @@ struct central_moment {
 };
 
 struct merge_fn {
-  cudf::size_type const* const group_offsets;
-  double const* const group_n;
-  double const* const group_avg;
-  double const* const group_m2;
+  cudf::size_type const* group_offsets;
+  double const* group_n;
+  double const* group_avg;
+  double const* group_m2;
 
   thrust::tuple<double, double, double> __device__ operator()(cudf::size_type const group_idx) const
   {
@@ -194,6 +195,8 @@ std::unique_ptr<cudf::column> merge_central_moment(
   auto const out_avg = output->child(1).mutable_view().data<double>();
   auto const out_m2  = output->child(2).mutable_view().data<double>();
 
+  // Typically, we are merging only a few partitions, so we can use thrust::transform
+  // instead of `thrust::reduce_by_key`.
   thrust::transform(rmm::exec_policy_nosync(stream),
                     thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(num_groups),

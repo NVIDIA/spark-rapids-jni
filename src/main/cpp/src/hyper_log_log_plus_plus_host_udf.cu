@@ -13,9 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#include "host_udf_aggregations.hpp"
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
-#include "hyper_log_log_plus_plus_host_udf.hpp"
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
