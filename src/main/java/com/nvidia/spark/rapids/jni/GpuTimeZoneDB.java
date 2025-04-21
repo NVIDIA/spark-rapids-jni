@@ -76,7 +76,7 @@ public class GpuTimeZoneDB {
     Runnable runnable = () -> {
       try {
         cacheDatabaseImpl(maxYear);
-        maxTimestamp = LocalDateTime.of(maxYear+1, 1, 1, 0, 0, 0)
+        maxTimestamp = LocalDateTime.of(maxYear+1, 1, 2, 0, 0, 0)
           .atZone(utcZoneId).toEpochSecond();
       } catch (Exception e) {
         log.error("cache time zone transitions cache failed", e);
