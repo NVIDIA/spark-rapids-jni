@@ -15,8 +15,8 @@
  */
 #pragma once
 
+#include <cudf/aggregation/host_udf.hpp>
 #include <cudf/column/column.hpp>
-#include <cudf/column/column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
@@ -83,4 +83,11 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(
   int precision,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+// Functions to create instance of host UDFs for HyperLogLogPlusPlus aggregations
+cudf::host_udf_base* create_hllpp_reduction_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_reduction_merge_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_groupby_host_udf(int precision);
+cudf::host_udf_base* create_hllpp_groupby_merge_host_udf(int precision);
+
 }  // namespace spark_rapids_jni

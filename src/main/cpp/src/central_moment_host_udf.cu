@@ -17,9 +17,9 @@
 #include <cudf/aggregation/host_udf.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/aggregation/aggregation.hpp>
-#include <cudf/detail/binaryop.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/unary.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
 
@@ -27,6 +27,7 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/cmath>
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/reduce.h>
 #include <thrust/tabulate.h>
@@ -271,6 +272,157 @@ struct central_moment_groupby_udf : cudf::groupby_host_udf {
   merge_aggregate is_merge;
 };
 
+namespace {
+
+void check_input(cudf::column_view const& n, cudf::column_view const& m2)
+{
+  CUDF_EXPECTS(n.type().id() == cudf::type_id::FLOAT64 && m2.type().id() == cudf::type_id::FLOAT64,
+               "Input to stddev/variance must be double columns.");
+  CUDF_EXPECTS(n.size() == m2.size(), "Input columns to stddev/variance must have the same size.");
+  CUDF_EXPECTS(n.null_count() == 0 && m2.null_count() == 0,
+               "Input columns to stddev/variance must have no nulls.");
+}
+
+}  // namespace
+
+std::unique_ptr<cudf::column> stddev_pop(cudf::column_view const& n,
+                                         cudf::column_view const& m2,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  check_input(n, m2);
+
+  auto const n_rows = n.size();
+  auto validity     = rmm::device_uvector<bool>(n_rows, stream);
+  auto output       = cudf::make_numeric_column(
+    cudf::data_type{cudf::type_id::FLOAT64}, n_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+
+  thrust::transform(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(n_rows),
+    thrust::make_zip_iterator(output->mutable_view().data<double>(), validity.begin()),
+    [n  = n.begin<double>(),
+     m2 = m2.begin<double>()] __device__(cudf::size_type const idx) -> thrust::tuple<double, bool> {
+      // stddev_pop = sqrt(m2 / n)
+      if (n[idx] == 0) { return {0.0, false}; }
+      return {cuda::std::sqrt(m2[idx] / n[idx]), true};
+    });
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+
+  return output;
+}
+
+std::unique_ptr<cudf::column> stddev_samp(cudf::column_view const& n,
+                                          cudf::column_view const& m2,
+                                          bool null_on_div_by_zero,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  check_input(n, m2);
+
+  auto const n_rows = n.size();
+  auto validity     = rmm::device_uvector<bool>(n_rows, stream);
+  auto output       = cudf::make_numeric_column(
+    cudf::data_type{cudf::type_id::FLOAT64}, n_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+
+  thrust::transform(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(n_rows),
+    thrust::make_zip_iterator(output->mutable_view().data<double>(), validity.begin()),
+    [null_on_div_by_zero, n = n.begin<double>(), m2 = m2.begin<double>()] __device__(
+      cudf::size_type const idx) -> thrust::tuple<double, bool> {
+      // stddev_samp = sqrt(m2 / (n - 1))
+      if (n[idx] == 0) { return {0.0, false}; }
+      if (n[idx] == 1.0) {
+        if (null_on_div_by_zero) { return {0.0, false}; }
+        return {std::numeric_limits<double>::quiet_NaN(), true};
+      }
+      return {cuda::std::sqrt(m2[idx] / (n[idx] - 1.0)), true};
+    });
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+
+  return output;
+}
+
+std::unique_ptr<cudf::column> var_pop(cudf::column_view const& n,
+                                      cudf::column_view const& m2,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  check_input(n, m2);
+
+  auto const n_rows = n.size();
+  auto validity     = rmm::device_uvector<bool>(n_rows, stream);
+  auto output       = cudf::make_numeric_column(
+    cudf::data_type{cudf::type_id::FLOAT64}, n_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+
+  thrust::transform(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(n_rows),
+    thrust::make_zip_iterator(output->mutable_view().data<double>(), validity.begin()),
+    [n  = n.begin<double>(),
+     m2 = m2.begin<double>()] __device__(cudf::size_type const idx) -> thrust::tuple<double, bool> {
+      // var_pop = m2 / n
+      if (n[idx] == 0) { return {0.0, false}; }
+      return {m2[idx] / n[idx], true};
+    });
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+
+  return output;
+}
+
+std::unique_ptr<cudf::column> var_samp(cudf::column_view const& n,
+                                       cudf::column_view const& m2,
+                                       bool null_on_div_by_zero,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  check_input(n, m2);
+
+  auto const n_rows = n.size();
+  auto validity     = rmm::device_uvector<bool>(n_rows, stream);
+  auto output       = cudf::make_numeric_column(
+    cudf::data_type{cudf::type_id::FLOAT64}, n_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+
+  thrust::transform(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    thrust::make_counting_iterator(n_rows),
+    thrust::make_zip_iterator(output->mutable_view().data<double>(), validity.begin()),
+    [null_on_div_by_zero, n = n.begin<double>(), m2 = m2.begin<double>()] __device__(
+      cudf::size_type const idx) -> thrust::tuple<double, bool> {
+      // var_samp = m2 / (n - 1)
+      if (n[idx] == 0) { return {0.0, false}; }
+      if (n[idx] == 1.0) {
+        if (null_on_div_by_zero) { return {0.0, false}; }
+        return {std::numeric_limits<double>::quiet_NaN(), true};
+      }
+      return {m2[idx] / (n[idx] - 1.0), true};
+    });
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+  if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
+
+  return output;
+}
+
 }  // namespace detail
 
 cudf::host_udf_base* create_central_moment_groupby_host_udf()
@@ -281,6 +433,40 @@ cudf::host_udf_base* create_central_moment_groupby_host_udf()
 cudf::host_udf_base* create_central_moment_groupby_merge_host_udf()
 {
   return new detail::central_moment_groupby_udf(merge_aggregate::YES);
+}
+
+std::unique_ptr<cudf::column> stddev_pop(cudf::column_view const& n,
+                                         cudf::column_view const& m2,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
+{
+  return detail::stddev_pop(n, m2, stream, mr);
+}
+
+std::unique_ptr<cudf::column> stddev_samp(cudf::column_view const& n,
+                                          cudf::column_view const& m2,
+                                          bool null_on_div_by_zero,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr)
+{
+  return detail::stddev_samp(n, m2, null_on_div_by_zero, stream, mr);
+}
+
+std::unique_ptr<cudf::column> var_pop(cudf::column_view const& n,
+                                      cudf::column_view const& m2,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr)
+{
+  return detail::var_pop(n, m2, stream, mr);
+}
+
+std::unique_ptr<cudf::column> var_samp(cudf::column_view const& n,
+                                       cudf::column_view const& m2,
+                                       bool null_on_div_by_zero,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  return detail::var_samp(n, m2, null_on_div_by_zero, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

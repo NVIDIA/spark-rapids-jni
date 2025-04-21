@@ -18,6 +18,8 @@ package com.nvidia.spark.rapids.jni;
 
 import java.util.Objects;
 
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.HostUDFWrapper;
 import ai.rapids.cudf.NativeDepsLoader;
 
@@ -57,6 +59,22 @@ public class CentralMomentHostUDF extends HostUDFWrapper {
     this.type = type;
   }
 
+  public static ColumnVector stddevPop(ColumnView n, ColumnView m2) {
+    return new ColumnVector(stddev_pop(n.getNativeView(), m2.getNativeView()));
+  }
+
+  public static ColumnVector stddevSamp(ColumnView n, ColumnView m2, boolean nullOnDivideByZero) {
+    return new ColumnVector(stddev_samp(n.getNativeView(), m2.getNativeView(), nullOnDivideByZero));
+  }
+
+  public static ColumnVector varPop(ColumnView n, ColumnView m2) {
+    return new ColumnVector(var_pop(n.getNativeView(), m2.getNativeView()));
+  }
+
+  public static ColumnVector varSamp(ColumnView n, ColumnView m2, boolean nullOnDivideByZero) {
+    return new ColumnVector(var_samp(n.getNativeView(), m2.getNativeView(), nullOnDivideByZero));
+  }
+
   @Override
   public long createUDFInstance() {
     return createNativeUDFInstance(type.nativeId);
@@ -78,4 +96,9 @@ public class CentralMomentHostUDF extends HostUDFWrapper {
   private final AggregationType type;
 
   private static native long createNativeUDFInstance(int type);
+
+  private static native long stddev_pop(long nHandle, long m2Handle);
+  private static native long stddev_samp(long nHandle, long m2Handle, boolean nullOnDivideByZero);
+  private static native long var_pop(long nHandle, long m2Handle);
+  private static native long var_samp(long nHandle, long m2Handle, boolean nullOnDivideByZero);
 }

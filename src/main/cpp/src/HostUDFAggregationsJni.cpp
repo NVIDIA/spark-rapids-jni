@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
+#include "central_moment.hpp"
 #include "cudf_jni_apis.hpp"
-#include "host_udf_aggregations.hpp"
 #include "hyper_log_log_plus_plus.hpp"
 
 extern "C" {
@@ -77,6 +77,66 @@ Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_createNativeUDFInstance(JN
     CUDF_EXPECTS(udf_ptr != nullptr,
                  "Could not create an instance of CentralMoment host_udf aggregation.");
     return reinterpret_cast<jlong>(udf_ptr);
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_stddev_pop(
+  JNIEnv* env, jclass, jlong n, jlong m2)
+{
+  JNI_NULL_CHECK(env, n, "n column is null", 0);
+  JNI_NULL_CHECK(env, m2, "m2 column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const n_cv  = reinterpret_cast<cudf::column_view const*>(n);
+    auto const m2_cv = reinterpret_cast<cudf::column_view const*>(m2);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::stddev_pop(*n_cv, *m2_cv).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_stddev_samp(
+  JNIEnv* env, jclass, jlong n, jlong m2, bool null_on_div_by_zero)
+{
+  JNI_NULL_CHECK(env, n, "n column is null", 0);
+  JNI_NULL_CHECK(env, m2, "m2 column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const n_cv  = reinterpret_cast<cudf::column_view const*>(n);
+    auto const m2_cv = reinterpret_cast<cudf::column_view const*>(m2);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::stddev_samp(*n_cv, *m2_cv, null_on_div_by_zero).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_var_pop(JNIEnv* env,
+                                                                                      jclass,
+                                                                                      jlong n,
+                                                                                      jlong m2)
+{
+  JNI_NULL_CHECK(env, n, "n column is null", 0);
+  JNI_NULL_CHECK(env, m2, "m2 column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const n_cv  = reinterpret_cast<cudf::column_view const*>(n);
+    auto const m2_cv = reinterpret_cast<cudf::column_view const*>(m2);
+    return cudf::jni::ptr_as_jlong(spark_rapids_jni::var_pop(*n_cv, *m2_cv).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CentralMomentHostUDF_var_samp(
+  JNIEnv* env, jclass, jlong n, jlong m2, bool null_on_div_by_zero)
+{
+  JNI_NULL_CHECK(env, n, "n column is null", 0);
+  JNI_NULL_CHECK(env, m2, "m2 column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto const n_cv  = reinterpret_cast<cudf::column_view const*>(n);
+    auto const m2_cv = reinterpret_cast<cudf::column_view const*>(m2);
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::var_samp(*n_cv, *m2_cv, null_on_div_by_zero).release());
   }
   CATCH_STD(env, 0);
 }

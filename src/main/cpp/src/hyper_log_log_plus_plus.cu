@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 #include "hash.hpp"
-#include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
 
 #include <cudf/column/column_device_view.cuh>

@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include "host_udf_aggregations.hpp"
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
 
