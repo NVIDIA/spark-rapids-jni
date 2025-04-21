@@ -17,37 +17,8 @@
 #pragma once
 
 #include <cudf/aggregation/host_udf.hpp>
-#include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/memory_resource.hpp>
 
 namespace spark_rapids_jni {
-
-std::unique_ptr<cudf::column> stddev_pop(
-  cudf::column_view const& n,
-  cudf::column_view const& m2,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> stddev_samp(
-  cudf::column_view const& n,
-  cudf::column_view const& m2,
-  bool null_on_div_by_zero,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> var_pop(
-  cudf::column_view const& n,
-  cudf::column_view const& m2,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> var_samp(
-  cudf::column_view const& n,
-  cudf::column_view const& m2,
-  bool null_on_div_by_zero,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
 cudf::host_udf_base* create_central_moment_groupby_host_udf();
 cudf::host_udf_base* create_central_moment_groupby_merge_host_udf();
 

@@ -59,58 +59,6 @@ public class CentralMomentHostUDF extends HostUDFWrapper {
     this.type = type;
   }
 
-  /**
-   * Compute the population standard deviation from the given non-null count and sum of squares
-   * of differences from the mean.
-   *
-   * @param n The column representing the non-null count of grouped values.
-   * @param m2 The column representing the sum of squares of differences from the mean.
-   * @return A column vector containing the population standard deviation for each group.
-   */
-  public static ColumnVector stddevPop(ColumnView n, ColumnView m2) {
-    return new ColumnVector(stddev_pop(n.getNativeView(), m2.getNativeView()));
-  }
-
-  /**
-   * Compute the sample standard deviation from the given non-null count and sum of squares
-   * of differences from the mean.
-   *
-   * @param n The column representing the non-null count of grouped values.
-   * @param m2 The column representing the sum of squares of differences from the mean.
-   * @param nullOnDivideByZero If true, returns null when the number of sample in the group is one;
-   *        otherwise returns a NaN value.
-   * @return A column vector containing the sample standard deviation for each group.
-   */
-  public static ColumnVector stddevSamp(ColumnView n, ColumnView m2, boolean nullOnDivideByZero) {
-    return new ColumnVector(stddev_samp(n.getNativeView(), m2.getNativeView(), nullOnDivideByZero));
-  }
-
-  /**
-   * Compute the population variance from the given non-null count and sum of squares
-   * of differences from the mean.
-   *
-   * @param n The column representing the non-null count of grouped values.
-   * @param m2 The column representing the sum of squares of differences from the mean.
-   * @return A column vector containing the population variance for each group.
-   */
-  public static ColumnVector varPop(ColumnView n, ColumnView m2) {
-    return new ColumnVector(var_pop(n.getNativeView(), m2.getNativeView()));
-  }
-
-  /**
-   * Compute the sample variance from the given non-null count and sum of squares
-   * of differences from the mean.
-   *
-   * @param n The column representing the non-null count of grouped values.
-   * @param m2 The column representing the sum of squares of differences from the mean.
-   * @param nullOnDivideByZero If true, returns null when the number of sample in the group is one;
-   *        otherwise returns a NaN value.
-   * @return A column vector containing the sample variance for each group.
-   */
-  public static ColumnVector varSamp(ColumnView n, ColumnView m2, boolean nullOnDivideByZero) {
-    return new ColumnVector(var_samp(n.getNativeView(), m2.getNativeView(), nullOnDivideByZero));
-  }
-
   @Override
   public long createUDFInstance() {
     return createNativeUDFInstance(type.nativeId);
@@ -132,9 +80,4 @@ public class CentralMomentHostUDF extends HostUDFWrapper {
   private final AggregationType type;
 
   private static native long createNativeUDFInstance(int type);
-
-  private static native long stddev_pop(long nHandle, long m2Handle);
-  private static native long stddev_samp(long nHandle, long m2Handle, boolean nullOnDivideByZero);
-  private static native long var_pop(long nHandle, long m2Handle);
-  private static native long var_samp(long nHandle, long m2Handle, boolean nullOnDivideByZero);
 }
