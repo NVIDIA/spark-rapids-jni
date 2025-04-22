@@ -204,6 +204,7 @@ add_library(
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
+  src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
@@ -232,6 +233,7 @@ add_library(
   src/list_slice.cu
   src/map.cu
   src/murmur_hash.cu
+  src/number_converter.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
