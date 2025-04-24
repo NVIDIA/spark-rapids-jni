@@ -52,7 +52,7 @@ public class GpuTimeZoneDB {
   // For the timezone database, we store the transitions in a ColumnVector that is a list of 
   // structs. The type of this column vector is:
   //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
-  private static Map<String, Integer> zoneIdToTable;
+  private static java.util.Map<String, Integer> zoneIdToTable;
 
   // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
   // sorted by time zone, is used to query index to transition table and if tz is DST
@@ -452,7 +452,7 @@ public class GpuTimeZoneDB {
    * @param zoneIdToTable   is a map from non-normalized time zone to index in transition table
    */
   private static HostColumnVector getTimeZoneInfo(List<String> sortedTimezones,
-      Map<String, Integer> zoneIdToTable) {
+      java.util.Map<String, Integer> zoneIdToTable) {
     HostColumnVector.DataType type = new HostColumnVector.StructType(false,
         new HostColumnVector.BasicType(false, DType.STRING),
         new HostColumnVector.BasicType(false, DType.INT32),
