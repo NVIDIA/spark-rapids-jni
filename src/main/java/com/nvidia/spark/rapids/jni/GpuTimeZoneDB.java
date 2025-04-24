@@ -329,10 +329,8 @@ public class GpuTimeZoneDB {
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
       zoneIdToTable = new HashMap<>();
       for (String nonNormalizedTz : sortedTimeZones) {
-        ZoneId zoneId;
-
         // we use the normalized form to dedupe
-        zoneId = ZoneId.of(nonNormalizedTz, ZoneId.SHORT_IDS).normalized();
+        ZoneId zoneId = ZoneId.of(nonNormalizedTz, ZoneId.SHORT_IDS).normalized();
 
         String normalizedTz = zoneId.getId();
         ZoneRules zoneRules = zoneId.getRules();
@@ -397,10 +395,16 @@ public class GpuTimeZoneDB {
           masterTransitions.add(data);
           // add index for normalized timezone
           zoneIdToTable.put(normalizedTz, idx);
-          // Add index for non-normalized timezones, e.g.: "Etc/GMT+0", "Etc/GMT+0"
-          zoneIdToTable.put(nonNormalizedTz, idx);
-        }
-      }
+        } // end of: if (!zoneIdToTable.containsKey(normalizedTz)) {
+
+        // Add index for non-normalized timezones
+        // e.g.:
+        //   normalize "Etc/GMT" = Z
+        //   normalize "Etc/GMT+0" = Z
+        // use the index of Z for Etc/GMT and Etc/GMT+0
+        zoneIdToTable.put(nonNormalizedTz, zoneIdToTable.get(normalizedTz));
+      } // end of for
+
       HostColumnVector.DataType childType = new HostColumnVector.StructType(false,
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT64),
