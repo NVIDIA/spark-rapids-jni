@@ -60,6 +60,7 @@ else
   RUN_CMD="${@@Q}"
 fi
 
+# Running `bash` should already have gcc-toolset enabled when the container initialized.
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
   -v "/etc/group:/etc/group:ro" \
   -v "/etc/passwd:/etc/passwd:ro" \
