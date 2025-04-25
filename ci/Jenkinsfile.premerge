@@ -213,7 +213,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                     container('gpu') {
                         timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
                             common.resolveIncompatibleDriverIssue(this)
-                            sh 'scl enable gcc-toolset-11 "ci/premerge-build.sh"'
+                            sh 'ci/premerge-build.sh'
                             sh 'bash ci/fuzz-test.sh'
                         }
                     }

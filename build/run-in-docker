@@ -81,4 +81,4 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e VERBOSE \
   $DOCKER_OPTS \
   $SPARK_IMAGE_NAME \
-  scl enable gcc-toolset-11 "$RUN_CMD"
+  bash -c "$RUN_CMD"
