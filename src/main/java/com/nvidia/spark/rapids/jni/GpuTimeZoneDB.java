@@ -150,15 +150,6 @@ public class GpuTimeZoneDB {
     throw new UnsupportedOperationException("Unsupported data type: " + inputType);
   }
 
-  public static boolean isSupportedTimeZone(String zoneId) {
-    try {
-      getZoneId(zoneId); // check that zoneId is a valid zone
-      return true;
-    } catch (ZoneRulesException e) {
-      return false;
-    }
-  }
-
   /**
    * @deprecated added to not break spark-rapids build
    * Will be removed after spark-rapids changes are merged,
@@ -169,6 +160,14 @@ public class GpuTimeZoneDB {
     return desiredTimeZone != null &&
       (desiredTimeZone.getRules().isFixedOffset() ||
       desiredTimeZone.getRules().getTransitionRules().isEmpty());
+  }
+
+  public static boolean isSupportedTimeZone(String zoneId) {
+    try {
+      return isSupportedTimeZone(getZoneId(zoneId));
+    } catch (ZoneRulesException e) {
+      return false;
+    }
   }
 
   // enforce that all timestamps, regardless of timezone, be less than the desired date
