@@ -156,6 +156,63 @@ public class CastStrings {
     return new ColumnVector(fromIntegersWithBase(cv.getNativeView(), base));
   }
 
+  /**
+   * Trims and parses strings to intermediate result.
+   * This is the first phase of casting string with timezone to timestamp.
+   * Intermediate result is a struct column with 7 sub-columns:
+   * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
+   * - UTC timestamp
+   * - Just time in the ts string. If true, then UTC ts is at year 1970-01-01
+   * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
+   * - Timezone offset for fixed type, only applies to fixed type
+   * - Timezone is DST, only applies to other type
+   * - Timezone index to `GpuTimeZoneDB.transitions` table
+   *
+   * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
+   * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L544
+   *
+   * Use the default timezone if timestamp string does not contain timezone.
+   *
+   * Supports the following formats:
+   * `[+-]yyyy[y][y]`
+   * `[+-]yyyy[y][y]-m[m]`
+   * `[+-]yyyy[y][y]-m[m]-d[d]`
+   * `[+-]yyyy[y][y]-m[m]-d[d] `
+   * `[+-]yyyy[y][y]-m[m]-d[d] [h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   * `[+-]yyyy[y][y]-m[m]-d[d]T[h]h:[m]m:[s]s.[ms][ms][ms][us][us][us][zone_id]`
+   *
+   * The max length of yyyy[y][y] is 6 digits.
+   *
+   * Supports the following zone id forms:
+   * - Z - Zulu timezone UTC+0
+   * - +|-[h]h:[m]m
+   * - A short id, see
+   * https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#SHORT_IDS
+   * - An id with one of the prefixes UTC+, UTC-, GMT+, GMT-, UT+ or UT-,
+   * and a suffix in the formats:
+   * - +|-h[h]
+   * - +|-hh[:]mm
+   * - +|-hh:mm:ss
+   * - +|-hhmmss
+   * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
+   *
+   * @param input                The input string column to be converted.
+   * @param defaultTimeZoneIndex The default timezone index to transition table.
+   * @param timeZoneInfo         The timezone information to be used for the
+   *                             conversion, including
+   *                             all the available timezone names, name to
+   *                             transition index
+   *                             mapping and name to `is_DST` mapping.
+   * @return a struct column constains 7 columns described above.
+   */
+  static ColumnVector parseTimestampStrings(
+      ColumnView input, int defaultTimeZoneIndex,
+      ColumnView timeZoneInfo) {
+
+    return new ColumnVector(parseTimestampStrings(
+        input.getNativeView(), defaultTimeZoneIndex, timeZoneInfo.getNativeView()));
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -168,4 +225,7 @@ public class CastStrings {
   private static native long toIntegersWithBase(long nativeColumnView, int base,
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
+
+  private static native long parseTimestampStrings(long input, int defaultTimezoneIndex,
+      long timeZoneInfo);
 }
