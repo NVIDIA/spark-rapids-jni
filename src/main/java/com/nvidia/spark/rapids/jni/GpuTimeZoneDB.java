@@ -36,14 +36,14 @@ import java.util.*;
 import java.util.concurrent.Executors;
 
 /**
- * Gpu time zone utility.
+ * Gpu timezone utility.
  * Provides two kinds of APIs
- *  - Time zone transitions cache APIs
+ *  - Timezone transitions cache APIs
  *      `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
  *      When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will wait;
  *      These APIs guarantee only one thread is loading transitions cache,
  *      And guarantee loading cache only occurs one time.
- *  - Rebase time zone APIs
+ *  - Rebase timezone APIs
  *    fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
  */
 public class GpuTimeZoneDB {
@@ -55,23 +55,18 @@ public class GpuTimeZoneDB {
   private static java.util.Map<String, Integer> zoneIdToTable;
 
   // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
-  // sorted by time zone, is used to query index to transition table and if tz is DST
+  // sorted by timezone, is used to query index to transition table and if tz is DST
+  // Casting string with timezone to timestamp needs loading all timezone is successful.
+  // If this is not null, it indicates loading is successful,
+  // because it's the last variable to construct in `loadData` function.
+  // use this reference to indicate if timezone cache is initialized successfully.
   private static HostColumnVector timeZoneInfo;
 
-  // use this reference to indicate if time zone cache is initialized.
   private static HostColumnVector transitions;
   // initial year set to 1900 because some transition rules start early
   private static final int initialTransitionYear = 1900;
   private static long maxTimestamp;
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
-
-  // Casting string with timezone to timestamp needs loading all timezone is successful.
-  // All valid time zones may be included in the timestamp strings.
-  // Kernel behavior: if timezone is invalid and ansi is off, then return null.
-  // If it has a timezone unloaded, then kernel can not decide if the missed timezone is valid.
-  // So `zoneIdToTable` and `timeZoneInfo` MUST contain all the valid timezones, except fixed
-  // timezone like: +08:00
-  private static boolean loadError = false;
 
   /**
    * This should be called on startup of an executor.
@@ -86,7 +81,7 @@ public class GpuTimeZoneDB {
         maxTimestamp = LocalDateTime.of(maxYear+1, 1, 2, 0, 0, 0)
           .atZone(utcZoneId).toEpochSecond();
       } catch (Exception e) {
-        log.error("cache time zone transitions cache failed", e);
+        log.error("cache timezone transitions cache failed", e);
       }
     };
     Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -96,8 +91,8 @@ public class GpuTimeZoneDB {
   }
 
   public static synchronized void verifyDatabaseCached() {
-    if (transitions == null || loadError) {
-      throw new IllegalStateException("Time Zone DB not loaded!");
+    if (timeZoneInfo == null) {
+      throw new IllegalStateException("Timezone DB is not loaded, or the loading was failed.");
     }
   }
 
@@ -129,9 +124,7 @@ public class GpuTimeZoneDB {
     if (transitions == null) {
       try {
         loadData(maxYear);
-        loadError = false;
       } catch (Exception e) {
-        loadError = true;
         closeResources();
         throw e;
       }
@@ -286,7 +279,7 @@ public class GpuTimeZoneDB {
   }
 
 
-  // Ported from Spark. Used to format time zone ID string with (+|-)h:mm and (+|-)hh:m
+  // Ported from Spark. Used to format timezone ID string with (+|-)h:mm and (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
     String formattedZoneId = timeZoneId
       // To support the (+|-)h:mm format because it was supported before Spark 3.0.
@@ -299,9 +292,9 @@ public class GpuTimeZoneDB {
   @SuppressWarnings("unchecked")
   private static synchronized void loadData(int finalTransitionYear) {
     try {
-      // Spark uses time zones from TimeZone.getAvailableIDs
+      // Spark uses timezones from TimeZone.getAvailableIDs
       // We use ZoneId.normalized to reduce the number of timezone names.
-      // `transitions` saves transitions for normalized time zones.
+      // `transitions` saves transitions for normalized timezones.
       //
       // e.g.:
       //   "Etc/GMT" and "Etc/GMT+0" are from TimeZone.getAvailableIDs
@@ -311,16 +304,16 @@ public class GpuTimeZoneDB {
       // Use the normalized form will dedupe transition table size.
       //
       // For `fromTimestampToUtcTimestamp` and `fromUtcTimestampToTimestamp`, it will first
-      // normalize the time zone, e.g.: Etc/GMT => Z, then the use Z to find the transition index.
+      // normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the transition index.
       // But for cast string(with timezone) to timestamp, it may contain non-normalized tz.
       // E.g.: '2025-01-01 00:00:00 Etc/GMT', so should map "Etc/GMT", "Etc/GMT+0" and "Z" to
       // the same transition index. This means size of `zoneIdToTable` > size of `transitions`
       //
 
-      // get and sort time zones
+      // get and sort timezones
       String[] timeZones = TimeZone.getAvailableIDs();
       List<String> sortedTimeZones = new ArrayList<>(Arrays.asList(timeZones));
-      // Note: Z is a special normalized time zone from UTC: ZoneId.of("UTC").normalized = Z
+      // Note: Z is a special normalized timezone from UTC: ZoneId.of("UTC").normalized = Z
       // TimeZone.getAvailableIDs does not contain Z
       // Should add Z to `zoneIdToTable`
       sortedTimeZones.add("Z");
@@ -415,7 +408,7 @@ public class GpuTimeZoneDB {
           masterTransitions.toArray(new List[0]));
       timeZoneInfo = getTimeZoneInfo(sortedTimeZones, zoneIdToTable);
     } catch (Exception e) {
-      throw new IllegalStateException("load time zone DB cache failed!", e);
+      throw new IllegalStateException("load timezone DB cache failed!", e);
     }
   }
 
@@ -452,8 +445,8 @@ public class GpuTimeZoneDB {
    * The struct column is sorted by tz_name, it is used to query the index to the
    * transition table, to query if tz is Daylight Saving timezone.
    *
-   * @param sortedTimezones is sorted and supported time zones
-   * @param zoneIdToTable   is a map from non-normalized time zone to index in transition table
+   * @param sortedTimezones is sorted and supported timezones
+   * @param zoneIdToTable   is a map from non-normalized timezone to index in transition table
    */
   private static HostColumnVector getTimeZoneInfo(List<String> sortedTimezones,
       java.util.Map<String, Integer> zoneIdToTable) {
@@ -470,7 +463,7 @@ public class GpuTimeZoneDB {
       if (indexToTable != null) {
         data.add(new HostColumnVector.StructData(tz, indexToTable, isDST));
       } else {
-        throw new IllegalStateException("Could not find time zone " + tz);
+        throw new IllegalStateException("Could not find timezone " + tz);
       }
     }
     return HostColumnVector.fromStructs(type, data);
