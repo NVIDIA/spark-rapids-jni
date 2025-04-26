@@ -377,5 +377,17 @@ public class TimeZoneTest {
       assertColumnsAreEqual(expected, actual);
     }
   }
+
+    @Test
+  void nonNonNormalizedTimezone() {
+    GpuTimeZoneDB.verifyDatabaseCached();
+    List transitions;
+
+    transitions = GpuTimeZoneDB.getHostTransitions("Etc/GMT");
+    assertNotNull(transitions);
+
+    transitions = GpuTimeZoneDB.getHostTransitions("Z");
+    assertNotNull(transitions);
+  }
   
 }
