@@ -16,6 +16,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+
 import ai.rapids.cudf.*;
 
 /** Utility class for casting between string columns and native type columns */
@@ -135,11 +138,11 @@ public class CastStrings {
   }
 
   /**
-   * Converts an integer column to a string column by converting the underlying integers to the
-   * specified base.
+   * Converts an integer column to a string column by converting the underlying
+   * integers to the specified base.
    *
-   * Note: Right now we only support base 10 and 16. The hexadecimal values will be
-   * returned without leading zeros or padding at the end
+   * Note: Right now we only support base 10 and 16. The hexadecimal values will
+   * be returned without leading zeros or padding at the end
    * 
    * Example:
    * input = [123, -1, 0, 27, 342718233]
@@ -148,7 +151,7 @@ public class CastStrings {
    * s = fromIntegersWithBase(input, 10)
    * s is ['123', '-1', '0', '27', '342718233']
    *
-   * @param cv The input integer column to be converted.
+   * @param cv   The input integer column to be converted.
    * @param base base that we want to convert to (currently only 10/16)
    * @return a new String ColumnVector
    */
@@ -161,7 +164,8 @@ public class CastStrings {
    * This is the first phase of casting string with timezone to timestamp.
    * Intermediate result is a struct column with 7 sub-columns:
    * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
-   * - UTC timestamp
+   * - seconds part of parsed UTC timestamp
+   * - microseconds part of parsed UTC timestamp
    * - Just time in the ts string. If true, then UTC ts is at year 1970-01-01
    * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
    * - Timezone offset for fixed type, only applies to fixed type
@@ -206,11 +210,109 @@ public class CastStrings {
    * @return a struct column constains 7 columns described above.
    */
   static ColumnVector parseTimestampStrings(
-      ColumnView input, int defaultTimeZoneIndex,
+      ColumnView input, int defaultTimeZoneIndex, long defaultEpochDay,
       ColumnView timeZoneInfo) {
 
     return new ColumnVector(parseTimestampStrings(
-        input.getNativeView(), defaultTimeZoneIndex, timeZoneInfo.getNativeView()));
+        input.getNativeView(), defaultTimeZoneIndex, defaultEpochDay, timeZoneInfo.getNativeView()));
+  }
+
+  static ColumnVector convertToTimestampOnGpu(
+      long originInputNullcount,
+      ColumnView invalid,
+      ColumnView ts_seconds,
+      ColumnView ts_microseconds,
+      ColumnView tzType,
+      ColumnView tzOffset,
+      ColumnView tzIndex,
+      boolean ansi_enabled) {
+    try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
+        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is not supported 7 digits
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
+  static ColumnVector convertToTimestampOnCpu(
+      long originInputNullcount,
+      ColumnView invalid,
+      ColumnView ts_seconds,
+      ColumnView ts_microseconds,
+      ColumnView tzType,
+      ColumnView tzOffset,
+      ColumnView tzIndex,
+      boolean ansi_enabled) {
+    try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
+        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is not supported 7 digits
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
+  /**
+   * Cast a string column with timezones to timestamp
+   * 
+   * @param input           the input string column to be converted
+   * @param defaultTimeZone the default timezone to be used for the conversion. If
+   *                        there is no timezone in a string, use this default
+   *                        timezone
+   * @param ansi_enabled    throw exception if invalid data are found and
+   *                        ansi_enabled is true, otherwise return null
+   * @return a timestamp column
+   */
+  public static ColumnVector toTimestamp(
+      ColumnView input,
+      String defaultTimeZone,
+      boolean ansi_enabled) {
+
+    // 1. check default timezone is valid
+    Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
+    if (defaultTimeZoneIndex == null) {
+      throw new IllegalArgumentException("Invalid default timezone: " + defaultTimeZone);
+    }
+
+    long defaultEpochDay = LocalDate.now(ZoneId.of(defaultTimeZone)).toEpochDay();
+
+    // 2. parse to intermediate result
+    try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
+        ColumnVector parseResult = parseTimestampStrings(
+            input, defaultTimeZoneIndex, defaultEpochDay, tzInfo)) {
+
+      ColumnView invalid = parseResult.getChildColumnView(0);
+      ColumnView ts_seconds = parseResult.getChildColumnView(1);
+      ColumnView ts_microseconds = parseResult.getChildColumnView(2);
+      ColumnView tzType = parseResult.getChildColumnView(3);
+      ColumnView tzOffset = parseResult.getChildColumnView(4);
+      ColumnView tzIndex = parseResult.getChildColumnView(6);
+
+      // 3. fallback to cup if has a DST and has a timestamp exceeds max year
+      // threshold
+      ColumnView tsSecondsCv = parseResult.getChildColumnView(1); // seconds col
+      ColumnView hasDSTCv = parseResult.getChildColumnView(5); // DST col
+      boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSecondsCv);
+      boolean hasDST = BooleanUtils.trueCount(hasDSTCv) > 0;
+      if (exceedsMaxYearThresholdOfDST && hasDST) {
+        return convertToTimestampOnCpu(input.getNullCount(),
+            invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex, ansi_enabled);
+      }
+
+      // 4. convert to timestamp
+
+      return convertToTimestampOnGpu(input.getNullCount(), invalid, ts_seconds, ts_microseconds, tzType, tzOffset,
+          tzIndex, ansi_enabled);
+    }
   }
 
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -226,6 +328,7 @@ public class CastStrings {
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
 
-  private static native long parseTimestampStrings(long input, int defaultTimezoneIndex,
-      long timeZoneInfo);
+  private static native long parseTimestampStrings(
+      long input, int defaultTimezoneIndex, long defaultEpochDay, long timeZoneInfo);
+
 }

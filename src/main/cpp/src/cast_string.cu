@@ -55,7 +55,6 @@ constexpr bool is_whitespace(char const chr)
     default: return false;
   }
 }
-
 template <typename T, std::enable_if_t<cuda::std::is_signed_v<T>>* = nullptr>
 T __device__ generic_abs(T value)
 {

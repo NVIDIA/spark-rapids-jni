@@ -183,6 +183,7 @@ set(CUDFJNI_INCLUDE_DIRS
 add_library(
   spark_rapids_jni SHARED
   src/BloomFilterJni.cpp
+  src/BooleanUtilsJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
   src/DateTimeUtilsJni.cpp
@@ -204,6 +205,7 @@ add_library(
   src/SubStringIndexJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
+  src/boolean_utils.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
   src/cast_float_to_string.cu

@@ -631,16 +631,17 @@ __device__ bool is_valid(ts_segments ts, time_zone tz)
  * Leverage cuda::std::chrono to convert local time to UTC timestamp(in
  * microseconds)
  */
-__device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts, int64_t& microseconds)
+__device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts,
+                                                int64_t& seconds,
+                                                int32_t& microseconds)
 {
   int32_t const days = ts.to_epoch_day();
 
-  // convert to seconds
-  int64_t const timestamp_seconds =
-    (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
+  // seconds part
+  seconds = (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
 
-  // convert ts to microseconds
-  microseconds = (timestamp_seconds * 1000000L) + ts.microseconds;
+  // microseconds part
+  microseconds = ts.microseconds;
   return RESULT_TYPE::SUCCESS;
 }
 
@@ -651,7 +652,8 @@ __device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts, int64_t& 
 __device__ RESULT_TYPE parse_timestamp_string(char const* const ptr,
                                               char const* const ptr_end,
                                               time_zone& tz,
-                                              int64_t& microseconds,
+                                              int64_t& seconds,
+                                              int32_t& microseconds,
                                               TS_TYPE& just_time)
 {
   int pos     = 0;
@@ -697,7 +699,7 @@ __device__ RESULT_TYPE parse_timestamp_string(char const* const ptr,
   if (!is_valid(ts, tz)) { return RESULT_TYPE::INVALID; }
 
   if (negative_year_sign) { ts.year = -ts.year; }
-  return to_long_check_max(ts, microseconds);
+  return to_long_check_max(ts, seconds, microseconds);
 }
 
 /**
@@ -711,16 +713,15 @@ struct parse_timestamp_string_fn {
   // input strings
   cudf::column_device_view d_strings;
   cudf::size_type default_tz_index;
+  int64_t default_epoch_day;
   cudf::column_device_view tz_info;
 
   // parsed result types: not supported, invalid, success
   uint8_t* result_types;
 
   // parsed timestamp in UTC microseconds
-  int64_t* ts;
-
-  // The timestamp string only contains time, e.g.: T08:00:00
-  uint8_t* just_times;
+  int64_t* ts_seconds;
+  int32_t* ts_microseconds;
 
   // parsed timezone info
   uint8_t* tz_types;
@@ -735,16 +736,18 @@ struct parse_timestamp_string_fn {
     auto const str_end_ptr = str_ptr + str.size_bytes();
 
     time_zone tz;
-    int64_t microseconds = 0;
+    int64_t seconds      = 0;
+    int32_t microseconds = 0;
     TS_TYPE just_time    = TS_TYPE::NOT_JUST_TIME;
 
     // parse the timestamp string
-    auto result_type = parse_timestamp_string(str_ptr, str_end_ptr, tz, microseconds, just_time);
+    auto result_type =
+      parse_timestamp_string(str_ptr, str_end_ptr, tz, seconds, microseconds, just_time);
 
     // set result column
     result_types[idx]     = static_cast<uint8_t>(result_type);
-    ts[idx]               = microseconds;
-    just_times[idx]       = static_cast<uint8_t>(just_time);
+    ts_seconds[idx]       = seconds;
+    ts_microseconds[idx]  = microseconds;
     tz_types[idx]         = static_cast<uint8_t>(tz.type);
     tz_fixed_offsets[idx] = tz.fixed_offset;
     is_DSTs[idx]          = 0;
@@ -753,6 +756,10 @@ struct parse_timestamp_string_fn {
     if (result_type != RESULT_TYPE::SUCCESS) {
       // already set RESULT_TYPE::INVALID or RESULT_TYPE::NOT_SUPPORTED
       return;
+    }
+
+    if (just_time == TS_TYPE::JUST_TIME) {
+      ts_seconds[idx] = seconds + (default_epoch_day * 24L * 3600L);
     }
 
     // check the timezone, and get the timezone index
@@ -808,6 +815,7 @@ struct parse_timestamp_string_fn {
  */
 std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& input,
                                                cudf::size_type const default_tz_index,
+                                               int64_t const default_epoch_day,
                                                cudf::column_view const& tz_info,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
@@ -820,10 +828,10 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   // the follow saves parsed result
   auto parsed_result_type_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::UINT8}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
-  auto parsed_utc_ts_col = cudf::make_fixed_width_column(
+  auto parsed_utc_seconds_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::INT64}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
-  auto just_time_col = cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::UINT8}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+  auto parsed_utc_microseconds_col = cudf::make_fixed_width_column(
+    cudf::data_type{cudf::type_id::INT32}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
   auto parsed_tz_type_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::UINT8}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
   // if tz type is fixed, use this column to store offsets
@@ -841,10 +849,11 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
     num_rows,
     parse_timestamp_string_fn{*d_input,
                               default_tz_index,
+                              default_epoch_day,
                               *d_tz_info,
                               parsed_result_type_col->mutable_view().begin<uint8_t>(),
-                              parsed_utc_ts_col->mutable_view().begin<int64_t>(),
-                              just_time_col->mutable_view().begin<uint8_t>(),
+                              parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
+                              parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
                               parsed_tz_type_col->mutable_view().begin<uint8_t>(),
                               parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
                               is_DST_tz_col->mutable_view().begin<uint8_t>(),
@@ -852,8 +861,8 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
 
   std::vector<std::unique_ptr<cudf::column>> output_columns;
   output_columns.emplace_back(std::move(parsed_result_type_col));
-  output_columns.emplace_back(std::move(parsed_utc_ts_col));
-  output_columns.emplace_back(std::move(just_time_col));
+  output_columns.emplace_back(std::move(parsed_utc_seconds_col));
+  output_columns.emplace_back(std::move(parsed_utc_microseconds_col));
   output_columns.emplace_back(std::move(parsed_tz_type_col));
   output_columns.emplace_back(std::move(parsed_tz_fixed_offset_col));
   output_columns.emplace_back(std::move(is_DST_tz_col));
@@ -867,11 +876,12 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
 
 std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view const& input,
                                                       cudf::size_type const default_tz_index,
+                                                      int64_t const default_epoch_day,
                                                       cudf::column_view const& tz_info,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
-  return parse_ts_strings(input, default_tz_index, tz_info, stream, mr);
+  return parse_ts_strings(input, default_tz_index, default_epoch_day, tz_info, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   cudf::column_view const& input,
   cudf::table_view const& transitions,
-  cudf::size_type tz_index,
+  cudf::size_type const tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -63,8 +63,19 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
 std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
   cudf::column_view const& input,
   cudf::table_view const& transitions,
-  cudf::size_type tz_index,
+  cudf::size_type const tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+std::unique_ptr<cudf::column> convert_timestamp_to_utc(
+  cudf::column_view const& input_seconds,
+  cudf::column_view const& input_microseconds,
+  cudf::column_view const& invalid,
+  cudf::column_view const& tz_type,
+  cudf::column_view const& tz_offset,
+  cudf::table_view const& transitions,
+  cudf::column_view const tz_indices,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 }  // namespace spark_rapids_jni

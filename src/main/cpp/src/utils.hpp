@@ -18,7 +18,19 @@
 
 #include <cudf/types.hpp>
 
+#include <cuda/std/limits>
+
 namespace spark_rapids_jni {
+
+struct size_type_iterator {
+  cudf::size_type const* values;
+  __device__ cudf::size_type operator()(cudf::size_type const& idx) const { return values[idx]; }
+};
+
+struct const_size_type_iterator {
+  cudf::size_type const value;
+  __device__ cudf::size_type operator()(cudf::size_type const&) const { return value; }
+};
 
 /**
  * Represents timestamp with microsecond accuracy.
@@ -37,9 +49,9 @@ struct ts_segments {
 
   /**
    * Get epoch day. Can handle years in the range [-1,000,000, 1,000,000].
-   * Refer to https://howardhinnant.github.io/date_algorithms.html#days_from_civil
-   * Spark year is approximately in range [-300,000, 300,000]
-   * std::chrono::year range is [-32,767 , 32,767], here can not use std::chrono::year_month_day
+   * Spark supports years range: [-290307, 294247], so this is enough.
+   * Refer to cuda::std::chrono::year_month_day, its range is [-32,767 , 32,767],
+   * because of year is short type in cuda::std::chrono, so we can not use it.
    */
   __device__ int32_t to_epoch_day() const
   {
@@ -103,6 +115,56 @@ struct ts_segments {
   {
     return (hour >= 0 && hour < 24) && (minute >= 0 && minute < 60) &&
            (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1000000);
+  }
+};
+
+struct overflow_checker {
+  /**
+   * Check overflow for int, long addition
+   */
+  template <typename T>
+  __device__ static bool check_signed_add_overflow(T a, T b, T& result)
+  {
+    if (b > 0 && a > cuda::std::numeric_limits<T>::max() - b) {
+      return true;  // Overflow occurred
+    }
+    if (b < 0 && a < cuda::std::numeric_limits<T>::min() - b) {
+      return true;  // Underflow occurred
+    }
+    result = a + b;
+    return false;  // No overflow
+  }
+
+  /**
+   * Calculate the timestamp from epoch seconds and microseconds with checking overflow
+   * @param seconds seconds from epoch
+   * @param microseconds MUST be in range [0, 999999]
+   * @param[out] result timestamp in microseconds
+   * @return true if overflow occurred, flase otherwise
+   */
+  __device__ static bool get_timestamp_with_check(int64_t seconds,
+                                                  int32_t microseconds,
+                                                  int64_t& result)
+  {
+    constexpr int64_t micros_per_sec       = 1000000;
+    constexpr int64_t max_v                = cuda::std::numeric_limits<int64_t>::max();
+    constexpr int64_t min_v                = cuda::std::numeric_limits<int64_t>::min();
+    constexpr int64_t max_positive_seconds = max_v / micros_per_sec;
+    constexpr int64_t min_negative_seconds = min_v / micros_per_sec - 1;
+    result                                 = seconds * micros_per_sec + microseconds;
+    if (seconds > max_positive_seconds || seconds < min_negative_seconds) {
+      return true;  // Overflow occurred
+    }
+
+    if (seconds > 0) { return microseconds > max_v - seconds * micros_per_sec; }
+
+    if (seconds == min_negative_seconds) {
+      // 224192L is calculated from 9999999999999999 / 1000000
+      // BigDecimal(min_negative_seconds) * micros_per_sec - BigDecimal(min_v)
+      return microseconds >= 224192L;
+    }
+
+    return false;
   }
 };
 
