@@ -23,6 +23,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
@@ -457,8 +458,7 @@ std::unique_ptr<cudf::column> group_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results =
-    cudf::detail::make_device_uvector_sync(host_results_pointers, stream, default_mr);
+  auto d_results = cudf::detail::make_device_uvector(host_results_pointers, stream, default_mr);
 
   auto result = cudf::make_structs_column(num_groups,
                                           std::move(children),
@@ -612,7 +612,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
     auto const input_iter = cudf::detail::make_counting_transform_iterator(
       0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
     auto input_cols = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
-    auto d_inputs   = cudf::detail::make_device_uvector_sync(input_cols, stream, default_mr);
+    auto d_inputs   = cudf::detail::make_device_uvector(input_cols, stream, default_mr);
     // 1st kernel: partially group
     partial_group_long_sketches_kernel<block_size, num_longs_per_threads>
       <<<num_blocks, block_size, 0, stream.value()>>>(d_inputs,
@@ -651,7 +651,7 @@ std::unique_ptr<cudf::column> group_merge_hllpp(
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + results.size());
   auto d_sketches_output =
-    cudf::detail::make_device_uvector_sync(host_results_pointers, stream, default_mr);
+    cudf::detail::make_device_uvector(host_results_pointers, stream, default_mr);
 
   // 3rd kernel: compact
   auto num_phase3_threads = num_groups * num_long_cols;
@@ -757,8 +757,7 @@ std::unique_ptr<cudf::scalar> reduce_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results =
-    cudf::detail::make_device_uvector_sync(host_results_pointers, stream, default_mr);
+  auto d_results = cudf::detail::make_device_uvector(host_results_pointers, stream, default_mr);
 
   // 2. reduce and generate compacted long values
   constexpr int64_t block_size = 256;
@@ -810,7 +809,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
     0, [&](int i) { return scv.get_sliced_child(i, stream).begin<int64_t>(); });
   auto input_cols       = std::vector<int64_t const*>(input_iter, input_iter + num_long_cols);
   auto const default_mr = cudf::get_current_device_resource_ref();
-  auto d_inputs         = cudf::detail::make_device_uvector_sync(input_cols, stream, default_mr);
+  auto d_inputs         = cudf::detail::make_device_uvector(input_cols, stream, default_mr);
 
   // create one row output
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
@@ -829,8 +828,7 @@ std::unique_ptr<cudf::scalar> reduce_merge_hllpp(cudf::column_view const& input,
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_results =
-    cudf::detail::make_device_uvector_sync(host_results_pointers, stream, default_mr);
+  auto d_results = cudf::detail::make_device_uvector(host_results_pointers, stream, default_mr);
 
   // execute merge kernel
   auto num_threads             = num_registers_per_sketch;
@@ -959,7 +957,7 @@ std::unique_ptr<cudf::column> estimate_from_hll_sketches(cudf::column_view const
   auto const h_input_ptrs =
     std::vector<int64_t const*>(input_iter, input_iter + input.num_children());
   auto const default_mr = cudf::get_current_device_resource_ref();
-  auto d_inputs         = cudf::detail::make_device_uvector_sync(h_input_ptrs, stream, default_mr);
+  auto d_inputs         = cudf::detail::make_device_uvector(h_input_ptrs, stream, default_mr);
   auto result           = cudf::make_numeric_column(
     cudf::data_type{cudf::type_id::INT64}, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
   // evaluate from struct<long, ..., long>

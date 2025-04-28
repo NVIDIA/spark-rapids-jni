@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -329,7 +329,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                        check_valid[idx] = static_cast<int8_t>(frequencies[idx] > 0);
                      });
 
-  auto const h_checks = cudf::detail::make_std_vector_sync(check_invalid_and_zero, stream);
+  auto const h_checks = cudf::detail::make_std_vector(check_invalid_and_zero, stream);
   CUDF_EXPECTS(!h_checks.front(),  // check invalid (negative) frequencies
                "The input frequencies must not contain negative values.",
                std::invalid_argument);
@@ -439,10 +439,9 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
   auto const data_col       = cudf::structs_column_view{histograms}.get_sliced_child(0);
   auto const counts_col     = cudf::structs_column_view{histograms}.get_sliced_child(1);
 
-  auto const default_mr = rmm::mr::get_current_device_resource();
-  auto const d_data     = cudf::column_device_view::create(data_col, stream);
-  auto const d_percentages =
-    cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
+  auto const default_mr    = rmm::mr::get_current_device_resource();
+  auto const d_data        = cudf::column_device_view::create(data_col, stream);
+  auto const d_percentages = cudf::detail::make_device_uvector(percentages, stream, default_mr);
 
   // Attach histogram labels to the input.
   auto histogram_labels =

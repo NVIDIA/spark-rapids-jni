@@ -1771,7 +1771,7 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
   // assembled rows, null counts, etc
   auto [column_info, column_instance_info, per_partition_metadata_size] =
     assemble_build_column_info(metadata, partitions, partition_offsets, stream, temp_mr);
-  auto h_column_info = cudf::detail::make_std_vector_sync(column_info, stream);
+  auto h_column_info = cudf::detail::make_std_vector(column_info, stream);
 
   // generate the (empty) output buffers based on the column info.
   // generate the copy batches to be performed to copy data to the output buffers
