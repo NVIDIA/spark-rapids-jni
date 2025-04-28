@@ -39,7 +39,6 @@ include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
-include(rapids-cpm)
 rapids_cpm_init()
 
 # Use GPU_ARCHS if it is defined
@@ -128,9 +127,6 @@ configure_file(
 
 # find NVTX
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
-
-# find CCCL
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # find spdlog
 include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
