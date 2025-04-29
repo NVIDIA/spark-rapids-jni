@@ -60,46 +60,37 @@ else
   RUN_CMD="${@@Q}"
 fi
 
-HOST_MOUNT_TYPE=bind
-RO_MOUNTS=(
+MNT_ARGS=()
+
+RO_SRC=(
   "/etc/group"
   "/etc/passwd"
   "/etc/shadow"
   "/etc/sudoers.d"
 )
+RO_DST=("${RO_SRC[@]}")
+if [[ "$HOST_CUDA_PATH" != "" ]]; then
+  RO_SRC+=("$HOST_CUDA_PATH")
+  RO_DST+=("/usr/local/cuda")
+fi
+for (( i=0; i<${#RO_SRC[@]}; i++)); do
+  MNT_ARGS+=(--mount type=bind,src=${RO_SRC[$i]},dst=${RO_DST[$i]},ro)
+done
 
-RW_MOUNTS=(
+RW_SRC=(
   "$GIT_COMMON_DIR"
   "$WORKDIR"
   "$LOCAL_CCACHE_DIR"
   "$LOCAL_MAVEN_REPO"
 )
+for (( i=0; i<${#RW_SRC[@]}; i++)); do
+  MNT_ARGS+=(--mount type=bind,src=${RW_SRC[$i]},dst=${RW_SRC[$i]})
+done
 
-function mount_args() {
-  local mount_mode=$1
-  shift
-  local mounts=("$@")
-  for m in "${mounts[@]}"
-  do
-    if [[ "$mount_mode" == "ro" ]]
-    then
-      printf -- ' --mount type='$HOST_MOUNT_TYPE',src=%s,dst=%s,%s\n' "$m" "$m" "$mount_mode"
-    else
-      # rw is default
-      printf -- ' --mount type='$HOST_MOUNT_TYPE',src=%s,dst=%s\n' "$m" "$m"
-    fi
-  done
-}
-
-if [[ "$HOST_CUDA_BIN_PATH" != "" ]]
-then
-  DOCKER_OPTS="$DOCKER_OPTS --mount type=$HOST_MOUNT_TYPE,src=$HOST_CUDA_BIN_PATH,dst=/usr/local/cuda,ro"
-fi
 
 # Running `bash` should already have gcc-toolset enabled when the container initialized.
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
-  $(mount_args "ro" "${RO_MOUNTS[@]}") \
-  $(mount_args "rw" "${RW_MOUNTS[@]}") \
+  ${MNT_ARGS[@]} \
   --workdir "$WORKDIR" \
   -e CCACHE_DIR="$LOCAL_CCACHE_DIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
