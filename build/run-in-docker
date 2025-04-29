@@ -60,16 +60,45 @@ else
   RUN_CMD="${@@Q}"
 fi
 
+RO_MOUNTS=(
+  "/etc/group"
+  "/etc/passwd"
+  "/etc/shadow"
+  "/etc/sudoers.d"
+)
+
+RW_MOUNTS=(
+  "$GIT_COMMON_DIR"
+  "$WORKDIR"
+  "$LOCAL_CCACHE_DIR"
+  "$LOCAL_MAVEN_REPO"
+)
+
+function mount_args() {
+  local mount_mode=$1
+  shift
+  local mounts=("$@")
+  for m in "${mounts[@]}"
+  do
+    if [[ "$mount_mode" == "ro" ]]
+    then
+      printf -- ' --mount type=bind,src=%s,dst=%s,%s\n' "$m" "$m" "$mount_mode"
+    else
+      # rw is default
+      printf -- ' --mount type=bind,src=%s,dst=%s\n' "$m" "$m"
+    fi
+  done
+}
+
+if [[ "$HOST_CUDA_BIN_PATH" != "" ]]
+then
+  DOCKER_OPTS="$DOCKER_OPTS --mount type=bind,src=$HOST_CUDA_BIN_PATH,dst=/usr/local/cuda,ro"
+fi
+
 # Running `bash` should already have gcc-toolset enabled when the container initialized.
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
-  -v "/etc/group:/etc/group:ro" \
-  -v "/etc/passwd:/etc/passwd:ro" \
-  -v "/etc/shadow:/etc/shadow:ro" \
-  -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
-  -v "$GIT_COMMON_DIR:$GIT_COMMON_DIR:rw" \
-  -v "$WORKDIR:$WORKDIR:rw" \
-  -v "$LOCAL_CCACHE_DIR:$LOCAL_CCACHE_DIR:rw" \
-  -v "$LOCAL_MAVEN_REPO:$LOCAL_MAVEN_REPO:rw" \
+  $(mount_args "ro" "${RO_MOUNTS[@]}") \
+  $(mount_args "rw" "${RW_MOUNTS[@]}") \
   --workdir "$WORKDIR" \
   -e CCACHE_DIR="$LOCAL_CCACHE_DIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
