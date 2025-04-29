@@ -60,6 +60,7 @@ else
   RUN_CMD="${@@Q}"
 fi
 
+HOST_MOUNT_TYPE=bind
 RO_MOUNTS=(
   "/etc/group"
   "/etc/passwd"
@@ -82,17 +83,17 @@ function mount_args() {
   do
     if [[ "$mount_mode" == "ro" ]]
     then
-      printf -- ' --mount type=bind,src=%s,dst=%s,%s\n' "$m" "$m" "$mount_mode"
+      printf -- ' --mount type='$HOST_MOUNT_TYPE',src=%s,dst=%s,%s\n' "$m" "$m" "$mount_mode"
     else
       # rw is default
-      printf -- ' --mount type=bind,src=%s,dst=%s\n' "$m" "$m"
+      printf -- ' --mount type='$HOST_MOUNT_TYPE',src=%s,dst=%s\n' "$m" "$m"
     fi
   done
 }
 
 if [[ "$HOST_CUDA_BIN_PATH" != "" ]]
 then
-  DOCKER_OPTS="$DOCKER_OPTS --mount type=bind,src=$HOST_CUDA_BIN_PATH,dst=/usr/local/cuda,ro"
+  DOCKER_OPTS="$DOCKER_OPTS --mount type=$HOST_MOUNT_TYPE,src=$HOST_CUDA_BIN_PATH,dst=/usr/local/cuda,ro"
 fi
 
 # Running `bash` should already have gcc-toolset enabled when the container initialized.
