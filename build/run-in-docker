@@ -60,16 +60,37 @@ else
   RUN_CMD="${@@Q}"
 fi
 
+MNT_ARGS=()
+
+RO_SRC=(
+  "/etc/group"
+  "/etc/passwd"
+  "/etc/shadow"
+  "/etc/sudoers.d"
+)
+RO_DST=("${RO_SRC[@]}")
+if [[ "$HOST_CUDA_PATH" != "" ]]; then
+  RO_SRC+=("$HOST_CUDA_PATH")
+  RO_DST+=("/usr/local/cuda")
+fi
+for (( i=0; i<${#RO_SRC[@]}; i++)); do
+  MNT_ARGS+=(--mount type=bind,src=${RO_SRC[$i]},dst=${RO_DST[$i]},ro)
+done
+
+RW_SRC=(
+  "$GIT_COMMON_DIR"
+  "$WORKDIR"
+  "$LOCAL_CCACHE_DIR"
+  "$LOCAL_MAVEN_REPO"
+)
+for (( i=0; i<${#RW_SRC[@]}; i++)); do
+  MNT_ARGS+=(--mount type=bind,src=${RW_SRC[$i]},dst=${RW_SRC[$i]})
+done
+
+
 # Running `bash` should already have gcc-toolset enabled when the container initialized.
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
-  -v "/etc/group:/etc/group:ro" \
-  -v "/etc/passwd:/etc/passwd:ro" \
-  -v "/etc/shadow:/etc/shadow:ro" \
-  -v "/etc/sudoers.d:/etc/sudoers.d:ro" \
-  -v "$GIT_COMMON_DIR:$GIT_COMMON_DIR:rw" \
-  -v "$WORKDIR:$WORKDIR:rw" \
-  -v "$LOCAL_CCACHE_DIR:$LOCAL_CCACHE_DIR:rw" \
-  -v "$LOCAL_MAVEN_REPO:$LOCAL_MAVEN_REPO:rw" \
+  ${MNT_ARGS[@]} \
   --workdir "$WORKDIR" \
   -e CCACHE_DIR="$LOCAL_CCACHE_DIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \
