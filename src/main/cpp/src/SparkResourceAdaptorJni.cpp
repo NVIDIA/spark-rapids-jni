@@ -1551,6 +1551,24 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return ret;
   }
 
+  // Function to convert a set (ordered or unordered) of long long to a concatenated string
+  template <typename SetType>
+  std::string setToString(const SetType& longSet, const std::string& separator = ",") {
+    // Use std::ostringstream for efficient string building.
+    std::ostringstream oss;
+
+    oss << "{";
+    // Iterate through the set.
+    for (auto it = longSet.begin(); it != longSet.end(); ++it) {
+      oss << *it;
+      if (std::next(it) != longSet.end()) {
+        oss << separator;
+      }
+    }
+    oss << "}";
+    return oss.str();
+  }
+
   bool is_in_deadlock(std::map<long, long>& pool_bufn_task_thread_count,
                       std::map<long, long>& pool_task_thread_count,
                       std::unordered_set<long>& bufn_task_ids,
@@ -1637,13 +1655,19 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
     if (ret) {
+
+      std::set<int> threadsKeySet;
+      std::transform(threads.begin(), threads.end(),
+                     std::inserter(threadsKeySet, threadsKeySet.begin()),
+                     [](const auto& pair) { return pair.first; });
+
       logger->info(
-        "deadlock state is reached with all_task_ids size: {}, blocked_task_ids: {}, "
-        "bufn_task_ids: {}, threads size: {}",
-        all_task_ids.size(),
-        blocked_task_ids.size(),
-        bufn_task_ids.size(),
-        threads.size());
+        "deadlock state is reached with all_task_ids: {} {}, blocked_task_ids: {} {}, "
+        "bufn_task_ids: {} {}, threads size: {} {}",
+        setToString(all_task_ids), all_task_ids.size(),
+        setToString(blocked_task_ids), blocked_task_ids.size(),
+        setToString(bufn_task_ids), bufn_task_ids.size(),
+        setToString(threadsKeySet),threads.size());
     }
     return ret;
   }
