@@ -18,8 +18,8 @@ add_library(spark_rapids_jni_datagen STATIC common/generate_input.cu)
 target_compile_features(spark_rapids_jni_datagen PUBLIC cxx_std_17 cuda_std_17)
 
 target_compile_options(
-  spark_rapids_jni_datagen PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
-                      "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>"
+  spark_rapids_jni_datagen PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                      "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>"
 )
 
 target_link_libraries(
@@ -38,8 +38,8 @@ target_include_directories(
 function(ConfigureBench CMAKE_BENCH_NAME)
     add_executable(${CMAKE_BENCH_NAME} ${ARGN})
     target_compile_options(${CMAKE_BENCH_NAME}
-            PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
-                    "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>")
+            PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                    "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>")
 
     target_include_directories(${CMAKE_BENCH_NAME}
             PRIVATE "$<BUILD_INTERFACE:${CUDF_DIR}/cpp>"
