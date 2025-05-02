@@ -5,112 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b5fe509fd11a925f90d6495176707cc1184eed9d",
+      "git_tag" : "8d1f64e72382f10613ffccd04abeae69d73be4a0",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
-      "patches" : 
-      [
-        {
-          "fixed_in" : "3.0",
-          "inline_patch" : 
-          {
-            "content" : 
-            [
-              "diff --git a/cub/cub/block/block_merge_sort.cuh b/cub/cub/block/block_merge_sort.cuh",
-              "index 29510db5e..cf57e5786 100644",
-              "--- a/cub/cub/block/block_merge_sort.cuh",
-              "+++ b/cub/cub/block/block_merge_sort.cuh",
-              "@@ -95,7 +95,7 @@ _CCCL_DEVICE _CCCL_FORCEINLINE void SerialMerge(",
-              "   KeyT key1 = keys_shared[keys1_beg];",
-              "   KeyT key2 = keys_shared[keys2_beg];",
-              "",
-              "-#pragma unroll",
-              "+#pragma unroll 1",
-              "   for (int item = 0; item < ITEMS_PER_THREAD; ++item)",
-              "   {",
-              "     const bool p  = (keys2_beg < keys2_end) && ((keys1_beg >= keys1_end) || compare_op(key2, key1));",
-              "@@ -374,7 +374,7 @@ public:",
-              "       //",
-              "       KeyT max_key = oob_default;",
-              "",
-              "-#pragma unroll",
-              "+#pragma unroll 1",
-              "       for (int item = 1; item < ITEMS_PER_THREAD; ++item)",
-              "       {",
-              "         if (ITEMS_PER_THREAD * linear_tid + item < valid_items)",
-              "diff --git a/cub/cub/thread/thread_sort.cuh b/cub/cub/thread/thread_sort.cuh",
-              "index 7d9e8622f..da5627306 100644",
-              "--- a/cub/cub/thread/thread_sort.cuh",
-              "+++ b/cub/cub/thread/thread_sort.cuh",
-              "@@ -87,10 +87,10 @@ StableOddEvenSort(KeyT (&keys)[ITEMS_PER_THREAD], ValueT (&items)[ITEMS_PER_THRE",
-              " {",
-              "   constexpr bool KEYS_ONLY = ::cuda::std::is_same<ValueT, NullType>::value;",
-              "",
-              "-#pragma unroll",
-              "+#pragma unroll 1",
-              "   for (int i = 0; i < ITEMS_PER_THREAD; ++i)",
-              "   {",
-              "-#pragma unroll",
-              "+#pragma unroll 1",
-              "     for (int j = 1 & i; j < ITEMS_PER_THREAD - 1; j += 2)",
-              "     {",
-              "       if (compare_op(keys[j + 1], keys[j]))"
-            ],
-            "type" : "diff"
-          },
-          "issue" : "Improve Thrust sort compile times by not unrolling loops for inlined comparators [https://github.com/rapidsai/cudf/pull/10577]"
-        },
-        {
-          "fixed_in" : "",
-          "inline_patch" : 
-          {
-            "content" : 
-            [
-              "diff --git a/cub/cub/device/dispatch/dispatch_radix_sort.cuh b/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
-              "index 0606485bb..dbb99ff13 100644",
-              "--- a/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
-              "+++ b/cub/cub/device/dispatch/dispatch_radix_sort.cuh",
-              "@@ -1085,7 +1085,7 @@ struct DeviceRadixSortPolicy",
-              "   };",
-              " ",
-              "   /// SM60 (GP100)",
-              "-  struct Policy600 : ChainedPolicy<600, Policy600, Policy500>",
-              "+  struct Policy600 : ChainedPolicy<600, Policy600, Policy600>",
-              "   {",
-              "     enum",
-              "     {",
-              "diff --git a/cub/cub/device/dispatch/dispatch_reduce.cuh b/cub/cub/device/dispatch/dispatch_reduce.cuh",
-              "index f39613adb..75bd16ff9 100644",
-              "--- a/cub/cub/device/dispatch/dispatch_reduce.cuh",
-              "+++ b/cub/cub/device/dispatch/dispatch_reduce.cuh",
-              "@@ -488,7 +488,7 @@ struct DeviceReducePolicy",
-              "   };",
-              " ",
-              "   /// SM60",
-              "-  struct Policy600 : ChainedPolicy<600, Policy600, Policy350>",
-              "+  struct Policy600 : ChainedPolicy<600, Policy600, Policy600>",
-              "   {",
-              "     static constexpr int threads_per_block  = 256;",
-              "     static constexpr int items_per_thread   = 16;",
-              "diff --git a/cub/cub/device/dispatch/tuning/tuning_scan.cuh b/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
-              "index 419908c4e..6ab0840e1 100644",
-              "--- a/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
-              "+++ b/cub/cub/device/dispatch/tuning/tuning_scan.cuh",
-              "@@ -339,7 +339,7 @@ struct DeviceScanPolicy",
-              "   /// SM600",
-              "   struct Policy600",
-              "       : DefaultTuning",
-              "-      , ChainedPolicy<600, Policy600, Policy520>",
-              "+      , ChainedPolicy<600, Policy600, Policy600>",
-              "   {};",
-              " ",
-              "   /// SM800"
-            ],
-            "type" : "diff"
-          },
-          "issue" : "Improve Thrust scan compile times by reducing the number of kernels generated [https://github.com/rapidsai/cudf/pull/8183]"
-        }
-      ],
-      "version" : "2.7.0"
+      "version" : "2.8.3"
     },
     "GTest" : 
     {
@@ -140,7 +37,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7b422c00f3541e2472e8d1047b7c3bb4e83c7e2c",
+      "git_tag" : "2303a7a2a03e38385dbe1bbc91c55007a94a9192",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -180,7 +77,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9f143867a41c56d6df4c58572311c9bee004285a",
+      "git_tag" : "9d47d99b3c7d0eb02fdb03f59fee78aa8b18cd06",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.06"
     },
@@ -230,7 +127,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c7a331432f003bcaa8cc45d7bbcbd21a2876565f",
+      "git_tag" : "605feb4502b522f18e304796187b1e327d83da48",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "version" : "25.06"
     },

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1054,7 +1054,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
     rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
 
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
-  auto h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  auto h_error_check = cudf::detail::make_host_vector(d_error_check, stream);
   auto has_no_oob    = check_error(h_error_check);
 
   std::vector<cudf::device_span<thrust::pair<char const*, cudf::size_type> const>>
@@ -1136,7 +1136,7 @@ std::vector<std::unique_ptr<cudf::column>> get_json_object_batch(
   thrust::uninitialized_fill(
     rmm::exec_policy_nosync(stream), d_error_check.begin(), d_error_check.end(), 0);
   kernel_launcher::exec(input, d_path_data, d_max_path_depth_exceeded, stream);
-  h_error_check = cudf::detail::make_host_vector_sync(d_error_check, stream);
+  h_error_check = cudf::detail::make_host_vector(d_error_check, stream);
   has_no_oob    = check_error(h_error_check);
 
   // The last kernel call should not encounter any out-of-bound write.

@@ -39,7 +39,6 @@ include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
-include(rapids-cpm)
 rapids_cpm_init()
 
 rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
@@ -123,9 +122,6 @@ configure_file(
 
 # find NVTX
 include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
-
-# find CCCL
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
 
 # find spdlog
 include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
