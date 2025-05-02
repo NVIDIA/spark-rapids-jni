@@ -75,7 +75,7 @@ if [[ "$GPU_ARCHS" != "DEPRECATED" ]]; then
     echo "==========================================================================================
 WARNING: CMAKE_CUDA_ARCHITECTURES is overridden by GPU_ARCHS.
          GPU_ARCHS is deprecated. Please use CMAKE_CUDA_ARCHITECTURES instead.
-==========================================================================================" >&2
+=========================================================================================="
 fi
 
 #
