@@ -55,6 +55,7 @@ CUDF_BUILD_TYPE=${CUDF_BUILD_TYPE:-Release}
 CUDF_PATH=${CUDF_PATH:-$PROJECT_BASE_DIR/thirdparty/cudf}
 CUDF_PIN_PATH=${CUDF_PIN_PATH:-$PROJECT_BASE_DIR/thirdparty/cudf-pins}
 CUDF_USE_PER_THREAD_DEFAULT_STREAM=${CUDF_USE_PER_THREAD_DEFAULT_STREAM:-ON}
+GPU_ARCHS=${GPU_ARCHS:-DEPRECATED}
 CMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES:-RAPIDS}
 LIBCUDF_BUILD_CONFIGURE=${LIBCUDF_BUILD_CONFIGURE:-false}
 LIBCUDF_BUILD_PATH=${LIBCUDF_BUILD_PATH:-$PROJECT_BUILD_DIR/libcudf/cmake-build}
@@ -68,6 +69,14 @@ LIBCUDF_CONFIGURE_ONLY=${LIBCUDF_CONFIGURE_ONLY:-OFF}" > "$PROJECT_BUILD_DIR/bui
 fi
 
 source "$PROJECT_BUILD_DIR/buildcpp-env.sh"
+
+if [[ "$GPU_ARCHS" != "DEPRECATED" ]]; then
+    CMAKE_CUDA_ARCHITECTURES="$GPU_ARCHS"    
+    echo "==========================================================================================
+WARNING: CMAKE_CUDA_ARCHITECTURES is overridden by GPU_ARCHS.
+         GPU_ARCHS is deprecated. Please use CMAKE_CUDA_ARCHITECTURES instead.
+==========================================================================================" >&2
+fi
 
 #
 # libcudf build
