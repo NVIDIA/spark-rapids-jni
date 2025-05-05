@@ -76,10 +76,10 @@
   <properties>
     <arrow.version>0.15.1</arrow.version>
     <CPP_PARALLEL_LEVEL>10</CPP_PARALLEL_LEVEL>
-    <GPU_ARCHS>RAPIDS</GPU_ARCHS>
+    <GPU_ARCHS>DEPRECATED</GPU_ARCHS>
+    <CMAKE_CUDA_ARCHITECTURES>RAPIDS</CMAKE_CUDA_ARCHITECTURES>
     <CUDF_USE_PER_THREAD_DEFAULT_STREAM>ON</CUDF_USE_PER_THREAD_DEFAULT_STREAM>
     <RMM_LOGGING_LEVEL>OFF</RMM_LOGGING_LEVEL>
-    <SPARK_RAPIDS_JNI_CXX_FLAGS/>
     <USE_GDS>OFF</USE_GDS>
     <LIBCUDF_CONFIGURE_ONLY>OFF</LIBCUDF_CONFIGURE_ONLY>
     <CUDF_BUILD_TYPE>Release</CUDF_BUILD_TYPE>
@@ -451,6 +451,7 @@
                   <env key="CUDF_USE_PER_THREAD_DEFAULT_STREAM" value="${CUDF_USE_PER_THREAD_DEFAULT_STREAM}"/>
                   <env key="FROM_MAVEN" value="true"/>
                   <env key="GPU_ARCHS" value="${GPU_ARCHS}"/>
+                  <env key="CMAKE_CUDA_ARCHITECTURES" value="${CMAKE_CUDA_ARCHITECTURES}"/>
                   <env key="LIBCUDF_BUILD_CONFIGURE" value="${libcudf.build.configure}"/>
                   <env key="LIBCUDF_BUILD_PATH" value="${libcudf.build.path}"/>
                   <env key="LIBCUDF_DEPENDENCY_MODE" value="${libcudf.dependency.mode}"/>

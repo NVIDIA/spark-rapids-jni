@@ -68,7 +68,6 @@ jobs:
         github.actor == 'binmahone' ||
         github.actor == 'pmattione-nvidia' ||
         github.actor == 'pxLi' ||
-        github.actor == 'ustcfy' ||
         github.actor == 'zpuller' ||
         github.actor == 'nartal1'
       )
