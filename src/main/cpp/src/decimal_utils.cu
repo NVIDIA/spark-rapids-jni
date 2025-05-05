@@ -97,25 +97,6 @@ struct chunked256 {
 
   inline __device__ bool gte_unsigned(chunked256 const& other) const { return !lt_unsigned(other); }
 
-  inline __device__ int leading_zeros() const
-  {
-    if (sign() < 0) {
-      chunked256 tmp = *this;
-      tmp.negate();
-      return tmp.leading_zeros();
-    }
-
-    int ret = 0;
-    for (int i = 3; i >= 0; i--) {
-      if (chunks[i] == 0) {
-        ret += 64;
-      } else {
-        ret += __clzll(chunks[i]);
-        return ret;
-      }
-    }
-  }
-
   inline __device__ __int128_t as_128_bits() const
   {
     return (static_cast<__int128_t>(chunks[1]) << 64) | chunks[0];
@@ -516,6 +497,7 @@ inline __device__ chunked256 pow_ten(int exp)
     default:
       // This is not a supported value...
       assert(0);
+      return chunked256();
   }
 }
 

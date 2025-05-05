@@ -94,6 +94,7 @@ __device__ char byte_to_char(int byte_value)
     return static_cast<char>('A' + (byte_value - 10));
   } else {
     cudf_assert(false);
+    return 0;
   }
 }
 
