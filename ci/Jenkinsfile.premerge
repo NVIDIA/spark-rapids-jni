@@ -30,7 +30,7 @@ import ipp.blossom.*
 
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
-def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda11.8.0-blossom"
+def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.8.0-blossom"
 def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
 def PREMERGE_TAG
@@ -73,7 +73,7 @@ pipeline {
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
         PVC = credentials("pvc")
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
-        CUDA_CLASSIFIER = 'cuda11'
+        CUDA_CLASSIFIER = 'cuda12'
     }
 
     stages {
@@ -151,7 +151,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         }
 
                         if (TEMP_IMAGE_BUILD) {
-                            PREMERGE_TAG = "rockylinux8-cuda11.8.0-blossom-dev-${BUILD_TAG}"
+                            PREMERGE_TAG = "rockylinux8-cuda12.8.0-blossom-dev-${BUILD_TAG}"
                             IMAGE_PREMERGE = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG}"
                             docker.build(IMAGE_PREMERGE, "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE .")
                             uploadDocker(IMAGE_PREMERGE)
