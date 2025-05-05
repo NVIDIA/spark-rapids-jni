@@ -67,10 +67,6 @@ message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build fault injection: ${BUILD_FAULTINJ}")
 
-set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
-set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
-set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
-set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
@@ -100,7 +96,6 @@ rapids_cmake_build_type("Release")
 # ##################################################################################################
 # * compiler options ------------------------------------------------------------------------------
 rapids_find_package(CUDAToolkit REQUIRED)
-include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
@@ -142,6 +137,12 @@ if(BUILD_TESTS)
 else()
   rapids_find_package(cudf REQUIRED)
 endif()
+
+# Get the compilation flags and definitions from cudf.
+get_target_property(CUDF_CXX_FLAGS cudf::cudf CUDF_CXX_FLAGS)
+get_target_property(CUDF_CUDA_FLAGS cudf::cudf CUDF_CUDA_FLAGS)
+get_target_property(CUDF_CXX_DEFINITIONS cudf::cudf CUDF_CXX_DEFINITIONS)
+get_target_property(CUDF_CUDA_DEFINITIONS cudf::cudf CUDF_CUDA_DEFINITIONS)
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
@@ -253,8 +254,8 @@ set_target_properties(
 )
 
 target_compile_options(
-  spark_rapids_jni PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
-                           "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>"
+  spark_rapids_jni PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                           "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>"
 )
 
 # Specify include paths for the current target and dependents
@@ -267,8 +268,8 @@ target_include_directories(
 )
 
 target_compile_definitions(
-  spark_rapids_jni PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_DEFINITIONS}>"
-                          "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_DEFINITIONS}>>"
+  spark_rapids_jni PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_DEFINITIONS}>"
+                          "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_DEFINITIONS}>>"
 )
 
 # Per-thread default stream
