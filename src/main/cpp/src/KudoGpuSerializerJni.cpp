@@ -19,7 +19,8 @@
 
 extern "C" {
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevice(
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevice(
   JNIEnv* env, jclass, jlong j_table_view, jintArray j_splits)
 {
   JNI_NULL_CHECK(env, j_table_view, "table is null", NULL);
@@ -31,18 +32,18 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
     const cudf::jni::native_jintArray n_splits(env, j_splits);
     std::vector<cudf::size_type> splits = n_splits.to_vector<int>();
 
-    auto [split_result, split_meta] = spark_rapids_jni::shuffle_split(*table, splits,
-        cudf::get_default_stream(), cudf::get_current_device_resource());
+    auto [split_result, split_meta] = spark_rapids_jni::shuffle_split(
+      *table, splits, cudf::get_default_stream(), cudf::get_current_device_resource());
     // We need to copy the offsets back to a host memory buffer
-    
+
     cudf::jni::native_jlongArray result(env, 6);
-    result[0] = reinterpret_cast<jlong>(split_result.partitions->data());
-    result[1] = static_cast<jlong>(split_result.partitions->size());
-    result[2] = reinterpret_cast<jlong>(split_result.partitions.get());
+    result[0]    = reinterpret_cast<jlong>(split_result.partitions->data());
+    result[1]    = static_cast<jlong>(split_result.partitions->size());
+    result[2]    = reinterpret_cast<jlong>(split_result.partitions.get());
     auto offsets = std::make_unique<rmm::device_buffer>(std::move(split_result.offsets.release()));
-    result[3] = reinterpret_cast<jlong>(offsets->data());
-    result[4] = static_cast<jlong>(offsets->size());
-    result[5] = reinterpret_cast<jlong>(offsets.get());
+    result[3]    = reinterpret_cast<jlong>(offsets->data());
+    result[4]    = static_cast<jlong>(offsets->size());
+    result[5]    = reinterpret_cast<jlong>(offsets.get());
 
     split_result.partitions.release();
     offsets.release();
@@ -51,15 +52,18 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNative(
-    JNIEnv* env, jclass,
-    jlong part_addr, jlong part_len,
-    jlong offset_addr, jlong offset_len,
-    jintArray flat_num_children,
-    jintArray flat_type_ids,
-    jintArray flat_scale)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNative(
+  JNIEnv* env,
+  jclass,
+  jlong part_addr,
+  jlong part_len,
+  jlong offset_addr,
+  jlong offset_len,
+  jintArray flat_num_children,
+  jintArray flat_type_ids,
+  jintArray flat_scale)
 {
-
   JNI_NULL_CHECK(env, part_addr, "part_addr is null", NULL);
   JNI_NULL_CHECK(env, offset_addr, "offset_addr is null", NULL);
   JNI_NULL_CHECK(env, flat_num_children, "num_children is null", NULL);
@@ -70,7 +74,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
     cudf::jni::auto_set_device(env);
 
     cudf::device_span<uint8_t const> partitions(reinterpret_cast<uint8_t*>(part_addr), part_len);
-    cudf::device_span<size_t const> offsets(reinterpret_cast<size_t *>(offset_addr), offset_len/sizeof(size_t));
+    cudf::device_span<size_t const> offsets(reinterpret_cast<size_t*>(offset_addr),
+                                            offset_len / sizeof(size_t));
 
     cudf::jni::native_jintArray nnc(env, flat_num_children);
     cudf::jni::native_jintArray nti(env, flat_type_ids);
@@ -80,17 +85,22 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
     meta.col_info.reserve(nnc.size());
 
     for (int i = 0; i < nnc.size(); ++i) {
-      auto tid = static_cast<cudf::type_id>(nti[i]);
-      auto scale = ns[i];
+      auto tid          = static_cast<cudf::type_id>(nti[i]);
+      auto scale        = ns[i];
       auto num_children = static_cast<cudf::size_type>(nnc[i]);
-      cudf::size_type param = spark_rapids_jni::is_fixed_point(cudf::data_type{tid, scale}) ? scale : num_children;
+      cudf::size_type param =
+        spark_rapids_jni::is_fixed_point(cudf::data_type{tid, scale}) ? scale : num_children;
       meta.col_info.emplace_back(tid, param);
     }
 
-    return cudf::jni::convert_table_for_return(env, shuffle_assemble(meta, partitions, offsets, 
-          cudf::get_default_stream(), cudf::get_current_device_resource()));
+    return cudf::jni::convert_table_for_return(
+      env,
+      shuffle_assemble(meta,
+                       partitions,
+                       offsets,
+                       cudf::get_default_stream(),
+                       cudf::get_current_device_resource()));
   }
   CATCH_STD(env, NULL);
 }
-
 }
