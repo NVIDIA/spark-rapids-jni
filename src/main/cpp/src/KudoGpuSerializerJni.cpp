@@ -69,7 +69,6 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerial
   try {
     cudf::jni::auto_set_device(env);
 
-    // TODO these lengths might not be what we want/expect.
     cudf::device_span<uint8_t const> partitions(reinterpret_cast<uint8_t*>(part_addr), part_len);
     cudf::device_span<size_t const> offsets(reinterpret_cast<size_t *>(offset_addr), offset_len/sizeof(size_t));
 
