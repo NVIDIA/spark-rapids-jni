@@ -396,6 +396,22 @@ TEST_F(ShuffleSplitTests, ShortNulls)
     run_split(tbl, {2, 5});
     run_split(tbl, {0, 2, 4});
   }
+
+  // 34 rows (two input words) split such that the last two rows of validity are written as overflow
+  // bits in the copy kernel.
+  // - split at row 22, causing the second copy to have 12 bits to write.
+  // - the first 10 of those 12 bits goes in the first word, the last 2 bits goes into the second
+  // word. this is an
+  //   edge case in the copy kernel involving an early-out.
+  {
+    cudf::test::fixed_width_column_wrapper<int> col(
+      {1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17,
+       18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34},
+      {1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1,
+       1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1});
+    cudf::table_view tbl{{col}};
+    run_split(tbl, {22});
+  }
 }
 
 TEST_F(ShuffleSplitTests, PurgeNulls)
