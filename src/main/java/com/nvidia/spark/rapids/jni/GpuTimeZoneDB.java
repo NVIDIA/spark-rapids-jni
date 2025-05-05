@@ -66,6 +66,7 @@ public class GpuTimeZoneDB {
   // initial year set to 1900 because some transition rules start early
   private static final int initialTransitionYear = 1900;
   private static long maxTimestamp;
+  private static int lastCachedYear;
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
 
   /**
@@ -106,14 +107,6 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * @deprecated added to not break spark-rapids build
-   * Will be removed after spark-rapids changes are committed
-   */
-  public static void cacheDatabase() {
-    cacheDatabaseImpl(2200);
-  }
-
-  /**
    * close the cache, used when Plugin is closing
    */
   public static synchronized void shutdown() {
@@ -123,6 +116,7 @@ public class GpuTimeZoneDB {
   private static synchronized void cacheDatabaseImpl(int maxYear) {
     if (transitions == null) {
       try {
+        lastCachedYear = maxYear;
         loadData(maxYear);
       } catch (Exception e) {
         closeResources();
@@ -158,21 +152,11 @@ public class GpuTimeZoneDB {
     throw new UnsupportedOperationException("Unsupported data type: " + inputType);
   }
 
-  /**
-   * @deprecated added to not break spark-rapids build
-   * Will be removed after spark-rapids changes are merged,
-   * since all timezones will be supported.
-   * This function will not be called after spark-rapids changes
-   */
-  public static boolean isSupportedTimeZone(ZoneId desiredTimeZone) {
-    return desiredTimeZone != null &&
-      (desiredTimeZone.getRules().isFixedOffset() ||
-      desiredTimeZone.getRules().getTransitionRules().isEmpty());
-  }
-
   public static boolean isSupportedTimeZone(String zoneId) {
     try {
-      return isSupportedTimeZone(getZoneId(zoneId));
+      // check that zoneID is valid and supported by Java
+      getZoneId(zoneId);
+      return true;
     } catch (ZoneRulesException e) {
       return false;
     }
@@ -203,6 +187,9 @@ public class GpuTimeZoneDB {
   }
 
   private static ColumnVector cpuChangeTimestampTz(ColumnVector input, ZoneId currentTimeZone, ZoneId targetTimeZone) {
+    log.warn("Performing timestamp conversion on the CPU. There is a timestamp with a year over " + lastCachedYear +
+      ". You can modify the maxYear by setting spark.rapids.timezone.transitionCache.maxYear, or changing the inputs " +
+      "to stay under the year " +  lastCachedYear + ".");
     ColumnVector resultCV = null;
     try (HostColumnVector hostCV = input.copyToHost()) {
       int rows = (int) hostCV.getRowCount();
@@ -251,7 +238,6 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase(); // LINE TO BE DELETED AFTER SPARK-RAPIDS CHANGES MERGED, HERE TO PASS TESTS
     if (shouldFallbackToCpu(input, currentTimeZone)) {
       return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
     }
@@ -266,7 +252,6 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    cacheDatabase(); // LINE TO BE DELETED AFTER SPARK-RAPIDS CHANGES MERGED, HERE TO PASS TESTS
     if (shouldFallbackToCpu(input, desiredTimeZone)) {
       return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
     }
