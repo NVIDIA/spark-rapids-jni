@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,8 @@
 #include <rmm/exec_policy.hpp>
 
 #include <cub/device/device_histogram.cuh>
+#include <cuda/std/functional>
 #include <thrust/find.h>
-#include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/transform.h>
@@ -190,7 +190,7 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
   auto const delimiter = static_cast<char>(thrust::distance(zero_level_it, first_zero_count_pos));
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    is_valid_input.begin(), is_valid_input.end(), thrust::identity{}, stream, default_mr);
+    is_valid_input.begin(), is_valid_input.end(), cuda::std::identity{}, stream, default_mr);
   // If the null count doesn't change, just use the input column for concatenation.
   auto const input_applied_null =
     null_count == input.null_count()
