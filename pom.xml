@@ -92,7 +92,7 @@
     <BUILD_PROFILER>ON</BUILD_PROFILER>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
-    <cuda.version>cuda11</cuda.version>
+    <cuda.version>cuda12</cuda.version>
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
