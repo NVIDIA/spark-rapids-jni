@@ -162,7 +162,7 @@ public class SparkResourceAdaptor
     if (taskIds.length > 0) {
       log.info("poolThreadWorkingOnTasks: threadId: {}, task id: {}",
           threadId, Arrays.toString(taskIds)
-          );
+      );
       poolThreadWorkingOnTasks(getHandle(), isForShuffle, threadId, taskIds);
     }
   }
