@@ -42,6 +42,7 @@
 #include <cooperative_groups.h>
 #include <cuda/barrier>
 #include <cuda/functional>
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -221,7 +222,7 @@ build_string_row_offsets(table_view const& tbl,
                     itr + tbl.num_columns(),
                     stencil,
                     std::back_inserter(offsets_iterators),
-                    thrust::identity<bool>{});
+                    cuda::std::identity{});
     return make_device_uvector(offsets_iterators, stream, rmm::mr::get_current_device_resource());
   }();
 
