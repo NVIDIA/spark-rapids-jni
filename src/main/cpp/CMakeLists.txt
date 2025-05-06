@@ -202,6 +202,7 @@ add_library(
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
+  src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/case_when.cu
