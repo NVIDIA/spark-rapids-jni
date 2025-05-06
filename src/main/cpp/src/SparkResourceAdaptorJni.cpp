@@ -1674,7 +1674,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       logger->info(
         "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
-        "bufn_task_ids: {} ({}), threads: ({})",
+        "bufn_task_ids: {} ({}), threads: {} ({})",
         setToString(all_task_ids), all_task_ids.size(),
         setToString(blocked_task_ids), blocked_task_ids.size(),
         setToString(bufn_task_ids), bufn_task_ids.size(),
