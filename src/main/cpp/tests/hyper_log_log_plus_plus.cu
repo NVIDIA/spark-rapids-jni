@@ -102,7 +102,7 @@ std::unique_ptr<cudf::column> make_struct_column_from_scalars(
 
   // get column pointers from struct scalars
   auto col_ptrs   = get_column_ptrs_from_struct_scalars(scalars, num_longs_in_scalar);
-  auto d_col_ptrs = cudf::detail::make_device_uvector_sync(col_ptrs, stream, mr);
+  auto d_col_ptrs = cudf::detail::make_device_uvector(col_ptrs, stream, mr);
 
   // create output columns
   auto const results_iter = cudf::detail::make_counting_transform_iterator(0, [&](int i) {
@@ -120,7 +120,7 @@ std::unique_ptr<cudf::column> make_struct_column_from_scalars(
     });
   auto host_results_pointers =
     std::vector<int64_t*>(host_results_pointer_iter, host_results_pointer_iter + children.size());
-  auto d_output = cudf::detail::make_device_uvector_sync(host_results_pointers, stream, mr);
+  auto d_output = cudf::detail::make_device_uvector(host_results_pointers, stream, mr);
 
   // concatenate struct scalars into a struct column
   concat_struct_scalars_to_struct_column_kernel<<<1, 1, 0, stream.value()>>>(

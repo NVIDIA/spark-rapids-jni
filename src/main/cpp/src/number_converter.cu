@@ -22,6 +22,7 @@
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/types.hpp>
 
+#include <cuda/std/functional>
 #include <thrust/count.h>
 #include <thrust/for_each.h>
 #include <thrust/pair.h>
@@ -94,6 +95,7 @@ __device__ char byte_to_char(int byte_value)
     return static_cast<char>('A' + (byte_value - 10));
   } else {
     cudf_assert(false);
+    return 0;
   }
 }
 
@@ -394,7 +396,7 @@ std::unique_ptr<cudf::column> convert_impl(cudf::size_type num_rows,
 
   // make null mask and null count
   auto [null_mask, null_count] = cudf::detail::valid_if(
-    out_mask.data(), out_mask.data() + out_mask.size(), thrust::identity<bool>{}, stream, mr);
+    out_mask.data(), out_mask.data() + out_mask.size(), cuda::std::identity{}, stream, mr);
 
   return cudf::make_strings_column(num_rows,
                                    std::move(offsets),
