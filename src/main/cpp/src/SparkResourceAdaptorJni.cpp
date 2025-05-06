@@ -397,9 +397,9 @@ class full_thread_state {
   std::string to_string() const
   {
     std::stringstream ss;
-    ss << "thread_id: " << thread_id << ", task_id: " << task_id
-       << ", state: " << as_str(state) << ", is_for_shuffle: " << is_for_shuffle
-       << ", pool_blocked: " << pool_blocked << ", is_cpu_alloc: " << is_cpu_alloc
+    ss << "thread_id: " << thread_id << ", task_id: " << task_id << ", state: " << as_str(state)
+       << ", is_for_shuffle: " << is_for_shuffle << ", pool_blocked: " << pool_blocked
+       << ", is_cpu_alloc: " << is_cpu_alloc
        << ", is_retry_alloc_before_bufn: " << is_retry_alloc_before_bufn;
     return ss.str();
   }
@@ -1564,7 +1564,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   // Function to convert a set (ordered or unordered) to a concatenated string
   template <typename SetType>
-  std::string setToString(const SetType& set, const std::string& separator = ",") {
+  std::string setToString(const SetType& set, const std::string& separator = ",")
+  {
     // Use std::ostringstream for efficient string building.
     std::ostringstream oss;
 
@@ -1572,9 +1573,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // Iterate through the set.
     for (auto it = set.begin(); it != set.end(); ++it) {
       oss << *it;
-      if (std::next(it) != set.end()) {
-        oss << separator;
-      }
+      if (std::next(it) != set.end()) { oss << separator; }
     }
     oss << "}";
     return oss.str();
@@ -1666,31 +1665,34 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
     if (ret) {
-
       std::set<long> threadsKeySet;
-      std::transform(threads.begin(), threads.end(),
+      std::transform(threads.begin(),
+                     threads.end(),
                      std::inserter(threadsKeySet, threadsKeySet.begin()),
                      [](const auto& pair) { return pair.first; });
 
       logger->info(
         "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
         "bufn_task_ids: {} ({}), threads: {} ({})",
-        setToString(all_task_ids), all_task_ids.size(),
-        setToString(blocked_task_ids), blocked_task_ids.size(),
-        setToString(bufn_task_ids), bufn_task_ids.size(),
-        setToString(threadsKeySet), threads.size());
+        setToString(all_task_ids),
+        all_task_ids.size(),
+        setToString(blocked_task_ids),
+        blocked_task_ids.size(),
+        setToString(bufn_task_ids),
+        bufn_task_ids.size(),
+        setToString(threadsKeySet),
+        threads.size());
     }
     return ret;
   }
 
-  void log_all_threads_states() {
+  void log_all_threads_states()
+  {
     std::stringstream oss;
     oss << "States of all threads: ";
     for (auto it = threads.begin(); it != threads.end(); ++it) {
       oss << it->second.to_string();
-      if (std::next(it) != threads.end()) {
-        oss << ";";
-      }
+      if (std::next(it) != threads.end()) { oss << ";"; }
     }
     logger->info(oss.str());
   }
@@ -1739,7 +1741,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
             logger->info("thread (id: {}) is_retry_alloc_before_bufn set to true",
-                          thread_id_to_bufn);
+                         thread_id_to_bufn);
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             log_all_threads_states();
