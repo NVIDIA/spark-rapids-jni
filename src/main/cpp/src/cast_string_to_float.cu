@@ -45,7 +45,12 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  */
 constexpr bool is_whitespace(char const chr)
 {
-  if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  // Char can be signed or unsigned depending on the platform, so we need to check both ranges.
+  if constexpr (cuda::std::is_signed_v<char>) {
+    if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  } else {
+    if (chr <= 0x001F) { return true; }
+  }
   switch (chr) {
     case ' ':
     case '\r':

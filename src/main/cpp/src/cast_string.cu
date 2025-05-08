@@ -46,7 +46,12 @@ constexpr auto NUM_THREADS{256};
  */
 constexpr bool is_whitespace(char const chr)
 {
-  if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  // Char can be signed or unsigned depending on the platform, so we need to check both ranges.
+  if constexpr (cuda::std::is_signed_v<char>) {
+    if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  } else {
+    if (chr <= 0x001F) { return true; }
+  }
   switch (chr) {
     case ' ':
     case '\r':
