@@ -61,13 +61,15 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
     // The validity is a bit odd because we want to pad it for 4 byte alignment
     // But that is relative to the header, not the payload buffer
     long paddedValiditySize = padForValidityAlignment(validityBufferLen, headerSize);
+    long paddedOffsetsSize = padForHostAlignment(offsetBufferLen);
+    long paddedDataSize = padForHostAlignment(dataOnlyLen);
     return new KudoTableHeader(toIntExact(root.offset),
         toIntExact(root.rowCount),
         toIntExact(paddedValiditySize),
-        toIntExact(padForHostAlignment(offsetBufferLen)),
+        toIntExact(paddedOffsetsSize),
         toIntExact(paddedValiditySize +
-            padForHostAlignment(offsetBufferLen) +
-            padForHostAlignment(dataOnlyLen)),
+            paddedOffsetsSize +
+            paddedDataSize),
         numFlattenedCols,
         bitset);
   }

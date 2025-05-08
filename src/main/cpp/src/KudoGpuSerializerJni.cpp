@@ -34,19 +34,29 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
 
     auto [split_result, split_meta] = spark_rapids_jni::shuffle_split(
       *table, splits, cudf::get_default_stream(), cudf::get_current_device_resource());
-    // We need to copy the offsets back to a host memory buffer
 
+    // The following code is ugly. We need to return two device buffers to java, but
+    // there is no good way to do this. For this we return three values for each buffer.
+    // These values are {data_address, data_size, rmm::device_buffer*}
+    // These values are then returned to java and we call into `DeviceMemoryBuffer.fromRmm`
+    // That creates a new DeviceMemoryBuffer that takes ownership of the rmm::device_buffer*
+    // and will free it when the DeviceMemoryBuffer is closed.
+    // To make this work it looks like we pull data out of the rmm::device_buffer and 
+    // then either leak it or release the memory held by it, but that is not technically
+    // the case.
     cudf::jni::native_jlongArray result(env, 6);
     result[0]    = reinterpret_cast<jlong>(split_result.partitions->data());
     result[1]    = static_cast<jlong>(split_result.partitions->size());
-    result[2]    = reinterpret_cast<jlong>(split_result.partitions.get());
+    result[2]    = reinterpret_cast<jlong>(split_result.partitions.release());
+
+    // split_result.offsets is an rmm::device_uvector<size_t> so we have to
+    // pull out the rmm::device_buffer * from inside it to return the data in a way that
+    // java can handle it.
     auto offsets = std::make_unique<rmm::device_buffer>(std::move(split_result.offsets.release()));
     result[3]    = reinterpret_cast<jlong>(offsets->data());
     result[4]    = static_cast<jlong>(offsets->size());
-    result[5]    = reinterpret_cast<jlong>(offsets.get());
+    result[5]    = reinterpret_cast<jlong>(offsets.release());
 
-    split_result.partitions.release();
-    offsets.release();
     return result.get_jArray();
   }
   CATCH_STD(env, NULL);
