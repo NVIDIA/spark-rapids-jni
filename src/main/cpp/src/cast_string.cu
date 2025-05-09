@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,12 @@ constexpr auto NUM_THREADS{256};
  */
 constexpr bool is_whitespace(char const chr)
 {
-  if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  // Char can be signed or unsigned depending on the platform, so we need to check both ranges.
+  if constexpr (cuda::std::is_signed_v<char>) {
+    if (chr >= 0x0000 && chr <= 0x001F) { return true; }
+  } else {
+    if (chr <= 0x001F) { return true; }
+  }
   switch (chr) {
     case ' ':
     case '\r':

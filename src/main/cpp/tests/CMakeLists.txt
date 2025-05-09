@@ -20,8 +20,8 @@
 function(ConfigureTest CMAKE_TEST_NAME)
     add_executable(${CMAKE_TEST_NAME} ${ARGN})
     target_compile_options(${CMAKE_TEST_NAME}
-                PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
-                        "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>")
+                PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                        "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>")
     target_include_directories(${CMAKE_TEST_NAME}
                 PRIVATE "$<BUILD_INTERFACE:${SPARK_RAPIDS_JNI_SOURCE_DIR}>"
                         "$<BUILD_INTERFACE:${SPARK_RAPIDS_JNI_SOURCE_DIR}/src>")
