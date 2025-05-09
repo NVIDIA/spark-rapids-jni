@@ -248,9 +248,14 @@ class SlicedBufferSerializer implements HostColumnsVisitor {
 
   private long copyBuffer(HostMemoryBuffer buffer, long offset, long length)
       throws IOException {
-    long now = System.nanoTime();
-    writer.copyDataFrom(buffer, offset, length);
-    metrics.addCopyBufferTime(System.nanoTime() - now);
-    return length;
+    if (addCopyBufferTime) {
+      long now = System.nanoTime();
+      writer.copyDataFrom(buffer, offset, length);
+      metrics.addCopyBufferTime(System.nanoTime() - now);
+      return length;
+    } else {
+      writer.copyDataFrom(buffer, offset, length);
+      return length;
+    }
   }
 }
