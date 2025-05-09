@@ -399,6 +399,17 @@ public class KudoGpuSerializerTest {
     }
   }
 
+  @Test
+  public void testEmptyStructRoundTrip() throws Exception {
+    try (Table table = KudoSerializerTest.buildEmptyStructTable()) {
+      for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
+        System.err.println("TEST WITH "+ numSlices);
+        int[] slices = calcEvenSlices(table, numSlices);
+        testRoundTrip("empty struct", table, slices);
+      }
+    }
+  }
+
   public static Table buildMediumTable() {
     HostColumnVector.StructType st = new HostColumnVector.StructType(
         true,

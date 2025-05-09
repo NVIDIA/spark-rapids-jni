@@ -77,6 +77,23 @@ public class KudoSerializerTest {
   }
 
   @Test
+  public void testSerializeAndDeserializeEmptyStructTable() {
+    try(Table expected = buildEmptyStructTable()) {
+      int rowCount = toIntExact(expected.getRowCount());
+      for (int sliceSize = rowCount; sliceSize >= 1; sliceSize--) {
+        List<TableSlice> tableSlices = new ArrayList<>();
+        for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), expected));
+        }
+
+        checkMergeTable(expected, tableSlices);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
   public void testWriteSimple() throws Exception {
     KudoSerializer serializer = new KudoSerializer(buildSimpleTestSchema());
 
@@ -321,6 +338,26 @@ public class KudoSerializerTest {
         .column(st, new HostColumnVector.StructData((byte) 1, 11L),
             new HostColumnVector.StructData((byte) 2, null), null,
             new HostColumnVector.StructData((byte) 3, 33L))
+        .build();
+  }
+
+  static Table buildEmptyStructTable() {
+    HostColumnVector.StructType st = new HostColumnVector.StructType(true);
+    return new Table.TestBuilder()
+        .column(st,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), struct(), null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), null, null, null,
+            struct(), null, null, struct(), null, struct(), struct(), null,
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, null, null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct())
         .build();
   }
 
