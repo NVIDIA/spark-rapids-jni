@@ -280,6 +280,7 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
                                                                    jlong timezone_info_column)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
   try {
     cudf::jni::auto_set_device(env);
 

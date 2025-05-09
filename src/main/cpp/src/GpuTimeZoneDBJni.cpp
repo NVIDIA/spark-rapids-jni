@@ -63,13 +63,13 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTimestampColumnToUTCWithTz
   jlong transitions_handle,
   jlong tz_indices_handle)
 {
-  JNI_NULL_CHECK(env, input_seconds_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, input_microseconds_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, invalid_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, tz_type_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, tz_offset_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, tz_indices_handle, "column is null", 0);
+  JNI_NULL_CHECK(env, input_seconds_handle, "seconds column is null", 0);
+  JNI_NULL_CHECK(env, input_microseconds_handle, "microseconds column is null", 0);
+  JNI_NULL_CHECK(env, invalid_handle, "invalid column is null", 0);
+  JNI_NULL_CHECK(env, tz_type_handle, "tz type column is null", 0);
+  JNI_NULL_CHECK(env, tz_offset_handle, "tz offset column is null", 0);
+  JNI_NULL_CHECK(env, transitions_handle, "transitions column is null", 0);
+  JNI_NULL_CHECK(env, tz_indices_handle, "tz indices column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);

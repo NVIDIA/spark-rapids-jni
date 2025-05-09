@@ -30,9 +30,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
-#include <thrust/functional.h>
-#include <thrust/tabulate.h>
 
 using column                   = cudf::column;
 using column_device_view       = cudf::column_device_view;
@@ -43,7 +42,6 @@ using struct_view              = cudf::struct_view;
 using table_view               = cudf::table_view;
 
 namespace {
-constexpr int64_t SECONDS_PER_DAY = 3600L * 24L;
 
 // This device functor uses a binary search to find the instant of the transition
 // to find the right offset to do the transition.
@@ -141,8 +139,8 @@ struct convert_with_timezones_fn {
   uint8_t* output_mask;
 
   /**
-   * @brief Convert the timestamp value to either UTC or a specified timezone
-   * @param timestamp input timestamp
+   * @brief Convert the timestamp from UTC to a specified timezone
+   * @param row_idx row index of the input column
    *
    */
   __device__ void operator()(cudf::size_type row_idx) const
@@ -157,12 +155,13 @@ struct convert_with_timezones_fn {
     int64_t epoch_seconds      = input_seconds[row_idx];
     int64_t epoch_microseconds = static_cast<int64_t>(input_microseconds[row_idx]);
 
-    // 3. fixed offset conversion
+    // 2. fixed offset conversion
     if (tz_type[row_idx] == /*Fixed TZ*/ 1) {
       // Fixed offset, offset is in seconds, add the offset
       int64_t converted_seconds = epoch_seconds - tz_offset[row_idx];
       int64_t result;
-      if (spark_rapids_jni::overflow_checker::get_timestamp_with_check(
+      // after the shift, the result maybe overflow
+      if (spark_rapids_jni::overflow_checker::get_timestamp_overflow(
             converted_seconds, epoch_microseconds, result)) {
         output[row_idx]      = cudf::timestamp_us{cudf::duration_us{0L}};
         output_mask[row_idx] = 0;
@@ -173,7 +172,7 @@ struct convert_with_timezones_fn {
       return;
     }
 
-    // 4. not fixed offset, use the transition table
+    // 3. not fixed offset, use the transition table
     auto const tz_index     = tz_indices[row_idx];
     auto const utc_instants = transitions.child().child(0);
     auto const tz_instants  = transitions.child().child(1);
@@ -194,7 +193,8 @@ struct convert_with_timezones_fn {
 
     int64_t converted_seconds2 = epoch_seconds - utc_offset;
     int64_t result2;
-    if (spark_rapids_jni::overflow_checker::get_timestamp_with_check(
+    // after the shift, the result maybe overflow
+    if (spark_rapids_jni::overflow_checker::get_timestamp_overflow(
           converted_seconds2, epoch_microseconds, result2)) {
       output[row_idx]      = cudf::timestamp_us{cudf::duration_us{0L}};
       output_mask[row_idx] = 0;
@@ -205,18 +205,21 @@ struct convert_with_timezones_fn {
   }
 };
 
-std::unique_ptr<column> convert_ts_with_timezones(column_view const& input_seconds,
-                                                  column_view const& input_microseconds,
-                                                  column_view const& invalid,
-                                                  column_view const& tz_type,
-                                                  column_view const& tz_offset,
-                                                  table_view const& transitions,
-                                                  column_view const tz_indices,
-                                                  rmm::cuda_stream_view stream,
-                                                  rmm::device_async_resource_ref mr)
+std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
+  column_view const& input_seconds,
+  column_view const& input_microseconds,
+  column_view const& invalid,
+  column_view const& tz_type,
+  column_view const& tz_offset,
+  table_view const& transitions,
+  column_view const tz_indices,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input_seconds.type().id() == cudf::type_id::INT64,
-               "Input column must be of type INT64");
+               "seconds column must be of type INT64");
+  CUDF_EXPECTS(input_microseconds.type().id() == cudf::type_id::INT32,
+               "microseconds column must be of type INT32");
 
   // get the fixed transitions
   auto const ft_cdv_ptr        = column_device_view::create(transitions.column(0), stream);
@@ -249,7 +252,7 @@ std::unique_ptr<column> convert_ts_with_timezones(column_view const& input_secon
 
   auto [output_bitmask, null_count] = cudf::detail::valid_if(null_mask->view().begin<uint8_t>(),
                                                              null_mask->view().end<uint8_t>(),
-                                                             thrust::identity<bool>{},
+                                                             cuda::std::identity{},
                                                              stream,
                                                              mr);
   result->set_null_mask(std::move(output_bitmask), null_count);
@@ -311,15 +314,15 @@ std::unique_ptr<column> convert_timestamp_to_utc(column_view const& input_second
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
-  return convert_ts_with_timezones(input_seconds,
-                                   input_microseconds,
-                                   invalid,
-                                   tz_type,
-                                   tz_offset,
-                                   transitions,
-                                   tz_indices,
-                                   stream,
-                                   mr);
+  return convert_to_utc_with_multiple_timezones(input_seconds,
+                                                input_microseconds,
+                                                invalid,
+                                                tz_type,
+                                                tz_offset,
+                                                transitions,
+                                                tz_indices,
+                                                stream,
+                                                mr);
 }
 
 }  // namespace spark_rapids_jni

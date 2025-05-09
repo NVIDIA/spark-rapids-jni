@@ -34,7 +34,7 @@ struct const_size_type_iterator {
 
 /**
  * Represents timestamp with microsecond accuracy.
- * Max year is six-digits, approximately [-300000, 300000]
+ * Max year is six-digits, approximately in range [-300000, 300000]
  */
 struct ts_segments {
   __device__ ts_segments()
@@ -120,31 +120,15 @@ struct ts_segments {
 
 struct overflow_checker {
   /**
-   * Check overflow for int, long addition
-   */
-  template <typename T>
-  __device__ static bool check_signed_add_overflow(T a, T b, T& result)
-  {
-    if (b > 0 && a > cuda::std::numeric_limits<T>::max() - b) {
-      return true;  // Overflow occurred
-    }
-    if (b < 0 && a < cuda::std::numeric_limits<T>::min() - b) {
-      return true;  // Underflow occurred
-    }
-    result = a + b;
-    return false;  // No overflow
-  }
-
-  /**
    * Calculate the timestamp from epoch seconds and microseconds with checking overflow
    * @param seconds seconds from epoch
    * @param microseconds MUST be in range [0, 999999]
    * @param[out] result timestamp in microseconds
    * @return true if overflow occurred, flase otherwise
    */
-  __device__ static bool get_timestamp_with_check(int64_t seconds,
-                                                  int32_t microseconds,
-                                                  int64_t& result)
+  __device__ static bool get_timestamp_overflow(int64_t seconds,
+                                                int32_t microseconds,
+                                                int64_t& result)
   {
     constexpr int64_t micros_per_sec       = 1000000;
     constexpr int64_t max_v                = cuda::std::numeric_limits<int64_t>::max();

@@ -166,11 +166,76 @@ public class CastStrings {
    * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
    * - seconds part of parsed UTC timestamp
    * - microseconds part of parsed UTC timestamp
-   * - Just time in the ts string. If true, then UTC ts is at year 1970-01-01
    * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
    * - Timezone offset for fixed type, only applies to fixed type
    * - Timezone is DST, only applies to other type
    * - Timezone index to `GpuTimeZoneDB.transitions` table
+   *
+   *
+   * @param input The input String column contains timestamp strings
+   * @param defaultTimeZoneIndex The default timezone index to `GpuTimeZoneDB`
+   *   transition table.
+   * @param defaultEpochDay Default epoch day to use if just time, e.g.: epoch day of
+   *   "2025-05-05", then "T00:00:00" is "2025-05-05T00:00:00Z"
+   * @param timeZoneInfo Timezone info column:
+   *   STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
+   *   Refer to `GpuTimeZoneDB` for more details.
+   * @return a struct column constains 7 columns described above.
+   */
+  static ColumnVector parseTimestampStrings(
+      ColumnView input, int defaultTimeZoneIndex, long defaultEpochDay,
+      ColumnView timeZoneInfo) {
+
+    return new ColumnVector(parseTimestampStrings(
+        input.getNativeView(), defaultTimeZoneIndex, defaultEpochDay, timeZoneInfo.getNativeView()));
+  }
+
+  private static ColumnVector convertToTimestampOnGpu(
+      long originInputNullcount,
+      ColumnView invalid,
+      ColumnView ts_seconds,
+      ColumnView ts_microseconds,
+      ColumnView tzType,
+      ColumnView tzOffset,
+      ColumnView tzIndex,
+      boolean ansi_enabled) {
+    try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
+        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is not supported 7 digits
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
+  private static ColumnVector convertToTimestampOnCpu(
+      long originInputNullcount,
+      ColumnView invalid,
+      ColumnView ts_seconds,
+      ColumnView ts_microseconds,
+      ColumnView tzType,
+      ColumnView tzOffset,
+      ColumnView tzIndex,
+      boolean ansi_enabled) {
+    try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
+        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is not supported 7 digits
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
+  /**
+   * Trims and parses a string column with timezones to timestamp.
    *
    * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
    * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L544
@@ -200,77 +265,12 @@ public class CastStrings {
    * - +|-hhmmss
    * - Region-based zone IDs in the form `area/city`, such as `Europe/Paris`
    *
-   * @param input                The input string column to be converted.
-   * @param defaultTimeZoneIndex The default timezone index to transition table.
-   * @param timeZoneInfo         The timezone information to be used for the
-   *                             conversion, including
-   *                             all the available timezone names, name to
-   *                             transition index
-   *                             mapping and name to `is_DST` mapping.
-   * @return a struct column constains 7 columns described above.
-   */
-  static ColumnVector parseTimestampStrings(
-      ColumnView input, int defaultTimeZoneIndex, long defaultEpochDay,
-      ColumnView timeZoneInfo) {
-
-    return new ColumnVector(parseTimestampStrings(
-        input.getNativeView(), defaultTimeZoneIndex, defaultEpochDay, timeZoneInfo.getNativeView()));
-  }
-
-  static ColumnVector convertToTimestampOnGpu(
-      long originInputNullcount,
-      ColumnView invalid,
-      ColumnView ts_seconds,
-      ColumnView ts_microseconds,
-      ColumnView tzType,
-      ColumnView tzOffset,
-      ColumnView tzIndex,
-      boolean ansi_enabled) {
-    try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
-        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-        // has new nulls, means has any invalid data,
-        // e.g.: format is invalid, year is not supported 7 digits
-        // protocol: if ansi mode and has any invalid data, return null
-        return null;
-      } else {
-        return result.incRefCount();
-      }
-    }
-  }
-
-  static ColumnVector convertToTimestampOnCpu(
-      long originInputNullcount,
-      ColumnView invalid,
-      ColumnView ts_seconds,
-      ColumnView ts_microseconds,
-      ColumnView tzType,
-      ColumnView tzOffset,
-      ColumnView tzIndex,
-      boolean ansi_enabled) {
-    try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
-        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-        // has new nulls, means has any invalid data,
-        // e.g.: format is invalid, year is not supported 7 digits
-        // protocol: if ansi mode and has any invalid data, return null
-        return null;
-      } else {
-        return result.incRefCount();
-      }
-    }
-  }
-
-  /**
-   * Cast a string column with timezones to timestamp
-   * 
-   * @param input           the input string column to be converted
-   * @param defaultTimeZone the default timezone to be used for the conversion. If
-   *                        there is no timezone in a string, use this default
-   *                        timezone
-   * @param ansi_enabled    throw exception if invalid data are found and
-   *                        ansi_enabled is true, otherwise return null
-   * @return a timestamp column
+   * @param input The input String column contains timestamp strings
+   * @param defaultTimeZone The default timezone to be used. If there is no timezone in string, 
+   *   use this default timezone
+   * @param ansi_enabled Throw exception if has any invalid data and ansi_enabled is true,
+   * otherwise return null
+   * @return a timestamp column or null if has any invalid data and ansi_enabled is true
    */
   public static ColumnVector toTimestamp(
       ColumnView input,
@@ -291,26 +291,24 @@ public class CastStrings {
             input, defaultTimeZoneIndex, defaultEpochDay, tzInfo)) {
 
       ColumnView invalid = parseResult.getChildColumnView(0);
-      ColumnView ts_seconds = parseResult.getChildColumnView(1);
-      ColumnView ts_microseconds = parseResult.getChildColumnView(2);
+      ColumnView tsSeconds = parseResult.getChildColumnView(1); // seconds col
+      ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
       ColumnView tzType = parseResult.getChildColumnView(3);
       ColumnView tzOffset = parseResult.getChildColumnView(4);
       ColumnView tzIndex = parseResult.getChildColumnView(6);
 
-      // 3. fallback to cup if has a DST and has a timestamp exceeds max year
-      // threshold
-      ColumnView tsSecondsCv = parseResult.getChildColumnView(1); // seconds col
+      // 3. fallback to cup if has any DST timezone and has any timestamp exceeds max
+      // year
       ColumnView hasDSTCv = parseResult.getChildColumnView(5); // DST col
-      boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSecondsCv);
+      boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSeconds);
       boolean hasDST = BooleanUtils.trueCount(hasDSTCv) > 0;
       if (exceedsMaxYearThresholdOfDST && hasDST) {
         return convertToTimestampOnCpu(input.getNullCount(),
-            invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex, ansi_enabled);
+            invalid, tsSeconds, tsMicroseconds, tzType, tzOffset, tzIndex, ansi_enabled);
       }
 
       // 4. convert to timestamp
-
-      return convertToTimestampOnGpu(input.getNullCount(), invalid, ts_seconds, ts_microseconds, tzType, tzOffset,
+      return convertToTimestampOnGpu(input.getNullCount(), invalid, tsSeconds, tsMicroseconds, tzType, tzOffset,
           tzIndex, ansi_enabled);
     }
   }

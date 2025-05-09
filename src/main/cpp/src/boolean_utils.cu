@@ -17,7 +17,6 @@
 #include "boolean_utils.hpp"
 
 #include <cudf/column/column_device_view.cuh>
-#include <cudf/types.hpp>
 
 #include <rmm/exec_policy.hpp>
 

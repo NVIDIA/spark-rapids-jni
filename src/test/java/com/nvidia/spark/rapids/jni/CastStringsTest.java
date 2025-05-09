@@ -523,16 +523,15 @@ public class CastStringsTest {
     // make a dummy epoch day, this test case does not test just time.
     long defaultEpochDay = 1;
 
-    // Row is: input, return type, UTC ts, just time, tz type, offset, is DST, tz
-    // index
+    // Row is: input, return type, UTC seconds, UTC microseconds, tz type, offset, is DST, tz index
     // Intermediate result:
-    // - Return type: 0 success, 1 invalid, 2 unsupported
-    // - UTC timestamp: seconds
-    // - UTC timestamp: microseconds
-    // - TZ type: 0 not specified 1 fixed, 2 other, 3 invalid
-    // - TZ offset: record offset in seconds when tz type is fixed
-    // - TZ is DST: 0 no, 1 yes
-    // - TZ index: 0 CTT, 1 JST, 2 PST
+    // - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
+    // - seconds part of parsed UTC timestamp
+    // - microseconds part of parsed UTC timestamp
+    // - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
+    // - Timezone offset for fixed type, only applies to fixed type
+    // - Timezone is DST, only applies to other type
+    // - Timezone index to `GpuTimeZoneDB.transitions` table
     list.add(Arrays.asList("2023-11-05T03:04:55 +00:00", 0, 1699153495L, 0, 1, 0, 0, -1)); // row 0
     list.add(Arrays.asList("2023-11-05 03:04:55 +01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
     list.add(Arrays.asList("2023-11-05 03:04:55 +1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
@@ -770,7 +769,7 @@ public class CastStringsTest {
     List<Long> expectedTS = new ArrayList<>(list.size());
 
     // 1. test fallback to cpu, has large year and has DST
-    // Row is: input, expected ts, is null
+    // Row is: input, expected ts, is null mask
     // CTT = Asia/Shanghai
     // PST = America/Los_Angeles
     list.add(Arrays.asList("2500-01-01", base_ts3, true)); // this value contributes to fallback
@@ -792,14 +791,14 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
 
-    // 2. test ansi mode true
+    // 2. test ansi mode true, has large year and has DST
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
       Assertions.assertNull(actual);
     }
 
@@ -819,7 +818,7 @@ public class CastStringsTest {
       expectedTS.add(Long.parseLong(row.get(1).toString()));
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -836,8 +835,9 @@ public class CastStringsTest {
     }
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */false);
         HostColumnVector hcv = actual.copyToHost();) {
+      // this test may happen at mid-night, so the date may be different    
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
       long expectedTs2 = ((days + 1) * 24 * 3600 + 1) * 1000000L;
       long actualTs = hcv.getLong(0);
@@ -854,7 +854,7 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */true)) {
       Assertions.assertNull(actual);
     }
 
@@ -868,7 +868,7 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */true)) {
       Assertions.assertNull(actual);
     }
   }
@@ -915,7 +915,7 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -923,7 +923,7 @@ public class CastStringsTest {
 
     // 2. test ansi mode true
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
       Assertions.assertNull(actual);
     }
 
@@ -942,7 +942,7 @@ public class CastStringsTest {
       expectedTS.add(Long.parseLong(row.get(1).toString()));
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -959,7 +959,7 @@ public class CastStringsTest {
     }
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", false);
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
         HostColumnVector hcv = actual.copyToHost();) {
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
       long expectedTs2 = ((days + 1) * 24 * 3600 + 1) * 1000000L;
@@ -976,7 +976,7 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
       Assertions.assertNull(actual);
     }
 
@@ -989,7 +989,7 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", true)) {
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
       Assertions.assertNull(actual);
     }
   }

@@ -27,7 +27,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
@@ -290,16 +289,15 @@ public class GpuTimeZoneDB {
    * Running on CPU to convert the intermediate result of casting string to
    * timestamp to timestamp.
    * This function is used for casting string with timezone to timestamp
-   * 
+   *
    * @param input_seconds      second part of UTC timestamp column
    * @param input_microseconds microseconds part of UTC timestamp column
    * @param invalid            if the parsing from string to timestamp is valid
    * @param tzType             if the timezone in string is fixed offset or not
    * @param tzOffset           the tz offset value, only applies to fixed type
    *                           timezone
-   * @param tzIndex            the index to the timezone transition/timeZoneInfo
-   *                           table
-   * @return
+   * @param tzIndex            the index to the timezone transition table
+   * @return timestamp column in microseconds
    */
   public static ColumnVector cpuChangeTimestampTzWithTimezones(
       ColumnView invalid,
@@ -610,13 +608,20 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Convert timestamp to UTC timestamp with a timezone column vector
-   * This function is used for casting timestamp strings to timestamps
+   * Running on GPU to convert the intermediate result of casting string to
+   * timestamp to timestamp.
+   * This function is used for casting string with timezone to timestamp.
    * MUST make sure input does not exceed max year threshold and has no DST
    *
-   * @param input       is the timestamp column
-   * @param tzIndicesCv is the timezone to transitions table index column
-   * @return UTC timestamp column
+   * @param input_seconds      second part of UTC timestamp column
+   * @param input_microseconds microseconds part of UTC timestamp column
+   * @param invalid            if the parsing from string to timestamp is valid
+   * @param tzType             if the timezone in string is fixed offset or not
+   * @param tzOffset           the tz offset value, only applies to fixed type
+   *                           timezone
+   * @param tzIndex            the index to the timezone transition/timeZoneInfo
+   *                           table
+   * @return timestamp column in microseconds
    */
   public static ColumnVector fromTimestampToUtcTimestampWithTzCv(
       ColumnView invalid,
