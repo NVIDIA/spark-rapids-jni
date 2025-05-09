@@ -46,7 +46,7 @@ constexpr auto NUM_THREADS{256};
  */
 constexpr bool is_whitespace(char const chr)
 {
-  // Return true if:
+  // Whitespace characters include:
   // - Space (0x20, ' ')
   // - Form feed (0x0c, '\f')
   // - Line feed (0x0a, '\n')

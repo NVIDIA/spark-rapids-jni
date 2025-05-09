@@ -45,7 +45,7 @@ __device__ __inline__ bool is_digit(char c) { return c >= '0' && c <= '9'; }
  */
 constexpr bool is_whitespace(char const chr)
 {
-  // Return true if:
+  // Whitespace characters include:
   // - Space (0x20, ' ')
   // - Form feed (0x0c, '\f')
   // - Line feed (0x0a, '\n')
