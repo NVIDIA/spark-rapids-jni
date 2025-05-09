@@ -46,19 +46,15 @@ constexpr auto NUM_THREADS{256};
  */
 constexpr bool is_whitespace(char const chr)
 {
-  // Char can be signed or unsigned depending on the platform, so we need to check both ranges.
-  if constexpr (cuda::std::is_signed_v<char>) {
-    if (chr >= 0x0000 && chr <= 0x001F) { return true; }
-  } else {
-    if (chr <= 0x001F) { return true; }
-  }
-  switch (chr) {
-    case ' ':
-    case '\r':
-    case '\t':
-    case '\n': return true;
-    default: return false;
-  }
+  // Return true if:
+  // - Space (0x20, ' ')
+  // - Form feed (0x0c, '\f')
+  // - Line feed (0x0a, '\n')
+  // - Carriage return (0x0d, '\r')
+  // - Horizontal tab (0x09, '\t')
+  // - Vertical tab (0x0b, '\v')
+  auto const c = static_cast<unsigned char>(chr);
+  return c <= 0x001F || c == ' ';
 }
 
 template <typename T, std::enable_if_t<cuda::std::is_signed_v<T>>* = nullptr>
