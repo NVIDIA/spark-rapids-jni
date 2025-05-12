@@ -303,7 +303,7 @@ public class CastStrings {
       boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSeconds);
       boolean hasDST;
       try (Scalar s = hasDSTCv.sum(DType.INT32)) {
-        hasDST = !s.isValid() && s.getInt() > 0;
+        hasDST = s.isValid() && s.getInt() > 0;
       }
       if (exceedsMaxYearThresholdOfDST && hasDST) {
         return convertToTimestampOnCpu(input.getNullCount(),
