@@ -301,7 +301,10 @@ public class CastStrings {
       // year
       ColumnView hasDSTCv = parseResult.getChildColumnView(5); // DST col
       boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSeconds);
-      boolean hasDST = BooleanUtils.trueCount(hasDSTCv) > 0;
+      boolean hasDST;
+      try (Scalar s = hasDSTCv.sum(DType.INT32)) {
+        hasDST = !s.isValid() && s.getInt() > 0;
+      }
       if (exceedsMaxYearThresholdOfDST && hasDST) {
         return convertToTimestampOnCpu(input.getNullCount(),
             invalid, tsSeconds, tsMicroseconds, tzType, tzOffset, tzIndex, ansi_enabled);
