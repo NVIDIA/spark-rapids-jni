@@ -605,7 +605,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       return nullCount;
     }
 
-    private int getIntAsBytes(HostMemoryBuffer src, long offset, long length) {
+    private static int getIntAsBytes(HostMemoryBuffer src, long offset, long length) {
       // We need to build up the int ourselves and pad it as needed
       int ret = 0;
       for (int at = 0; at < 4 && (offset + at) < length ; at++) {
@@ -615,7 +615,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       return ret;
     }
 
-    private int getIntSafe(HostMemoryBuffer src, long offset) {
+    private static int getIntSafe(HostMemoryBuffer src, long offset) {
       long length = src.getLength();
       if (offset + 4 < length) {
         return src.getInt(offset);
@@ -624,7 +624,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       }
     }
 
-    private void getIntsSafe(HostMemoryBuffer src, int[] dst, long dstIndex, long srcOffset, int count) {
+    private static void getIntsSafe(HostMemoryBuffer src, int[] dst, long dstIndex, long srcOffset, int count) {
       long length = src.getLength();
       if (srcOffset + (4L * count) < length) {
         src.getInts(dst, dstIndex, srcOffset, count);
