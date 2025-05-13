@@ -14,6 +14,12 @@
 
 cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
+# CUDF_DIR is set from the environment variable, allowing to specify
+# a custom cudf repository other than `thirdparty/cudf`.
+set(CUDF_DIR
+  "$ENV{CUDF_ROOT}"
+  CACHE STRING "path to cudf repository"
+)
 set(CUDF_INSTALL_DIR
   "$ENV{CUDF_INSTALL_DIR}"
   CACHE STRING "path to libcudf install root"
@@ -25,8 +31,6 @@ set(CUDFJNI_BUILD_DIR
 
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
-
-set(CUDF_DIR "${CMAKE_SOURCE_DIR}/../../../thirdparty/cudf")
 
 include("${CUDF_DIR}/cmake/rapids_config.cmake")
 include(rapids-cmake)
