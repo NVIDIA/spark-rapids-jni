@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #include "cuda.h"
 #include "cuda_runtime.h"
 #include "nvToolsExtMem.h"
@@ -180,9 +190,9 @@ nvtxMemCudaMarkInitialized(nvtxDomainHandle_t domain,
                            uint8_t isPerThreadStream, /* 0 for false, otherwise true */
                            nvtxMemMarkInitializedBatch_t const* desc);
 
-/** @} */ /*END defgroup*/
+/** @} */
 
-#endif    /* NVTX_MEM_CUDART_CONTENTS_V1 */
+#endif /* NVTX_MEM_CUDART_CONTENTS_V1 */
 
 #ifdef __GNUC__
 #pragma GCC visibility push(internal)

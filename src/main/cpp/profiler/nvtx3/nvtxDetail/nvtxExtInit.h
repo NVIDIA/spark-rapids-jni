@@ -22,6 +22,16 @@
 #error Never include this file directly -- it is automatically included by nvToolsExt.h (except when NVTX_NO_IMPL is defined).
 #endif
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -31,11 +41,15 @@ extern "C" {
 /* Prefer macros over inline functions to reduce symbol resolution at link time */
 
 #if defined(_WIN32)
-#define NVTX_ATOMIC_WRITE_PTR(address, value) \
-  InterlockedExchangePointer((volatile PVOID*)address, (PVOID)value)
-#define NVTX_ATOMIC_CAS_PTR(old, address, exchange, comparand) \
-  old = (intptr_t)InterlockedCompareExchangePointer(           \
-    (volatile PVOID*)address, (PVOID)exchange, (PVOID)comparand)
+#define NVTX_ATOMIC_WRITE_PTR(address, value)                                   \
+  InterlockedExchangePointer(NVTX_REINTERPRET_CAST(volatile PVOID*, (address)), \
+                             NVTX_REINTERPRET_CAST(PVOID, (value)))
+#define NVTX_ATOMIC_CAS_PTR(old, address, exchange, comparand)                           \
+  (old) = NVTX_REINTERPRET_CAST(                                                         \
+    intptr_t,                                                                            \
+    InterlockedCompareExchangePointer(NVTX_REINTERPRET_CAST(volatile PVOID*, (address)), \
+                                      NVTX_REINTERPRET_CAST(PVOID, (exchange)),          \
+                                      NVTX_REINTERPRET_CAST(PVOID, (comparand))))
 #elif defined(__GNUC__)
 /* Ensure full memory barrier for atomics, to match Windows functions */
 #define NVTX_ATOMIC_WRITE_PTR(address, value) \
@@ -145,10 +159,10 @@ NVTX_LINKONCE_DEFINE_FUNCTION int NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjection
 #if NVTX_SUPPORT_ALREADY_INJECTED_LIBRARY
   static const char initFuncPreinjectName[] = "InitializeInjectionNvtxExtensionPreinject";
 #endif
-  NvtxExtInitializeInjectionFunc_t init_fnptr = (NvtxExtInitializeInjectionFunc_t)0;
+  NvtxExtInitializeInjectionFunc_t init_fnptr = NVTX_NULLPTR;
   NVTX_DLLHANDLE injectionLibraryHandle       = NVTX_DLLDEFAULT;
 
-  if (out_init_fnptr) { *out_init_fnptr = (NvtxExtInitializeInjectionFunc_t)0; }
+  if (out_init_fnptr) { *out_init_fnptr = NVTX_NULLPTR; }
 
 #if NVTX_SUPPORT_DYNAMIC_INJECTION_LIBRARY
   /* Try discovering dynamic injection library to load */
@@ -160,7 +174,7 @@ NVTX_LINKONCE_DEFINE_FUNCTION int NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjection
       (sizeof(void*) == 4) ? NVTX_STR("NVTX_INJECTION32_PATH") : NVTX_STR("NVTX_INJECTION64_PATH");
 #endif /* NVTX_SUPPORT_ENV_VARS */
     NVTX_PATHCHAR injectionLibraryPathBuf[NVTX_BUFSIZE];
-    const NVTX_PATHCHAR* injectionLibraryPath = (const NVTX_PATHCHAR*)0;
+    const NVTX_PATHCHAR* injectionLibraryPath = NVTX_NULLPTR;
 
     /* Refer to this variable explicitly in case all references to it are #if'ed out. */
     (void)injectionLibraryPathBuf;
@@ -189,9 +203,9 @@ NVTX_LINKONCE_DEFINE_FUNCTION int NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjection
       size_t bytesRead;
       size_t pos;
 
-      pid   = (int)getpid();
+      pid   = NVTX_STATIC_CAST(int, getpid());
       count = snprintf(cmdlineBuf, sizeof(cmdlineBuf), "/proc/%d/cmdline", pid);
-      if (count <= 0 || count >= (int)sizeof(cmdlineBuf)) {
+      if (count <= 0 || count >= NVTX_STATIC_CAST(int, sizeof(cmdlineBuf))) {
         NVTX_ERR("Path buffer too small for: /proc/%d/cmdline\n", pid);
         return NVTX_ERR_INIT_ACCESS_LIBRARY;
       }
@@ -260,8 +274,8 @@ NVTX_LINKONCE_DEFINE_FUNCTION int NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjection
         return NVTX_ERR_INIT_LOAD_LIBRARY;
       } else {
         /* Attempt to get the injection library's entry-point. */
-        init_fnptr =
-          (NvtxExtInitializeInjectionFunc_t)NVTX_DLLFUNC(injectionLibraryHandle, initFuncName);
+        init_fnptr = NVTX_REINTERPRET_CAST(NvtxExtInitializeInjectionFunc_t,
+                                           NVTX_DLLFUNC(injectionLibraryHandle, initFuncName));
         if (!init_fnptr) {
           NVTX_DLLCLOSE(injectionLibraryHandle);
           NVTX_ERR("Failed to get address of function %s from injection library\n", initFuncName);
@@ -275,8 +289,8 @@ NVTX_LINKONCE_DEFINE_FUNCTION int NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjection
 #if NVTX_SUPPORT_ALREADY_INJECTED_LIBRARY
   if (!init_fnptr) {
     /* Use POSIX global symbol chain to query for init function from any module */
-    init_fnptr =
-      (NvtxExtInitializeInjectionFunc_t)NVTX_DLLFUNC(NVTX_DLLDEFAULT, initFuncPreinjectName);
+    init_fnptr = NVTX_REINTERPRET_CAST(NvtxExtInitializeInjectionFunc_t,
+                                       NVTX_DLLFUNC(NVTX_DLLDEFAULT, initFuncPreinjectName));
   }
 #endif
 
@@ -325,11 +339,11 @@ NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_VERSIONED_IDENTIFIER(nvtxExtInitOnce)(
     size_t s;
 
     /* Load and initialize injection library, which will assign the function pointers. */
-    if (init_fnptr == 0) {
+    if (init_fnptr == NVTX_NULLPTR) {
       int result = 0;
 
       /* Try to load vanilla NVTX first. */
-      nvtxInitialize(0);
+      nvtxInitialize(NVTX_NULLPTR);
 
       result = NVTX_VERSIONED_IDENTIFIER(nvtxExtLoadInjectionLibrary)(&init_fnptr);
       /* At this point `init_fnptr` will be either 0 or a real function. */
@@ -341,7 +355,7 @@ NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_VERSIONED_IDENTIFIER(nvtxExtInitOnce)(
       }
     }
 
-    if (init_fnptr != 0) {
+    if (init_fnptr != NVTX_NULLPTR) {
       /* Invoke injection library's initialization function. If it returns
          0 (failure) and a dynamic injection was loaded, unload it. */
       entryPointStatus = init_fnptr(moduleInfo);
@@ -352,7 +366,7 @@ NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_VERSIONED_IDENTIFIER(nvtxExtInitOnce)(
 
     /* Clean up any functions that are still uninitialized so that they are
        skipped. Set all to null if injection init function failed as well. */
-    forceAllToNoops = (init_fnptr == 0) || (entryPointStatus == 0);
+    forceAllToNoops = (init_fnptr == NVTX_NULLPTR) || (entryPointStatus == 0);
     for (s = 0; s < moduleInfo->segmentsCount; ++s) {
       nvtxExtModuleSegment_t* segment = moduleInfo->segments + s;
       size_t i;

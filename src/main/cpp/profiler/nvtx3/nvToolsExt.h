@@ -35,7 +35,7 @@
  * attached to the application.  The overhead when a tool is
  * attached is specific to the tool.
  *
- * \section INITIALIZATION_SECTION Initialization
+ * \section INITIALIZATION Initialization
  *
  * Typically the tool's library that plugs into NVTX is indirectly
  * loaded via environmental properties that are platform specific.
@@ -163,6 +163,16 @@
   "Trying to #include NVTX version 3 in a source file where an older NVTX version has already been included.  If you are not directly using NVTX (the NVIDIA Tools Extension library), you are getting this error because libraries you are using have included different versions of NVTX.  Suggested solutions are: (1) reorder #includes so the newest NVTX version is included first, (2) avoid using the conflicting libraries in the same .c/.cpp file, or (3) update the library using the older NVTX version to use the newer version instead."
 #endif
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 /* Header guard */
 #if !defined(NVTX_VERSION)
 #define NVTX_VERSION 3
@@ -194,7 +204,7 @@
 #define NVTX_DYNAMIC_EXPORT __attribute__((visibility("default"))) __declspec(dllexport)
 #endif
 
-#if defined(_M_IX86) || defined(_M_ARM64EC)
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_ARM64EC))
 #define NVTX_EXPORT_UNMANGLED_FUNCTION_NAME \
   _Pragma("comment(linker, \"/EXPORT:\" __FUNCTION__ \"=\" __FUNCDNAME__)")
 #else
@@ -230,6 +240,22 @@
 #endif
 
 #endif /* Compiler-dependent defines */
+
+#if !defined(NVTX_NULLPTR)
+#if defined(__cplusplus) && __cplusplus >= 201103L
+#define NVTX_NULLPTR nullptr
+#else
+#define NVTX_NULLPTR NULL
+#endif
+#endif
+
+#if defined(__cplusplus)
+#define NVTX_STATIC_CAST(type, value)      (static_cast<type>(value))
+#define NVTX_REINTERPRET_CAST(type, value) (reinterpret_cast<type>(value))
+#else
+#define NVTX_STATIC_CAST(type, value)      ((type)(value))
+#define NVTX_REINTERPRET_CAST(type, value) ((type)(value))
+#endif
 
 /* API linkage/export options:
  *
@@ -368,9 +394,9 @@ extern "C" {
 /**
  * Size of the nvtxEventAttributes_t structure.
  */
-#define NVTX_EVENT_ATTRIB_STRUCT_SIZE ((uint16_t)(sizeof(nvtxEventAttributes_t)))
+#define NVTX_EVENT_ATTRIB_STRUCT_SIZE (NVTX_STATIC_CAST(uint16_t, sizeof(nvtxEventAttributes_t)))
 
-#define NVTX_NO_PUSH_POP_TRACKING ((int)-2)
+#define NVTX_NO_PUSH_POP_TRACKING (NVTX_STATIC_CAST(int, -2))
 
 typedef uint64_t nvtxRangeId_t;
 
@@ -423,9 +449,9 @@ typedef enum nvtxMessageType_t {
   NVTX_MESSAGE_TYPE_ASCII   = 1, /**< A character sequence is used as payload. */
   NVTX_MESSAGE_TYPE_UNICODE = 2, /**< A wide character sequence is used as payload. */
   /* NVTX_VERSION_2 */
-  NVTX_MESSAGE_TYPE_REGISTERED = 3, /**< A unique string handle that was registered
-                                          with \ref nvtxDomainRegisterStringA() or
-                                          \ref nvtxDomainRegisterStringW(). */
+  NVTX_MESSAGE_TYPE_REGISTERED = 3 /**< A unique string handle that was registered
+                                         with \ref nvtxDomainRegisterStringA() or
+                                         \ref nvtxDomainRegisterStringW(). */
 } nvtxMessageType_t;
 
 typedef union nvtxMessageValue_t {
@@ -435,9 +461,9 @@ typedef union nvtxMessageValue_t {
   nvtxStringHandle_t registered;
 } nvtxMessageValue_t;
 
-/** @} */ /*END defgroup*/
 /* ------------------------------------------------------------------------- */
 /** \brief Force initialization (optional)
+ * \anchor FORCE_INITIALIZATION
  *
  * Force NVTX library to initialize.  The first call to any NVTX API function
  * will automatically initialize the entire API.  This can make the first call
@@ -453,7 +479,7 @@ typedef union nvtxMessageValue_t {
  * at that point, adding a call to nvtxInitialize at the top of main() will
  * ensure the later call to nvtxDomainCreate is as fast as possible.
  *
- * \version \NVTX_VERSION_3
+ * \version NVTX_VERSION_3
  *
  * \param reserved - must be zero or NULL.
  *
@@ -490,8 +516,7 @@ typedef enum nvtxPayloadType_t {
  * library and can change between different versions of the Tools Extension
  * library.
  *
- * \par Initializing the Attributes
- *
+ * \par Guidelines
  * The caller should always perform the following three tasks when using
  * attributes:
  * <ul>
@@ -509,14 +534,16 @@ typedef enum nvtxPayloadType_t {
  * It is recommended that the caller use one of the following to methods
  * to initialize the event attributes structure:
  *
- * \par Method 1: Initializing nvtxEventAttributes for future compatibility
+ * \par Method 1
+ * Initializing nvtxEventAttributes for future compatibility:
  * \code
  * nvtxEventAttributes_t eventAttrib = {0};
  * eventAttrib.version = NVTX_VERSION;
  * eventAttrib.size = NVTX_EVENT_ATTRIB_STRUCT_SIZE;
  * \endcode
  *
- * \par Method 2: Initializing nvtxEventAttributes for a specific version
+ * \par Method 2
+ * Initializing nvtxEventAttributes for a specific version:
  * \code
  * nvtxEventAttributes_t eventAttrib = {0};
  * eventAttrib.version = 1;
@@ -533,10 +560,8 @@ typedef enum nvtxPayloadType_t {
  * will likely cause either source level incompatibility or binary
  * incompatibility in the future.
  *
- * \par Settings Attribute Types and Values
- *
- *
- * \par Example:
+ * \par Example
+ * Populate an attributes structure:
  * \code
  * // Initialize
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -681,7 +706,7 @@ typedef struct nvtxEventAttributes_v2 nvtxEventAttributes_t;
  * \sa
  * ::nvtxMarkEx
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxDomainMarkEx(nvtxDomainHandle_t domain,
                                              const nvtxEventAttributes_t* eventAttrib);
@@ -700,7 +725,8 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainMarkEx(nvtxDomainHandle_t domain,
  * \param eventAttrib - The event attribute structure defining the marker's
  * attribute types and attribute values.
  *
- * \par Example:
+ * \par Example
+ * Place a mark with attributes:
  * \code
  * // zero the structure
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -718,7 +744,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainMarkEx(nvtxDomainHandle_t domain,
  * \sa
  * ::nvtxDomainMarkEx
  *
- * \version \NVTX_VERSION_1
+ * \version NVTX_VERSION_1
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxMarkEx(const nvtxEventAttributes_t* eventAttrib);
 /** @} */
@@ -731,7 +757,8 @@ NVTX_DECLSPEC void NVTX_API nvtxMarkEx(const nvtxEventAttributes_t* eventAttrib)
  *
  * \param message     - The message associated to this marker event.
  *
- * \par Example:
+ * \par Example
+ * Place a mark:
  * \code
  * nvtxMarkA("Example nvtxMarkA");
  * nvtxMarkW(L"Example nvtxMarkW");
@@ -741,7 +768,7 @@ NVTX_DECLSPEC void NVTX_API nvtxMarkEx(const nvtxEventAttributes_t* eventAttrib)
  * ::nvtxDomainMarkEx
  * ::nvtxMarkEx
  *
- * \version \NVTX_VERSION_0
+ * \version NVTX_VERSION_0
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxMarkA(const char* message);
 NVTX_DECLSPEC void NVTX_API nvtxMarkW(const wchar_t* message);
@@ -760,7 +787,8 @@ NVTX_DECLSPEC void NVTX_API nvtxMarkW(const wchar_t* message);
  *
  * \remarks Ranges defined by Start/End can overlap.
  *
- * \par Example:
+ * \par Example
+ * Start a range with attributes for a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("my domain");
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -776,7 +804,7 @@ NVTX_DECLSPEC void NVTX_API nvtxMarkW(const wchar_t* message);
  * \sa
  * ::nvtxDomainRangeEnd
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC nvtxRangeId_t NVTX_API
 nvtxDomainRangeStartEx(nvtxDomainHandle_t domain, const nvtxEventAttributes_t* eventAttrib);
@@ -792,7 +820,8 @@ nvtxDomainRangeStartEx(nvtxDomainHandle_t domain, const nvtxEventAttributes_t* e
  *
  * \remarks Ranges defined by Start/End can overlap.
  *
- * \par Example:
+ * \par Example
+ * Start a range with attributes:
  * \code
  * nvtxEventAttributes_t eventAttrib = {0};
  * eventAttrib.version = NVTX_VERSION;
@@ -811,7 +840,7 @@ nvtxDomainRangeStartEx(nvtxDomainHandle_t domain, const nvtxEventAttributes_t* e
  * ::nvtxRangeEnd
  * ::nvtxDomainRangeStartEx
  *
- * \version \NVTX_VERSION_1
+ * \version NVTX_VERSION_1
  * @{ */
 NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartEx(const nvtxEventAttributes_t* eventAttrib);
 /** @} */
@@ -825,7 +854,8 @@ NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartEx(const nvtxEventAttributes_
  *
  * \remarks Ranges defined by Start/End can overlap.
  *
- * \par Example:
+ * \par Example
+ * Start a range:
  * \code
  * nvtxRangeId_t r1 = nvtxRangeStartA("Range 1");
  * nvtxRangeId_t r2 = nvtxRangeStartW(L"Range 2");
@@ -838,7 +868,7 @@ NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartEx(const nvtxEventAttributes_
  * ::nvtxRangeStartEx
  * ::nvtxDomainRangeStartEx
  *
- * \version \NVTX_VERSION_0
+ * \version NVTX_VERSION_0
  * @{ */
 NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartA(const char* message);
 NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartW(const wchar_t* message);
@@ -854,7 +884,8 @@ NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartW(const wchar_t* message);
  * It does not need a domain param since that is associated with the range ID at
  * ::nvtxDomainRangeStartEx
  *
- * \par Example:
+ * \par Example
+ * End a range for a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("my domain");
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -870,7 +901,7 @@ NVTX_DECLSPEC nvtxRangeId_t NVTX_API nvtxRangeStartW(const wchar_t* message);
  * \sa
  * ::nvtxDomainRangeStartEx
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxDomainRangeEnd(nvtxDomainHandle_t domain, nvtxRangeId_t id);
 /** @} */
@@ -886,7 +917,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainRangeEnd(nvtxDomainHandle_t domain, nvtxRa
  * ::nvtxRangeStartA
  * ::nvtxRangeStartW
  *
- * \version \NVTX_VERSION_0
+ * \version NVTX_VERSION_0
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxRangeEnd(nvtxRangeId_t id);
 /** @} */
@@ -903,7 +934,8 @@ NVTX_DECLSPEC void NVTX_API nvtxRangeEnd(nvtxRangeId_t id);
  * \return The 0 based level of range being started. This value is scoped to the domain.
  * If an error occurs, a negative value is returned.
  *
- * \par Example:
+ * \par Example
+ * Push a range with attributes for a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example domain");
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -927,7 +959,7 @@ NVTX_DECLSPEC void NVTX_API nvtxRangeEnd(nvtxRangeId_t id);
  * \sa
  * ::nvtxDomainRangePop
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC int NVTX_API nvtxDomainRangePushEx(nvtxDomainHandle_t domain,
                                                  const nvtxEventAttributes_t* eventAttrib);
@@ -942,7 +974,8 @@ NVTX_DECLSPEC int NVTX_API nvtxDomainRangePushEx(nvtxDomainHandle_t domain,
  * \return The 0 based level of range being started. This level is per domain.
  * If an error occurs a negative value is returned.
  *
- * \par Example:
+ * \par Example
+ * Push a range with attributes:
  * \code
  * nvtxEventAttributes_t eventAttrib = {0};
  * eventAttrib.version = NVTX_VERSION;
@@ -966,7 +999,7 @@ NVTX_DECLSPEC int NVTX_API nvtxDomainRangePushEx(nvtxDomainHandle_t domain,
  * ::nvtxDomainRangePushEx
  * ::nvtxRangePop
  *
- * \version \NVTX_VERSION_1
+ * \version NVTX_VERSION_1
  * @{ */
 NVTX_DECLSPEC int NVTX_API nvtxRangePushEx(const nvtxEventAttributes_t* eventAttrib);
 /** @} */
@@ -979,7 +1012,8 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePushEx(const nvtxEventAttributes_t* eventAtt
  * \return The 0 based level of range being started.  If an error occurs a
  * negative value is returned.
  *
- * \par Example:
+ * \par Example
+ * Push a range:
  * \code
  * nvtxRangePushA("Level 0");
  * nvtxRangePushW(L"Level 1");
@@ -991,7 +1025,7 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePushEx(const nvtxEventAttributes_t* eventAtt
  * ::nvtxDomainRangePushEx
  * ::nvtxRangePop
  *
- * \version \NVTX_VERSION_0
+ * \version NVTX_VERSION_0
  * @{ */
 NVTX_DECLSPEC int NVTX_API nvtxRangePushA(const char* message);
 NVTX_DECLSPEC int NVTX_API nvtxRangePushW(const wchar_t* message);
@@ -1003,7 +1037,8 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePushW(const wchar_t* message);
  * \return The level of the range being ended. If an error occurs a negative
  * value is returned on the current thread.
  *
- * \par Example:
+ * \par Example
+ * Pop a range for a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example domain");
  * nvtxEventAttributes_t eventAttrib = {0};
@@ -1029,7 +1064,7 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePushW(const wchar_t* message);
  * ::nvtxRangePushA
  * ::nvtxRangePushW
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC int NVTX_API nvtxDomainRangePop(nvtxDomainHandle_t domain);
 /** @} */
@@ -1040,7 +1075,8 @@ NVTX_DECLSPEC int NVTX_API nvtxDomainRangePop(nvtxDomainHandle_t domain);
  * \return The level of the range being ended. If an error occurs a negative
  * value is returned on the current thread.
  *
- * \par Example:
+ * \par Example
+ * Pop a range:
  * \code
  * nvtxRangePushA("Level 0");
  * nvtxRangePushW(L"Level 1");
@@ -1053,7 +1089,7 @@ NVTX_DECLSPEC int NVTX_API nvtxDomainRangePop(nvtxDomainHandle_t domain);
  * ::nvtxRangePushA
  * ::nvtxRangePushW
  *
- * \version \NVTX_VERSION_0
+ * \version NVTX_VERSION_0
  * @{ */
 NVTX_DECLSPEC int NVTX_API nvtxRangePop(void);
 /** @} */
@@ -1078,8 +1114,9 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePop(void);
  * Classes are used to make it easy to create a series of resource types
  * per API without collisions
  */
-#define NVTX_RESOURCE_MAKE_TYPE(CLASS, INDEX) \
-  ((((uint32_t)(NVTX_RESOURCE_CLASS_##CLASS)) << 16) | ((uint32_t)(INDEX)))
+#define NVTX_RESOURCE_MAKE_TYPE(CLASS, INDEX)                          \
+  (((NVTX_STATIC_CAST(uint32_t, NVTX_RESOURCE_CLASS_##CLASS)) << 16) | \
+   (NVTX_STATIC_CAST(uint32_t, INDEX)))
 #define NVTX_RESOURCE_CLASS_GENERIC 1
 /** \endcond */
 
@@ -1089,7 +1126,7 @@ NVTX_DECLSPEC int NVTX_API nvtxRangePop(void);
  * \sa
  * ::nvtxDomainResourceCreate
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 typedef enum nvtxResourceGenericType_t {
   NVTX_RESOURCE_TYPE_UNKNOWN         = 0,
@@ -1111,8 +1148,7 @@ typedef enum nvtxResourceGenericType_t {
  * library and can change between different versions of the Tools Extension
  * library.
  *
- * \par Initializing the Attributes
- *
+ * \par Guidelines
  * The caller should always perform the following three tasks when using
  * attributes:
  * <ul>
@@ -1130,14 +1166,16 @@ typedef enum nvtxResourceGenericType_t {
  * It is recommended that the caller use one of the following to methods
  * to initialize the event attributes structure:
  *
- * \par Method 1: Initializing nvtxEventAttributes for future compatibility
+ * \par Method 1
+ * Initializing nvtxEventAttributes for future compatibility:
  * \code
  * nvtxResourceAttributes_t attribs = {0};
  * attribs.version = NVTX_VERSION;
  * attribs.size = NVTX_RESOURCE_ATTRIB_STRUCT_SIZE;
  * \endcode
  *
- * \par Method 2: Initializing nvtxEventAttributes for a specific version
+ * \par Method 2
+ * Initializing nvtxEventAttributes for a specific version:
  * \code
  * nvtxResourceAttributes_v0 attribs = {0};
  * attribs.version = 2;
@@ -1154,10 +1192,8 @@ typedef enum nvtxResourceGenericType_t {
  * will likely cause either source level incompatibility or binary
  * incompatibility in the future.
  *
- * \par Settings Attribute Types and Values
- *
- *
- * \par Example:
+ * \par Example
+ * Register a resource and populate its attributes:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example domain");
  *
@@ -1238,9 +1274,10 @@ typedef struct nvtxResourceAttributes_v0 {
 typedef struct nvtxResourceAttributes_v0 nvtxResourceAttributes_t;
 
 /* \cond SHOW_HIDDEN
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
-#define NVTX_RESOURCE_ATTRIB_STRUCT_SIZE ((uint16_t)(sizeof(nvtxResourceAttributes_v0)))
+#define NVTX_RESOURCE_ATTRIB_STRUCT_SIZE \
+  (NVTX_STATIC_CAST(uint16_t, sizeof(nvtxResourceAttributes_v0)))
 typedef struct nvtxResourceHandle* nvtxResourceHandle_t;
 /** \endcond */
 
@@ -1255,7 +1292,8 @@ typedef struct nvtxResourceHandle* nvtxResourceHandle_t;
  *
  * \return A handle that represents the newly created resource object.
  *
- * \par Example:
+ * \par Example
+ * Register a resource:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example domain");
  * nvtxResourceAttributes_t attribs = {0};
@@ -1272,7 +1310,7 @@ typedef struct nvtxResourceHandle* nvtxResourceHandle_t;
  * ::nvtxResourceAttributes_t
  * ::nvtxDomainResourceDestroy
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC nvtxResourceHandle_t NVTX_API
 nvtxDomainResourceCreate(nvtxDomainHandle_t domain, nvtxResourceAttributes_t* attribs);
@@ -1285,7 +1323,8 @@ nvtxDomainResourceCreate(nvtxDomainHandle_t domain, nvtxResourceAttributes_t* at
  *
  * \param resource - Handle to the resource in which to operate.
  *
- * \par Example:
+ * \par Example
+ * Unregister a resource:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example domain");
  * nvtxResourceAttributes_t attribs = {0};
@@ -1303,7 +1342,7 @@ nvtxDomainResourceCreate(nvtxDomainHandle_t domain, nvtxResourceAttributes_t* at
  * \sa
  * ::nvtxDomainResourceCreate
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxDomainResourceDestroy(nvtxResourceHandle_t resource);
 /** @} */
@@ -1329,14 +1368,15 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainResourceDestroy(nvtxResourceHandle_t resou
  *
  * \remarks The category names are tracked per domain.
  *
- * \par Example:
+ * \par Example
+ * Assign names to categories in a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("example");
  * nvtxDomainNameCategoryA(domain, 1, "Memory Allocation");
  * nvtxDomainNameCategoryW(domain, 2, L"Memory Transfer");
  * \endcode
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxDomainNameCategoryA(nvtxDomainHandle_t domain,
                                                     uint32_t category,
@@ -1358,14 +1398,15 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainNameCategoryW(nvtxDomainHandle_t domain,
  *
  * \remarks The category names are tracked per process.
  *
- * \par Example:
+ * \par Example
+ * Assign names to categories:
  * \code
  * nvtxNameCategory(1, "Memory Allocation");
  * nvtxNameCategory(2, "Memory Transfer");
  * nvtxNameCategory(3, "Memory Object Lifetime");
  * \endcode
  *
- * \version \NVTX_VERSION_1
+ * \version NVTX_VERSION_1
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxNameCategoryA(uint32_t category, const char* name);
 NVTX_DECLSPEC void NVTX_API nvtxNameCategoryW(uint32_t category, const wchar_t* name);
@@ -1393,8 +1434,10 @@ NVTX_DECLSPEC void NVTX_API nvtxNameCategoryW(uint32_t category, const wchar_t* 
  * \param threadId - The ID of the thread to name.
  * \param name     - The name of the thread.
  *
- * \par Examples:
- * MS Windows:
+ * \par Examples
+ * Name a thread based on the given operating system:
+ *
+ * Windows:
  * \code
  * #include <windows.h>
  * nvtxNameOsThread(GetCurrentThreadId(), "Current thread");
@@ -1418,7 +1461,7 @@ NVTX_DECLSPEC void NVTX_API nvtxNameCategoryW(uint32_t category, const wchar_t* 
  * nvtxNameOsThreadA(getpid(), "Main thread");
  * \endcode
  *
- * OS X:
+ * macOS:
  * \code
  * #include <sys/syscall.h>
  * nvtxNameOsThreadA(syscall(SYS_thread_selfid), "Current thread");
@@ -1432,7 +1475,7 @@ NVTX_DECLSPEC void NVTX_API nvtxNameCategoryW(uint32_t category, const wchar_t* 
  * nvtxNameOsThreadA(id, "Other thread");
  * \endcode
  *
- * \version \NVTX_VERSION_1
+ * \version NVTX_VERSION_1
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxNameOsThreadA(uint32_t threadId, const char* name);
 NVTX_DECLSPEC void NVTX_API nvtxNameOsThreadW(uint32_t threadId, const wchar_t* name);
@@ -1469,7 +1512,8 @@ NVTX_DECLSPEC void NVTX_API nvtxNameOsThreadW(uint32_t threadId, const wchar_t* 
 *
 * \return A handle representing the registered string.
 *
-* \par Example:
+* \par Example
+* Register a string:
 * \code
 * nvtxDomainHandle_t domain = nvtxDomainCreateA("com.nvidia.nvtx.example");
 * nvtxStringHandle_t message = nvtxDomainRegisterStringA(domain, "registered string");
@@ -1480,7 +1524,7 @@ NVTX_DECLSPEC void NVTX_API nvtxNameOsThreadW(uint32_t threadId, const wchar_t* 
 * eventAttrib.message.registered = message;
 * \endcode
 *
-* \version \NVTX_VERSION_2
+* \version NVTX_VERSION_2
 * @{ */
 NVTX_DECLSPEC nvtxStringHandle_t NVTX_API nvtxDomainRegisterStringA(nvtxDomainHandle_t domain,
                                                                     const char* string);
@@ -1521,7 +1565,8 @@ NVTX_DECLSPEC nvtxStringHandle_t NVTX_API nvtxDomainRegisterStringW(nvtxDomainHa
  *
  * \return A handle representing the domain.
  *
- * \par Example:
+ * \par Example
+ * Create a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("com.nvidia.nvtx.example");
  *
@@ -1545,7 +1590,7 @@ NVTX_DECLSPEC nvtxStringHandle_t NVTX_API nvtxDomainRegisterStringW(nvtxDomainHa
  * \sa
  * ::nvtxDomainDestroy
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC nvtxDomainHandle_t NVTX_API nvtxDomainCreateA(const char* name);
 NVTX_DECLSPEC nvtxDomainHandle_t NVTX_API nvtxDomainCreateW(const wchar_t* name);
@@ -1558,7 +1603,8 @@ NVTX_DECLSPEC nvtxDomainHandle_t NVTX_API nvtxDomainCreateW(const wchar_t* name)
  *
  * \param domain    - the domain handle
  *
- * \par Example:
+ * \par Example
+ * Destroy a domain:
  * \code
  * nvtxDomainHandle_t domain = nvtxDomainCreateA("com.nvidia.nvtx.example");
  * // ...
@@ -1569,7 +1615,7 @@ NVTX_DECLSPEC nvtxDomainHandle_t NVTX_API nvtxDomainCreateW(const wchar_t* name)
  * ::nvtxDomainCreateA
  * ::nvtxDomainCreateW
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  * @{ */
 NVTX_DECLSPEC void NVTX_API nvtxDomainDestroy(nvtxDomainHandle_t domain);
 /** @} */

@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #include "nvToolsExt.h"
 
 #ifdef __cplusplus
@@ -35,6 +45,8 @@ extern "C" {
 #ifndef NVTX_EXT_COMPATID_MEM
 #define NVTX_EXT_COMPATID_MEM 0x0102
 #endif
+/* \endcond
+ */
 
 #ifndef NVTX_MEM_CONTENTS_V1
 #define NVTX_MEM_CONTENTS_V1
@@ -43,31 +55,43 @@ extern "C" {
  * \brief This value is returned by functions that return `nvtxMemHeapHandle_t`,
  * if a tool is not attached.
  */
-#define NVTX_MEM_HEAP_HANDLE_NO_TOOL ((nvtxMemHeapHandle_t)(intptr_t)-1)
+#define NVTX_MEM_HEAP_HANDLE_NO_TOOL \
+  (NVTX_STATIC_CAST(nvtxMemHeapHandle_t, NVTX_STATIC_CAST(intptr_t, -1)))
+/* \endcond
+ */
 
 /* \cond SHOW_HIDDEN
  * \brief This value is returned by functions that return `nvtxMemRegionHandle_t`
  * if a tool is not attached.
  */
-#define NVTX_MEM_REGION_HANDLE_NO_TOOL ((nvtxMemRegionHandle_t)(intptr_t)-1)
+#define NVTX_MEM_REGION_HANDLE_NO_TOOL \
+  (NVTX_STATIC_CAST(nvtxMemRegionHandle_t, NVTX_STATIC_CAST(intptr_t, -1)))
+/* \endcond
+ */
 
 /* \cond SHOW_HIDDEN
  * \brief This value is returned by functions that return `nvtxMemPermissionsHandle_t`
  * if a tool is not attached.
  */
-#define NVTX_MEM_PERMISSIONS_HANDLE_NO_TOOL ((nvtxMemPermissionsHandle_t)-1)
+#define NVTX_MEM_PERMISSIONS_HANDLE_NO_TOOL (NVTX_STATIC_CAST(nvtxMemPermissionsHandle_t, -1))
+/* \endcond
+ */
 
 /* \cond SHOW_HIDDEN
  * \brief This should not be used and is considered an error but defined to
  * detect an accidental use of zero or NULL.
  */
 #define NVTX_MEM_HEAP_USAGE_UNKNOWN 0x0
+/* \endcond
+ */
 
 /* \cond SHOW_HIDDEN
  * \brief This should not be used and is considered an error but defined to
  * detect an accidental use of zero or NULL.
  */
 #define NVTX_MEM_TYPE_UNKNOWN 0x0
+/* \endcond
+ */
 
 /*  ------------------------------------------------------------------------- */
 /** \defgroup MEMORY Memory
@@ -82,7 +106,7 @@ extern "C" {
  * The heap by default is always read-write-execute permissions without creating regions.
  * Regions created in this heap have read-write access by default but not execute.
  */
-#define NVTX_MEM_HEAP_HANDLE_PROCESS_WIDE ((nvtxMemHeapHandle_t)0)
+#define NVTX_MEM_HEAP_HANDLE_PROCESS_WIDE (NVTX_STATIC_CAST(nvtxMemHeapHandle_t, 0))
 
 /** \brief This heap is a sub-allocator.
  *
@@ -126,7 +150,7 @@ extern "C" {
  *
  * This is a companion object to `NVTX_MEM_HEAP_HANDLE_PROCESS_WIDE`.
  */
-#define NVTX_MEM_PERMISSIONS_HANDLE_PROCESS_WIDE ((nvtxMemPermissionsHandle_t)0)
+#define NVTX_MEM_PERMISSIONS_HANDLE_PROCESS_WIDE (NVTX_STATIC_CAST(nvtxMemPermissionsHandle_t, 0))
 
 #define NVTX_MEM_PERMISSIONS_CREATE_FLAGS_NONE                  0x0
 #define NVTX_MEM_PERMISSIONS_CREATE_FLAGS_EXCLUDE_GLOBAL_READ   0x1
@@ -138,6 +162,8 @@ extern "C" {
  */
 struct nvtxMemHeap_v1;
 typedef struct nvtxMemHeap_v1 nvtxMemHeap_t;
+/* \endcond
+ */
 
 /** \brief A handle returned by a tool to represent a memory heap. */
 typedef nvtxMemHeap_t* nvtxMemHeapHandle_t;
@@ -147,6 +173,8 @@ typedef nvtxMemHeap_t* nvtxMemHeapHandle_t;
  */
 struct nvtxMemRegion_v1;
 typedef struct nvtxMemRegion_v1 nvtxMemRegion_t;
+/* \endcond
+ */
 
 /** \brief A handle returned by a tool to represent a memory region. */
 typedef nvtxMemRegion_t* nvtxMemRegionHandle_t;
@@ -164,6 +192,8 @@ typedef union nvtxMemRegionRef_t {
  */
 struct nvtxMemPermissions_v1;
 typedef struct nvtxMemPermissions_v1 nvtxMemPermissions_t;
+/* \endcond
+ */
 
 /** \brief A handle returned by a tool to represent a memory permissions mask. */
 typedef nvtxMemPermissions_t* nvtxMemPermissionsHandle_t;
@@ -241,14 +271,14 @@ typedef struct nvtxMemHeapDesc_v1 {
 
   /** \brief Message type specified in this attribute structure.
    *
-   * Defines the message format of the attribute structure's \ref MESSAGE_FIELD
+   * Defines the message format of the attribute structure's \ref MEM_MESSAGE_FIELD
    * "message" field.
    *
    * Default Value is `NVTX_MESSAGE_UNKNOWN`.
    */
   uint32_t messageType; /* nvtxMessageType_t */
 
-  /** \brief Message assigned to this attribute structure. \anchor MESSAGE_FIELD
+  /** \brief Message assigned to this attribute structure. \anchor MEM_MESSAGE_FIELD
    *
    * The text message that is attached to an event.
    */
@@ -625,9 +655,9 @@ NVTX_DECLSPEC void NVTX_API nvtxMemPermissionsBind(
  */
 NVTX_DECLSPEC void NVTX_API nvtxMemPermissionsUnbind(nvtxDomainHandle_t domain, uint32_t bindScope);
 
-/** @} */ /*END defgroup*/
+/** @} */
 
-#endif    /* NVTX_MEM_CONTENTS_V1 */
+#endif /* NVTX_MEM_CONTENTS_V1 */
 
 #ifndef NVTX_MEM_CALLBACK_ID_V1
 #define NVTX_MEM_CALLBACK_ID_V1

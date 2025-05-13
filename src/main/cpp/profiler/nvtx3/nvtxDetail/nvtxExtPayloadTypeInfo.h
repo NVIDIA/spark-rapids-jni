@@ -22,6 +22,16 @@
 #error Never include this file directly -- it is automatically included by nvToolsExtPayload.h (except when NVTX_NO_IMPL is defined).
 #endif
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 typedef void* nvtx_payload_pointer_type;
 
 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L)
@@ -29,6 +39,24 @@ typedef void* nvtx_payload_pointer_type;
 #include <uchar.h>
 #endif
 #include <stdalign.h>
+#endif
+
+/* `char8_t` is available as of C++20 or C23 */
+#if ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L) || \
+     (defined(__cplusplus) && __cplusplus >= 201811L)) &&          \
+  !defined(__APPLE__)
+#define NVTX_HAVE_CHAR8 1
+#else
+#define NVTX_HAVE_CHAR8 0
+#endif
+
+/* `char16_t` and `char32_t` are available as of C++11 or C11 */
+#if ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || \
+     (defined(__cplusplus) && __cplusplus >= 200704L)) &&          \
+  !defined(__APPLE__)
+#define NVTX_HAVE_CHAR16_CHAR32 1
+#else
+#define NVTX_HAVE_CHAR16_CHAR32 0
 #endif
 
 /* `alignof` is available as of C11 or C++11. */
@@ -81,25 +109,13 @@ MKTYPEDEF(nvtx_payload_pointer_type);
 
 MKTYPEDEF(wchar_t);
 
-/* `char8_t` is available as of C++20 or C23 */
-#if ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L) || \
-     (defined(__cplusplus) && __cplusplus >= 201811L)) &&          \
-  !defined(__APPLE__)
+#if NVTX_HAVE_CHAR8
 MKTYPEDEF(char8_t);
-#define NVTX_HAVE_CHAR8 1
-#else
-#define NVTX_HAVE_CHAR8 0
 #endif
 
-/* `char16_t` and `char32_t` are available as of C++11 or C11 */
-#if ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L) || \
-     (defined(__cplusplus) && __cplusplus >= 200704L)) &&          \
-  !defined(__APPLE__)
+#if NVTX_HAVE_CHAR16_CHAR32
 MKTYPEDEF(char16_t);
 MKTYPEDEF(char32_t);
-#define NVTX_HAVE_CHAR16_CHAR32 1
-#else
-#define NVTX_HAVE_CHAR16_CHAR32 0
 #endif
 
 /* C requires to include stddef.h to use `offsetof` */

@@ -18,9 +18,17 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
-/**
- * NVTX semantic headers require nvToolsExtPayload.h to be included beforehand.
- */
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
+#include "nvToolsExtPayload.h"
 
 #ifndef NVTX_SEMANTIC_ID_SCOPE_V1
 #define NVTX_SEMANTIC_ID_SCOPE_V1 1

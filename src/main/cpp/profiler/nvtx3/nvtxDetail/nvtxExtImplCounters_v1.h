@@ -22,6 +22,16 @@
 #error Never include this file directly -- it is automatically included by nvToolsExtCounters.h (except when NVTX_NO_IMPL is defined).
 #endif
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #define NVTX_EXT_IMPL_GUARD
 #include "nvtxExtImpl.h"
 #undef NVTX_EXT_IMPL_GUARD
@@ -38,7 +48,7 @@ extern "C" {
 #include "nvtxExtHelperMacros.h"
 
 #define NVTX_EXT_COUNTERS_IMPL_FN_V1(ret_type, fn_name, signature, arg_names)  \
-  ret_type fn_name signature                                                   \
+  NVTX_DECLSPEC ret_type NVTX_API fn_name signature                            \
   {                                                                            \
     NVTX_SET_NAME_MANGLING_OPTIONS                                             \
     NVTX_EXT_HELPER_UNUSED_ARGS arg_names NVTX_EXT_FN_RETURN_INVALID(ret_type) \
@@ -60,9 +70,11 @@ NVTX_LINKONCE_FWDDECL_FUNCTION void NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCounte
 NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersInitOnce)(void)
 {
   intptr_t* fnSlots              = NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersSlots) + 1;
-  nvtxExtModuleSegment_t segment = {0, /* unused (only one segment) */
-                                    NVTX_EXT_COUNTERS_SLOT_COUNT,
-                                    fnSlots};
+  nvtxExtModuleSegment_t segment = {
+    0,           /* unused (only one segment) */
+    NVTX_EXT_COUNTERS_SLOT_COUNT,
+    NVTX_NULLPTR /* function slots */
+  };
 
   nvtxExtModuleInfo_t module = {
     NVTX_VERSION,
@@ -70,10 +82,13 @@ NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCounter
     NVTX_EXT_COUNTERS_MODULEID,
     NVTX_EXT_COUNTERS_COMPATID,
     1,
-    &segment, /* number of segments, segments */
-    NULL,     /* no export function needed */
-    NULL      /* no extension private info */
+    NVTX_NULLPTR, /* number of segments, segments */
+    NVTX_NULLPTR, /* no export function needed */
+    NVTX_NULLPTR  /* no extension private info */
   };
+
+  segment.functionSlots = fnSlots;
+  module.segments       = &segment;
 
   NVTX_INFO("%s\n", __FUNCTION__);
 
@@ -81,34 +96,34 @@ NVTX_LINKONCE_DEFINE_FUNCTION void NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCounter
   (&module, NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersSlots));
 }
 
-#define NVTX_EXT_COUNTERS_IMPL_FN_V1(ret_type, fn_name, signature, arg_names)             \
-  typedef ret_type(*fn_name##_impl_fntype) signature;                                     \
-  NVTX_DECLSPEC ret_type NVTX_API fn_name signature                                       \
-  {                                                                                       \
-    NVTX_SET_NAME_MANGLING_OPTIONS                                                        \
-    intptr_t* pSlot =                                                                     \
-      &NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersSlots)[NVTX3EXT_CBID_##fn_name + 1]; \
-    intptr_t slot = *pSlot;                                                               \
-    if (slot != NVTX_EXTENSION_DISABLED) {                                                \
-      if (slot != NVTX_EXTENSION_FRESH) {                                                 \
-        NVTX_EXT_FN_RETURN(*(fn_name##_impl_fntype)slot) arg_names;                       \
-      } else {                                                                            \
-        NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersInitOnce)();                        \
-        /* Re-read function slot after extension initialization. */                       \
-        slot = *pSlot;                                                                    \
-        if (slot != NVTX_EXTENSION_DISABLED && slot != NVTX_EXTENSION_FRESH) {            \
-          NVTX_EXT_FN_RETURN(*(fn_name##_impl_fntype)slot) arg_names;                     \
-        }                                                                                 \
-      }                                                                                   \
-    }                                                                                     \
-    NVTX_EXT_FN_RETURN_INVALID(ret_type) /* No tool attached. */                          \
+#define NVTX_EXT_COUNTERS_IMPL_FN_V1(ret_type, fn_name, signature, arg_names)                \
+  typedef ret_type(*fn_name##_impl_fntype) signature;                                        \
+  NVTX_DECLSPEC ret_type NVTX_API fn_name signature                                          \
+  {                                                                                          \
+    NVTX_SET_NAME_MANGLING_OPTIONS                                                           \
+    intptr_t* pSlot =                                                                        \
+      &NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersSlots)[NVTX3EXT_CBID_##fn_name + 1];    \
+    intptr_t slot = *pSlot;                                                                  \
+    if (slot != NVTX_EXTENSION_DISABLED) {                                                   \
+      if (slot != NVTX_EXTENSION_FRESH) {                                                    \
+        NVTX_EXT_FN_RETURN(*NVTX_REINTERPRET_CAST(fn_name##_impl_fntype, slot)) arg_names;   \
+      } else {                                                                               \
+        NVTX_EXT_COUNTERS_VERSIONED_ID(nvtxExtCountersInitOnce)();                           \
+        /* Re-read function slot after extension initialization. */                          \
+        slot = *pSlot;                                                                       \
+        if (slot != NVTX_EXTENSION_DISABLED && slot != NVTX_EXTENSION_FRESH) {               \
+          NVTX_EXT_FN_RETURN(*NVTX_REINTERPRET_CAST(fn_name##_impl_fntype, slot)) arg_names; \
+        }                                                                                    \
+      }                                                                                      \
+    }                                                                                        \
+    NVTX_EXT_FN_RETURN_INVALID(ret_type) /* No tool attached. */                             \
   }
 
 #endif /* NVTX_DISABLE */
 
 /* Non-void functions. */
 #define NVTX_EXT_FN_RETURN                return
-#define NVTX_EXT_FN_RETURN_INVALID(rtype) return (rtype)0;
+#define NVTX_EXT_FN_RETURN_INVALID(rtype) return NVTX_STATIC_CAST(rtype, 0);
 
 NVTX_EXT_COUNTERS_IMPL_FN_V1(uint64_t,
                              nvtxCounterRegister,

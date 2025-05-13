@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 /* Temporary helper #defines, #undef'ed at end of header */
 #define NVTX3_CPP_VERSION_MAJOR 1
 #define NVTX3_CPP_VERSION_MINOR 0
@@ -695,6 +705,11 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
 
   template <typename T>
   using is_uint32 = std::is_same<typename std::decay<T>::type, uint32_t>;
+
+  template <typename... Args>
+  static inline void silence_unused(Args const&...) noexcept
+  {
+  }
 
   }  // namespace detail
 
@@ -1944,7 +1959,7 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
           0,                              // reserved 4B
           {0},                            // payload value (union)
           NVTX_MESSAGE_UNKNOWN,           // message type
-          {0}                             // message value (union)
+          {nullptr}                       // message value (union)
         }
     {
     }
@@ -2182,6 +2197,8 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
 
       nvtxDomainRangePushEx(domain::get<D>(), attr.get());
       initialized = true;
+#else
+      (void)attr;
 #endif
     }
 
@@ -2365,6 +2382,7 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
 #ifndef NVTX_DISABLE
     return start_range_in<D>(event_attributes{args...});
 #else
+    detail::silence_unused(args...);
     return {};
 #endif
   }
@@ -2438,6 +2456,7 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
 #ifndef NVTX_DISABLE
     return start_range_in<domain::global>(args...);
 #else
+    detail::silence_unused(args...);
     return {};
 #endif
   }
@@ -2674,6 +2693,8 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
   {
 #ifndef NVTX_DISABLE
     mark_in<D>(event_attributes{args...});
+#else
+    detail::silence_unused(args...);
 #endif
   }
 
@@ -2701,6 +2722,8 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
   {
 #ifndef NVTX_DISABLE
     mark_in<domain::global>(attr);
+#else
+    (void)attr;
 #endif
   }
 
@@ -2733,6 +2756,8 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
   {
 #ifndef NVTX_DISABLE
     mark_in<domain::global>(args...);
+#else
+    detail::silence_unused(args...);
 #endif
   }
 
@@ -2772,7 +2797,7 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
 #define NVTX3_V1_FUNC_RANGE_IN(D)                                                  \
   static ::nvtx3::v1::registered_string_in<D> const nvtx3_func_name__{__func__};   \
   static ::nvtx3::v1::event_attributes const nvtx3_func_attr__{nvtx3_func_name__}; \
-  ::nvtx3::v1::scoped_range_in<D> const nvtx3_range__{nvtx3_func_attr__};
+  ::nvtx3::v1::scoped_range_in<D> const nvtx3_range__ { nvtx3_func_attr__ }
 
 /**
  * @brief Convenience macro for generating a range in the specified `domain`
@@ -2796,11 +2821,12 @@ NVTX3_INLINE_IF_REQUESTED namespace NVTX3_VERSION_NAMESPACE
     static ::nvtx3::v1::registered_string_in<D> const nvtx3_func_name__{__func__};   \
     static ::nvtx3::v1::event_attributes const nvtx3_func_attr__{nvtx3_func_name__}; \
     optional_nvtx3_range__.begin(nvtx3_func_attr__);                                 \
-  }
-#else
-#define NVTX3_V1_FUNC_RANGE_IN(D)
-#define NVTX3_V1_FUNC_RANGE_IF_IN(D, C)
-#endif  // NVTX_DISABLE
+  }                                                                                  \
+  (void)0
+#else /* NVTX_DISABLE */
+#define NVTX3_V1_FUNC_RANGE_IN(D)       (void)0
+#define NVTX3_V1_FUNC_RANGE_IF_IN(D, C) (void)(C)
+#endif /* NVTX_DISABLE */
 
 /**
  * @brief Convenience macro for generating a range in the global domain from the

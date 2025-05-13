@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #ifndef NVTX_EXT_PAYLOAD_HELPER_INTERNAL_H
 #define NVTX_EXT_PAYLOAD_HELPER_INTERNAL_H
 
@@ -62,8 +72,10 @@
 /*** Helper for `NVTX_DEFINE_SCHEMA_FOR_STRUCT[_AND_REGISTER]` ***/
 
 /* First part of schema entry for different number of arguments. */
-#define _NVTX_PAYLOAD_SCHEMA_EF2(member, etype)       0, NVTX_PAYLOAD_ENTRY_##etype, NULL, NULL, 0,
-#define _NVTX_PAYLOAD_SCHEMA_EF3(member, etype, name) 0, NVTX_PAYLOAD_ENTRY_##etype, name, NULL, 0,
+#define _NVTX_PAYLOAD_SCHEMA_EF2(member, etype) \
+  0, NVTX_PAYLOAD_ENTRY_##etype, NVTX_NULLPTR, NVTX_NULLPTR, 0,
+#define _NVTX_PAYLOAD_SCHEMA_EF3(member, etype, name) \
+  0, NVTX_PAYLOAD_ENTRY_##etype, name, NVTX_NULLPTR, 0,
 #define _NVTX_PAYLOAD_SCHEMA_EF4(member, etype, name, desc) \
   0, NVTX_PAYLOAD_ENTRY_##etype, name, desc, 0,
 #define _NVTX_PAYLOAD_SCHEMA_EF5(member, etype, name, desc, arraylen) \
@@ -155,7 +167,7 @@
 #define _NVTX_DEFINE_S4S_2(struct_id, entries)                                \
   _NVTX_PAYLOAD_SCHEMA_ENTRIES(struct_id, _NVTX_PAYLOAD_PASS_THROUGH entries) \
   NVTX_PAYLOAD_SCHEMA_ATTR(struct_id,                                         \
-                           NULL,                                              \
+                           NVTX_NULLPTR,                                      \
                            NVTX_PAYLOAD_SCHEMA_FLAG_NONE,                     \
                            0,                                                 \
                            ,                                                  \
@@ -230,9 +242,9 @@
 
 /* Generate first part of the schema entry. */
 #define _NVTX_PAYLOAD_INIT_SCHEMA_N3(type, memberId, etype) \
-  0, NVTX_PAYLOAD_ENTRY_##etype, NULL, NULL, 0,
+  0, NVTX_PAYLOAD_ENTRY_##etype, NVTX_NULLPTR, NVTX_NULLPTR, 0,
 #define _NVTX_PAYLOAD_INIT_SCHEMA_N4(type, memberId, etype, name) \
-  0, NVTX_PAYLOAD_ENTRY_##etype, name, NULL, 0,
+  0, NVTX_PAYLOAD_ENTRY_##etype, name, NVTX_NULLPTR, 0,
 #define _NVTX_PAYLOAD_INIT_SCHEMA_N5(type, memberId, etype, name, desc) \
   0, NVTX_PAYLOAD_ENTRY_##etype, name, desc, 0,
 #define _NVTX_PAYLOAD_INIT_SCHEMA_N6(type, memberId, etype, name, desc, arraylen) \
@@ -339,7 +351,7 @@
   _NVTX_PAYLOAD_TYPEDEF_STRUCT(struct_id, _NVTX_PAYLOAD_PASS_THROUGH entries)      \
   _NVTX_PAYLOAD_SCHEMA_INIT_ENTRIES(struct_id, _NVTX_PAYLOAD_PASS_THROUGH entries) \
   NVTX_PAYLOAD_SCHEMA_ATTR(struct_id,                                              \
-                           NULL,                                                   \
+                           NVTX_NULLPTR,                                           \
                            NVTX_PAYLOAD_SCHEMA_FLAG_NONE,                          \
                            0,                                                      \
                            ,                                                       \

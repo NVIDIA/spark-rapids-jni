@@ -22,6 +22,16 @@
 #error Never include this file directly -- it is automatically included by nvToolsExtMemCudaRt.h (except when NVTX_NO_IMPL is defined).
 #endif
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #ifndef NVTX_EXT_IMPL_MEM_CUDART_V1
 #define NVTX_EXT_IMPL_MEM_CUDART_V1
 
@@ -33,7 +43,7 @@ extern "C" {
 
 /* Non-void functions. */
 #define NVTX_EXT_FN_RETURN                return
-#define NVTX_EXT_FN_RETURN_INVALID(rtype) return (rtype)0;
+#define NVTX_EXT_FN_RETURN_INVALID(rtype) return NVTX_NULLPTR;
 
 NVTX_EXT_MEM_IMPL_FN_V1(nvtxMemPermissionsHandle_t,
                         nvtxMemCudaGetProcessWidePermissions,

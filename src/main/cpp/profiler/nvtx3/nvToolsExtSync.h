@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #include "nvToolsExt.h"
 
 #ifndef NVTOOLSEXT_SYNC_V3
@@ -28,73 +38,76 @@ extern "C" {
 #endif /* __cplusplus */
 
 /* \cond SHOW_HIDDEN
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
-#define NVTX_SYNCUSER_ATTRIB_STRUCT_SIZE ((uint16_t)(sizeof(nvtxSyncUserAttributes_v0)))
+#define NVTX_SYNCUSER_ATTRIB_STRUCT_SIZE \
+  (NVTX_STATIC_CAST(uint16_t, sizeof(nvtxSyncUserAttributes_v0)))
 /** \endcond */
 
 /**
-* \page PAGE_SYNCHRONIZATION Synchronization
-*
-* This section covers a subset of the API that allow users to track additional
-* synchronization details of their application.   Naming OS synchronization primitives
-* may allow users to better understand the data collected by traced synchronization
-* APIs.  Additionally, a user defined synchronization object can allow the users to
-* to tell the tools when the user is building their own synchronization system
-* that do not rely on the OS to provide behaviors and instead use techniques like
-* atomic operations and spinlocks.
-*
-* See module \ref SYNCHRONIZATION for details.
-*
-* \par Example:
-* \code
-* class MyMutex
-* {
-*     volatile long bLocked;
-*     nvtxSyncUser_t hSync;
-* public:
-*     MyMutex(const char* name, nvtxDomainHandle_t d){
-*          bLocked = 0;
-*
-*          nvtxSyncUserAttributes_t attribs = { 0 };
-*          attribs.version = NVTX_VERSION;
-*          attribs.size = NVTX_SYNCUSER_ATTRIB_STRUCT_SIZE;
-*          attribs.messageType = NVTX_MESSAGE_TYPE_ASCII;
-*          attribs.message.ascii = name;
-*          hSync = nvtxDomainSyncUserCreate(d, &attribs);
-*     }
-*
-*     ~MyMutex() {
-*          nvtxDomainSyncUserDestroy(hSync);
-*     }
-*
-*     bool Lock() {
-*          nvtxDomainSyncUserAcquireStart(hSync);
-*          bool acquired = __sync_bool_compare_and_swap(&bLocked, 0, 1);//atomic compiler intrinsic
-
-*          if (acquired) {
-*              nvtxDomainSyncUserAcquireSuccess(hSync);
-*          }
-*          else {
-*              nvtxDomainSyncUserAcquireFailed(hSync);
-*          }
-*          return acquired;
-*     }
-
-*     void Unlock() {
-*          nvtxDomainSyncUserReleasing(hSync);
-*          bLocked = false;
-*     }
-* };
-* \endcode
-*
-* \version \NVTX_VERSION_2
-*/
+ * \page PAGE_SYNCHRONIZATION Synchronization
+ *
+ * This section covers a subset of the API that allow users to track additional
+ * synchronization details of their application.   Naming OS synchronization primitives
+ * may allow users to better understand the data collected by traced synchronization
+ * APIs.  Additionally, a user defined synchronization object can allow the users to
+ * to tell the tools when the user is building their own synchronization system
+ * that do not rely on the OS to provide behaviors and instead use techniques like
+ * atomic operations and spinlocks.
+ *
+ * See module \ref SYNCHRONIZATION for details.
+ *
+ * \par Example
+ * Instrument a mutex class:
+ * \code
+ * class MyMutex
+ * {
+ *     volatile long bLocked;
+ *     nvtxSyncUser_t hSync;
+ * public:
+ *     MyMutex(const char* name, nvtxDomainHandle_t d) {
+ *          bLocked = 0;
+ *
+ *          nvtxSyncUserAttributes_t attribs = { 0 };
+ *          attribs.version = NVTX_VERSION;
+ *          attribs.size = NVTX_SYNCUSER_ATTRIB_STRUCT_SIZE;
+ *          attribs.messageType = NVTX_MESSAGE_TYPE_ASCII;
+ *          attribs.message.ascii = name;
+ *          hSync = nvtxDomainSyncUserCreate(d, &attribs);
+ *     }
+ *
+ *     ~MyMutex() {
+ *          nvtxDomainSyncUserDestroy(hSync);
+ *     }
+ *
+ *     bool Lock() {
+ *          nvtxDomainSyncUserAcquireStart(hSync);
+ *          bool acquired = __sync_bool_compare_and_swap(&bLocked, 0, 1); // atomic compiler
+ * intrinsic
+ *
+ *          if (acquired) {
+ *              nvtxDomainSyncUserAcquireSuccess(hSync);
+ *          }
+ *          else {
+ *              nvtxDomainSyncUserAcquireFailed(hSync);
+ *          }
+ *          return acquired;
+ *     }
+ *
+ *     void Unlock() {
+ *          nvtxDomainSyncUserReleasing(hSync);
+ *          bLocked = false;
+ *     }
+ * };
+ * \endcode
+ *
+ * \version NVTX_VERSION_2
+ */
 
 /*  ------------------------------------------------------------------------- */
 /* \cond SHOW_HIDDEN
  * \brief Used to build a non-colliding value for resource types separated class
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 #define NVTX_RESOURCE_CLASS_SYNC_OS 2 /**< Synchronization objects that are OS specific. */
 #define NVTX_RESOURCE_CLASS_SYNC_PTHREAD \
@@ -173,8 +186,7 @@ typedef struct nvtxSyncUser* nvtxSyncUser_t;
  * extension library and can change between different versions of the Tools Extension
  * library.
  *
- * \par Initializing the Attributes
- *
+ * \par Guidelines
  * The caller should always perform the following three tasks when using
  * attributes:
  * <ul>
@@ -192,14 +204,16 @@ typedef struct nvtxSyncUser* nvtxSyncUser_t;
  * It is recommended that the caller use one of the following to methods
  * to initialize the event attributes structure:
  *
- * \par Method 1: Initializing nvtxEventAttributes for future compatibility
+ * \par Method 1
+ * Initializing nvtxEventAttributes for future compatibility:
  * \code
  * nvtxSyncUserAttributes_t attribs = {0};
  * attribs.version = NVTX_VERSION;
  * attribs.size = NVTX_SYNCUSER_ATTRIB_STRUCT_SIZE;
  * \endcode
  *
- * \par Method 2: Initializing nvtxSyncUserAttributes_t for a specific version
+ * \par Method 2
+ * Initializing nvtxSyncUserAttributes_t for a specific version:
  * \code
  * nvtxSyncUserAttributes_t attribs = {0};
  * attribs.version = 1;
@@ -216,10 +230,8 @@ typedef struct nvtxSyncUser* nvtxSyncUser_t;
  * will likely cause either source level incompatibility or binary
  * incompatibility in the future.
  *
- * \par Settings Attribute Types and Values
- *
- *
- * \par Example:
+ * \par Example
+ * Populate a sync attributes structure:
  * \code
  * // Initialize
  * nvtxSyncUserAttributes_t attribs = {0};
@@ -288,7 +300,7 @@ typedef struct nvtxSyncUserAttributes_v0 nvtxSyncUserAttributes_t;
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC nvtxSyncUser_t NVTX_API
 nvtxDomainSyncUserCreate(nvtxDomainHandle_t domain, const nvtxSyncUserAttributes_t* attribs);
@@ -307,7 +319,7 @@ nvtxDomainSyncUserCreate(nvtxDomainHandle_t domain, const nvtxSyncUserAttributes
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserDestroy(nvtxSyncUser_t handle);
 
@@ -324,7 +336,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserDestroy(nvtxSyncUser_t handle);
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireStart(nvtxSyncUser_t handle);
 
@@ -342,7 +354,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireStart(nvtxSyncUser_t handle
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireFailed(nvtxSyncUser_t handle);
 
@@ -360,7 +372,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireFailed(nvtxSyncUser_t handl
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireSuccess(nvtxSyncUser_t handle);
 
@@ -378,7 +390,7 @@ NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserAcquireSuccess(nvtxSyncUser_t hand
  * ::nvtxDomainSyncUserAcquireSuccess
  * ::nvtxDomainSyncUserReleasing
  *
- * \version \NVTX_VERSION_2
+ * \version NVTX_VERSION_2
  */
 NVTX_DECLSPEC void NVTX_API nvtxDomainSyncUserReleasing(nvtxSyncUser_t handle);
 

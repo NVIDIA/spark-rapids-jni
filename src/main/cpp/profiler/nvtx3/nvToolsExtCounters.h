@@ -18,6 +18,16 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #include "nvToolsExtPayload.h"
 
 /**
@@ -45,7 +55,7 @@
 #define NVTX_COUNTER_ID_STATIC_START (1 << 24)
 
 /** Dynamically (tool) generated counter (group) IDs */
-#define NVTX_COUNTER_ID_DYNAMIC_START ((uint64_t)1 << 32)
+#define NVTX_COUNTER_ID_DYNAMIC_START (NVTX_STATIC_CAST(uint64_t, 1) << 32)
 
 #endif /* NVTX_COUNTER_IDS_V1 */
 

@@ -18,8 +18,26 @@
  * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
  */
 
+#if defined(NVTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__NVCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
 #ifndef NVTX_EXT_HELPER_MACROS_H
 #define NVTX_EXT_HELPER_MACROS_H
+
+#if !defined(NVTX_NULLPTR)
+#if defined(__cplusplus) && __cplusplus >= 201103L
+#define NVTX_NULLPTR nullptr
+#else
+#define NVTX_NULLPTR NULL
+#endif
+#endif
 
 /* Combine tokens */
 #define _NVTX_EXT_CONCAT(a, b) a##b
@@ -33,6 +51,7 @@
   a16
 
 /* Cast argument(s) to void to prevent unused variable warnings. */
+#define _NVTX_EXT_VOIDIFY0()
 #define _NVTX_EXT_VOIDIFY1(a1) (void)a1;
 #define _NVTX_EXT_VOIDIFY2(a1, a2) \
   (void)a1;                        \
@@ -46,6 +65,19 @@
   (void)a2;                                \
   (void)a3;                                \
   (void)a4;
+#define _NVTX_EXT_VOIDIFY5(a1, a2, a3, a4, a5) \
+  (void)a1;                                    \
+  (void)a2;                                    \
+  (void)a3;                                    \
+  (void)a4;                                    \
+  (void)a5;
+#define _NVTX_EXT_VOIDIFY6(a1, a2, a3, a4, a5, a6) \
+  (void)a1;                                        \
+  (void)a2;                                        \
+  (void)a3;                                        \
+  (void)a4;                                        \
+  (void)a5;                                        \
+  (void)a6;
 
 /* Mark function arguments as unused. */
 #define NVTX_EXT_HELPER_UNUSED_ARGS(...) \
