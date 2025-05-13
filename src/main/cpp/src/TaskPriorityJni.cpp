@@ -17,8 +17,9 @@
 #include "cudf_jni_apis.hpp"
 #include "jni_utils.hpp"
 #include "task_priority.hpp"
-#include <unordered_map>
+
 #include <mutex>
+#include <unordered_map>
 
 namespace spark_rapids_jni {
 
@@ -27,37 +28,37 @@ static std::unordered_map<long, long> attempt_to_priority;
 static std::mutex priority_mutex;
 static long next_priority = std::numeric_limits<long>::max();
 
-long get_task_priority(long attempt_id) {
+long get_task_priority(long attempt_id)
+{
   std::lock_guard<std::mutex> lock(priority_mutex);
   auto it = attempt_to_priority.find(attempt_id);
-  if (it != attempt_to_priority.end()) {
-    return it->second;
-  }
+  if (it != attempt_to_priority.end()) { return it->second; }
   // First time seeing this attempt_id, assign next highest priority
-  long priority = next_priority--;
+  long priority                   = next_priority--;
   attempt_to_priority[attempt_id] = priority;
   return priority;
 }
 
-void task_done(long attempt_id) {
+void task_done(long attempt_id)
+{
   std::lock_guard<std::mutex> lock(priority_mutex);
   attempt_to_priority.erase(attempt_id);
 }
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
 
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_TaskPriority_getTaskPriority(
-    JNIEnv* env, jclass, jlong task_attempt_id)
+  JNIEnv* env, jclass, jlong task_attempt_id)
 {
   return spark_rapids_jni::get_task_priority(task_attempt_id);
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_TaskPriority_taskDone(
-  JNIEnv* env, jclass, jlong task_attempt_id)
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_TaskPriority_taskDone(JNIEnv* env,
+                                                                              jclass,
+                                                                              jlong task_attempt_id)
 {
   spark_rapids_jni::task_done(task_attempt_id);
 }
-
 }
