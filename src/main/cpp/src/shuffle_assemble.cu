@@ -1304,7 +1304,16 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }
   if (remaining_rows == 0) {
-    if (threadIdx.x == 0) { atomicAdd(batch.valid_count, valid_count); }
+    if (threadIdx.x == 0) {
+      // any overflow bits from the first word. the example case here is
+      // 12 bits of data.  dst_bit_shift is 22, so we end up with 2 extra bits
+      // (12 + 22 = 34) overflowing from the first batch.
+      if (prev_word[0] != 0) {
+        atomicOr(reinterpret_cast<bitmask_type*>(batch.dst) + 1, prev_word[0]);
+        valid_count += __popc(prev_word[0]);
+      }
+      atomicAdd(batch.valid_count, valid_count);
+    }
     return;
   }
 

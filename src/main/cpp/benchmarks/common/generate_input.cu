@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2022, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,12 +33,12 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cuda/functional>
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/execution_policy.h>
 #include <thrust/fill.h>
 #include <thrust/for_each.h>
-#include <thrust/functional.h>
 #include <thrust/gather.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -431,7 +431,7 @@ std::unique_ptr<cudf::column> create_random_column(data_profile const& profile,
   auto [result_bitmask, null_count] =
     cudf::detail::valid_if(null_mask.begin(),
                            null_mask.end(),
-                           thrust::identity<bool>{},
+                           cuda::std::identity{},
                            cudf::get_default_stream(),
                            rmm::mr::get_current_device_resource());
 
@@ -515,7 +515,7 @@ std::unique_ptr<cudf::column> create_random_utf8_string_column(data_profile cons
   auto [result_bitmask, null_count] =
     cudf::detail::valid_if(null_mask.begin(),
                            null_mask.end() - 1,
-                           thrust::identity<bool>{},
+                           cuda::std::identity{},
                            cudf::get_default_stream(),
                            rmm::mr::get_current_device_resource());
 
@@ -639,7 +639,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
           auto valids = valid_dist(engine, num_rows);
           return cudf::detail::valid_if(valids.begin(),
                                         valids.end(),
-                                        thrust::identity<bool>{},
+                                        cuda::std::identity{},
                                         cudf::get_default_stream(),
                                         rmm::mr::get_current_device_resource());
         }
@@ -671,7 +671,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::struct_view>(data_profi
 }
 
 template <typename T>
-struct clamp_down : public thrust::unary_function<T, T> {
+struct clamp_down {
   T max;
   clamp_down(T max) : max(max) {}
   __host__ __device__ T operator()(T x) const { return min(x, max); }
@@ -729,7 +729,7 @@ std::unique_ptr<cudf::column> create_random_column<cudf::list_view>(data_profile
 
     auto [null_mask, null_count] = cudf::detail::valid_if(valids.begin(),
                                                           valids.end(),
-                                                          thrust::identity<bool>{},
+                                                          cuda::std::identity{},
                                                           cudf::get_default_stream(),
                                                           rmm::mr::get_current_device_resource());
     list_column                  = cudf::make_lists_column(

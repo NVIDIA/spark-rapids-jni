@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@
 #include <rmm/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 
-#include <thrust/functional.h>
+#include <cuda/std/functional>
 #include <thrust/tabulate.h>
 
 #include <cmath>
@@ -96,25 +96,6 @@ struct chunked256 {
   }
 
   inline __device__ bool gte_unsigned(chunked256 const& other) const { return !lt_unsigned(other); }
-
-  inline __device__ int leading_zeros() const
-  {
-    if (sign() < 0) {
-      chunked256 tmp = *this;
-      tmp.negate();
-      return tmp.leading_zeros();
-    }
-
-    int ret = 0;
-    for (int i = 3; i >= 0; i--) {
-      if (chunks[i] == 0) {
-        ret += 64;
-      } else {
-        ret += __clzll(chunks[i]);
-        return ret;
-      }
-    }
-  }
 
   inline __device__ __int128_t as_128_bits() const
   {
@@ -516,6 +497,7 @@ inline __device__ chunked256 pow_ten(int exp)
     default:
       // This is not a supported value...
       assert(0);
+      return chunked256();
   }
 }
 
@@ -1427,7 +1409,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
                                stream);
 
   auto [null_mask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
   if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
   return {std::move(output), has_failure.value(stream)};
