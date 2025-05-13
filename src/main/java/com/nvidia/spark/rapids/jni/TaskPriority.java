@@ -24,13 +24,18 @@ import ai.rapids.cudf.NativeDepsLoader;
  * Get the priority for any task. If the priority for one task is larger than the priority for another task,
  * then it means that the task first task (larger number) should get access to resources before the task with
  * the lower priority value.
+ * This is currently tied into the SparkResourceAdaptor for task life cycle
  */
 public class TaskPriority {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
 
+  /**
+   * Get the priority for a given task
+   * @param taskAttemptId the id of the task to get the priority for.
+   */
   public static native long getTaskPriority(long taskAttemptId);
 
-  public static native void taskDone(long taskAttemptId);
+  static native void taskDone(long taskAttemptId);
 }

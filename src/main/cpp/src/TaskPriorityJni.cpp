@@ -17,15 +17,31 @@
 #include "cudf_jni_apis.hpp"
 #include "jni_utils.hpp"
 #include "task_priority.hpp"
+#include <unordered_map>
+#include <mutex>
 
 namespace spark_rapids_jni {
 
+// Map to store attempt_id to priority mappings
+static std::unordered_map<long, long> attempt_to_priority;
+static std::mutex priority_mutex;
+static long next_priority = std::numeric_limits<long>::max();
+
 long get_task_priority(long attempt_id) {
-  return std::numeric_limits<long>::max() - (attempt_id + 1);
+  std::lock_guard<std::mutex> lock(priority_mutex);
+  auto it = attempt_to_priority.find(attempt_id);
+  if (it != attempt_to_priority.end()) {
+    return it->second;
+  }
+  // First time seeing this attempt_id, assign next highest priority
+  long priority = next_priority--;
+  attempt_to_priority[attempt_id] = priority;
+  return priority;
 }
 
 void task_done(long attempt_id) {
-  // noop for now will change soon
+  std::lock_guard<std::mutex> lock(priority_mutex);
+  attempt_to_priority.erase(attempt_id);
 }
 
 } // namespace spark_rapids_jni

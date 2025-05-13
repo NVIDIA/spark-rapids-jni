@@ -182,6 +182,7 @@ public class SparkResourceAdaptor
    */
   public void taskDone(long taskId) {
     taskDone(getHandle(), taskId);
+    TaskPriority.taskDone(taskId);
   }
 
   /**
