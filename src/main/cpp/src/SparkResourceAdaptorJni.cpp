@@ -24,6 +24,7 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
+#include <task_priority.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -149,16 +150,17 @@ static auto make_logger(std::string const& filename)
  */
 class thread_priority {
  public:
-  thread_priority(long const tsk_id, long const t_id) : task_id(tsk_id), thread_id(t_id) {}
+  thread_priority(long const tsk_id, long const t_id)
+    : task_priority(spark_rapids_jni::get_task_priority(tsk_id)), thread_id(t_id)
+  {
+  }
 
   long get_thread_id() const { return thread_id; }
 
-  long get_task_id() const { return task_id; }
-
   bool operator<(const thread_priority& other) const
   {
-    long task_priority       = this->task_priority();
-    long other_task_priority = other.task_priority();
+    long task_priority       = this->task_priority;
+    long other_task_priority = other.task_priority;
     if (task_priority < other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -169,8 +171,8 @@ class thread_priority {
 
   bool operator>(const thread_priority& other) const
   {
-    long task_priority       = this->task_priority();
-    long other_task_priority = other.task_priority();
+    long task_priority       = this->task_priority;
+    long other_task_priority = other.task_priority;
     if (task_priority > other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -181,15 +183,13 @@ class thread_priority {
 
   void operator=(const thread_priority& other)
   {
-    task_id   = other.task_id;
-    thread_id = other.thread_id;
+    task_priority = other.task_priority;
+    thread_id     = other.thread_id;
   }
 
  private:
-  long task_id;
+  long task_priority;
   long thread_id;
-
-  long task_priority() const { return std::numeric_limits<long>::max() - (task_id + 1); }
 };
 
 /**
