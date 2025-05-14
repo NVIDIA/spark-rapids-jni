@@ -22,19 +22,11 @@
 
 namespace spark_rapids_jni {
 
-struct size_type_iterator {
-  cudf::size_type const* values;
-  __device__ cudf::size_type operator()(cudf::size_type const& idx) const { return values[idx]; }
-};
-
-struct const_size_type_iterator {
-  cudf::size_type const value;
-  __device__ cudf::size_type operator()(cudf::size_type const&) const { return value; }
-};
-
 /**
- * Represents timestamp with microsecond accuracy.
- * Max year is six-digits, approximately in range [-300000, 300000]
+ * Represents local date time in a timezone with microsecond accuracy.
+ * Spark stores timestamp into Long in microseconds.
+ * A Long is able to represent a timestamp within approximately range [-300000, 300000].
+ * So year is 4-6 digits, formula is: Long.MaxValue/microseconds_per_year.
  */
 struct ts_segments {
   __device__ ts_segments()

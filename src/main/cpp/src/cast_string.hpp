@@ -139,7 +139,7 @@ std::unique_ptr<cudf::column> long_to_binary_string(
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
 /**
- * @brief Parse a timestamp string column into a intermediate struct column.
+ * @brief Parse a timestamp string column into an intermediate struct column.
  * The output column is a struct column with 7 children:
  * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
  * - seconds part of parsed UTC timestamp

@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
+#include "cast_string_to_timestamp_common.hpp"
+#include "datetime_utils.cuh"
 #include "timezones.hpp"
-#include "utils.hpp"
 
 #include <cudf/column/column.hpp>
 #include <cudf/column/column_device_view.cuh>
@@ -156,7 +157,8 @@ struct convert_with_timezones_fn {
     int64_t epoch_microseconds = static_cast<int64_t>(input_microseconds[row_idx]);
 
     // 2. fixed offset conversion
-    if (tz_type[row_idx] == /*Fixed TZ*/ 1) {
+    if (static_cast<spark_rapids_jni::TZ_TYPE>(tz_type[row_idx]) ==
+        spark_rapids_jni::TZ_TYPE::FIXED_TZ) {
       // Fixed offset, offset is in seconds, add the offset
       int64_t converted_seconds = epoch_seconds - tz_offset[row_idx];
       int64_t result;
@@ -255,7 +257,8 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
                                                              cuda::std::identity{},
                                                              stream,
                                                              mr);
-  result->set_null_mask(std::move(output_bitmask), null_count);
+  if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
+
   return result;
 }
 

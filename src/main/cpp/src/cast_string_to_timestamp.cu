@@ -15,7 +15,8 @@
  */
 
 #include "cast_string.hpp"
-#include "utils.hpp"
+#include "cast_string_to_timestamp_common.hpp"
+#include "datetime_utils.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -54,37 +55,6 @@ enum class RESULT_TYPE : uint8_t {
  *   For timestamp string 2020-01-01T12:00:00 : TS_TYPE = NOT_JUST_TIME
  */
 enum class TS_TYPE : uint8_t { NOT_JUST_TIME = 0, JUST_TIME = 1 };
-
-/**
- * Represents local date time in a timezone.
- * Spark stores timestamp into Long in microseconds.
- * A Long is able to represent a timestamp within [+-]200 thousand years.
- * So year is 4-6 digits, formula is: Long.MaxValue/microseconds_per_year.
- */
-
-enum class TZ_TYPE : uint8_t {
-
-  // Not specified timezone in the string, indicate to use the default timezone.
-  NOT_SPECIFIED = 0,
-
-  // Fixed offset timezone
-  // String starts with UT/GMT/UTC/[+-], and it's valid.
-  // E.g: +08:00, +08, +1:02:30, -010203, GMT+8, UTC+8:00, UT+8
-  // E.g: +01:2:03
-  FIXED_TZ = 1,
-
-  // Not FIXED_TZ, it's a valid timezone string.
-  // E.g.: java.time.ZoneId.SHORT_IDS: CTT
-  // E.g.: Region-based timezone: America/Los_Angeles
-  OTHER_TZ = 2,
-
-  // Invalid timezone.
-  // String starts with UT/GMT/UTC/[+-], but it's invalid.
-  // E.g: UTC+19:00, GMT+19:00, max offset is 18 hours
-  // E.g: GMT+01:2:03, +01:2:03, special case
-  // E.g: non-exist-timezone
-  INVALID_TZ = 3
-};
 
 /**
  * Represents a timezone.
@@ -130,12 +100,12 @@ __device__ time_zone make_other_tz(int tz_pos, int tz_end_pos)
 /**
  * Is white space, consistent with Spark UTF8String.trimAll for char input
  */
-__device__ bool is_whitespace(char const c)
+__device__ bool is_whitespace(unsigned char const c)
 {
   // Keep consistent with Java: Character.isWhitespace(c) ||
   // Character.isISOControl(c),
   // 0-31 is control characters, 32 is space, 127 is delete
-  return (c >= 0 && c <= 32) || c == 127;
+  return c <= 32 || c == 127;
 }
 
 __device__ bool is_valid_tz(time_zone const& tz) { return tz.type != TZ_TYPE::INVALID_TZ; }
@@ -150,13 +120,17 @@ __device__ bool is_valid_tz(time_zone const& tz) { return tz.type != TZ_TYPE::IN
  * @param max_digits the maximum digits to parse, if exceeds, return false
  * @return true if the input string is valid, false otherwise
  */
-__device__ bool parse_int(
-  char const* const ptr, int& pos, int const end_pos, int& v, int min_digits, int max_digits)
+__device__ bool parse_int(unsigned char const* const ptr,
+                          int& pos,
+                          int const end_pos,
+                          int& v,
+                          int min_digits,
+                          int max_digits)
 {
   v          = 0;
   int digits = 0;
   while (pos < end_pos) {
-    int const parsed_value = static_cast<int32_t>(ptr[pos] - '0');
+    int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
     if (parsed_value >= 0 && parsed_value <= 9) {
       if (++digits > max_digits) { return false; }
       v = v * 10 + parsed_value;
@@ -179,17 +153,21 @@ __device__ bool parse_int(
  * @param end_pos the end pointer of the string
  * @param[out] v the parsed value
  */
-__device__ void parse_microseconds(char const* const ptr, int& pos, int const end_pos, int& v)
+__device__ void parse_microseconds(unsigned char const* const ptr,
+                                   int& pos,
+                                   int const end_pos,
+                                   int& v)
 {
   v          = 0;
   int digits = 0;
   while (pos < end_pos) {
-    int const parsed_value = static_cast<int32_t>(ptr[pos] - '0');
+    int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
     if (parsed_value >= 0 && parsed_value <= 9) {
       if (++digits <= 6) {
         v = v * 10 + parsed_value;
       } else {
         // ignore/truncate the rest digits
+        // Allow tailing pattern like: ".12345600000 PST"
       }
     } else {
       break;
@@ -200,9 +178,12 @@ __device__ void parse_microseconds(char const* const ptr, int& pos, int const en
 
 __device__ bool eof(int pos, int end_pos) { return end_pos - pos <= 0; }
 
-__device__ bool parse_char(char const* const ptr, int& pos, char c) { return ptr[pos++] == c; }
+__device__ bool parse_char(unsigned char const* const ptr, int& pos, unsigned char const c)
+{
+  return ptr[pos++] == c;
+}
 
-__device__ bool try_parse_char(char const* const ptr, int& pos, char const c)
+__device__ bool try_parse_char(unsigned char const* const ptr, int& pos, unsigned char const c)
 {
   if (ptr[pos] == c) {
     ++pos;
@@ -213,7 +194,7 @@ __device__ bool try_parse_char(char const* const ptr, int& pos, char const c)
 
 /**
  * Try to parse `max_digits` consecutive digits into a int value.
- * Exits on the first non-digit character.
+ * Exits on the first non-digit character or already handled `max_digits` chars.
  * @param ptr The input string
  * @param[out] pos the pointer to the string when parsing
  * @param end_pos the end pointer of the string
@@ -222,12 +203,12 @@ __device__ bool try_parse_char(char const* const ptr, int& pos, char const c)
  * @returns the number of digits parsed.
  */
 __device__ int parse_digits(
-  char const* const ptr, int& pos, int const end_pos, int& v, int const max_digits)
+  unsigned char const* const ptr, int& pos, int const end_pos, int& v, int const max_digits)
 {
   v          = 0;
   int digits = 0;
   while (pos < end_pos) {
-    int const parsed_value = static_cast<int32_t>(ptr[pos] - '0');
+    int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
     if (parsed_value >= 0 && parsed_value <= 9) {
       v = v * 10 + parsed_value;
       ++pos;
@@ -245,7 +226,7 @@ __device__ int parse_digits(
  * Parse timezone from sign part to end of the string.
  * E.g.: +01:02:03, the '+' is parsed, parse the following: 01:02:03
  */
-__device__ time_zone parse_tz_from_sign(char const* const ptr,
+__device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
                                         int& pos,
                                         int const end_pos,
                                         int const sign)
@@ -317,9 +298,9 @@ __device__ time_zone parse_tz_from_sign(char const* const ptr,
   return make_fixed_tz(sign * num_seconds);
 }
 
-__device__ bool try_parse_sign(char const* const ptr, int& pos, int& sign_value)
+__device__ bool try_parse_sign(unsigned char const* const ptr, int& pos, int& sign_value)
 {
-  char const sign_c = ptr[pos];
+  unsigned char const sign_c = ptr[pos];
   if (sign_c == '+' || sign_c == '-') {
     ++pos;
     sign_value = (sign_c == '+') ? 1 : -1;
@@ -332,7 +313,7 @@ __device__ bool try_parse_sign(char const* const ptr, int& pos, int& sign_value)
  * Parse timezone starts with U
  * e.g.: UT+08:00, U is parsed, parse the following: T+08:00
  */
-__device__ time_zone try_parse_UT_tz(char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
 {
   // pos_backup points to the char 'U'
   int pos_backup = pos - 1;
@@ -381,7 +362,7 @@ __device__ time_zone try_parse_UT_tz(char const* const ptr, int& pos, int const 
 /**
  * Parse timezone starts with G, G is parsed, parse the following: MT
  */
-__device__ time_zone try_parse_GMT_tz(char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
 {
   // pos_backup points to the char 'G'
   int pos_backup = pos - 1;
@@ -432,7 +413,7 @@ __device__ time_zone try_parse_GMT_tz(char const* const ptr, int& pos, int const
  *
  * Note: max offset for fixed tz is 18 hours.
  */
-__device__ time_zone parse_tz(char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int const end_pos)
 {
   // empty string
   if (eof(pos, end_pos)) { return make_invalid_tz(); }
@@ -443,7 +424,7 @@ __device__ time_zone parse_tz(char const* const ptr, int& pos, int const end_pos
   int pos_backup = pos;
 
   // check first char
-  char const first_char = ptr[pos++];
+  unsigned char const first_char = ptr[pos++];
   if ('U' == first_char) {
     return try_parse_UT_tz(ptr, pos, end_pos);
   } else if ('G' == first_char) {
@@ -460,7 +441,7 @@ __device__ time_zone parse_tz(char const* const ptr, int& pos, int const end_pos
  * Parse from timezone part to end of the string.
  * First trim the string from left, the right has been trimmed.
  */
-__device__ time_zone parse_from_tz(char const* const ptr, int& pos, int const pos_end)
+__device__ time_zone parse_from_tz(unsigned char const* const ptr, int& pos, int const pos_end)
 {
   while (pos < pos_end && is_whitespace(ptr[pos])) {
     ++pos;
@@ -474,9 +455,9 @@ __device__ time_zone parse_from_tz(char const* const ptr, int& pos, int const po
  * 2020-01-01T12:00:00
  * 2020-01-01 12:00:00
  */
-__device__ bool parse_date_time_separator(char const* const ptr, int& pos)
+__device__ bool parse_date_time_separator(unsigned char const* const ptr, int& pos)
 {
-  char const c = ptr[pos];
+  unsigned char const c = ptr[pos];
   if (c == ' ' || c == 'T') {
     ++pos;
     return true;
@@ -488,7 +469,7 @@ __device__ bool parse_date_time_separator(char const* const ptr, int& pos)
  * Parse from time part to end of the string.
  */
 __device__ bool parse_from_time(
-  char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
+  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
 {
   // parse hour: [h]h
   if (!parse_int(ptr,
@@ -556,7 +537,7 @@ __device__ bool parse_from_time(
  * Parse from date part to end of the string.
  */
 __device__ bool parse_from_date(
-  char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
+  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
 {
   // parse year: yyyy[y][y]
   if (!parse_int(ptr,
@@ -641,8 +622,8 @@ __device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts,
 /**
  * Parse a string with timezone
  */
-__device__ RESULT_TYPE parse_timestamp_string(char const* const ptr,
-                                              char const* const ptr_end,
+__device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
+                                              unsigned char const* const ptr_end,
                                               time_zone& tz,
                                               int64_t& seconds,
                                               int32_t& microseconds,
@@ -664,8 +645,8 @@ __device__ RESULT_TYPE parse_timestamp_string(char const* const ptr,
   if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
 
   // parse sign
-  bool negative_year_sign = false;
-  char const sign_c       = ptr[pos];
+  bool negative_year_sign    = false;
+  unsigned char const sign_c = ptr[pos];
   if ('-' == sign_c || '+' == sign_c) {
     pos++;
     if ('-' == sign_c) { negative_year_sign = true; }
@@ -720,9 +701,12 @@ struct parse_timestamp_string_fn {
 
   __device__ void operator()(cudf::size_type const idx) const
   {
-    auto const str         = d_strings.element<cudf::string_view>(idx);
-    auto const str_ptr     = str.data();
-    auto const str_end_ptr = str_ptr + str.size_bytes();
+    // No need to check null for the `str` element
+    // Because get element on null will return empty string and then result in invalid
+    auto const str = d_strings.element<cudf::string_view>(idx);
+
+    unsigned char const* str_ptr     = reinterpret_cast<unsigned char const*>(str.data());
+    unsigned char const* str_end_ptr = str_ptr + str.size_bytes();
 
     time_zone tz;
     int64_t seconds      = 0;
@@ -772,7 +756,8 @@ struct parse_timestamp_string_fn {
         thrust::make_counting_iterator(0),
         [tz_col] __device__(int idx) { return tz_col.element<cudf::string_view>(idx); });
       auto const tzs_end   = tzs_begin + tz_col.size();
-      auto const target_tz = cudf::string_view(str_ptr + tz.tz_pos_in_string, tz.tz_len());
+      auto const target_tz = cudf::string_view(
+        reinterpret_cast<char const*>(str_ptr + tz.tz_pos_in_string), tz.tz_len());
 
       auto const it = thrust::lower_bound(
         thrust::seq, tzs_begin, tzs_end, target_tz, thrust::less<cudf::string_view>());
@@ -801,7 +786,7 @@ struct parse_timestamp_string_fn {
 };
 
 /**
- * Parse strings to a intermediate struct column with 7 sub-columns.
+ * Parse strings to an intermediate struct column with 7 sub-columns.
  */
 std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& input,
                                                cudf::size_type const default_tz_index,
