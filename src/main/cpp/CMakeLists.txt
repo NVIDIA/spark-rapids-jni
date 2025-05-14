@@ -195,6 +195,7 @@ add_library(
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
+  src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
