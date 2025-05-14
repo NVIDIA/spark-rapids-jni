@@ -150,9 +150,10 @@ static auto make_logger(std::string const& filename)
  */
 class thread_priority {
  public:
-  thread_priority(long const tsk_id, long const t_id) :
-  task_priority(spark_rapids_jni::get_task_priority(tsk_id)), 
-  thread_id(t_id) {}
+  thread_priority(long const tsk_id, long const t_id)
+    : task_priority(spark_rapids_jni::get_task_priority(tsk_id)), thread_id(t_id)
+  {
+  }
 
   long get_thread_id() const { return thread_id; }
 
@@ -183,7 +184,7 @@ class thread_priority {
   void operator=(const thread_priority& other)
   {
     task_priority = other.task_priority;
-    thread_id = other.thread_id;
+    thread_id     = other.thread_id;
   }
 
  private:
