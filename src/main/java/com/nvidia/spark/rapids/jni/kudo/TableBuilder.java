@@ -68,14 +68,20 @@ class TableBuilder implements SchemaVisitor<ColumnView, ColumnViewInfo, Table>, 
   }
 
   @Override
-  public ColumnView visitStruct(Schema structType, List<ColumnView> children) {
+  public ColumnViewInfo preVisitStruct(Schema structType) {
     ColumnViewInfo colViewInfo = getCurrentColumnViewInfo();
 
+    curViewInfoIdx += 1;
+    return colViewInfo;
+  }
+
+  @Override
+  public ColumnView visitStruct(Schema structType, ColumnViewInfo colViewInfo, List<ColumnView> children) {
     ColumnView[] childrenView = children.toArray(new ColumnView[0]);
+
     ColumnView columnView = colViewInfo.buildColumnView(buffer, childrenView);
     columnViewList[curViewIdx] = columnView;
     curViewIdx += 1;
-    curViewInfoIdx += 1;
     return columnView;
   }
 
