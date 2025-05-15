@@ -283,30 +283,29 @@ public class CastStrings {
     // 2. parse to intermediate result
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, defaultEpochDay, tzInfo)) {
-
-      ColumnView invalid = parseResult.getChildColumnView(0);
-      ColumnView tsSeconds = parseResult.getChildColumnView(1); // seconds col
-      ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
-      ColumnView tzType = parseResult.getChildColumnView(3);
-      ColumnView tzOffset = parseResult.getChildColumnView(4);
-      ColumnView tzIndex = parseResult.getChildColumnView(6);
+            input, defaultTimeZoneIndex, defaultEpochDay, tzInfo);
+        ColumnView invalid = parseResult.getChildColumnView(0);
+        ColumnView tsSeconds = parseResult.getChildColumnView(1);
+        ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
+        ColumnView tzType = parseResult.getChildColumnView(3);
+        ColumnView tzOffset = parseResult.getChildColumnView(4);
+        ColumnView hasDSTCv = parseResult.getChildColumnView(5);
+        ColumnView tzIndex = parseResult.getChildColumnView(6)) {
 
       // 3. fallback to cup if has any DST timezone and has any timestamp exceeds max
       // year
-      ColumnView hasDSTCv = parseResult.getChildColumnView(5); // DST col
       boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSeconds);
       boolean hasDST;
       try (Scalar s = hasDSTCv.sum(DType.INT32)) {
         hasDST = s.isValid() && s.getInt() > 0;
       }
       if (exceedsMaxYearThresholdOfDST && hasDST) {
-        // run on CPU
+        // convert to timestamp on CPU
         return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
             tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ false);
       }
 
-      // 4. convert to timestamp
+      // 4. convert to timestamp on GPU
       return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
           tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ true);
     }
