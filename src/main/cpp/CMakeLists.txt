@@ -14,6 +14,8 @@
 
 cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
+# CUDF_DIR is set from the environment variable, allowing to specify
+# a custom cudf repository other than `thirdparty/cudf`.
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
   CACHE STRING "path to cudf repository"
@@ -26,10 +28,7 @@ set(CUDFJNI_BUILD_DIR
   "$ENV{CUDFJNI_BUILD_DIR}"
   CACHE STRING "path to libcudfjni build root"
 )
-set(CUDF_CPP_BUILD_DIR
-  "$ENV{CUDF_CPP_BUILD_DIR}"
-  CACHE STRING "path to libcudf build root"
-)
+
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
@@ -46,7 +45,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 project(
   SPARK_RAPIDS_JNI
   VERSION 25.08.00
-  LANGUAGES C CXX CUDA
+  LANGUAGES CXX CUDA
 )
 
 # ##################################################################################################
@@ -87,15 +86,13 @@ set_property(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
-set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
+# ##################################################################################################
+# * compiler options ------------------------------------------------------------------------------
+
+rapids_find_package(CUDAToolkit REQUIRED)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type("Release")
-
-# ##################################################################################################
-# * compiler options ------------------------------------------------------------------------------
-rapids_find_package(CUDAToolkit REQUIRED)
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
@@ -115,11 +112,16 @@ configure_file(
   @ONLY
 )
 
-# find NVTX
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
+# Path to search for the pre-installed packages.
+set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR} "${CUDF_INSTALL_DIR}/lib64/cmake")
 
-# find spdlog
-include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+# Reuse cached nvtx package that is already available after installing libcudf.
+find_package(nvtx3 REQUIRED)
+
+if(NOT TARGET spdlog::spdlog_header_only)
+  message(STATUS "Fetch package spdlog from source.")
+  include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+endif()
 
 # JNI
 find_package(JNI REQUIRED)
