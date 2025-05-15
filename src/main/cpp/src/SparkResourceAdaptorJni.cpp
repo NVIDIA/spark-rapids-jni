@@ -1395,9 +1395,13 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // The allocation succeeded so we are no longer doing a retry
       if (thread->second.is_retry_alloc_before_bufn) {
         thread->second.is_retry_alloc_before_bufn = false;
-        logger->info(
-          "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
-          thread_id);
+
+        if (is_log_enabled) {
+          auto note = fmt::format(
+            "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
+            thread_id);
+          log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+        }
       }
       switch (thread->second.state) {
         case thread_state::THREAD_ALLOC:
@@ -1671,17 +1675,20 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                      std::inserter(threadsKeySet, threadsKeySet.begin()),
                      [](const auto& pair) { return pair.first; });
 
-      logger->info(
-        "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
-        "bufn_task_ids: {} ({}), threads: {} ({})",
-        setToString(all_task_ids),
-        all_task_ids.size(),
-        setToString(blocked_task_ids),
-        blocked_task_ids.size(),
-        setToString(bufn_task_ids),
-        bufn_task_ids.size(),
-        setToString(threadsKeySet),
-        threads.size());
+      if (is_log_enabled) {
+        auto note = fmt::format(
+          "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
+          "bufn_task_ids: {} ({}), threads: {} ({})",
+          setToString(all_task_ids),
+          all_task_ids.size(),
+          setToString(blocked_task_ids),
+          blocked_task_ids.size(),
+          setToString(bufn_task_ids),
+          bufn_task_ids.size(),
+          setToString(threadsKeySet),
+          threads.size());
+        log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
+      }
     }
     return ret;
   }
@@ -1694,7 +1701,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       oss << it->second.to_string();
       if (std::next(it) != threads.end()) { oss << ";"; }
     }
-    logger->info(oss.str());
+    log_status("DETAIL", -1, -1, thread_state::UNKNOWN, oss.str());
   }
 
   /**
@@ -1740,8 +1747,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
-            logger->info("thread (id: {}) is_retry_alloc_before_bufn set to true",
-                         thread_id_to_bufn);
+            if (is_log_enabled) {
+              auto note = fmt::format("thread (id: {}) is_retry_alloc_before_bufn set to true",
+                                      thread_id_to_bufn);
+              log_status(
+                "DETAIL", thread_id_to_bufn, thread->second.task_id, thread->second.state, note);
+            }
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             log_all_threads_states();
@@ -1767,7 +1778,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       bool const all_bufn = all_task_ids.size() == bufn_task_ids.size();
 
       if (all_bufn) {
-        logger->info("all_bufn state is reached with all_task_ids size: {}", all_task_ids.size());
+        if (is_log_enabled) {
+          auto note = fmt::format("all_bufn state is reached with all_task_ids size: {}",
+                                  all_task_ids.size());
+          log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
+        }
         thread_priority to_wake(-1, -1);
         bool is_to_wake_set = false;
         for (auto const& [thread_id, t_state] : threads) {
@@ -1830,18 +1845,27 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           if (is_oom && thread->second.is_retry_alloc_before_bufn) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-              logger->info(
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
+              if (is_log_enabled) {
+                auto note = fmt::format(
+                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
+                  "post_alloc_failed_core",
+                  thread_id);
+                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+              }
             }
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
             thread->second.wake_condition->notify_all();
           } else if (is_oom && blocking) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-              logger->info(
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
+
+              if (is_log_enabled) {
+                auto note = fmt::format(
+                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
+                  "post_alloc_failed_core",
+                  thread_id);
+                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+              }
             }
             transition(thread->second, thread_state::THREAD_BLOCKED);
           } else {
