@@ -190,7 +190,7 @@ public class CastStrings {
         input.getNativeView(), defaultTimeZoneIndex, defaultEpochDay, timeZoneInfo.getNativeView()));
   }
 
-  private static ColumnVector convertToTimestampOnGpu(
+  private static ColumnVector convertToTimestamp(
       long originInputNullcount,
       ColumnView invalid,
       ColumnView ts_seconds,
@@ -198,38 +198,33 @@ public class CastStrings {
       ColumnView tzType,
       ColumnView tzOffset,
       ColumnView tzIndex,
-      boolean ansi_enabled) {
-    try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
-        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-        // has new nulls, means has any invalid data,
-        // e.g.: format is invalid, year is not supported 7 digits
-        // protocol: if ansi mode and has any invalid data, return null
-        return null;
-      } else {
-        return result.incRefCount();
+      boolean ansi_enabled,
+      boolean runOnGpu) {
+    if (runOnGpu) {
+      // run on GPU
+      try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
+          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+        if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+          // has new nulls, means has any invalid data,
+          // e.g.: format is invalid, year is not supported 7 digits
+          // protocol: if ansi mode and has any invalid data, return null
+          return null;
+        } else {
+          return result.incRefCount();
+        }
       }
-    }
-  }
-
-  private static ColumnVector convertToTimestampOnCpu(
-      long originInputNullcount,
-      ColumnView invalid,
-      ColumnView ts_seconds,
-      ColumnView ts_microseconds,
-      ColumnView tzType,
-      ColumnView tzOffset,
-      ColumnView tzIndex,
-      boolean ansi_enabled) {
-    try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
-        invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-        // has new nulls, means has any invalid data,
-        // e.g.: format is invalid, year is not supported 7 digits
-        // protocol: if ansi mode and has any invalid data, return null
-        return null;
-      } else {
-        return result.incRefCount();
+    } else {
+      // run on CPU
+      try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
+          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
+        if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+          // has new nulls, means has any invalid data,
+          // e.g.: format is invalid, year is not supported 7 digits
+          // protocol: if ansi mode and has any invalid data, return null
+          return null;
+        } else {
+          return result.incRefCount();
+        }
       }
     }
   }
@@ -306,13 +301,14 @@ public class CastStrings {
         hasDST = s.isValid() && s.getInt() > 0;
       }
       if (exceedsMaxYearThresholdOfDST && hasDST) {
-        return convertToTimestampOnCpu(input.getNullCount(),
-            invalid, tsSeconds, tsMicroseconds, tzType, tzOffset, tzIndex, ansi_enabled);
+        // run on CPU
+        return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
+            tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ false);
       }
 
       // 4. convert to timestamp
-      return convertToTimestampOnGpu(input.getNullCount(), invalid, tsSeconds, tsMicroseconds, tzType, tzOffset,
-          tzIndex, ansi_enabled);
+      return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
+          tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ true);
     }
   }
 
