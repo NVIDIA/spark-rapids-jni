@@ -200,31 +200,25 @@ public class CastStrings {
       ColumnView tzIndex,
       boolean ansi_enabled,
       boolean runOnGpu) {
+    ColumnVector result;
     if (runOnGpu) {
       // run on GPU
-      try (ColumnVector result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
-          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-        if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-          // has new nulls, means has any invalid data,
-          // e.g.: format is invalid, year is not supported 7 digits
-          // protocol: if ansi mode and has any invalid data, return null
-          return null;
-        } else {
-          return result.incRefCount();
-        }
-      }
+      result = GpuTimeZoneDB.fromTimestampToUtcTimestampWithTzCv(
+          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex);
     } else {
       // run on CPU
-      try (ColumnVector result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
-          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex)) {
-        if (ansi_enabled && result.getNullCount() > originInputNullcount) {
-          // has new nulls, means has any invalid data,
-          // e.g.: format is invalid, year is not supported 7 digits
-          // protocol: if ansi mode and has any invalid data, return null
-          return null;
-        } else {
-          return result.incRefCount();
-        }
+      result = GpuTimeZoneDB.cpuChangeTimestampTzWithTimezones(
+          invalid, ts_seconds, ts_microseconds, tzType, tzOffset, tzIndex);
+    }
+
+    try (ColumnVector tmp = result) {
+      if (ansi_enabled && result.getNullCount() > originInputNullcount) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is not supported 7 digits
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return tmp.incRefCount();
       }
     }
   }
@@ -277,7 +271,8 @@ public class CastStrings {
     if (defaultTimeZoneIndex == null) {
       throw new IllegalArgumentException("Invalid default timezone: " + defaultTimeZone);
     }
-
+    // Get the epoch day of today in default timezone, when the input string is just
+    // time, e.g.: "T00:00:00", use this epoch day
     long defaultEpochDay = LocalDate.now(ZoneId.of(defaultTimeZone)).toEpochDay();
 
     // 2. parse to intermediate result
@@ -292,22 +287,18 @@ public class CastStrings {
         ColumnView hasDSTCv = parseResult.getChildColumnView(5);
         ColumnView tzIndex = parseResult.getChildColumnView(6)) {
 
-      // 3. fallback to cup if has any DST timezone and has any timestamp exceeds max
-      // year
+      // 3. Set fallback to CPU if has any DST timezone and has any timestamp exceeds
+      // max year threshold
       boolean exceedsMaxYearThresholdOfDST = GpuTimeZoneDB.exceedsMaxYearThresholdOfDST(tsSeconds);
       boolean hasDST;
       try (Scalar s = hasDSTCv.sum(DType.INT32)) {
         hasDST = s.isValid() && s.getInt() > 0;
       }
-      if (exceedsMaxYearThresholdOfDST && hasDST) {
-        // convert to timestamp on CPU
-        return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
-            tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ false);
-      }
+      boolean runOnGpu = !(exceedsMaxYearThresholdOfDST && hasDST);
 
-      // 4. convert to timestamp on GPU
+      // 4. convert to timestamp on GPU or CPU
       return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
-          tzType, tzOffset, tzIndex, ansi_enabled, /* runOnGpu */ true);
+          tzType, tzOffset, tzIndex, ansi_enabled, runOnGpu);
     }
   }
 
