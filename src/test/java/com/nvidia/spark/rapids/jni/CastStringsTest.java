@@ -993,4 +993,59 @@ public class CastStringsTest {
       Assertions.assertNull(actual);
     }
   }
+
+  @Test
+  void castStringToDate() {
+    int expectedDays = (int) LocalDate.of(2025, 1, 1).toEpochDay();
+    int negExpectedDays = (int) LocalDate.of(-2025, 1, 1).toEpochDay();
+    int expectedLargeDays = (int) LocalDate.of(1000000, 1, 1).toEpochDay();
+    int negExpectedLargeDays = (int) LocalDate.of(-1000000, 1, 1).toEpochDay();
+    try (ColumnVector inputCv = ColumnVector.fromStrings(
+        null,
+        "  2025",
+        "2025-01 ",
+        "2025-1  ",
+        "2025-1-1",
+        "2025-1-01",
+        "2025-01-1",
+        "2025-01-01",
+        "2025-01-01T",
+        "+2025-01-01Txxx",
+        "-2025-01-01 xxx",
+        "1000000-01-01", // valid large year
+        "-1000000-01-01", // valid large year
+        "10000001-01-01", // invalid large year
+        "-10000001-01-01" // invalid large year
+    );
+        ColumnVector actual = CastStrings.toDate(inputCv, /* ansi */ false);
+        ColumnVector expected = ColumnVector.timestampDaysFromBoxedInts(
+            null,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            expectedDays,
+            negExpectedDays,
+            expectedLargeDays,
+            negExpectedLargeDays,
+            null,
+            null)) {
+
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void castStringToDateAnsi() {
+    // 2025x is invalid
+    try (ColumnVector inputCv = ColumnVector.fromStrings("2025", "2025x");
+        ColumnVector actual = CastStrings.toDate(inputCv, /* ansi */true)) {
+      Assertions.assertNull(actual);
+    }
+  }
+
 }
