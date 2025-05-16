@@ -27,6 +27,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform.h>
@@ -1003,7 +1004,7 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
 
   auto [output_bitmask, null_count] = cudf::detail::valid_if(null_mask->view().begin<uint8_t>(),
                                                              null_mask->view().end<uint8_t>(),
-                                                             thrust::identity<bool>{},
+                                                             cuda::std::identity{},
                                                              stream,
                                                              mr);
   if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
