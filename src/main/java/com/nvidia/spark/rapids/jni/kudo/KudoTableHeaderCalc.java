@@ -17,14 +17,15 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.DType;
+import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.HostColumnVectorCore;
 import com.nvidia.spark.rapids.jni.schema.HostColumnsVisitor;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.List;
 
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForHostAlignment;
+import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.padForValidityAlignment;
 import static java.lang.Math.toIntExact;
 
 /**
@@ -41,14 +42,14 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   private final byte[] bitset;
   private long validityBufferLen;
   private long offsetBufferLen;
-  private long totalDataLen;
+  private long dataOnlyLen;
   private int nextColIdx;
 
   private Deque<SliceInfo> sliceInfos = new ArrayDeque<>();
 
   KudoTableHeaderCalc(int rowOffset, int numRows, int numFlattenedCols) {
     this.root = new SliceInfo(rowOffset, numRows);
-    this.totalDataLen = 0;
+    this.dataOnlyLen = 0;
     sliceInfos.addLast(this.root);
     this.bitset = new byte[(numFlattenedCols + 7) / 8];
     this.numFlattenedCols = numFlattenedCols;
@@ -56,50 +57,62 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
   }
 
   public KudoTableHeader getHeader() {
+    int headerSize = KudoTableHeader.getSerializedSize(bitset.length);
+    // The validity is a bit odd because we want to pad it for 4 byte alignment
+    // But that is relative to the header, not the payload buffer
+    long paddedValiditySize = padForValidityAlignment(validityBufferLen, headerSize);
+    long paddedOffsetsSize = padForHostAlignment(offsetBufferLen);
+    long paddedDataSize = padForHostAlignment(dataOnlyLen);
     return new KudoTableHeader(toIntExact(root.offset),
         toIntExact(root.rowCount),
-        toIntExact(validityBufferLen),
-        toIntExact(offsetBufferLen),
-        toIntExact(totalDataLen),
+        toIntExact(paddedValiditySize),
+        toIntExact(paddedOffsetsSize),
+        toIntExact(paddedValiditySize +
+            paddedOffsetsSize +
+            paddedDataSize),
         numFlattenedCols,
         bitset);
   }
 
   @Override
-  public void visitStruct(HostColumnVectorCore col) {
+  public void preVisitStruct(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
     long validityBufferLength = 0;
-    if (col.hasValidityVector()) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+    boolean includeValidity = col.hasValidityVector() && parent.rowCount > 0;
+    if (includeValidity) {
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     this.validityBufferLen += validityBufferLength;
+    this.setHasValidity(includeValidity);
+  }
 
-    totalDataLen += validityBufferLength;
-    this.setHasValidity(col.hasValidityVector());
+  @Override
+  public void visitStruct(HostColumnVectorCore col) {
+    // NOOP
   }
 
   @Override
   public void preVisitList(HostColumnVectorCore col) {
     SliceInfo parent = sliceInfos.getLast();
 
+    boolean includeValidity = col.hasValidityVector() && parent.rowCount > 0;
 
     long validityBufferLength = 0;
-    if (col.hasValidityVector() && parent.rowCount > 0) {
-      validityBufferLength = padForHostAlignment(parent.getValidityBufferInfo().getBufferLength());
+    if (includeValidity) {
+      validityBufferLength = parent.getValidityBufferInfo().getBufferLength();
     }
 
     long offsetBufferLength = 0;
     if (col.getOffsets() != null && parent.rowCount > 0) {
-      offsetBufferLength = padForHostAlignment((parent.rowCount + 1) * Integer.BYTES);
+      offsetBufferLength = (parent.rowCount + 1L) * Integer.BYTES;
     }
 
     this.validityBufferLen += validityBufferLength;
     this.offsetBufferLen += offsetBufferLength;
-    this.totalDataLen += validityBufferLength + offsetBufferLength;
 
-    this.setHasValidity(col.hasValidityVector());
+    this.setHasValidity(includeValidity);
 
     SliceInfo current;
 
@@ -130,10 +143,13 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
     this.validityBufferLen += validityBufferLen;
     this.offsetBufferLen += offsetBufferLen;
-    this.totalDataLen += validityBufferLen + offsetBufferLen + dataBufferLen;
+    this.dataOnlyLen += dataBufferLen;
 
-    this.setHasValidity(col.hasValidityVector());
+    this.setHasValidity(col.hasValidityVector() && parent.rowCount > 0);
   }
+
+  @Override
+  public void done() {}
 
   private void setHasValidity(boolean hasValidityBuffer) {
     if (hasValidityBuffer) {
@@ -146,7 +162,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
   private static long dataLenOfValidityBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (col.hasValidityVector() && info.getRowCount() > 0) {
-      return padForHostAlignment(info.getValidityBufferInfo().getBufferLength());
+      return info.getValidityBufferInfo().getBufferLength();
     } else {
       return 0;
     }
@@ -154,7 +170,7 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
 
   private static long dataLenOfOffsetBuffer(HostColumnVectorCore col, SliceInfo info) {
     if (DType.STRING.equals(col.getType()) && info.getRowCount() > 0) {
-      return padForHostAlignment((info.rowCount + 1) * Integer.BYTES);
+      return (info.rowCount + 1L) * Integer.BYTES;
     } else {
       return 0;
     }
@@ -165,13 +181,13 @@ class KudoTableHeaderCalc implements HostColumnsVisitor {
       if (col.getOffsets() != null) {
         long startByteOffset = col.getOffsets().getInt(info.offset * Integer.BYTES);
         long endByteOffset = col.getOffsets().getInt((info.offset + info.rowCount) * Integer.BYTES);
-        return padForHostAlignment(endByteOffset - startByteOffset);
+        return endByteOffset - startByteOffset;
       } else {
         return 0;
       }
     } else {
       if (col.getType().getSizeInBytes() > 0) {
-        return padForHostAlignment(col.getType().getSizeInBytes() * info.rowCount);
+        return col.getType().getSizeInBytes() * info.rowCount;
       } else {
         return 0;
       }

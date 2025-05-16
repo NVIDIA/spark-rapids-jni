@@ -195,6 +195,7 @@ add_library(
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
+  src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
@@ -204,6 +205,7 @@ add_library(
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
+  src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/case_when.cu
@@ -212,6 +214,7 @@ add_library(
   src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
+  src/cast_string_to_timestamp.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
