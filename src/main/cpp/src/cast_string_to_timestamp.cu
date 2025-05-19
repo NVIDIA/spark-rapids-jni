@@ -148,6 +148,15 @@ __device__ bool parse_int(unsigned char const* const ptr,
  * Spark store timestamp in microsecond, the nanosecond part is discard.
  * If there are 6+ digits, only use the first 6 digits, the rest digits are
  * ignored/truncated.
+ * E.g.:
+ *   xxx.1 => 100000
+ *   xxx.12 => 120000
+ *   xxx.123 => 123000
+ *   xxx.1234 => 123400
+ *   xxx.12345 => 123450
+ *   xxx.123456 => 123456
+ *   xxx.101 => 101000
+ *
  * @param ptr the current pointer to the string
  * @param[out] pos the pointer to the string when parsing
  * @param end_pos the end pointer of the string
@@ -158,13 +167,15 @@ __device__ void parse_microseconds(unsigned char const* const ptr,
                                    int const end_pos,
                                    int& v)
 {
+  int base   = 100'000;
   v          = 0;
   int digits = 0;
   while (pos < end_pos) {
     int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
     if (parsed_value >= 0 && parsed_value <= 9) {
       if (++digits <= 6) {
-        v = v * 10 + parsed_value;
+        v += parsed_value * base;
+        base = base / 10;
       } else {
         // ignore/truncate the rest digits
         // Allow tailing pattern like: ".12345600000 PST"
