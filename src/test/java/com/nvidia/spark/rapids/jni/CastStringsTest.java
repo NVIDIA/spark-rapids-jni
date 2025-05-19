@@ -898,6 +898,9 @@ public class CastStringsTest {
     // CTT = Asia/Shanghai
     // PST = America/Los_Angeles
     list.add(Arrays.asList("2023-11-05T03:04:55 +00:00", base_ts1, true));
+    list.add(Arrays.asList("2023-11-05T03:04:55.101", base_ts1 + 101000L, true));
+    list.add(Arrays.asList("2023-11-05T03:04:55.123456", base_ts1 + 123456L, true));
+    list.add(Arrays.asList("2023-11-05T03:04:55.9909", base_ts1 + 990900L, true));
     list.add(Arrays.asList("2023-11-05 03:04:55 +01:02", base_ts1 + offset, true));
     list.add(Arrays.asList("2023-11-05 03:04:55 CTT", base_ts1 + cttOffset, true));
     list.add(Arrays.asList("2023-11-05 03:04:55 Asia/Shanghai", base_ts1 + cttOffset, true));
