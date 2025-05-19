@@ -38,9 +38,9 @@ long get_task_priority(long attempt_id)
     // Return existing priority for this attempt_id
     return it->second;
   }
-  
+
   // Assign new priority for this attempt_id
-  long priority = next_task_priority--;
+  long priority                  = next_task_priority--;
   attempt_priorities[attempt_id] = priority;
   return priority;
 }
@@ -48,9 +48,9 @@ long get_task_priority(long attempt_id)
 void task_done(long attempt_id)
 {
   if (attempt_id == -1) {
-    return; // Nothing to do for special case
+    return;  // Nothing to do for special case
   }
-  
+
   std::lock_guard<std::mutex> lock(priority_mutex);
   attempt_priorities.erase(attempt_id);
 }
