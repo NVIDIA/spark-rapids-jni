@@ -642,6 +642,11 @@ public class GpuTimeZoneDB {
     }
   }
 
+  public static boolean isDST(String timezone) {
+    ZoneId zoneId = ZoneId.of(timezone, ZoneId.SHORT_IDS);
+    return !zoneId.getRules().getTransitionRules().isEmpty();
+  }
+
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
