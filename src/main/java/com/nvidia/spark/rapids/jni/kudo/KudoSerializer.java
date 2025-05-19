@@ -67,6 +67,7 @@ import java.util.stream.IntStream;
  * <h1>Format</h1>
  * <p>
  * Similar to {@link JCudfSerialization}, it still consists of two parts: header and body.
+ * <p>
  *
  * <h2>Header</h2>
  * <p>
@@ -126,6 +127,14 @@ import java.util.stream.IntStream;
  *           int bit = col<sub>i</sub> % 8; <br/>
  *           return (hasValidityBuffer[pos] & (1 << bit)) != 0;
  *         </code>
+ *         The order of the bits is the same as the order of the buffers in the body. They are depth-first
+ *         when walking the schema, but for structs and arrays the validity buffer for that object itself
+ *         comes before its children.
+ *         <br/>
+ *         In all cases if hasValidityBuffer indicates that validity is present at least 1 byte must be
+ *         output in the body for that. If because of nesting a buffer would have 0 rows, then hasValidityBuffer
+ *         should either indicate that there is no validity or insert in a byte that can be ignored. The first
+ *         option is preferable.
  *         </td>
  *     </tr>
  * </table>
@@ -134,13 +143,17 @@ import java.util.stream.IntStream;
  * <p>
  * The body consists of three part:
  * <ol>
- *     <li>Validity buffers for every column with validity in depth-first ordering of schema columns. Each buffer of
- *     each column is 4 bytes padded.
+ *     <li>Validity buffers for every column with validity in depth-first ordering of schema columns. Just like with
+ *     hasValidityBuffer the validity for structs and arrays comes before their children. The entire validity part
+ *     is padded to 4 byte alignment. Because the header is not padded, this takes the header length into account
+ *     when padding.
  *     </li>
  *     <li>Offset buffers for every column with offsets in depth-first ordering of schema columns. Each buffer of each
- *     column is 4 bytes padded.</li>
- *     <li>Data buffers for every column with data in depth-first ordering of schema columns. Each buffer of each
- *     column is 4 bytes padded.</li>
+ *     column is inherently 4-byte aligned because offsets are 4-byte values and the validity if 4-byte aligned.
+ *     Because of nesting it is possible for an offset to have a length of 0, if there are 0 rows.</li>
+ *     <li>Data buffers for every column with data in depth-first ordering of schema columns. The entire part
+ *     will also be padded to 4 byte alignment, but the buffers within the part have no alignment guarantees.
+ *     Because of nesting it is possible of a data buffer to have a length of 0, if there are 0 rows.</li>
  * </ol>
  *
  * <h1>Serialization</h1>
@@ -432,7 +445,8 @@ public class KudoSerializer {
     for (BufferType bufferType : ALL_BUFFER_TYPES) {
       SlicedBufferSerializer serializer = new SlicedBufferSerializer(rowOffset,
           numRows, bufferType,
-          out, metrics, measureCopyBufferTime);
+          out, metrics, measureCopyBufferTime,
+          header.getSerializedSize());
       Visitors.visitColumns(columns, serializer);
       bytesWritten += serializer.getTotalDataLen();
       metrics.addWrittenBytes(serializer.getTotalDataLen());
@@ -461,13 +475,39 @@ public class KudoSerializer {
     }
   }
 
+  /**
+   * Based on cudf::util::round_up_safe
+   */
+  private static long roundUpSafe(long toRound, long modulus) {
+    long remainder = toRound % modulus;
+    if (remainder == 0) {
+      return toRound;
+    }
+    long roundedUp = toRound - remainder + modulus;
+    if (roundedUp < toRound) {
+      throw new IllegalStateException("Overflow when rounding up");
+    }
+    return roundedUp;
+  }
 
   static long padForHostAlignment(long orig) {
-    return ((orig + 3) / 4) * 4;
+    return roundUpSafe(orig, 4);
+  }
+
+  static long padForValidityAlignment(long orig, long headerSize) {
+    return roundUpSafe(orig + headerSize, 4) - headerSize;
   }
 
   static long padForHostAlignment(DataWriter out, long bytes) throws IOException {
     final long paddedBytes = padForHostAlignment(bytes);
+    if (paddedBytes > bytes) {
+      out.write(PADDING, 0, (int) (paddedBytes - bytes));
+    }
+    return paddedBytes;
+  }
+
+  static long padForValidityAlignment(DataWriter out, long bytes, long headerSize) throws IOException {
+    final long paddedBytes = padForValidityAlignment(bytes, headerSize);
     if (paddedBytes > bytes) {
       out.write(PADDING, 0, (int) (paddedBytes - bytes));
     }

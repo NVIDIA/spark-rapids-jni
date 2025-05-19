@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (c) 2024, NVIDIA CORPORATION.
+ *  Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -88,12 +88,20 @@ public interface SchemaVisitor<T, P, R> {
     R visitTopSchema(Schema schema, List<T> children);
 
     /**
+     * Visit a struct schema before actually visiting its children.
+     * @param structType the struct schema to visit
+     * @return the result of visiting the struct schema
+     */
+    P preVisitStruct(Schema structType);
+
+    /**
      * Visit a struct schema.
      * @param structType the struct schema to visit
+     * @param preVisitResult the result of visiting the struct schema before visiting its children
      * @param children the results of visiting the children
      * @return the result of visiting the struct schema
      */
-    T visitStruct(Schema structType, List<T> children);
+    T visitStruct(Schema structType, P preVisitResult, List<T> children);
 
     /**
      * Visit a list schema before actually visiting its child.
