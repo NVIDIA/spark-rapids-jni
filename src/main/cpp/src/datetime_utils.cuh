@@ -89,7 +89,7 @@ struct date_time_utils {
   }
 
   /**
-   * @brief Is the month/day is valid.
+   * @brief If the month/day is valid.
    */
   __device__ static bool is_valid_month_day(int const year, int const month, int const day)
   {
@@ -97,15 +97,12 @@ struct date_time_utils {
       return false;  // Invalid month or day
     }
 
-    // Check for leap year, February has 29 days in leap year
-    if (month == 2 && is_leap_year(year)) { return (day <= 29); }
-
     // Check against the standard days
     return (day <= days_in_month(year, month));
   }
 
   /**
-   * @brief Is Spark date is valid.
+   * @brief If Spark date is valid.
    * Spark stores date as int with the value of days since epoch 1970-01-01.
    * Spark date: max year is 7 digits, so the rough check range is [-10,000,000, 10,000,000].
    * Note: Spark stores date as int, so the range is limited to 32-bit signed integer.
@@ -118,7 +115,7 @@ struct date_time_utils {
   }
 
   /**
-   * @brief Is the date in Spark timestamp is valid.
+   * @brief If the date in Spark timestamp is valid.
    * Spark stores timestamp as long in microseconds.
    * Spark timestamp: max year is 6 digits, the rough check range is [-300'000, 300'000].
    */
@@ -130,7 +127,7 @@ struct date_time_utils {
   }
 
   /**
-   * @brief Is the time is valid.
+   * @brief If the time is valid.
    * Spark timestamp: hour 0-23, minute 0-59, second 0-59, microseconds 0-999999.
    */
   __device__ static bool is_valid_time(int const hour,
