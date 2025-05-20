@@ -151,6 +151,7 @@ std::unique_ptr<cudf::column> long_to_binary_string(
  *
  * @param input The input String column contains timestamp strings
  * @param default_tz_index The default timezone index to `GpuTimeZoneDB` transition table.
+ * @param is_default_tz_dst If true, the default timezone is DST(Daylight Saving Time) timezone.
  * @param default_epoch_day Default epoch day to use if just time, e.g.:
  *   "T00:00:00Z" will use the default_epoch_day, e.g.: the result will be "2025-05-05T00:00:00Z"
  * @param tz_info Timezone info column: STRUCT<tz_name: string, index_to_transition_table: int,
@@ -162,6 +163,7 @@ std::unique_ptr<cudf::column> long_to_binary_string(
 std::unique_ptr<cudf::column> parse_timestamp_strings(
   cudf::strings_column_view const& input,
   cudf::size_type const default_tz_index,
+  bool const is_default_tz_dst,
   int64_t const default_epoch_day,
   cudf::column_view const& tz_info,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

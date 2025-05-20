@@ -498,7 +498,12 @@ public class CastStringsTest {
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
-        ColumnVector result = CastStrings.parseTimestampStrings(inputCv, 1, defaultEpochDay, tzInfo);
+        ColumnVector result = CastStrings.parseTimestampStrings(
+            inputCv,
+            1,
+            /* is default tz DST */ false,
+            defaultEpochDay,
+            tzInfo);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
@@ -727,7 +732,12 @@ public class CastStringsTest {
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
-        ColumnVector result = CastStrings.parseTimestampStrings(inputCv, 1, defaultEpochDay, tzInfo);
+        ColumnVector result = CastStrings.parseTimestampStrings(
+            inputCv,
+            1,
+            /* is default tz DST */ false,
+            defaultEpochDay,
+            tzInfo);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
@@ -1048,6 +1058,44 @@ public class CastStringsTest {
     try (ColumnVector inputCv = ColumnVector.fromStrings("2025", "2025x");
         ColumnVector actual = CastStrings.toDate(inputCv, /* ansi */true)) {
       Assertions.assertNull(actual);
+    }
+  }
+
+  /**
+   * Test cast string to timestamp with non-UTC default timezone.
+   */
+  @Test
+  void castStringToTimestampUseNonUTCDefaultTimezone() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    // 1. test fallback to cpu: has year > 2200 and has DST
+    String ts1 = "6663-09-28T00:00:00";
+    // calculated from Spark:
+    // spark.conf.set("spark.sql.session.timeZone", "America/Los_Angeles")
+    // spark.createDataFrame([('6663-09-28T00:00:00',)], 'a string')
+    // .selectExpr("cast(cast(a as timestamp) as long) * 1000000L").show()
+    long micors1 = 148120124400000000L;
+    try (ColumnVector inputCv = ColumnVector.fromStrings(ts1);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv,
+            "America/Los_Angeles", // non-UTC default timezone
+            /* ansi */ false);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors1)) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+
+    // 2. test run on GPU: has no year > 2200 although has DST
+    String ts2 = "2025-09-28T00:00:00";
+    // calculated from Spark: refer to the above code
+    long micors2 = 1759042800000000L;
+    try (ColumnVector inputCv = ColumnVector.fromStrings(ts2);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv,
+            "America/Los_Angeles", // non-UTC default timezone
+            /* ansi */ false);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors2)) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
     }
   }
 
