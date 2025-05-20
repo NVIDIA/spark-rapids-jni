@@ -115,8 +115,8 @@ configure_file(
   @ONLY
 )
 
-# find NVTX
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
+# find NVTX 3.2
+include(${CMAKE_SOURCE_DIR}/cmake/get_nvtx.cmake)
 
 # find spdlog
 include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
