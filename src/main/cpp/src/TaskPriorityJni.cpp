@@ -18,16 +18,43 @@
 #include "jni_utils.hpp"
 #include "task_priority.hpp"
 
+namespace {
+// Track the next priority to assign and maintain a map of attempt_id to priority
+static long next_task_priority = std::numeric_limits<long>::max() - 1;
+static std::mutex priority_mutex;
+static std::unordered_map<long, long> attempt_priorities;
+}  // namespace
+
 namespace spark_rapids_jni {
 
 long get_task_priority(long attempt_id)
 {
-  return std::numeric_limits<long>::max() - (attempt_id + 1);
+  if (attempt_id == -1) {
+    // Special case: -1 always gets highest priority
+    return std::numeric_limits<long>::max();
+  }
+
+  std::lock_guard<std::mutex> lock(priority_mutex);
+  auto it = attempt_priorities.find(attempt_id);
+  if (it != attempt_priorities.end()) {
+    // Return existing priority for this attempt_id
+    return it->second;
+  }
+
+  // Assign new priority for this attempt_id
+  long priority                  = next_task_priority--;
+  attempt_priorities[attempt_id] = priority;
+  return priority;
 }
 
 void task_done(long attempt_id)
 {
-  // noop for now will change soon
+  if (attempt_id == -1) {
+    return;  // Nothing to do for special case
+  }
+
+  std::lock_guard<std::mutex> lock(priority_mutex);
+  attempt_priorities.erase(attempt_id);
 }
 
 }  // namespace spark_rapids_jni
