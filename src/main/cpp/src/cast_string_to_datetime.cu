@@ -1007,10 +1007,10 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
     thrust::make_counting_iterator(0),
     num_rows,
     parse_string_to_date_fn{
-      *d_input, validity.begin<bool>(), result->mutable_view().begin<cudf::timestamp_D>()});
+      *d_input, validity.begin(), result->mutable_view().begin<cudf::timestamp_D>()});
 
-  auto [output_bitmask, null_count] = cudf::detail::valid_if(
-    validity.begin<bool>(), validity.end<bool>(), cuda::std::identity{}, stream, mr);
+  auto [output_bitmask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
   if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
 
   return result;
