@@ -23,7 +23,7 @@ namespace {
 static long next_task_priority = std::numeric_limits<long>::max() - 1;
 static std::mutex priority_mutex;
 static std::unordered_map<long, long> attempt_priorities;
-}
+} // namespace
 
 namespace spark_rapids_jni {
 
