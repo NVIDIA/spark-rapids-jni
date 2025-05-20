@@ -17,6 +17,8 @@
 package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.BufferType;
+import ai.rapids.cudf.HostMemoryBuffer;
+
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -155,6 +157,10 @@ public final class KudoTableHeader {
     return 7 * Integer.BYTES + hasValidityBuffer.length;
   }
 
+  public static int getSerializedSize(int hasValiditySize) {
+    return 7 * Integer.BYTES + hasValiditySize;
+  }
+
   public int getNumColumns() {
     return numColumns;
   }
@@ -191,6 +197,27 @@ public final class KudoTableHeader {
     dout.writeInt(totalDataLen);
     dout.writeInt(numColumns);
     dout.write(hasValidityBuffer, 0, hasValidityBuffer.length);
+  }
+
+  private static void setInt(HostMemoryBuffer hmb, long hmbOffset, int v) {
+    byte[] bytes = new byte[4];
+    bytes[0] = (byte) ((v >>> 24) & 0xFF);
+    bytes[1] = (byte) ((v >>> 16) & 0xFF);
+    bytes[2] = (byte) ((v >>> 8) & 0xFF);
+    bytes[3] = (byte) (v & 0xFF);
+    hmb.setBytes(hmbOffset, bytes, 0, bytes.length);
+  }
+
+  public long writeTo(HostMemoryBuffer hmb, long hmbOffset) {
+    setInt(hmb, hmbOffset, SER_FORMAT_MAGIC_NUMBER);
+    setInt(hmb, hmbOffset + 4, offset);
+    setInt(hmb, hmbOffset + 8, numRows);
+    setInt(hmb, hmbOffset + 12, validityBufferLen);
+    setInt(hmb, hmbOffset + 16, offsetBufferLen);
+    setInt(hmb, hmbOffset + 20, totalDataLen);
+    setInt(hmb, hmbOffset + 24, numColumns);
+    hmb.setBytes(hmbOffset + 28, hasValidityBuffer, 0 , hasValidityBuffer.length);
+    return hmbOffset + getSerializedSize();
   }
 
   @Override

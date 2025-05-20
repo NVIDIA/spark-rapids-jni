@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
@@ -44,7 +46,7 @@ public class KudoSerializerTest {
   public void testSerializeAndDeserializeTable() {
     try(Table expected = buildTestTable()) {
       int rowCount = toIntExact(expected.getRowCount());
-      for (int sliceSize = 1; sliceSize <= rowCount; sliceSize++) {
+      for (int sliceSize = rowCount; sliceSize >= 1; sliceSize--) {
         List<TableSlice> tableSlices = new ArrayList<>();
         for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), expected));
@@ -75,13 +77,31 @@ public class KudoSerializerTest {
   }
 
   @Test
+  public void testSerializeAndDeserializeEmptyStructTable() {
+    try(Table expected = buildEmptyStructTable()) {
+      int rowCount = toIntExact(expected.getRowCount());
+      for (int sliceSize = rowCount; sliceSize >= 1; sliceSize--) {
+        List<TableSlice> tableSlices = new ArrayList<>();
+        for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), expected));
+        }
+
+        checkMergeTable(expected, tableSlices);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
   public void testWriteSimple() throws Exception {
     KudoSerializer serializer = new KudoSerializer(buildSimpleTestSchema());
 
     try (Table t = buildSimpleTable()) {
       OpenByteArrayOutputStream out = new OpenByteArrayOutputStream();
       long bytesWritten = serializer.writeToStreamWithMetrics(t, out, 0, 4).getWrittenBytes();
-      assertEquals(189, bytesWritten);
+
+      assertEquals(172, bytesWritten);
 
       ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
 
@@ -89,9 +109,9 @@ public class KudoSerializerTest {
       assertEquals(7, header.getNumColumns());
       assertEquals(0, header.getOffset());
       assertEquals(4, header.getNumRows());
-      assertEquals(24, header.getValidityBufferLen());
+      assertEquals(7, header.getValidityBufferLen());
       assertEquals(40, header.getOffsetBufferLen());
-      assertEquals(160, header.getTotalDataLen());
+      assertEquals(143, header.getTotalDataLen());
 
       // First integer column has no validity buffer
       assertFalse(header.hasValidityBuffer(0));
@@ -305,7 +325,7 @@ public class KudoSerializerTest {
     return builder.build();
   }
 
-  private static Table buildSimpleTable() {
+  static Table buildSimpleTable() {
     HostColumnVector.StructType st = new HostColumnVector.StructType(
         true,
         new HostColumnVector.BasicType(true, DType.INT8),
@@ -321,7 +341,27 @@ public class KudoSerializerTest {
         .build();
   }
 
-  private static Table buildTestTable() {
+  static Table buildEmptyStructTable() {
+    HostColumnVector.StructType st = new HostColumnVector.StructType(true);
+    return new Table.TestBuilder()
+        .column(st,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), struct(), null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), null, null, null,
+            struct(), null, null, struct(), null, struct(), struct(), null,
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, struct(), null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct(), null, null, null, null, null, struct(), struct(),
+            null, struct(), struct(), null, struct(), struct(), null, null,
+            struct())
+        .build();
+  }
+
+  static Table buildTestTable() {
     HostColumnVector.ListType listMapType = new HostColumnVector.ListType(true,
         new HostColumnVector.ListType(true,
             new HostColumnVector.StructType(true,
@@ -363,6 +403,11 @@ public class KudoSerializerTest {
             null, 5, null, 7, null, 9, null, 11, null, 13, null, 15)
         .decimal64Column(-8, 1L, null, 1001L, 50L, -2000L, null, 1L, 2L, 3L,
             4L, null, 6L, 7L, 8L, 9L, null, 11L, 12L, 13L, 14L, null)
+        .decimal128Column(-2, RoundingMode.UNNECESSARY, new BigInteger("1"), null, new BigInteger("1001"),
+            new BigInteger("50"), new BigInteger("-2000"), null, new BigInteger("1"), new BigInteger("2"),
+            new BigInteger("3"), new BigInteger("4"), null, new BigInteger("6"), new BigInteger("7"),
+            new BigInteger("8"), new BigInteger("9"), null, new BigInteger("11"), new BigInteger("12"),
+            new BigInteger("13"), new BigInteger("14"), null)
         .column("A", "B", "C", "D", null, "TESTING", "1", "2", "3", "4",
             "5", "6", "7", null, "9", "10", "11", "12", "13", null, "15")
         .column("A", "A", "C", "C", "E", "TESTING", "1", "2", "3", "4", "5",
@@ -496,19 +541,19 @@ public class KudoSerializerTest {
     return values;
   }
 
-  private static HostColumnVector.StructData struct(Object... values) {
+  public static HostColumnVector.StructData struct(Object... values) {
     return new HostColumnVector.StructData(values);
   }
 
-  private static List<HostColumnVector.StructData> structs(HostColumnVector.StructData... values) {
+  public static List<HostColumnVector.StructData> structs(HostColumnVector.StructData... values) {
     return asList(values);
   }
 
-  private static String[] strings(String... values) {
+  public static String[] strings(String... values) {
     return values;
   }
 
-  private static Schema schemaOf(Table t) {
+  public static Schema schemaOf(Table t) {
     Schema.Builder builder = Schema.builder();
 
     for (int i = 0; i < t.getNumberOfColumns(); i++) {
