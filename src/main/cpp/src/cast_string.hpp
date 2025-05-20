@@ -171,19 +171,16 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
 
 /**
  * @brief Parse date string column to date column, first trim the input strings.
- *
- *
  * Refer to https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
  * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L298
  *
- * formats are allowed:
- *
- * `[+-]yyyy*`
- * `[+-]yyyy*-[m]m`
- * `[+-]yyyy*-[m]m-[d]d`
- * `[+-]yyyy*-[m]m-[d]d `
- * `[+-]yyyy*-[m]m-[d]d *`
- * `[+-]yyyy*-[m]m-[d]dT*`
+ * Allowed formats:
+ *   `[+-]yyyy*`
+ *   `[+-]yyyy*-[m]m`
+ *   `[+-]yyyy*-[m]m-[d]d`
+ *   `[+-]yyyy*-[m]m-[d]d `
+ *   `[+-]yyyy*-[m]m-[d]d *`
+ *   `[+-]yyyy*-[m]m-[d]dT*`
  *
  * @param input The input String column contains date strings
  * @param stream Stream on which to operate.

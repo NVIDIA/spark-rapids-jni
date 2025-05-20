@@ -947,39 +947,36 @@ struct parse_string_to_date_fn {
   cudf::column_device_view d_strings;
 
   // output columns
-  uint8_t* null_mask;
+  bool* validity;
   cudf::timestamp_D* output;
 
   __device__ void operator()(cudf::size_type const idx) const
   {
+    // check null
+    if (d_strings.is_null(idx)) {
+      validity[idx] = false;
+      return;
+    }
+
     auto const str                   = d_strings.element<cudf::string_view>(idx);
     unsigned char const* str_ptr     = reinterpret_cast<unsigned char const*>(str.data());
     unsigned char const* str_end_ptr = str_ptr + str.size_bytes();
 
     // parse the date string to segments
-    // No need to check null for the `str` element
-    // Because get element on null will return empty string and then result in invalid
     spark_rapids_jni::date_segments date_segments;
     auto result_success = parse_date(str_ptr, str_end_ptr, date_segments);
 
+    // check parsed result
     if (!result_success || !date_segments.is_valid_date()) {
-      null_mask[idx] = 0;
-      output[idx]    = cudf::timestamp_D{cudf::duration_D{0}};
+      validity[idx] = false;
       return;
     }
 
-    int64_t days = date_segments.to_epoch_day();
-    // Spark stores date int int, so need to check the range
-    if (days < cuda::std::numeric_limits<int32_t>::min() ||
-        days > cuda::std::numeric_limits<int32_t>::max()) {
-      // exceeds int range.
-      null_mask[idx] = 0;
-      output[idx]    = cudf::timestamp_D{cudf::duration_D{0}};
-      return;
-    }
-
-    null_mask[idx] = 1;
-    output[idx]    = cudf::timestamp_D{cudf::duration_D{days}};
+    // calculate the epoch day and check 'days' fits in int32_t
+    int64_t days  = date_segments.to_epoch_day();
+    output[idx]   = cudf::timestamp_D{cudf::duration_D{static_cast<int32_t>(days)}};
+    validity[idx] = days >= cuda::std::numeric_limits<int32_t>::min() &&
+                    days <= cuda::std::numeric_limits<int32_t>::max();
   }
 };
 
@@ -1002,21 +999,18 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
                                             0,
                                             stream,
                                             mr);
-  auto null_mask = cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::UINT8}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
+  auto validity =
+    rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
 
-  thrust::for_each_n(rmm::exec_policy_nosync(stream),
-                     thrust::make_counting_iterator(0),
-                     num_rows,
-                     parse_string_to_date_fn{*d_input,
-                                             null_mask->mutable_view().begin<uint8_t>(),
-                                             result->mutable_view().begin<cudf::timestamp_D>()});
+  thrust::for_each_n(
+    rmm::exec_policy_nosync(stream),
+    thrust::make_counting_iterator(0),
+    num_rows,
+    parse_string_to_date_fn{
+      *d_input, validity.begin<bool>(), result->mutable_view().begin<cudf::timestamp_D>()});
 
-  auto [output_bitmask, null_count] = cudf::detail::valid_if(null_mask->view().begin<uint8_t>(),
-                                                             null_mask->view().end<uint8_t>(),
-                                                             cuda::std::identity{},
-                                                             stream,
-                                                             mr);
+  auto [output_bitmask, null_count] = cudf::detail::valid_if(
+    validity.begin<bool>(), validity.end<bool>(), cuda::std::identity{}, stream, mr);
   if (null_count) { result->set_null_mask(std::move(output_bitmask), null_count); }
 
   return result;
