@@ -693,6 +693,7 @@ struct parse_timestamp_string_fn {
   // inputs
   cudf::column_device_view d_strings;
   cudf::size_type default_tz_index;
+  bool is_default_tz_dst;
   int64_t default_epoch_day;
   // STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
   cudf::column_device_view tz_info;
@@ -738,7 +739,7 @@ struct parse_timestamp_string_fn {
     tz_indices[idx]       = -1;
 
     if (result_type != RESULT_TYPE::SUCCESS) {
-      // already set RESULT_TYPE::INVALID or RESULT_TYPE::NOT_SUPPORTED
+      // already set RESULT_TYPE::INVALID
       return;
     }
 
@@ -749,13 +750,9 @@ struct parse_timestamp_string_fn {
     // check the timezone, and get the timezone index
     if (tz.type == TZ_TYPE::NOT_SPECIFIED) {
       // use the default timezone index
-      tz_types[idx]         = static_cast<uint8_t>(TZ_TYPE::OTHER_TZ);
-      tz_indices[idx]       = default_tz_index;
-      auto const is_DST_col = tz_info.child(2);
-      if (is_DST_col.element<uint8_t>(default_tz_index)) {
-        // update is DST
-        is_DSTs[idx] = 1;
-      }
+      tz_types[idx]   = static_cast<uint8_t>(TZ_TYPE::OTHER_TZ);
+      tz_indices[idx] = default_tz_index;
+      is_DSTs[idx]    = is_default_tz_dst;
     } else if (tz.type == TZ_TYPE::FIXED_TZ) {
       // do nothing
     } else if (tz.type == TZ_TYPE::OTHER_TZ) {
@@ -801,6 +798,7 @@ struct parse_timestamp_string_fn {
  */
 std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& input,
                                                cudf::size_type const default_tz_index,
+                                               bool const is_default_tz_dst,
                                                int64_t const default_epoch_day,
                                                cudf::column_view const& tz_info,
                                                rmm::cuda_stream_view stream,
@@ -834,6 +832,7 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
     num_rows,
     parse_timestamp_string_fn{*d_input,
                               default_tz_index,
+                              is_default_tz_dst,
                               default_epoch_day,
                               *d_tz_info,
                               parsed_result_type_col->mutable_view().begin<uint8_t>(),
@@ -861,12 +860,14 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
 
 std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view const& input,
                                                       cudf::size_type const default_tz_index,
+                                                      bool const is_default_tz_dst,
                                                       int64_t const default_epoch_day,
                                                       cudf::column_view const& tz_info,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
-  return parse_ts_strings(input, default_tz_index, default_epoch_day, tz_info, stream, mr);
+  return parse_ts_strings(
+    input, default_tz_index, is_default_tz_dst, default_epoch_day, tz_info, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
