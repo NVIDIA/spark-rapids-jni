@@ -81,6 +81,8 @@ void cache_thread_reg_jni(JNIEnv* env)
 // again until we know that progress has been made. We might add an API
 // in the future to know when a retry section has passed, which would
 // probably be a preferable time to restart all BUFN threads.
+//
+// See `docs/memory_management.md` for the design of the state machine.
 enum class thread_state {
   UNKNOWN = -1,  // unknown state, this is really here for logging and anything transitioning to
                  // this state should actually be accomplished by deleting the thread from the state
