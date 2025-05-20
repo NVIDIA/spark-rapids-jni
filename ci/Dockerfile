@@ -31,7 +31,7 @@ FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RE
 ### Software versions for development
 ARG TOOLSET_VERSION=11
 ARG CMAKE_VERSION=3.30.4
-ARG CCACHE_VERSION=4.6
+ARG CCACHE_VERSION=4.11.2
 
 # Default x86_64 from x86 build, aarch64 cmake for arm build
 ARG CMAKE_ARCH=x86_64
