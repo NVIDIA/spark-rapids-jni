@@ -175,6 +175,7 @@ public class CastStrings {
    * @param input The input String column contains timestamp strings
    * @param defaultTimeZoneIndex The default timezone index to `GpuTimeZoneDB`
    *   transition table.
+   * @param isDefaultTimeZoneDST Whether the default timezone is DST or not.
    * @param defaultEpochDay Default epoch day to use if just time, e.g.: epoch day of
    *   "2025-05-05", then "T00:00:00" is "2025-05-05T00:00:00Z"
    * @param timeZoneInfo Timezone info column:
@@ -183,11 +184,13 @@ public class CastStrings {
    * @return a struct column constains 7 columns described above.
    */
   static ColumnVector parseTimestampStrings(
-      ColumnView input, int defaultTimeZoneIndex, long defaultEpochDay,
+      ColumnView input, int defaultTimeZoneIndex,
+      boolean isDefaultTimeZoneDST, long defaultEpochDay,
       ColumnView timeZoneInfo) {
 
     return new ColumnVector(parseTimestampStrings(
-        input.getNativeView(), defaultTimeZoneIndex, defaultEpochDay, timeZoneInfo.getNativeView()));
+        input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
+        defaultEpochDay, timeZoneInfo.getNativeView()));
   }
 
   private static ColumnVector convertToTimestamp(
@@ -268,6 +271,7 @@ public class CastStrings {
 
     // 1. check default timezone is valid
     Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
+    boolean isDefaultTimeZoneDST = GpuTimeZoneDB.isDST(defaultTimeZone);
     if (defaultTimeZoneIndex == null) {
       throw new IllegalArgumentException("Invalid default timezone: " + defaultTimeZone);
     }
@@ -278,7 +282,7 @@ public class CastStrings {
     // 2. parse to intermediate result
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, defaultEpochDay, tzInfo);
+            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
@@ -316,6 +320,7 @@ public class CastStrings {
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
 
   private static native long parseTimestampStrings(
-      long input, int defaultTimezoneIndex, long defaultEpochDay, long timeZoneInfo);
+      long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
+      long defaultEpochDay, long timeZoneInfo);
 
 }

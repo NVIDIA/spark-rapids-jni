@@ -148,6 +148,15 @@ __device__ bool parse_int(unsigned char const* const ptr,
  * Spark store timestamp in microsecond, the nanosecond part is discard.
  * If there are 6+ digits, only use the first 6 digits, the rest digits are
  * ignored/truncated.
+ * E.g.:
+ *   xxx.1 => 100000
+ *   xxx.12 => 120000
+ *   xxx.123 => 123000
+ *   xxx.1234 => 123400
+ *   xxx.12345 => 123450
+ *   xxx.123456 => 123456
+ *   xxx.101 => 101000
+ *
  * @param ptr the current pointer to the string
  * @param[out] pos the pointer to the string when parsing
  * @param end_pos the end pointer of the string
@@ -158,13 +167,15 @@ __device__ void parse_microseconds(unsigned char const* const ptr,
                                    int const end_pos,
                                    int& v)
 {
+  int base   = 100'000;
   v          = 0;
   int digits = 0;
   while (pos < end_pos) {
     int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
     if (parsed_value >= 0 && parsed_value <= 9) {
       if (++digits <= 6) {
-        v = v * 10 + parsed_value;
+        v += parsed_value * base;
+        base = base / 10;
       } else {
         // ignore/truncate the rest digits
         // Allow tailing pattern like: ".12345600000 PST"
@@ -682,6 +693,7 @@ struct parse_timestamp_string_fn {
   // inputs
   cudf::column_device_view d_strings;
   cudf::size_type default_tz_index;
+  bool is_default_tz_dst;
   int64_t default_epoch_day;
   // STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
   cudf::column_device_view tz_info;
@@ -727,7 +739,7 @@ struct parse_timestamp_string_fn {
     tz_indices[idx]       = -1;
 
     if (result_type != RESULT_TYPE::SUCCESS) {
-      // already set RESULT_TYPE::INVALID or RESULT_TYPE::NOT_SUPPORTED
+      // already set RESULT_TYPE::INVALID
       return;
     }
 
@@ -738,13 +750,9 @@ struct parse_timestamp_string_fn {
     // check the timezone, and get the timezone index
     if (tz.type == TZ_TYPE::NOT_SPECIFIED) {
       // use the default timezone index
-      tz_types[idx]         = static_cast<uint8_t>(TZ_TYPE::OTHER_TZ);
-      tz_indices[idx]       = default_tz_index;
-      auto const is_DST_col = tz_info.child(2);
-      if (is_DST_col.element<uint8_t>(default_tz_index)) {
-        // update is DST
-        is_DSTs[idx] = 1;
-      }
+      tz_types[idx]   = static_cast<uint8_t>(TZ_TYPE::OTHER_TZ);
+      tz_indices[idx] = default_tz_index;
+      is_DSTs[idx]    = is_default_tz_dst;
     } else if (tz.type == TZ_TYPE::FIXED_TZ) {
       // do nothing
     } else if (tz.type == TZ_TYPE::OTHER_TZ) {
@@ -790,6 +798,7 @@ struct parse_timestamp_string_fn {
  */
 std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& input,
                                                cudf::size_type const default_tz_index,
+                                               bool const is_default_tz_dst,
                                                int64_t const default_epoch_day,
                                                cudf::column_view const& tz_info,
                                                rmm::cuda_stream_view stream,
@@ -823,6 +832,7 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
     num_rows,
     parse_timestamp_string_fn{*d_input,
                               default_tz_index,
+                              is_default_tz_dst,
                               default_epoch_day,
                               *d_tz_info,
                               parsed_result_type_col->mutable_view().begin<uint8_t>(),
@@ -850,12 +860,14 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
 
 std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view const& input,
                                                       cudf::size_type const default_tz_index,
+                                                      bool const is_default_tz_dst,
                                                       int64_t const default_epoch_day,
                                                       cudf::column_view const& tz_info,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
-  return parse_ts_strings(input, default_tz_index, default_epoch_day, tz_info, stream, mr);
+  return parse_ts_strings(
+    input, default_tz_index, is_default_tz_dst, default_epoch_day, tz_info, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
