@@ -18,12 +18,14 @@
 #include "jni_utils.hpp"
 #include "task_priority.hpp"
 
-namespace spark_rapids_jni {
-
+namespace {
 // Track the next priority to assign and maintain a map of attempt_id to priority
 static long next_task_priority = std::numeric_limits<long>::max() - 1;
 static std::mutex priority_mutex;
 static std::unordered_map<long, long> attempt_priorities;
+}
+
+namespace spark_rapids_jni {
 
 long get_task_priority(long attempt_id)
 {
