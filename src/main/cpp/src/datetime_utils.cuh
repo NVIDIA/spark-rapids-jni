@@ -29,7 +29,7 @@ struct date_time_utils {
   /**
    * @brief Is the year is leap year.
    */
-  __device__ static bool is_leap_year(int const year)
+  __device__ static bool is_leap_year(int year)
   {
     return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
   }
@@ -40,7 +40,7 @@ struct date_time_utils {
    * @param month the month
    * @return the number of days in the month
    */
-  __device__ static int days_in_month(int const year, int const month)
+  __device__ static int days_in_month(int year, int month)
   {
     if (month == 2) { return is_leap_year(year) ? 29 : 28; }
     return (month == 4 || month == 6 || month == 9 || month == 11) ? 30 : 31;
@@ -52,7 +52,7 @@ struct date_time_utils {
    * Unlike cuda::std::chrono::year_month_day only supports year range [-32,767 , 32,767],
    * this implementation supports all int years.
    */
-  __device__ static int64_t to_epoch_day(int const year, int const month, int const day)
+  __device__ static int64_t to_epoch_day(int year, int month, int day)
   {
     int32_t y          = year - (month <= 2);
     const int32_t era  = (y >= 0 ? y : y - 399) / 400;
@@ -81,17 +81,15 @@ struct date_time_utils {
     const int32_t y    = static_cast<uint32_t>(yoe) + era * 400;
     const uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
     const uint32_t mp  = (5 * doy + 2) / 153;                                    // [0, 11]
-    const uint32_t d   = doy - (153 * mp + 2) / 5 + 1;                           // [1, 31]
-    const uint32_t m   = mp < 10 ? mp + 3 : mp - 9;                              // [1, 12]
-    year               = y + (m <= 2);
-    month              = static_cast<uint8_t>(m);
-    day                = static_cast<uint8_t>(d);
+    day                = doy - (153 * mp + 2) / 5 + 1;                           // [1, 31]
+    month              = mp < 10 ? mp + 3 : mp - 9;                              // [1, 12]
+    year               = y + (month <= 2);
   }
 
   /**
    * @brief If the month/day is valid.
    */
-  __device__ static bool is_valid_month_day(int const year, int const month, int const day)
+  __device__ static bool is_valid_month_day(int year, int month, int day)
   {
     if (month < 1 || month > 12 || day < 1) {
       return false;  // Invalid month or day
@@ -107,7 +105,7 @@ struct date_time_utils {
    * Spark date: max year is 7 digits, so the rough check range is [-10,000,000, 10,000,000].
    * Note: Spark stores date as int, so the range is limited to 32-bit signed integer.
    */
-  __device__ static bool is_valid_date_for_date(int const year, int const month, int const day)
+  __device__ static bool is_valid_date_for_date(int year, int month, int day)
   {
     if (year < -10'000'000 || year > 10'000'000) { return false; }
 
@@ -119,7 +117,7 @@ struct date_time_utils {
    * Spark stores timestamp as long in microseconds.
    * Spark timestamp: max year is 6 digits, the rough check range is [-300'000, 300'000].
    */
-  __device__ static bool is_valid_date_for_timestamp(int const year, int const month, int const day)
+  __device__ static bool is_valid_date_for_timestamp(int year, int month, int day)
   {
     if (year < -300'000 || year > 300'000) { return false; }
 
@@ -130,10 +128,7 @@ struct date_time_utils {
    * @brief If the time is valid.
    * Spark timestamp: hour 0-23, minute 0-59, second 0-59, microseconds 0-999999.
    */
-  __device__ static bool is_valid_time(int const hour,
-                                       int const minute,
-                                       int const second,
-                                       int const microseconds)
+  __device__ static bool is_valid_time(int hour, int minute, int second, int microseconds)
   {
     return (hour >= 0 && hour < 24) && (minute >= 0 && minute < 60) &&
            (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1000000);
