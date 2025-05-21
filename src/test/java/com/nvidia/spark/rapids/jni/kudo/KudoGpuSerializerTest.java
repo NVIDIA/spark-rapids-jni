@@ -400,7 +400,7 @@ public class KudoGpuSerializerTest {
   }
 
   // FIXME: Commented out to unblock CI.  See https://github.com/NVIDIA/spark-rapids-jni/issues/3291.
-  // @Test
+  @Test
   public void testEmptyStructRoundTrip() throws Exception {
     try (Table table = KudoSerializerTest.buildEmptyStructTable()) {
       for (int numSlices = 1; numSlices < table.getRowCount(); numSlices++) {
