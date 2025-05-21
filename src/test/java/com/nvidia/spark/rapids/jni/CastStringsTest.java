@@ -465,7 +465,7 @@ public class CastStringsTest {
     list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 0, 1));
 
     // valid time: begin with not T
-    list.add(Arrays.asList("1:", 0, 3600L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("01:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
