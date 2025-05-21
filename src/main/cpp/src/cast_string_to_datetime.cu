@@ -658,27 +658,29 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
 
   if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
 
-  // parse sign
-  bool negative_year_sign    = false;
-  unsigned char const sign_c = ptr[pos];
-  if ('-' == sign_c || '+' == sign_c) {
-    pos++;
-    if ('-' == sign_c) { negative_year_sign = true; }
-  }
-
-  if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
-
   ts_segments ts;
+  bool negative_year_sign = false;
 
-  if (ptr[pos] == 'T') {
-    // after parse sign, first char is T, means only have time part
+  if (ptr[pos] == 'T' || (end_pos - pos > 1 && ptr[pos + 1] == ':') ||
+      (end_pos - pos > 2 && (ptr[pos + 1] == ':' || ptr[pos + 2] == ':'))) {
+    // first char is T, means only have time part
+    // or the second or third char is ':', e.g.: 12:00:00 or 1:00:00
     just_time = TS_TYPE::JUST_TIME;
-    pos++;
+
+    if (ptr[pos] == 'T') { pos++; }
 
     // parse from time
     if (!parse_from_time(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
   } else {
     just_time = TS_TYPE::NOT_JUST_TIME;
+
+    // parse sign
+    unsigned char const sign_c = ptr[pos];
+    if ('-' == sign_c || '+' == sign_c) {
+      pos++;
+      if ('-' == sign_c) { negative_year_sign = true; }
+    }
+
     // parse from date
     if (!parse_from_date(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
   }

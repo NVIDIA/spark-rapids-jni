@@ -442,7 +442,7 @@ public class CastStringsTest {
     long defaultEpochDay = 1;
     long secondsOfEpochDay = defaultEpochDay * 24 * 60 * 60;
     List<List<Object>> list = new ArrayList<>();
-    // Row is: input, return type, UTC ts, just time, tz type, offset, is DST, tz
+    // Row is: input, return type, UTC seconds, UTC microseconds, tz type, offset, is DST, tz
     // index
     // Intermediate result:
     // - Return type: 0 success, 1 invalid, 2 unsupported
@@ -452,6 +452,8 @@ public class CastStringsTest {
     // - TZ offset: record offset in seconds when tz type is fixed
     // - TZ is DST: 0 no, 1 yes
     // - TZ index: 0 CTT, 1 JST, 2 PST
+
+    // valid time
     list.add(Arrays.asList("T00", 0, 0L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
@@ -462,7 +464,13 @@ public class CastStringsTest {
     list.add(Arrays.asList("T01:02:03 UTC", 0, 3723L + secondsOfEpochDay, 0, 1, 0, 0, -1));
     list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 0, 1));
 
-    // // invalid time
+    // valid time: begin with not T
+    list.add(Arrays.asList("01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("01:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+
+    // invalid time
     list.add(Arrays.asList("Tx", 1, 0L, 0, 0, 0, 0, -1));
     list.add(Arrays.asList("T00x", 1, 0L, 0, 0, 0, 0, -1));
     list.add(Arrays.asList("T00:", 1, 0L, 0, 0, 0, 0, -1));
@@ -475,6 +483,12 @@ public class CastStringsTest {
     list.add(Arrays.asList("T123", 1, 0L, 0, 0, 0, 0, -1));
     list.add(Arrays.asList("T12345", 1, 0L, 0, 0, 0, 0, -1));
     list.add(Arrays.asList("T00:02:003", 1, 0L, 0, 0, 0, 0, -1));
+
+    // invalid time: time leading by sign
+    list.add(Arrays.asList("+00:00:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("-00:00:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("+T00:00:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("-T00:00:00", 1, 0L, 0, 0, 0, 0, -1));
 
     List<String> input = new ArrayList<>(list.size());
     List<Byte> expected_return_type = new ArrayList<>(list.size());
