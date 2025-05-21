@@ -659,7 +659,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
   bool negative_year_sign = false;
 
   if (ptr[pos] == 'T' || (end_pos - pos > 1 && ptr[pos + 1] == ':') ||
-      (end_pos - pos > 2 && ptr[pos + 2] == ':')) {
+      (end_pos - pos > 2 && (ptr[pos + 1] == ':' || ptr[pos + 2] == ':'))) {
     // first char is T, means only have time part
     // or the second or third char is ':', e.g.: 12:00:00 or 1:00:00
     just_time = TS_TYPE::JUST_TIME;
