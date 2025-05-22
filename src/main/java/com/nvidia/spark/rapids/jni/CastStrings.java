@@ -306,6 +306,36 @@ public class CastStrings {
     }
   }
 
+  /**
+   * Parse date string column to date column, first trim the input strings.
+   * Refer to https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
+   * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L298
+   *
+   * Allowed formats:
+   *   `[+-]yyyy*`
+   *   `[+-]yyyy*-[m]m`
+   *   `[+-]yyyy*-[m]m-[d]d`
+   *   `[+-]yyyy*-[m]m-[d]d `
+   *   `[+-]yyyy*-[m]m-[d]d *`
+   *   `[+-]yyyy*-[m]m-[d]dT*`
+   *
+   * @param input        the input date strings
+   * @param ansi_enabled is Ansi mode enabled
+   * @return date column, or null if it's ansi mode and has invalid input values.
+   */
+  public static ColumnVector toDate(ColumnView input, boolean ansiEnabled) {
+    try (ColumnVector result = new ColumnVector(parseDateStringsToDate(input.getNativeView()))) {
+      if (ansiEnabled && result.getNullCount() > input.getNullCount()) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is out of range.
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -322,5 +352,7 @@ public class CastStrings {
   private static native long parseTimestampStrings(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
       long defaultEpochDay, long timeZoneInfo);
+
+  private static native long parseDateStringsToDate(long input);
 
 }
