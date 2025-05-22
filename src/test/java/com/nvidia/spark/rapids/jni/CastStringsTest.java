@@ -24,7 +24,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +36,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
+import net.bytebuddy.asm.Advice.Local;
 
 public class CastStringsTest {
   @Test
@@ -439,6 +443,7 @@ public class CastStringsTest {
 
   @Test
   void castStringToTimestampFirstPhaseJustTimeTest() {
+    GpuTimeZoneDB.cacheDatabase(2200);
     long defaultEpochDay = 1;
     long secondsOfEpochDay = defaultEpochDay * 24 * 60 * 60;
     List<List<Object>> list = new ArrayList<>();
@@ -461,7 +466,7 @@ public class CastStringsTest {
     list.add(Arrays.asList("T01:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T01:02:03 UTC", 0, 3723L + secondsOfEpochDay, 0, 1, 0, 0, -1));
+    list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 0, 1));
 
     // valid time: begin with not T
@@ -512,12 +517,14 @@ public class CastStringsTest {
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
+        Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector result = CastStrings.parseTimestampStrings(
             inputCv,
             1,
             /* is default tz DST */ false,
             defaultEpochDay,
-            tzInfo);
+            tzInfo,
+            transitions);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
@@ -536,8 +543,119 @@ public class CastStringsTest {
     }
   }
 
+  /**
+   * Test just time, specify fixed timezone.
+   * Note: this test case is sensitive to the execution time,
+   * because the current date at the execution time in the specified timezone may
+   * be today,
+   * tomorrow or yesterday compared to the UTC date.
+   */
+  @Test
+  void castStringToTimestampJustTimeWithFixedTzTest() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    ZoneId eightHours = ZoneId.of("+08:00");
+    Instant now = Instant.now();
+    long expectedSeconds1 = now.getEpochSecond() - now.getEpochSecond() % (24 * 60 * 60);
+    long expectedTs1 = expectedSeconds1 * 1000000L;
+
+    LocalDateTime ldt = now.atZone(eightHours).toLocalDateTime();
+    // 5 minutes later, assume the execution time is within 5 minutes
+    LocalDateTime fiveMinutesLater = now.plusSeconds(5 * 60).atZone(eightHours).toLocalDateTime();
+    if (ldt.getDayOfMonth() != fiveMinutesLater.getDayOfMonth()) {
+      // 5 minutes later is another day, skip this test case
+      // the expected ts is from Java code, the actual ts is from Kernel code
+      // both are based on the current date, so the current dates may be different
+      return;
+    }
+
+    // calcute the expected UTC seconds
+    LocalDateTime ldtAtMidNight = LocalDateTime.of(ldt.getYear(), ldt.getMonth(),
+        ldt.getDayOfMonth(), 0, 0, 0);
+    Instant ins = Instant.from(ldtAtMidNight.atZone(eightHours));
+    long expectedTs2 = ins.getEpochSecond() * 1000000L + ins.getNano() / 1000L;
+
+    List<List<Object>> list = new ArrayList<>();
+    List<String> input = new ArrayList<>(list.size());
+    List<Long> expectedTS = new ArrayList<>(list.size());
+
+    list.add(Arrays.asList("T00:00:00", expectedTs1, true));
+    list.add(Arrays.asList("T00:00:00 +08:00", expectedTs2, true));
+    for (List<Object> row : list) {
+      input.add(row.get(0).toString());
+      if ((Boolean) row.get(2)) {
+        expectedTS.add(Long.parseLong(row.get(1).toString()));
+      } else {
+        expectedTS.add(null);
+      }
+    }
+    try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            expectedTS.toArray(new Long[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Test just time, specify fixed timezone.
+   * Note: this test case is sensitive to the execution time,
+   * because the current date in the specified timezone may be today, tomorrow or
+   * yesterday compared
+   * to the UTC date.
+   */
+  @Test
+  void castStringToTimestampJustTimeWithOtherTzTest() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    ZoneId pstTZ = ZoneId.of("America/Los_Angeles");
+    Instant now = Instant.now();
+    long expectedSeconds1 = now.getEpochSecond() - now.getEpochSecond() % (24 * 60 * 60);
+    long expectedTs1 = expectedSeconds1 * 1000000L;
+
+    LocalDateTime ldt = now.atZone(pstTZ).toLocalDateTime();
+    // 5 minutes later, assume the execution time is within 5 minutes
+    LocalDateTime fiveMinutesLater = now.plusSeconds(5 * 60).atZone(pstTZ).toLocalDateTime();
+    if (ldt.getDayOfMonth() != fiveMinutesLater.getDayOfMonth()) {
+      // 5 minutes later is another day, skip this test case
+      // the expected ts is from Java code, the actual ts is from Kernel code
+      // both are based on the current date, so the current dates may be different
+      return;
+    }
+
+    // calcute the expected UTC seconds
+    LocalDateTime ldtAtMidNight = LocalDateTime.of(ldt.getYear(), ldt.getMonth(),
+        ldt.getDayOfMonth(), 0, 0, 0);
+    Instant ins = Instant.from(ldtAtMidNight.atZone(pstTZ));
+    long expectedTs2 = ins.getEpochSecond() * 1000000L + ins.getNano() / 1000L;
+
+    List<List<Object>> list = new ArrayList<>();
+    List<String> input = new ArrayList<>(list.size());
+    List<Long> expectedTS = new ArrayList<>(list.size());
+
+    list.add(Arrays.asList("T00:00:00", expectedTs1, true));
+    list.add(Arrays.asList("T00:00:00 America/Los_Angeles", expectedTs2, true));
+    for (List<Object> row : list) {
+      input.add(row.get(0).toString());
+      if ((Boolean) row.get(2)) {
+        expectedTS.add(Long.parseLong(row.get(1).toString()));
+      } else {
+        expectedTS.add(null);
+      }
+    }
+    try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
+        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            expectedTS.toArray(new Long[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
   @Test
   void castStringToTimestampFirstPhaseTest() {
+    GpuTimeZoneDB.cacheDatabase(2200);
     List<List<Object>> list = new ArrayList<>();
     // make a dummy epoch day, this test case does not test just time.
     long defaultEpochDay = 1;
@@ -746,12 +864,14 @@ public class CastStringsTest {
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
+        Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector result = CastStrings.parseTimestampStrings(
             inputCv,
             1,
             /* is default tz DST */ false,
             defaultEpochDay,
-            tzInfo);
+            tzInfo,
+            transitions);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));

@@ -278,22 +278,27 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
                                                                    int default_timezone_index,
                                                                    bool is_default_timezone_dst,
                                                                    long default_epoch_day,
-                                                                   jlong timezone_info_column)
+                                                                   jlong timezone_info_column,
+                                                                   jlong transitions_table)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
+  JNI_NULL_CHECK(env, transitions_table, "transitions table is null", 0);
+
   try {
     cudf::jni::auto_set_device(env);
 
     auto const input_view =
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
     auto const* tz_info_view = reinterpret_cast<cudf::column_view const*>(timezone_info_column);
+    auto const* transitions  = reinterpret_cast<cudf::table_view const*>(transitions_table);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::parse_timestamp_strings(input_view,
                                                 default_timezone_index,
                                                 is_default_timezone_dst,
                                                 default_epoch_day,
-                                                *tz_info_view));
+                                                *tz_info_view,
+                                                *transitions));
   }
   CATCH_STD(env, 0);
 }
