@@ -769,10 +769,6 @@ struct parse_timestamp_string_fn {
         // use the default epoch days when the timezone is not specified
         // the `default_epoch_day` is from Java code: LocalDate.now(default_time_zone).toEpochDay()
         ts_seconds[idx] = seconds + (default_epoch_day * 24L * 3600L);
-        printf("rebased: 1 curr UTC seconds %ld, %ld, %ld\n",
-               seconds,
-               default_epoch_day,
-               ts_seconds[idx]);
       }
     } else if (tz.type == TZ_TYPE::FIXED_TZ) {
       if (just_time == TS_TYPE::JUST_TIME) {
@@ -783,11 +779,6 @@ struct parse_timestamp_string_fn {
         auto rebased = current_seconds_since_epoch + tz.fixed_offset;
         // This is to get the seconds for the date part with discarding the time part
         auto rebased_days_of_local_date = rebased / (24L * 3600L);
-
-        printf("rebased: 2 curr UTC seconds %ld, %d, %ld\n",
-               current_seconds_since_epoch,
-               tz.fixed_offset,
-               rebased);
 
         // Step 2: add date part to the seconds
         ts_seconds[idx] = seconds + (rebased_days_of_local_date * 24L * 3600L);
