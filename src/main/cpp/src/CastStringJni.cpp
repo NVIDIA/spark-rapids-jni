@@ -297,4 +297,18 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_parseDateStringsToDate(
+  JNIEnv* env, jclass, jlong input_column)
+{
+  JNI_NULL_CHECK(env, input_column, "input column is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+
+    auto const input_view =
+      cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::parse_strings_to_date(input_view));
+  }
+  CATCH_STD(env, 0);
+}
 }

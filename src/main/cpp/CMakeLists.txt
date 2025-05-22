@@ -214,7 +214,7 @@ add_library(
   src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
-  src/cast_string_to_timestamp.cu
+  src/cast_string_to_datetime.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
