@@ -59,10 +59,10 @@ struct date_time_utils {
   __device__ static int64_t to_epoch_day(int year, int month, int day)
   {
     int32_t y          = year - (month <= 2);
-    const int32_t era  = (y >= 0 ? y : y - 399) / 400;
-    const uint32_t yoe = static_cast<uint32_t>(y - era * 400);                           // [0, 399]
-    const uint32_t doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;  // [0, 365]
-    const uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;  // [0, 146096]
+    int32_t const era  = (y >= 0 ? y : y - 399) / 400;
+    uint32_t const yoe = static_cast<uint32_t>(y - era * 400);                           // [0, 399]
+    uint32_t const doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;  // [0, 365]
+    uint32_t const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;  // [0, 146096]
     return era * 146097L + doe - 719468L;
   }
 
@@ -79,12 +79,12 @@ struct date_time_utils {
   {
     int64_t z = static_cast<int64_t>(epoch_day);
     z += 719468;
-    const int32_t era  = static_cast<int32_t>((z >= 0 ? z : z - 146096) / 146097);
-    const uint32_t doe = static_cast<uint32_t>(z - era * 146097);                // [0, 146096]
-    const uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
-    const int32_t y    = static_cast<uint32_t>(yoe) + era * 400;
-    const uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
-    const uint32_t mp  = (5 * doy + 2) / 153;                                    // [0, 11]
+    int32_t const era  = static_cast<int32_t>((z >= 0 ? z : z - 146096) / 146097);
+    uint32_t const doe = static_cast<uint32_t>(z - era * 146097);                // [0, 146096]
+    uint32_t const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
+    int32_t const y    = static_cast<uint32_t>(yoe) + era * 400;
+    uint32_t const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
+    uint32_t const mp  = (5 * doy + 2) / 153;                                    // [0, 11]
     day                = doy - (153 * mp + 2) / 5 + 1;                           // [1, 31]
     month              = mp < 10 ? mp + 3 : mp - 9;                              // [1, 12]
     year               = y + (month <= 2);
