@@ -175,62 +175,6 @@ struct date_segments {
   int32_t day;
 };
 
-/**
- * @brief Represents local date time in a timezone with microsecond accuracy.
- * Spark stores timestamp into Long in microseconds.
- * A Long is able to represent a timestamp with max 6 digits of microseconds.
- * The formula is: Long.MaxValue/microseconds_per_year + 1970.
- */
-struct ts_segments {
-  /**
-   * @brief Constructor a default timestamp segments.
-   * By default, use epoch date with mid-night time: "1970-01-01 00:00:00.000000".
-   */
-  __device__ ts_segments()
-    : year(1970), month(1), day(1), hour(0), minute(0), second(0), microseconds(0)
-  {
-  }
-
-  /**
-   * @brief Is this timestamp segments valid.
-   */
-  __device__ bool is_valid_ts() const
-  {
-    return date_time_utils::is_valid_date_for_timestamp(year, month, day) &&
-           date_time_utils::is_valid_time(hour, minute, second, microseconds);
-  }
-
-  /**
-   * @brief Get days since epoch 1970-01-01.
-   * Can handle all int years.
-   */
-  __device__ int64_t to_epoch_day() const
-  {
-    return date_time_utils::to_epoch_day(year, month, day);
-  }
-
-  // max 6 digits for Spark timestamp
-  int32_t year;
-
-  // 1-12
-  int32_t month;
-
-  // 1-31; it is 29 for leap February, or 28 for regular February
-  int32_t day;
-
-  // 0-23
-  int32_t hour;
-
-  // 0-59
-  int32_t minute;
-
-  // 0-59
-  int32_t second;
-
-  // 0-999999, only parse 6 digits, ignore/truncate the rest digits
-  int32_t microseconds;
-};
-
 struct overflow_checker {
   /**
    * Calculate the timestamp from epoch seconds and microseconds with checking overflow
