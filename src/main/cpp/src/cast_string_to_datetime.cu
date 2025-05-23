@@ -474,6 +474,7 @@ __device__ bool is_valid_digits(int segment, int digits)
 /**
  * Parse a string with timezone
  */
+template <bool is_spark_320 = false>
 __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
                                               unsigned char const* ptr_end,
                                               time_zone& tz,
@@ -504,6 +505,13 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
   int current_segment_digits = 0;
   int j                      = 0;
   int digits_milli           = 0;
+
+  // It's safe to delete when Spark320 suport is removed.
+  // indicates if it has sign tz for spark320
+  bool has_sign_tz_for_spark320 = false;
+  // sign tz for spark320, it's 1 for '+', -1 for '-'
+  int tz_sign_for_spark320;
+
   cuda::std::optional<int> year_sign;
   if ('-' == ptr[pos + j] || '+' == ptr[pos + j]) {
     if ('-' == ptr[pos + j]) {
@@ -559,7 +567,17 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
           return RESULT_TYPE::INVALID;
         }
       } else if (5 == i || 6 == i) {
-        if ('.' == b && 5 == i) {
+        if (is_spark_320 && ('-' == b || '+' == b)) {
+          // It's safe to delete when Spark320 suport is removed.
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+          has_sign_tz_for_spark320 = true;
+          tz_sign_for_spark320     = (b == '+');
+
+        } else if ('.' == b && 5 == i) {
           if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
@@ -609,6 +627,12 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
   while (digits_milli < 6) {
     segments[6] *= 10;
     digits_milli += 1;
+  }
+
+  // It's safe to delete when Spark320 suport is removed.
+  if (has_sign_tz_for_spark320) {
+    // for spark320, the sign is not included in the tz offset
+    tz = make_fixed_tz(tz_sign_for_spark320 * (segments[7] * 3600 + segments[8] * 60));
   }
 
   segments[0] *= year_sign.value_or(1);
