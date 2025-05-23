@@ -135,7 +135,7 @@ struct date_time_utils {
   __device__ static bool is_valid_time(int hour, int minute, int second, int microseconds)
   {
     return (hour >= 0 && hour < 24) && (minute >= 0 && minute < 60) &&
-           (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1000000);
+           (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1'000'000);
   }
 };
 

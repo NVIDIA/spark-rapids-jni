@@ -146,50 +146,6 @@ __device__ bool parse_int(unsigned char const* const ptr,
   return digits >= min_digits;
 }
 
-/**
- * Parse a string to an integer for microseconds, microseconds has 0-6 digits.
- * Spark store timestamp in microsecond, the nanosecond part is discard.
- * If there are 6+ digits, only use the first 6 digits, the rest digits are
- * ignored/truncated.
- * E.g.:
- *   xxx.1 => 100000
- *   xxx.12 => 120000
- *   xxx.123 => 123000
- *   xxx.1234 => 123400
- *   xxx.12345 => 123450
- *   xxx.123456 => 123456
- *   xxx.101 => 101000
- *
- * @param ptr the current pointer to the string
- * @param[out] pos the pointer to the string when parsing
- * @param end_pos the end pointer of the string
- * @param[out] v the parsed value
- */
-__device__ void parse_microseconds(unsigned char const* const ptr,
-                                   int& pos,
-                                   int const end_pos,
-                                   int& v)
-{
-  int base   = 100'000;
-  v          = 0;
-  int digits = 0;
-  while (pos < end_pos) {
-    int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
-    if (parsed_value >= 0 && parsed_value <= 9) {
-      if (++digits <= 6) {
-        v += parsed_value * base;
-        base = base / 10;
-      } else {
-        // ignore/truncate the rest digits
-        // Allow tailing pattern like: ".12345600000 PST"
-      }
-    } else {
-      break;
-    }
-    pos++;
-  }
-}
-
 __device__ bool eof(int pos, int end_pos) { return end_pos - pos <= 0; }
 
 __device__ bool parse_char(unsigned char const* const ptr, int& pos, unsigned char const c)
@@ -480,167 +436,46 @@ __device__ bool parse_date_time_separator(unsigned char const* const ptr, int& p
 }
 
 /**
- * Parse from time part to end of the string.
- */
-__device__ bool parse_from_time(
-  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
-{
-  // parse hour: [h]h
-  if (!parse_int(ptr,
-                 pos,
-                 end_pos,
-                 ts.hour,
-                 /*min_digits*/ 1,
-                 /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h, return early
-    return true;
-  }
-
-  // parse minute: :[m]m
-  if (!parse_char(ptr, pos, ':') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.minute,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h:[m]m, return early
-    return true;
-  }
-
-  // parse second: :[s]s
-  if (!parse_char(ptr, pos, ':') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.second,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h:[m]m:[s]s, return early
-    return true;
-  }
-
-  // microseconds: .[ms][ms][ms][us][us][us], it's optional
-  if (try_parse_char(ptr, pos, '.')) {
-    // parse microseconds: zero or more digits
-    parse_microseconds(ptr, pos, end_pos, ts.microseconds);
-  }
-
-  if (eof(pos, end_pos)) {
-    // no timezone
-    return true;
-  }
-
-  // parse timezone
-  tz = parse_from_tz(ptr, pos, end_pos);
-
-  return tz.type != TZ_TYPE::INVALID_TZ;
-}
-
-/**
- * Parse from date part to end of the string.
- */
-__device__ bool parse_from_date(
-  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
-{
-  // parse year: yyyy[y][y]
-  if (!parse_int(ptr,
-                 pos,
-                 end_pos,
-                 ts.year,
-                 /*min_digits*/ 4,
-                 /*max_digits*/ 6)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // only has: yyyy[y][y], return early
-    return true;
-  }
-
-  // parse month: -[m]m
-  if (!parse_char(ptr, pos, '-') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.month,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // only has: yyyy[y][y]-[m]m, return early
-    return true;
-  }
-
-  // parse day: -[d]d
-  if (!parse_char(ptr, pos, '-') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.day,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // no time part, return early
-    return true;
-  }
-
-  // parse date time separator, then parse from time
-  if (!parse_date_time_separator(ptr, pos) || !parse_from_time(ptr, pos, end_pos, ts, tz)) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * cuda::std::chrono::year_month_day does not check the validity of the
  * date/time. Eg.: 2020-02-30 is valid for cuda::std::chrono::year_month_day.
  */
-__device__ bool is_valid(ts_segments const& ts, time_zone const& tz)
+__device__ bool is_valid_timestamp(
+  int year, int month, int day, int hour, int minute, int second, int microseconds)
 {
-  // Spark timestamp supports 6 digits year, here roughly check the year range.
-  return ts.is_valid_ts() && is_valid_tz(tz);
+  return date_time_utils::is_valid_date_for_timestamp(year, month, day) &&
+         date_time_utils::is_valid_time(hour, minute, second, microseconds);
 }
 
 /**
- * Leverage cuda::std::chrono to convert local time to UTC timestamp(in
- * microseconds)
+ * @brief convert a timestamp to seconds and microseconds
+ *
  */
-__device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts,
-                                                int64_t& seconds,
-                                                int32_t& microseconds)
+__device__ int64_t to_epoch_seconds(int year, int month, int day, int hour, int minute, int second)
 {
   // if it's a just time timestamp string, then the `days` is 0, because
-  // default date in ts_segments is 1970-01-01
-  int64_t const days = ts.to_epoch_day();
+  // default date is 1970-01-01
+  int64_t const days = date_time_utils::to_epoch_day(year, month, day);
 
-  // seconds part
-  seconds = (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
+  // get seconds
+  return (days * 24L * 3600L) + (hour * 3600L) + (minute * 60L) + second;
+}
 
-  // microseconds part
-  microseconds = ts.microseconds;
-  return RESULT_TYPE::SUCCESS;
+__device__ bool is_valid_digits(int segment, int digits)
+{
+  // A Long is able to represent a timestamp within [+-]200 thousand years
+  const int maxDigitsYear = 6;
+
+  // Check the validity of the digits based on the segment
+  return (segment == 6) || (segment == 0 && digits >= 4 && digits <= maxDigitsYear) ||
+         (segment == 7 && digits <= 2) ||
+         (segment != 0 && segment != 6 && segment != 7 && digits > 0 && digits <= 2);
 }
 
 /**
  * Parse a string with timezone
  */
 __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
-                                              unsigned char const* const ptr_end,
+                                              unsigned char const* ptr_end,
                                               time_zone& tz,
                                               int64_t& seconds,
                                               int32_t& microseconds,
@@ -651,47 +486,149 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
 
   // trim left
   while (pos < end_pos && is_whitespace(ptr[pos])) {
-    pos++;
+    ++pos;
   }
 
   // trim right
   while (pos < end_pos && is_whitespace(ptr[end_pos - 1])) {
-    end_pos--;
+    --end_pos;
   }
 
   if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
 
-  ts_segments ts;
-  bool negative_year_sign = false;
-
-  if (ptr[pos] == 'T' || (end_pos - pos > 1 && ptr[pos + 1] == ':') ||
-      (end_pos - pos > 2 && (ptr[pos + 1] == ':' || ptr[pos + 2] == ':'))) {
-    // first char is T, means only have time part
-    // or the second or third char is ':', e.g.: 12:00:00 or 1:00:00
-    just_time = TS_TYPE::JUST_TIME;
-
-    if (ptr[pos] == 'T') { pos++; }
-
-    // parse from time
-    if (!parse_from_time(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
-  } else {
-    just_time = TS_TYPE::NOT_JUST_TIME;
-
-    // parse sign
-    unsigned char const sign_c = ptr[pos];
-    if ('-' == sign_c || '+' == sign_c) {
-      pos++;
-      if ('-' == sign_c) { negative_year_sign = true; }
+  int bytes_length           = end_pos - pos;
+  int segments[]             = {1970, 1, 1, 0, 0, 0, 0, 0, 0};
+  int segments_len           = 9;
+  int i                      = 0;
+  int current_segment_value  = 0;
+  int current_segment_digits = 0;
+  int j                      = 0;
+  int digits_milli           = 0;
+  cuda::std::optional<int> year_sign;
+  if ('-' == ptr[pos + j] || '+' == ptr[pos + j]) {
+    if ('-' == ptr[pos + j]) {
+      year_sign = -1;
+    } else {
+      year_sign = 1;
     }
-
-    // parse from date
-    if (!parse_from_date(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
+    ++j;
   }
 
-  if (!is_valid(ts, tz)) { return RESULT_TYPE::INVALID; }
+  while (j < bytes_length) {
+    unsigned char const b  = ptr[pos + j];
+    int const parsed_value = static_cast<int32_t>(b) - '0';
+    if (parsed_value < 0 || parsed_value > 9) {
+      if (0 == j && 'T' == b) {
+        just_time = TS_TYPE::JUST_TIME;
+        i += 3;
+      } else if (i < 2) {
+        if (b == '-') {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else if (0 == i && ':' == b && !year_sign.has_value()) {
+          just_time = TS_TYPE::JUST_TIME;
+          if (!is_valid_digits(3, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[3]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i                      = 4;
+        } else {
+          return RESULT_TYPE::INVALID;
+        }
+      } else if (2 == i) {
+        if (' ' == b || 'T' == b) {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return RESULT_TYPE::INVALID;
+        }
+      } else if (3 == i || 4 == i) {
+        if (':' == b) {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return RESULT_TYPE::INVALID;
+        }
+      } else if (5 == i || 6 == i) {
+        if ('.' == b && 5 == i) {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
 
-  if (negative_year_sign) { ts.year = -ts.year; }
-  return to_long_check_max(ts, seconds, microseconds);
+          // parse timezone
+          int tz_pos = pos + j;
+          tz         = parse_from_tz(ptr, tz_pos, end_pos);
+          if (tz.type == TZ_TYPE::INVALID_TZ) { return RESULT_TYPE::INVALID; }
+
+          j = bytes_length - 1;
+        }
+        if (i == 6 && '.' != b) { i += 1; }
+      } else {
+        if (i < segments_len && (':' == b || ' ' == b)) {
+          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return RESULT_TYPE::INVALID;
+        }
+      }
+    } else {
+      if (6 == i) { digits_milli += 1; }
+      // We will truncate the nanosecond part if there are more than 6 digits,
+      // which results in loss of precision
+      if (6 != i || current_segment_digits < 6) {
+        current_segment_value = current_segment_value * 10 + parsed_value;
+      }
+      current_segment_digits += 1;
+    }
+    j += 1;
+  }
+
+  if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+  segments[i] = current_segment_value;
+
+  while (digits_milli < 6) {
+    segments[6] *= 10;
+    digits_milli += 1;
+  }
+
+  segments[0] *= year_sign.value_or(1);
+  // above is ported from Spark.
+
+  if (!is_valid_timestamp(segments[0],
+                          segments[1],
+                          segments[2],
+                          segments[3],
+                          segments[4],
+                          segments[5],
+                          segments[6]) ||
+      !is_valid_tz(tz)) {
+    return RESULT_TYPE::INVALID;
+  }
+
+  seconds =
+    to_epoch_seconds(segments[0], segments[1], segments[2], segments[3], segments[4], segments[5]);
+  microseconds = segments[6];
+  return RESULT_TYPE::SUCCESS;
 }
 
 /**
