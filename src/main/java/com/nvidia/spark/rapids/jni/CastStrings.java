@@ -181,13 +181,16 @@ public class CastStrings {
    * @param timeZoneInfo Timezone info column:
    *   STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
    *   Refer to `GpuTimeZoneDB` for more details.
+   * @param transitions Timezone transition table.
+   * @param isSpark320 is Spark 3.2.0 version
    * @return a struct column constains 7 columns described above.
    */
   static ColumnVector parseTimestampStrings(
       ColumnView input, int defaultTimeZoneIndex,
       boolean isDefaultTimeZoneDST, long defaultEpochDay,
       ColumnView timeZoneInfo,
-      Table transitions) {
+      Table transitions,
+      boolean isSpark320) {
 
     return new ColumnVector(parseTimestampStrings(
         input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
@@ -353,7 +356,7 @@ public class CastStrings {
 
   private static native long parseTimestampStrings(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
-      long defaultEpochDay, long timeZoneInfo, long transitions);
+      long defaultEpochDay, long timeZoneInfo, long transitions, boolean isSpark320);
 
   private static native long parseDateStringsToDate(long input);
 

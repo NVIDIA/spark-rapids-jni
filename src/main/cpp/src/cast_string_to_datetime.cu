@@ -474,7 +474,7 @@ __device__ bool is_valid_digits(int segment, int digits)
 /**
  * Parse a string with timezone
  */
-template <bool is_spark_320 = false>
+template <bool is_spark_320>
 __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
                                               unsigned char const* ptr_end,
                                               time_zone& tz,
@@ -658,6 +658,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
 /**
  * Parse a string with timezone to a timestamp.
  */
+template <bool is_spark_320>
 struct parse_timestamp_string_fn {
   // inputs
   cudf::column_device_view d_strings;
@@ -703,8 +704,8 @@ struct parse_timestamp_string_fn {
     TS_TYPE just_time    = TS_TYPE::NOT_JUST_TIME;
 
     // parse the timestamp string
-    auto result_type =
-      parse_timestamp_string(str_ptr, str_end_ptr, tz, seconds, microseconds, just_time);
+    auto result_type = parse_timestamp_string<is_spark_320>(
+      str_ptr, str_end_ptr, tz, seconds, microseconds, just_time);
 
     // set result column
     result_types[idx]     = static_cast<uint8_t>(result_type);
@@ -820,6 +821,7 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
                                                int64_t default_epoch_day,
                                                cudf::column_view const& tz_info,
                                                cudf::table_view const& transitions,
+                                               bool is_spark_320,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
@@ -854,24 +856,45 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   auto const ft_cdv_ptr        = cudf::column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
 
-  thrust::for_each_n(
-    rmm::exec_policy_nosync(stream),
-    thrust::make_counting_iterator(0),
-    num_rows,
-    parse_timestamp_string_fn{*d_input,
-                              default_tz_index,
-                              is_default_tz_dst,
-                              default_epoch_day,
-                              current_seconds_since_epoch,
-                              *d_tz_info,
-                              fixed_transitions,
-                              parsed_result_type_col->mutable_view().begin<uint8_t>(),
-                              parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
-                              parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
-                              parsed_tz_type_col->mutable_view().begin<uint8_t>(),
-                              parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
-                              is_DST_tz_col->mutable_view().begin<uint8_t>(),
-                              parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  if (is_spark_320) {
+    thrust::for_each_n(
+      rmm::exec_policy_nosync(stream),
+      thrust::make_counting_iterator(0),
+      num_rows,
+      parse_timestamp_string_fn<true>{*d_input,
+                                      default_tz_index,
+                                      is_default_tz_dst,
+                                      default_epoch_day,
+                                      current_seconds_since_epoch,
+                                      *d_tz_info,
+                                      fixed_transitions,
+                                      parsed_result_type_col->mutable_view().begin<uint8_t>(),
+                                      parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
+                                      parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
+                                      parsed_tz_type_col->mutable_view().begin<uint8_t>(),
+                                      parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
+                                      is_DST_tz_col->mutable_view().begin<uint8_t>(),
+                                      parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  } else {
+    thrust::for_each_n(
+      rmm::exec_policy_nosync(stream),
+      thrust::make_counting_iterator(0),
+      num_rows,
+      parse_timestamp_string_fn<false>{*d_input,
+                                       default_tz_index,
+                                       is_default_tz_dst,
+                                       default_epoch_day,
+                                       current_seconds_since_epoch,
+                                       *d_tz_info,
+                                       fixed_transitions,
+                                       parsed_result_type_col->mutable_view().begin<uint8_t>(),
+                                       parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
+                                       parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
+                                       parsed_tz_type_col->mutable_view().begin<uint8_t>(),
+                                       parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
+                                       is_DST_tz_col->mutable_view().begin<uint8_t>(),
+                                       parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  }
 
   std::vector<std::unique_ptr<cudf::column>> output_columns;
   output_columns.emplace_back(std::move(parsed_result_type_col));
@@ -1051,6 +1074,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view 
                                                       int64_t default_epoch_day,
                                                       cudf::column_view const& tz_info,
                                                       cudf::table_view const& transitions,
+                                                      bool is_spark_320,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
@@ -1060,6 +1084,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view 
                           default_epoch_day,
                           tz_info,
                           transitions,
+                          is_spark_320,
                           stream,
                           mr);
 }
