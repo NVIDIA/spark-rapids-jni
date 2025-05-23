@@ -195,21 +195,26 @@ __device__ int parse_digits(
 /**
  * Parse timezone from sign part to end of the string.
  * E.g.: +01:02:03, the '+' is parsed, parse the following: 01:02:03
+ * Formats:
+ * 1. with no colon: [+-]h, [+-]hh, [+-]hhmm, or [+-]hhmmss
+ * 2. with colon:
+ *   1): Spark 320: [+-]h[h]:mm, [+-]h[h]:mm:ss
+ *   2): Spark 321 and 321+: [+-]h[h]:m[m], [+-]h[h]:mm:ss
  */
-__device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
-                                        int& pos,
-                                        int const end_pos,
-                                        int const sign)
+__device__ time_zone parse_tz_from_sign(
+  unsigned char const* const ptr, int& pos, int const end_pos, int const sign, bool is_spark_320)
 {
   int hour   = 0;
   int minute = 0;
   int second = 0;
 
+  int h_digits = 0;
   int m_digits = 0;
   int s_digits = 0;
 
   // parse hour
-  if (parse_digits(ptr, pos, end_pos, hour, /*max_digits*/ 2) == 0) {
+  h_digits = parse_digits(ptr, pos, end_pos, hour, /*max_digits*/ 2);
+  if (h_digits == 0) {
     // parse hour failed, [+-] with no digits following
     return make_invalid_tz();
   } else {
@@ -217,10 +222,11 @@ __device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
     if (!eof(pos, end_pos)) {
       // has more after hour
       if (try_parse_char(ptr, pos, ':')) {
+        // without colon path, already parsed [+-]h[h]:
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
-        if (m_digits == 0) {
-          // [+-]h[h]: with no digits following
+        if (m_digits == 0 || (is_spark_320 && m_digits == 1)) {
+          // [+-]h[h]: without digits following, or Spark 320 not supports [+-]h[h]:m
           return make_invalid_tz();
         } else {
           // [+-]h[h]:m[m]
@@ -233,25 +239,31 @@ __device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
                                            second,
                                            /*max_digits*/ 2) == 2) &&
                   eof(pos, end_pos))) {
-              // [+-]h[h]:m[m]:ss
+              // not: [+-]h[h]:m[m]:ss
               return make_invalid_tz();
             }
           }
         }
       } else {
-        // [+-]h[h] with non-colon following
-        // should be [+-]h[h][mm] or [+-]h[h][mm][ss]
+        // without colon path, already parsed [+-]h[h]
+        // should be: [+-]hhmm or [+-]hhmmss
+        if (h_digits != 2) { return make_invalid_tz(); }
 
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
+
         // parse second
         s_digits = parse_digits(ptr, pos, end_pos, second, /*max_digits*/ 2);
 
-        if (!(m_digits == 2 && (s_digits == 0 || s_digits == 2) && eof(pos, end_pos))) {
-          // not: [+-]h[h][mm] or [+-]h[h][mm][ss]
+        if (!(m_digits == 2 || m_digits == 0) || !(s_digits == 2 || s_digits == 0)) {
+          // not: [+-]hhmm or [+-]hhmmss
           return make_invalid_tz();
         }
+
+        if (!eof(pos, end_pos)) { return make_invalid_tz(); }
       }
+    } else {
+      // got pattern: [+-]h or [+-]hh, it's valid.
     }
   }
 
@@ -283,7 +295,10 @@ __device__ bool try_parse_sign(unsigned char const* const ptr, int& pos, int& si
  * Parse timezone starts with U
  * e.g.: UT+08:00, U is parsed, parse the following: T+08:00
  */
-__device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_UT_tz(unsigned char const* const ptr,
+                                     int& pos,
+                                     int const end_pos,
+                                     bool is_spark_320)
 {
   // pos_backup points to the char 'U'
   int pos_backup = pos - 1;
@@ -308,7 +323,7 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
       // start with UTC, should be UTC[+-]
       int sign_value;
       if (try_parse_sign(ptr, pos, sign_value)) {
-        return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+        return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
       } else {
         // e.g.: UTCx, maybe a valid timezone
         return make_other_tz(pos_backup, end_pos);
@@ -317,7 +332,7 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
       // start with UT, followed by non 'C', should be UT[+-]
       int sign_value;
       if (try_parse_sign(ptr, pos, sign_value)) {
-        return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+        return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
       } else {
         // e.g.: UTx, maybe a valid timezone
         return make_other_tz(pos_backup, end_pos);
@@ -332,7 +347,10 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
 /**
  * Parse timezone starts with G, G is parsed, parse the following: MT
  */
-__device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr,
+                                      int& pos,
+                                      int const end_pos,
+                                      bool is_spark_320)
 {
   // pos_backup points to the char 'G'
   int pos_backup = pos - 1;
@@ -348,7 +366,7 @@ __device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, 
     pos += 2;
     int sign_value;
     if (try_parse_sign(ptr, pos, sign_value)) {
-      return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+      return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
     } else if (try_parse_char(ptr, pos, '0') && eof(pos, end_pos)) {
       // special case: GMT0
       return make_fixed_tz(0);
@@ -383,7 +401,10 @@ __device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, 
  *
  * Note: max offset for fixed tz is 18 hours.
  */
-__device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone parse_tz(unsigned char const* const ptr,
+                              int& pos,
+                              int const end_pos,
+                              bool is_spark_320)
 {
   // empty string
   if (eof(pos, end_pos)) { return make_invalid_tz(); }
@@ -396,12 +417,12 @@ __device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int cons
   // check first char
   unsigned char const first_char = ptr[pos++];
   if ('U' == first_char) {
-    return try_parse_UT_tz(ptr, pos, end_pos);
+    return try_parse_UT_tz(ptr, pos, end_pos, is_spark_320);
   } else if ('G' == first_char) {
-    return try_parse_GMT_tz(ptr, pos, end_pos);
+    return try_parse_GMT_tz(ptr, pos, end_pos, is_spark_320);
   } else if ('+' == first_char || '-' == first_char) {
     int sign_value = (first_char == '+') ? 1 : -1;
-    return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+    return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
   } else {
     return make_other_tz(pos_backup, end_pos);
   }
@@ -411,12 +432,16 @@ __device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int cons
  * Parse from timezone part to end of the string.
  * First trim the string from left, the right has been trimmed.
  */
-__device__ time_zone parse_from_tz(unsigned char const* const ptr, int& pos, int const pos_end)
+__device__ time_zone parse_from_tz(unsigned char const* const ptr,
+                                   int& pos,
+                                   int const pos_end,
+                                   bool is_spark_320)
 {
+  // trim left
   while (pos < pos_end && is_whitespace(ptr[pos])) {
     ++pos;
   }
-  return parse_tz(ptr, pos, pos_end);
+  return parse_tz(ptr, pos, pos_end, is_spark_320);
 }
 
 /**
@@ -592,7 +617,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
 
           // parse timezone
           int tz_pos = pos + j;
-          tz         = parse_from_tz(ptr, tz_pos, end_pos);
+          tz         = parse_from_tz(ptr, tz_pos, end_pos, is_spark_320);
           if (tz.type == TZ_TYPE::INVALID_TZ) { return RESULT_TYPE::INVALID; }
 
           j = bytes_length - 1;
