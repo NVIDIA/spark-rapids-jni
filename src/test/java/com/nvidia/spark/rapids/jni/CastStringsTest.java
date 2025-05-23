@@ -1251,4 +1251,42 @@ public class CastStringsTest {
     }
   }
 
+  @Test
+  void castStringToTimestampOnGpuForSpark320() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
+    long base_ts1 = ins1.getEpochSecond() * 1000000L + ins1.getNano() / 1000L;
+
+    List<List<Object>> list = new ArrayList<>();
+    List<String> input = new ArrayList<>(list.size());
+    List<Long> expectedTS = new ArrayList<>(list.size());
+
+    // minute must be 2 digits for Spark 320
+    list.add(Arrays.asList("2023-11-05T03:04:55 +00:00:00", base_ts1, true));
+    list.add(Arrays.asList("2023-11-05T03:04:55 +00:1", 0, false));
+    list.add(Arrays.asList("2023-11-05T03:04:55 -00:1", 0, false));
+    list.add(Arrays.asList("2023-11-05T03:04:55 UT+00:1", 0, false));
+    list.add(Arrays.asList("2023-11-05T03:04:55 UT-00:1", 0, false));
+    list.add(Arrays.asList("2023-11-05T03:04:55 GMT+00:1", 0, false));
+    list.add(Arrays.asList("2023-11-05T03:04:55 GMT-00:1", 0, false));
+
+    for (List<Object> row : list) {
+      input.add(row.get(0).toString());
+      if ((Boolean) row.get(2)) {
+        expectedTS.add(Long.parseLong(row.get(1).toString()));
+      } else {
+        expectedTS.add(null);
+      }
+    }
+    try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
+        // test spark 320
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ true);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            expectedTS.toArray(new Long[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
 }
