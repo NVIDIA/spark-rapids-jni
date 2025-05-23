@@ -524,7 +524,8 @@ public class CastStringsTest {
             /* is default tz DST */ false,
             defaultEpochDay,
             tzInfo,
-            transitions);
+            transitions,
+            /* is spark 320 */ false);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
@@ -591,7 +592,8 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -646,7 +648,8 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -871,7 +874,8 @@ public class CastStringsTest {
             /* is default tz DST */ false,
             defaultEpochDay,
             tzInfo,
-            transitions);
+            transitions,
+            /* is spark 320 */ false);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
@@ -935,14 +939,16 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
 
     // 2. test ansi mode true, has large year and has DST
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
 
@@ -962,7 +968,8 @@ public class CastStringsTest {
       expectedTS.add(Long.parseLong(row.get(1).toString()));
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -979,7 +986,8 @@ public class CastStringsTest {
     }
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */false, /* is spark 320 */ false);
         HostColumnVector hcv = actual.copyToHost();) {
       // this test may happen at mid-night, so the date may be different    
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
@@ -998,7 +1006,8 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
 
@@ -1012,7 +1021,8 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
   }
@@ -1062,7 +1072,8 @@ public class CastStringsTest {
       }
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -1070,7 +1081,8 @@ public class CastStringsTest {
 
     // 2. test ansi mode true
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
 
@@ -1089,7 +1101,8 @@ public class CastStringsTest {
       expectedTS.add(Long.parseLong(row.get(1).toString()));
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -1106,7 +1119,8 @@ public class CastStringsTest {
     }
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ false);
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
         HostColumnVector hcv = actual.copyToHost();) {
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
       long expectedTs2 = ((days + 1) * 24 * 3600 + 1) * 1000000L;
@@ -1123,7 +1137,8 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
 
@@ -1136,7 +1151,8 @@ public class CastStringsTest {
       input.add(row.get(0).toString());
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
-        ColumnVector actual = CastStrings.toTimestamp(inputCv, "Z", /* ansi */ true)) {
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
       Assertions.assertNull(actual);
     }
   }
@@ -1214,7 +1230,8 @@ public class CastStringsTest {
         ColumnVector actual = CastStrings.toTimestamp(
             inputCv,
             "America/Los_Angeles", // non-UTC default timezone
-            /* ansi */ false);
+            /* ansi */ false,
+            /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors1)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -1227,7 +1244,8 @@ public class CastStringsTest {
         ColumnVector actual = CastStrings.toTimestamp(
             inputCv,
             "America/Los_Angeles", // non-UTC default timezone
-            /* ansi */ false);
+            /* ansi */ false,
+            /* is spark 320 */ false);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors2)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }

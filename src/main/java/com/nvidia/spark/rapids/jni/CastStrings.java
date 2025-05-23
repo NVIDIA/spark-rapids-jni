@@ -194,7 +194,7 @@ public class CastStrings {
 
     return new ColumnVector(parseTimestampStrings(
         input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
-        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView()));
+        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(), isSpark320));
   }
 
   private static ColumnVector convertToTimestamp(
@@ -271,7 +271,8 @@ public class CastStrings {
   public static ColumnVector toTimestamp(
       ColumnView input,
       String defaultTimeZone,
-      boolean ansi_enabled) {
+      boolean ansi_enabled,
+      boolean isSpark320) {
 
     // 1. check default timezone is valid
     Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
@@ -287,7 +288,8 @@ public class CastStrings {
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
          Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, transitions);
+            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, 
+            transitions, isSpark320);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
