@@ -826,7 +826,10 @@ struct parse_timestamp_string_fn {
             transitions,
             tz_indices[idx],
             /* to_utc */ false);
-          int64_t rebased                    = *reinterpret_cast<int64_t*>(&rebased_seconds);
+
+          auto const rebased = static_cast<int64_t>(
+            cuda::std::chrono::duration_cast<cudf::duration_s>(rebased_seconds.time_since_epoch())
+              .count());
           int64_t rebased_days_of_local_date = rebased / (24L * 3600L);
 
           // Step 2: add date part to the seconds
