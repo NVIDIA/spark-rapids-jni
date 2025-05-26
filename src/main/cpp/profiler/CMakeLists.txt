@@ -12,6 +12,11 @@
 # the License.
 # =============================================================================
 
+# Ensure flatbuffers is built as static library
+set(FLATBUFFERS_BUILD_FLATLIB OFF CACHE BOOL "" FORCE)
+set(FLATBUFFERS_BUILD_SHAREDLIB OFF CACHE BOOL "" FORCE)
+set(FLATBUFFERS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
 include(../cmake/get_flatbuffers.cmake)
 
 # ##################################################################################################
@@ -31,6 +36,12 @@ add_custom_command(
 
 # ##################################################################################################
 # * profiler JNI -----------------------------------------------------------------------------------
+
+# Note: The spark_rapids_profile_converter is built with static linking to avoid runtime
+# dependency issues. When building on older systems, consider using devtoolset to ensure
+# compatibility. For example:
+#   scl enable devtoolset-11 -- cmake ...
+# This will use a newer GCC version while maintaining compatibility with older systems.
 
 add_library(profilerjni SHARED
   ProfilerJni.cpp
@@ -62,7 +73,13 @@ target_include_directories(
 find_library(CUPTI_LIBRARY_PATH cupti_static PATHS
   "/usr/local/cuda/lib64"
   "/usr/local/cuda/extras/CUPTI/lib64"
+  "${CUDAToolkit_LIBRARY_DIR}"
+  "${CUDAToolkit_LIBRARY_DIR}/extras/CUPTI/lib64"
 )
+
+if(NOT CUPTI_LIBRARY_PATH)
+  message(FATAL_ERROR "Could not find static CUPTI library (cupti_static)")
+endif()
 
 target_link_libraries(profilerjni
   PRIVATE ${CUPTI_LIBRARY_PATH} nvtx3::nvtx3-cpp flatbuffers::flatbuffers
@@ -87,6 +104,18 @@ add_executable(spark_rapids_profile_converter
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}/profiler_generated.h"
 )
 
+# Set properties for static linking
+set_target_properties(
+  spark_rapids_profile_converter
+  PROPERTIES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED ON
+  # Enable static linking of C++ runtime
+  LINK_FLAGS "-static-libgcc -static-libstdc++"
+  # Prefer static libraries
+  CMAKE_FIND_LIBRARY_SUFFIXES ".a"
+)
+
 target_include_directories(
   spark_rapids_profile_converter
   PRIVATE
@@ -97,9 +126,24 @@ target_include_directories(
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}"
 )
 
+# Link statically with all dependencies except system libraries
 target_link_libraries(spark_rapids_profile_converter
-  "${CUPTI_LIBRARY_PATH}"
+  ${CUPTI_LIBRARY_PATH}
   flatbuffers::flatbuffers
+  # These are typically dynamically linked system libraries
   dl
   pthread
-  rt)
+  rt
+)
+
+# If using devtoolset, we might want to add specific flags
+if(DEFINED ENV{DEVTOOLSET_ROOT})
+  target_compile_options(spark_rapids_profile_converter PRIVATE
+    "-I$ENV{DEVTOOLSET_ROOT}/usr/include/c++/11"
+    "-I$ENV{DEVTOOLSET_ROOT}/usr/include/c++/11/x86_64-redhat-linux"
+  )
+  target_link_options(spark_rapids_profile_converter PRIVATE
+    "-L$ENV{DEVTOOLSET_ROOT}/usr/lib/gcc/x86_64-redhat-linux/11"
+    "-Wl,-rpath,$ENV{DEVTOOLSET_ROOT}/usr/lib/gcc/x86_64-redhat-linux/11"
+  )
+endif()
