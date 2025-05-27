@@ -1568,7 +1568,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   // Function to convert a set (ordered or unordered) to a concatenated string
   template <typename SetType>
-  std::string setToString(const SetType& set, const std::string& separator = ",")
+  std::string to_string(SetType const& set, std::string const& separator = ",")
   {
     // Use std::ostringstream for efficient string building.
     std::ostringstream oss;
@@ -1668,27 +1668,23 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
-    if (ret) {
-      std::set<long> threadsKeySet;
-      std::transform(threads.begin(),
-                     threads.end(),
-                     std::inserter(threadsKeySet, threadsKeySet.begin()),
-                     [](const auto& pair) { return pair.first; });
-
-      if (is_log_enabled) {
-        auto note = fmt::format(
-          "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
-          "bufn_task_ids: {} ({}), threads: {} ({})",
-          setToString(all_task_ids),
-          all_task_ids.size(),
-          setToString(blocked_task_ids),
-          blocked_task_ids.size(),
-          setToString(bufn_task_ids),
-          bufn_task_ids.size(),
-          setToString(threadsKeySet),
-          threads.size());
-        log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
+    if (ret && is_log_enabled) {
+      std::set<long> threads_key_set;
+      for (auto const &[k, v]: threads) {
+        threads_key_set.insert(k);
       }
+      auto note = fmt::format(
+        "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
+        "bufn_task_ids: {} ({}), threads: {} ({})",
+        to_string(all_task_ids),
+        all_task_ids.size(),
+        to_string(blocked_task_ids),
+        blocked_task_ids.size(),
+        to_string(bufn_task_ids),
+        bufn_task_ids.size(),
+        to_string(threads_key_set),
+        threads.size());
+      log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
     }
     return ret;
   }
