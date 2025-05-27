@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/resource_ref.hpp>
@@ -162,10 +163,11 @@ std::unique_ptr<cudf::column> long_to_binary_string(
  */
 std::unique_ptr<cudf::column> parse_timestamp_strings(
   cudf::strings_column_view const& input,
-  cudf::size_type const default_tz_index,
-  bool const is_default_tz_dst,
-  int64_t const default_epoch_day,
+  cudf::size_type default_tz_index,
+  bool is_default_tz_dst,
+  int64_t default_epoch_day,
   cudf::column_view const& tz_info,
+  cudf::table_view const& transitions,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

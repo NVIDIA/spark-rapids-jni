@@ -16,9 +16,13 @@
 
 #pragma once
 
+#include <cudf/lists/list_device_view.cuh>
+#include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/types.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <cuda/std/limits>
+#include <thrust/binary_search.h>
 
 namespace spark_rapids_jni {
 
@@ -260,5 +264,42 @@ struct overflow_checker {
     return false;
   }
 };
+
+// This device functor uses a binary search to find the instant of the transition
+// to find the right offset to do the transition.
+// To transition to UTC: do a binary search on the tzInstant child column and subtract
+// the offset.
+// To transition from UTC: do a binary search on the utcInstant child column and add
+// the offset.
+template <typename timestamp_type>
+__device__ static timestamp_type convert_timestamp(
+  timestamp_type const& timestamp,
+  cudf::detail::lists_column_device_view const& transitions,
+  cudf::size_type tz_index,
+  bool to_utc)
+{
+  using duration_type = typename timestamp_type::duration;
+
+  auto const utc_instants = transitions.child().child(0);
+  auto const tz_instants  = transitions.child().child(1);
+  auto const utc_offsets  = transitions.child().child(2);
+
+  auto const epoch_seconds = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
+  auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
+  auto const list_size      = tz_transitions.size();
+
+  auto const transition_times = cudf::device_span<int64_t const>(
+    (to_utc ? tz_instants : utc_instants).data<int64_t>() + tz_transitions.element_offset(0),
+    static_cast<size_t>(list_size));
+
+  auto const it = thrust::upper_bound(
+    thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);
+  auto const idx = static_cast<cudf::size_type>(thrust::distance(transition_times.begin(), it));
+  auto const list_offset = tz_transitions.element_offset(idx - 1);
+  auto const utc_offset  = cuda::std::chrono::duration_cast<duration_type>(
+    cudf::duration_s{static_cast<int64_t>(utc_offsets.element<int32_t>(list_offset))});
+  return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
+}
 
 }  // namespace spark_rapids_jni
