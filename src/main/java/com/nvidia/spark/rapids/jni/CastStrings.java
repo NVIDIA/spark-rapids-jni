@@ -186,11 +186,12 @@ public class CastStrings {
   static ColumnVector parseTimestampStrings(
       ColumnView input, int defaultTimeZoneIndex,
       boolean isDefaultTimeZoneDST, long defaultEpochDay,
-      ColumnView timeZoneInfo) {
+      ColumnView timeZoneInfo,
+      Table transitions) {
 
     return new ColumnVector(parseTimestampStrings(
         input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
-        defaultEpochDay, timeZoneInfo.getNativeView()));
+        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView()));
   }
 
   private static ColumnVector convertToTimestamp(
@@ -281,8 +282,9 @@ public class CastStrings {
 
     // 2. parse to intermediate result
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
+         Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo);
+            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, transitions);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
@@ -351,7 +353,7 @@ public class CastStrings {
 
   private static native long parseTimestampStrings(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
-      long defaultEpochDay, long timeZoneInfo);
+      long defaultEpochDay, long timeZoneInfo, long transitions);
 
   private static native long parseDateStringsToDate(long input);
 
