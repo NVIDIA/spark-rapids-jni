@@ -139,7 +139,7 @@ pipeline {
                         ]
                     )
 
-                    stash(name: "source_tree", includes: "**")
+                    stash(name: "source_tree", includes: "**,.git/**", useDefaultExcludes: false)
 
                     container('cpu') {
                         // check if pre-merge dockerfile modified
