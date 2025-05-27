@@ -1670,7 +1670,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
     if (ret && is_log_enabled) {
       std::set<long> threads_key_set;
-      for (auto const &[k, v]: threads) {
+      for (auto const& [k, v] : threads) {
         threads_key_set.insert(k);
       }
       auto note = fmt::format(
