@@ -718,6 +718,7 @@ __device__ thrust::pair<bool, cudf::size_type> evaluate_path(
         case evaluation_case_path::START_ARRAY___MATCHED_WILDCARD: {
           // collect result from child task
           p_ctx.dirty += ctx.dirty;
+          if (p_ctx.dirty > 0) { p_ctx.dirty = 1; }
           // copy generator states to parent task;
           p_ctx.g = ctx.g;
 

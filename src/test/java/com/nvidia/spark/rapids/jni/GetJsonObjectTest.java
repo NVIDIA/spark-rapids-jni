@@ -798,8 +798,12 @@ public class GetJsonObjectTest {
   @Test
   void getJsonObjectTest_TwoWildcards() {
     JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
-        namedPath("store"), namedPath("book"), wildcardPath(), namedPath("reader"), wildcardPath(),
-        namedPath("age"),
+        namedPath("store"),
+        namedPath("book"),
+        wildcardPath(),
+        namedPath("reader"),
+        wildcardPath(),
+        namedPath("age")
     };
     try (ColumnVector input = ColumnVector.fromStrings(
         // json: two book entries and four readers
@@ -830,6 +834,7 @@ public class GetJsonObjectTest {
             "    }]                         " +
             "  }                            " +
             "}                              ",
+
         // json: one book entry and two readers
         "{                                  " +
             "  'store': {                   " +
@@ -852,7 +857,114 @@ public class GetJsonObjectTest {
             "    ]                          " +
             "  }                            " +
             "}                              ");
-        ColumnVector expected = ColumnVector.fromStrings("[[11,12],[21,22]]", "[11,12]");
+        ColumnVector expected = ColumnVector.fromStrings(
+            "[[11,12],[21,22]]",
+            "[11,12]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
+  /**
+   * Test select wildcard from array.
+   * E.g.: path: '$.a[*]'
+   */
+  @Test
+  void getJsonObjectTest_TestSelectWildcardFromArray() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("a"),
+        wildcardPath()
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json row 0
+        "             {                                 " +
+            "           'a' : [1]                       " +
+            "         }                                 ",
+
+        // json row 1
+        "             {                                 " +
+            "           'a' : [[1]]                     " +
+            "         }                                 ",
+
+        // json row 2
+        "             {                                 " +
+            "           'a' : [1,2,3]                   " +
+            "         }                                 ",
+
+        // json row 3
+        "             {                                 " +
+            "           'a' : [[1,2,3]]                 " +
+            "         }                                 ");
+        ColumnVector expected = ColumnVector.fromStrings(
+            "1",
+            "[1]",
+            "[1,2,3]",
+            "[1,2,3]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
+  /**
+   * Test consecutive two select wildcard from array.
+   * E.g.: Path is '$.a[*].b[*]'
+   */
+  @Test
+  void getJsonObjectTest_TestConsecutiveTwoSelectWildcardFromArray() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("a"),
+        wildcardPath(),
+        namedPath("b"),
+        wildcardPath()
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json row 0
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11, 12]              " +
+            "             },                            " +
+            "             {                             " +
+            "               'b' : [21, 22]              " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 1
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11]                  " +
+            "             },                            " +
+            "             {                             " +
+            "               'b' : [21]                  " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 2
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11, 12]              " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 3
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11]                  " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ");
+
+        ColumnVector expected = ColumnVector.fromStrings(
+            "[[11,12],[21,22]]",
+            "[[11],[21]]",
+            "[11,12]",
+            "[11]");
         ColumnVector output = JSONUtils.getJsonObject(input, query)) {
       assertColumnsAreEqual(expected, output);
     }
