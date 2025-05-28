@@ -789,6 +789,75 @@ public class GetJsonObjectTest {
     }
   }
 
+  /**
+   * Test path: '$.store.book[*].reader[*].age'
+   * When 'book' array size is one, then return one dimension array,
+   * When 'book' array size is bigger than one, then return two dimensions array.
+   *
+   */
+  @Test
+  void getJsonObjectTest_TwoWildcards() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("store"), namedPath("book"), wildcardPath(), namedPath("reader"), wildcardPath(),
+        namedPath("age"),
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json: two book entries and four readers
+        "    {                              " +
+            "  'store': {                   " +
+            "    'book': [{                 " +
+            "      'author': 'jack',        " +
+            "      'title': 'war',          " +
+            "      'category': 'fiction',   " +
+            "      'reader': [{             " +
+            "        'age': 11,             " +
+            "        'name': 'bob'          " +
+            "      }, {                     " +
+            "        'age': 12,             " +
+            "        'name': 'jack'         " +
+            "      }]                       " +
+            "    }, {                       " +
+            "      'author': 'jack',        " +
+            "      'title': 'war',          " +
+            "      'category': 'fiction',   " +
+            "      'reader': [{             " +
+            "        'age': 21,             " +
+            "        'name': 'bob'          " +
+            "      }, {                     " +
+            "        'age': 22,             " +
+            "        'name': 'jack'         " +
+            "      }]                       " +
+            "    }]                         " +
+            "  }                            " +
+            "}                              ",
+        // json: one book entry and two readers
+        "{                                  " +
+            "  'store': {                   " +
+            "    'book': [                  " +
+            "      {                        " +
+            "        'author': 'jack',      " +
+            "        'title': 'war',        " +
+            "        'category': 'fiction', " +
+            "        'reader': [            " +
+            "          {                    " +
+            "            'age': 11,         " +
+            "            'name': 'bob'      " +
+            "          },                   " +
+            "          {                    " +
+            "            'age': 12,         " +
+            "            'name': 'jack'     " +
+            "          }                    " +
+            "        ]                      " +
+            "      }                        " +
+            "    ]                          " +
+            "  }                            " +
+            "}                              ");
+        ColumnVector expected = ColumnVector.fromStrings("[[11,12],[21,22]]", "[11,12]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
   private JSONUtils.PathInstructionJni wildcardPath() {
     return new JSONUtils.PathInstructionJni(JSONUtils.PathInstructionType.WILDCARD, "", -1);
   }
