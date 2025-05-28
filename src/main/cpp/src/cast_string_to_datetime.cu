@@ -496,6 +496,8 @@ __device__ bool is_valid_digits(int segment, int digits)
          (segment != 0 && segment != 6 && segment != 7 && digits > 0 && digits <= 2);
 }
 
+enum segment_index { YEAR = 0, MONTH, DAY, HOUR, MINUTE, SECOND, MICROSECOND };
+
 /**
  * Parse a string with timezone
  */
@@ -663,20 +665,24 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
   segments[0] *= year_sign.value_or(1);
   // above is ported from Spark.
 
-  if (!is_valid_timestamp(segments[0],
-                          segments[1],
-                          segments[2],
-                          segments[3],
-                          segments[4],
-                          segments[5],
-                          segments[6]) ||
+  if (!is_valid_timestamp(segments[segment_index::YEAR],
+                          segments[segment_index::MONTH],
+                          segments[segment_index::DAY],
+                          segments[segment_index::HOUR],
+                          segments[segment_index::MINUTE],
+                          segments[segment_index::SECOND],
+                          segments[segment_index::MICROSECOND]) ||
       !is_valid_tz(tz)) {
     return RESULT_TYPE::INVALID;
   }
 
-  seconds =
-    to_epoch_seconds(segments[0], segments[1], segments[2], segments[3], segments[4], segments[5]);
-  microseconds = segments[6];
+  seconds      = to_epoch_seconds(segments[segment_index::YEAR],
+                             segments[segment_index::MONTH],
+                             segments[segment_index::DAY],
+                             segments[segment_index::HOUR],
+                             segments[segment_index::MINUTE],
+                             segments[segment_index::SECOND]);
+  microseconds = segments[segment_index::MICROSECOND];
   return RESULT_TYPE::SUCCESS;
 }
 
