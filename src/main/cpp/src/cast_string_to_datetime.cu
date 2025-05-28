@@ -42,7 +42,7 @@ namespace spark_rapids_jni {
 
 namespace {
 
-enum class RESULT_TYPE : uint8_t {
+enum class result_type : uint8_t {
   // Parse success
   SUCCESS = 0,
 
@@ -502,7 +502,7 @@ enum segment_index { YEAR = 0, MONTH, DAY, HOUR, MINUTE, SECOND, MICROSECOND };
  * Parse a string with timezone
  */
 template <bool is_spark_320>
-__device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
+__device__ result_type parse_timestamp_string(unsigned char const* const ptr,
                                               unsigned char const* ptr_end,
                                               time_zone& tz,
                                               int64_t& seconds,
@@ -522,7 +522,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
     --end_pos;
   }
 
-  if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
+  if (eof(pos, end_pos)) { return result_type::INVALID; }
 
   int bytes_length           = end_pos - pos;
   int segments[]             = {1970, 1, 1, 0, 0, 0, 0, 0, 0};
@@ -558,45 +558,45 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
         i += 3;
       } else if (i < 2) {
         if (b == '-') {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i += 1;
         } else if (0 == i && ':' == b && !year_sign.has_value()) {
           just_time = TS_TYPE::JUST_TIME;
-          if (!is_valid_digits(3, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(3, current_segment_digits)) { return result_type::INVALID; }
           segments[3]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i                      = 4;
         } else {
-          return RESULT_TYPE::INVALID;
+          return result_type::INVALID;
         }
       } else if (2 == i) {
         if (' ' == b || 'T' == b) {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return RESULT_TYPE::INVALID;
+          return result_type::INVALID;
         }
       } else if (3 == i || 4 == i) {
         if (':' == b) {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return RESULT_TYPE::INVALID;
+          return result_type::INVALID;
         }
       } else if (5 == i || 6 == i) {
         if (is_spark_320 && ('-' == b || '+' == b)) {
           // It's safe to delete when Spark320 suport is removed.
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
@@ -605,13 +605,13 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
           tz_sign_for_spark320     = (b == '+');
 
         } else if ('.' == b && 5 == i) {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
@@ -620,20 +620,20 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
           // parse timezone
           int tz_pos = pos + j;
           tz         = parse_from_tz(ptr, tz_pos, end_pos, is_spark_320);
-          if (tz.type == TZ_TYPE::INVALID_TZ) { return RESULT_TYPE::INVALID; }
+          if (tz.type == TZ_TYPE::INVALID_TZ) { return result_type::INVALID; }
 
           j = bytes_length - 1;
         }
         if (i == 6 && '.' != b) { i += 1; }
       } else {
         if (i < segments_len && (':' == b || ' ' == b)) {
-          if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
           segments[i]            = current_segment_value;
           current_segment_value  = 0;
           current_segment_digits = 0;
           i += 1;
         } else {
-          return RESULT_TYPE::INVALID;
+          return result_type::INVALID;
         }
       }
     } else {
@@ -648,7 +648,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
     j += 1;
   }
 
-  if (!is_valid_digits(i, current_segment_digits)) { return RESULT_TYPE::INVALID; }
+  if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
   segments[i] = current_segment_value;
 
   while (digits_milli < 6) {
@@ -673,7 +673,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
                           segments[segment_index::SECOND],
                           segments[segment_index::MICROSECOND]) ||
       !is_valid_tz(tz)) {
-    return RESULT_TYPE::INVALID;
+    return result_type::INVALID;
   }
 
   seconds      = to_epoch_seconds(segments[segment_index::YEAR],
@@ -683,7 +683,7 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
                              segments[segment_index::MINUTE],
                              segments[segment_index::SECOND]);
   microseconds = segments[segment_index::MICROSECOND];
-  return RESULT_TYPE::SUCCESS;
+  return result_type::SUCCESS;
 }
 
 /**
@@ -747,8 +747,8 @@ struct parse_timestamp_string_fn {
     is_DSTs[idx]          = 0;
     tz_indices[idx]       = -1;
 
-    if (result_type != RESULT_TYPE::SUCCESS) {
-      // already set RESULT_TYPE::INVALID
+    if (result_type != result_type::SUCCESS) {
+      // already set result_type::INVALID
       return;
     }
 
@@ -830,12 +830,12 @@ struct parse_timestamp_string_fn {
         }
       } else {
         // not found tz, update result_type to invalid
-        result_types[idx] = static_cast<uint8_t>(RESULT_TYPE::INVALID);
+        result_types[idx] = static_cast<uint8_t>(result_type::INVALID);
         tz_indices[idx]   = -1;
         is_DSTs[idx]      = 0;
       }
     } else if (tz.type == TZ_TYPE::INVALID_TZ) {
-      cudf_assert(result_type == RESULT_TYPE::INVALID);
+      cudf_assert(result_type == result_type::INVALID);
     } else {
       // should not happen
       cudf_assert(false);
