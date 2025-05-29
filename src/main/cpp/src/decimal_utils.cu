@@ -496,8 +496,7 @@ inline __device__ chunked256 pow_ten(int exp)
       return chunked256(0x161bcca7119915b5, 0x764b4abe8652979, 0x7775a5f171951000, 0x0);
     default:
       // This is not a supported value...
-      assert(0);
-      return chunked256();
+      CUDF_UNREACHABLE("exponent exceeds supported value");
   }
 }
 
