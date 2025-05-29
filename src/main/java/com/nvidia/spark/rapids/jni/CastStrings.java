@@ -181,17 +181,20 @@ public class CastStrings {
    * @param timeZoneInfo Timezone info column:
    *   STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
    *   Refer to `GpuTimeZoneDB` for more details.
+   * @param transitions Timezone transition table.
+   * @param isSpark320 is Spark 3.2.0 version
    * @return a struct column constains 7 columns described above.
    */
   static ColumnVector parseTimestampStrings(
       ColumnView input, int defaultTimeZoneIndex,
       boolean isDefaultTimeZoneDST, long defaultEpochDay,
       ColumnView timeZoneInfo,
-      Table transitions) {
+      Table transitions,
+      boolean isSpark320) {
 
     return new ColumnVector(parseTimestampStrings(
         input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
-        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView()));
+        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(), isSpark320));
   }
 
   private static ColumnVector convertToTimestamp(
@@ -268,7 +271,8 @@ public class CastStrings {
   public static ColumnVector toTimestamp(
       ColumnView input,
       String defaultTimeZone,
-      boolean ansi_enabled) {
+      boolean ansi_enabled,
+      boolean isSpark320) {
 
     // 1. check default timezone is valid
     Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
@@ -284,7 +288,8 @@ public class CastStrings {
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
          Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, transitions);
+            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, 
+            transitions, isSpark320);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
@@ -353,7 +358,7 @@ public class CastStrings {
 
   private static native long parseTimestampStrings(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
-      long defaultEpochDay, long timeZoneInfo, long transitions);
+      long defaultEpochDay, long timeZoneInfo, long transitions, boolean isSpark320);
 
   private static native long parseDateStringsToDate(long input);
 
