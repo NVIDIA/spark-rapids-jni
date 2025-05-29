@@ -1271,6 +1271,12 @@ public class CastStringsTest {
     list.add(Arrays.asList("2023-11-05T03:04:55 UT-00:1", 0, false));
     list.add(Arrays.asList("2023-11-05T03:04:55 GMT+00:1", 0, false));
     list.add(Arrays.asList("2023-11-05T03:04:55 GMT-00:1", 0, false));
+    // minute must be in ragne: 0-59
+    // offsets must be in range: -18:00 to +18:00
+    list.add(Arrays.asList("2015-03-18T12:03:17-0:70", 0, false));
+    list.add(Arrays.asList("2015-03-18T12:03:17-18:01", 0, false));
+    list.add(Arrays.asList("2015-03-18T12:03:17+19:00", 0, false));
+    list.add(Arrays.asList("2015-03-18T12:03:17+10:60", 0, false));
 
     for (List<Object> row : list) {
       input.add(row.get(0).toString());
