@@ -59,10 +59,10 @@ struct date_time_utils {
   __device__ static int64_t to_epoch_day(int year, int month, int day)
   {
     int32_t y          = year - (month <= 2);
-    const int32_t era  = (y >= 0 ? y : y - 399) / 400;
-    const uint32_t yoe = static_cast<uint32_t>(y - era * 400);                           // [0, 399]
-    const uint32_t doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;  // [0, 365]
-    const uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;  // [0, 146096]
+    int32_t const era  = (y >= 0 ? y : y - 399) / 400;
+    uint32_t const yoe = static_cast<uint32_t>(y - era * 400);                           // [0, 399]
+    uint32_t const doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;  // [0, 365]
+    uint32_t const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;  // [0, 146096]
     return era * 146097L + doe - 719468L;
   }
 
@@ -79,12 +79,12 @@ struct date_time_utils {
   {
     int64_t z = static_cast<int64_t>(epoch_day);
     z += 719468;
-    const int32_t era  = static_cast<int32_t>((z >= 0 ? z : z - 146096) / 146097);
-    const uint32_t doe = static_cast<uint32_t>(z - era * 146097);                // [0, 146096]
-    const uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
-    const int32_t y    = static_cast<uint32_t>(yoe) + era * 400;
-    const uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
-    const uint32_t mp  = (5 * doy + 2) / 153;                                    // [0, 11]
+    int32_t const era  = static_cast<int32_t>((z >= 0 ? z : z - 146096) / 146097);
+    uint32_t const doe = static_cast<uint32_t>(z - era * 146097);                // [0, 146096]
+    uint32_t const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
+    int32_t const y    = static_cast<uint32_t>(yoe) + era * 400;
+    uint32_t const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);                // [0, 365]
+    uint32_t const mp  = (5 * doy + 2) / 153;                                    // [0, 11]
     day                = doy - (153 * mp + 2) / 5 + 1;                           // [1, 31]
     month              = mp < 10 ? mp + 3 : mp - 9;                              // [1, 12]
     year               = y + (month <= 2);
@@ -135,7 +135,7 @@ struct date_time_utils {
   __device__ static bool is_valid_time(int hour, int minute, int second, int microseconds)
   {
     return (hour >= 0 && hour < 24) && (minute >= 0 && minute < 60) &&
-           (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1000000);
+           (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1'000'000);
   }
 };
 
@@ -173,62 +173,6 @@ struct date_segments {
 
   // 1-31; it is 29 for leap February, or 28 for regular February
   int32_t day;
-};
-
-/**
- * @brief Represents local date time in a timezone with microsecond accuracy.
- * Spark stores timestamp into Long in microseconds.
- * A Long is able to represent a timestamp with max 6 digits of microseconds.
- * The formula is: Long.MaxValue/microseconds_per_year + 1970.
- */
-struct ts_segments {
-  /**
-   * @brief Constructor a default timestamp segments.
-   * By default, use epoch date with mid-night time: "1970-01-01 00:00:00.000000".
-   */
-  __device__ ts_segments()
-    : year(1970), month(1), day(1), hour(0), minute(0), second(0), microseconds(0)
-  {
-  }
-
-  /**
-   * @brief Is this timestamp segments valid.
-   */
-  __device__ bool is_valid_ts() const
-  {
-    return date_time_utils::is_valid_date_for_timestamp(year, month, day) &&
-           date_time_utils::is_valid_time(hour, minute, second, microseconds);
-  }
-
-  /**
-   * @brief Get days since epoch 1970-01-01.
-   * Can handle all int years.
-   */
-  __device__ int64_t to_epoch_day() const
-  {
-    return date_time_utils::to_epoch_day(year, month, day);
-  }
-
-  // max 6 digits for Spark timestamp
-  int32_t year;
-
-  // 1-12
-  int32_t month;
-
-  // 1-31; it is 29 for leap February, or 28 for regular February
-  int32_t day;
-
-  // 0-23
-  int32_t hour;
-
-  // 0-59
-  int32_t minute;
-
-  // 0-59
-  int32_t second;
-
-  // 0-999999, only parse 6 digits, ignore/truncate the rest digits
-  int32_t microseconds;
 };
 
 struct overflow_checker {

@@ -279,7 +279,8 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
                                                                    bool is_default_timezone_dst,
                                                                    long default_epoch_day,
                                                                    jlong timezone_info_column,
-                                                                   jlong transitions_table)
+                                                                   jlong transitions_table,
+                                                                   jboolean is_spark_320)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
@@ -298,7 +299,8 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
                                                 is_default_timezone_dst,
                                                 default_epoch_day,
                                                 *tz_info_view,
-                                                *transitions));
+                                                *transitions,
+                                                is_spark_320));
   }
   CATCH_STD(env, 0);
 }
