@@ -42,7 +42,7 @@ namespace spark_rapids_jni {
 
 namespace {
 
-enum class RESULT_TYPE : uint8_t {
+enum class result_type : uint8_t {
   // Parse success
   SUCCESS = 0,
 
@@ -146,50 +146,6 @@ __device__ bool parse_int(unsigned char const* const ptr,
   return digits >= min_digits;
 }
 
-/**
- * Parse a string to an integer for microseconds, microseconds has 0-6 digits.
- * Spark store timestamp in microsecond, the nanosecond part is discard.
- * If there are 6+ digits, only use the first 6 digits, the rest digits are
- * ignored/truncated.
- * E.g.:
- *   xxx.1 => 100000
- *   xxx.12 => 120000
- *   xxx.123 => 123000
- *   xxx.1234 => 123400
- *   xxx.12345 => 123450
- *   xxx.123456 => 123456
- *   xxx.101 => 101000
- *
- * @param ptr the current pointer to the string
- * @param[out] pos the pointer to the string when parsing
- * @param end_pos the end pointer of the string
- * @param[out] v the parsed value
- */
-__device__ void parse_microseconds(unsigned char const* const ptr,
-                                   int& pos,
-                                   int const end_pos,
-                                   int& v)
-{
-  int base   = 100'000;
-  v          = 0;
-  int digits = 0;
-  while (pos < end_pos) {
-    int const parsed_value = static_cast<int32_t>(ptr[pos]) - '0';
-    if (parsed_value >= 0 && parsed_value <= 9) {
-      if (++digits <= 6) {
-        v += parsed_value * base;
-        base = base / 10;
-      } else {
-        // ignore/truncate the rest digits
-        // Allow tailing pattern like: ".12345600000 PST"
-      }
-    } else {
-      break;
-    }
-    pos++;
-  }
-}
-
 __device__ bool eof(int pos, int end_pos) { return end_pos - pos <= 0; }
 
 __device__ bool parse_char(unsigned char const* const ptr, int& pos, unsigned char const c)
@@ -239,21 +195,26 @@ __device__ int parse_digits(
 /**
  * Parse timezone from sign part to end of the string.
  * E.g.: +01:02:03, the '+' is parsed, parse the following: 01:02:03
+ * Formats:
+ * 1. with no colon: [+-]h, [+-]hh, [+-]hhmm, or [+-]hhmmss
+ * 2. with colon:
+ *   1): Spark 320: [+-]h[h]:mm, [+-]h[h]:mm:ss
+ *   2): Spark 321 and 321+: [+-]h[h]:m[m], [+-]h[h]:mm:ss
  */
-__device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
-                                        int& pos,
-                                        int const end_pos,
-                                        int const sign)
+__device__ time_zone parse_tz_from_sign(
+  unsigned char const* const ptr, int& pos, int const end_pos, int const sign, bool is_spark_320)
 {
   int hour   = 0;
   int minute = 0;
   int second = 0;
 
+  int h_digits = 0;
   int m_digits = 0;
   int s_digits = 0;
 
   // parse hour
-  if (parse_digits(ptr, pos, end_pos, hour, /*max_digits*/ 2) == 0) {
+  h_digits = parse_digits(ptr, pos, end_pos, hour, /*max_digits*/ 2);
+  if (h_digits == 0) {
     // parse hour failed, [+-] with no digits following
     return make_invalid_tz();
   } else {
@@ -261,10 +222,11 @@ __device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
     if (!eof(pos, end_pos)) {
       // has more after hour
       if (try_parse_char(ptr, pos, ':')) {
+        // without colon path, already parsed [+-]h[h]:
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
-        if (m_digits == 0) {
-          // [+-]h[h]: with no digits following
+        if (m_digits == 0 || (is_spark_320 && m_digits == 1)) {
+          // [+-]h[h]: without digits following, or Spark 320 not supports [+-]h[h]:m
           return make_invalid_tz();
         } else {
           // [+-]h[h]:m[m]
@@ -277,31 +239,37 @@ __device__ time_zone parse_tz_from_sign(unsigned char const* const ptr,
                                            second,
                                            /*max_digits*/ 2) == 2) &&
                   eof(pos, end_pos))) {
-              // [+-]h[h]:m[m]:ss
+              // not: [+-]h[h]:m[m]:ss
               return make_invalid_tz();
             }
           }
         }
       } else {
-        // [+-]h[h] with non-colon following
-        // should be [+-]h[h][mm] or [+-]h[h][mm][ss]
+        // without colon path, already parsed [+-]h[h]
+        // should be: [+-]hhmm or [+-]hhmmss
+        if (h_digits != 2) { return make_invalid_tz(); }
 
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
+
         // parse second
         s_digits = parse_digits(ptr, pos, end_pos, second, /*max_digits*/ 2);
 
-        if (!(m_digits == 2 && (s_digits == 0 || s_digits == 2) && eof(pos, end_pos))) {
-          // not: [+-]h[h][mm] or [+-]h[h][mm][ss]
+        if (!(m_digits == 2 || m_digits == 0) || !(s_digits == 2 || s_digits == 0)) {
+          // not: [+-]hhmm or [+-]hhmmss
           return make_invalid_tz();
         }
+
+        if (!eof(pos, end_pos)) { return make_invalid_tz(); }
       }
+    } else {
+      // got pattern: [+-]h or [+-]hh, it's valid.
     }
   }
 
-  if (minute > 59 || second > 59) { return make_invalid_tz(); }
+  // check hour, minute and second; max offset is 18:00:00
+  if (hour > 18 || minute > 59 || second > 59) { return make_invalid_tz(); }
   int num_seconds = hour * 3600 + minute * 60 + second;
-  // the upper bound is 18:00:00
   if (num_seconds > 18 * 3600) { return make_invalid_tz(); }
 
   if (s_digits > 0 && m_digits != 2) {
@@ -327,7 +295,10 @@ __device__ bool try_parse_sign(unsigned char const* const ptr, int& pos, int& si
  * Parse timezone starts with U
  * e.g.: UT+08:00, U is parsed, parse the following: T+08:00
  */
-__device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_UT_tz(unsigned char const* const ptr,
+                                     int& pos,
+                                     int const end_pos,
+                                     bool is_spark_320)
 {
   // pos_backup points to the char 'U'
   int pos_backup = pos - 1;
@@ -352,7 +323,7 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
       // start with UTC, should be UTC[+-]
       int sign_value;
       if (try_parse_sign(ptr, pos, sign_value)) {
-        return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+        return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
       } else {
         // e.g.: UTCx, maybe a valid timezone
         return make_other_tz(pos_backup, end_pos);
@@ -361,7 +332,7 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
       // start with UT, followed by non 'C', should be UT[+-]
       int sign_value;
       if (try_parse_sign(ptr, pos, sign_value)) {
-        return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+        return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
       } else {
         // e.g.: UTx, maybe a valid timezone
         return make_other_tz(pos_backup, end_pos);
@@ -376,7 +347,10 @@ __device__ time_zone try_parse_UT_tz(unsigned char const* const ptr, int& pos, i
 /**
  * Parse timezone starts with G, G is parsed, parse the following: MT
  */
-__device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr,
+                                      int& pos,
+                                      int const end_pos,
+                                      bool is_spark_320)
 {
   // pos_backup points to the char 'G'
   int pos_backup = pos - 1;
@@ -392,7 +366,7 @@ __device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, 
     pos += 2;
     int sign_value;
     if (try_parse_sign(ptr, pos, sign_value)) {
-      return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+      return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
     } else if (try_parse_char(ptr, pos, '0') && eof(pos, end_pos)) {
       // special case: GMT0
       return make_fixed_tz(0);
@@ -427,7 +401,10 @@ __device__ time_zone try_parse_GMT_tz(unsigned char const* const ptr, int& pos, 
  *
  * Note: max offset for fixed tz is 18 hours.
  */
-__device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int const end_pos)
+__device__ time_zone parse_tz(unsigned char const* const ptr,
+                              int& pos,
+                              int const end_pos,
+                              bool is_spark_320)
 {
   // empty string
   if (eof(pos, end_pos)) { return make_invalid_tz(); }
@@ -440,12 +417,12 @@ __device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int cons
   // check first char
   unsigned char const first_char = ptr[pos++];
   if ('U' == first_char) {
-    return try_parse_UT_tz(ptr, pos, end_pos);
+    return try_parse_UT_tz(ptr, pos, end_pos, is_spark_320);
   } else if ('G' == first_char) {
-    return try_parse_GMT_tz(ptr, pos, end_pos);
+    return try_parse_GMT_tz(ptr, pos, end_pos, is_spark_320);
   } else if ('+' == first_char || '-' == first_char) {
     int sign_value = (first_char == '+') ? 1 : -1;
-    return parse_tz_from_sign(ptr, pos, end_pos, sign_value);
+    return parse_tz_from_sign(ptr, pos, end_pos, sign_value, is_spark_320);
   } else {
     return make_other_tz(pos_backup, end_pos);
   }
@@ -455,12 +432,16 @@ __device__ time_zone parse_tz(unsigned char const* const ptr, int& pos, int cons
  * Parse from timezone part to end of the string.
  * First trim the string from left, the right has been trimmed.
  */
-__device__ time_zone parse_from_tz(unsigned char const* const ptr, int& pos, int const pos_end)
+__device__ time_zone parse_from_tz(unsigned char const* const ptr,
+                                   int& pos,
+                                   int const pos_end,
+                                   bool is_spark_320)
 {
+  // trim left
   while (pos < pos_end && is_whitespace(ptr[pos])) {
     ++pos;
   }
-  return parse_tz(ptr, pos, pos_end);
+  return parse_tz(ptr, pos, pos_end, is_spark_320);
 }
 
 /**
@@ -480,167 +461,49 @@ __device__ bool parse_date_time_separator(unsigned char const* const ptr, int& p
 }
 
 /**
- * Parse from time part to end of the string.
- */
-__device__ bool parse_from_time(
-  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
-{
-  // parse hour: [h]h
-  if (!parse_int(ptr,
-                 pos,
-                 end_pos,
-                 ts.hour,
-                 /*min_digits*/ 1,
-                 /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h, return early
-    return true;
-  }
-
-  // parse minute: :[m]m
-  if (!parse_char(ptr, pos, ':') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.minute,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h:[m]m, return early
-    return true;
-  }
-
-  // parse second: :[s]s
-  if (!parse_char(ptr, pos, ':') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.second,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // time format: [h]h:[m]m:[s]s, return early
-    return true;
-  }
-
-  // microseconds: .[ms][ms][ms][us][us][us], it's optional
-  if (try_parse_char(ptr, pos, '.')) {
-    // parse microseconds: zero or more digits
-    parse_microseconds(ptr, pos, end_pos, ts.microseconds);
-  }
-
-  if (eof(pos, end_pos)) {
-    // no timezone
-    return true;
-  }
-
-  // parse timezone
-  tz = parse_from_tz(ptr, pos, end_pos);
-
-  return tz.type != TZ_TYPE::INVALID_TZ;
-}
-
-/**
- * Parse from date part to end of the string.
- */
-__device__ bool parse_from_date(
-  unsigned char const* const ptr, int& pos, int const end_pos, ts_segments& ts, time_zone& tz)
-{
-  // parse year: yyyy[y][y]
-  if (!parse_int(ptr,
-                 pos,
-                 end_pos,
-                 ts.year,
-                 /*min_digits*/ 4,
-                 /*max_digits*/ 6)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // only has: yyyy[y][y], return early
-    return true;
-  }
-
-  // parse month: -[m]m
-  if (!parse_char(ptr, pos, '-') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.month,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // only has: yyyy[y][y]-[m]m, return early
-    return true;
-  }
-
-  // parse day: -[d]d
-  if (!parse_char(ptr, pos, '-') || !parse_int(ptr,
-                                               pos,
-                                               end_pos,
-                                               ts.day,
-                                               /*min_digits*/ 1,
-                                               /*max_digits*/ 2)) {
-    return false;
-  }
-
-  if (eof(pos, end_pos)) {
-    // no time part, return early
-    return true;
-  }
-
-  // parse date time separator, then parse from time
-  if (!parse_date_time_separator(ptr, pos) || !parse_from_time(ptr, pos, end_pos, ts, tz)) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * cuda::std::chrono::year_month_day does not check the validity of the
  * date/time. Eg.: 2020-02-30 is valid for cuda::std::chrono::year_month_day.
  */
-__device__ bool is_valid(ts_segments const& ts, time_zone const& tz)
+__device__ bool is_valid_timestamp(
+  int year, int month, int day, int hour, int minute, int second, int microseconds)
 {
-  // Spark timestamp supports 6 digits year, here roughly check the year range.
-  return ts.is_valid_ts() && is_valid_tz(tz);
+  return date_time_utils::is_valid_date_for_timestamp(year, month, day) &&
+         date_time_utils::is_valid_time(hour, minute, second, microseconds);
 }
 
 /**
- * Leverage cuda::std::chrono to convert local time to UTC timestamp(in
- * microseconds)
+ * @brief convert a timestamp to seconds and microseconds
+ *
  */
-__device__ inline RESULT_TYPE to_long_check_max(ts_segments const& ts,
-                                                int64_t& seconds,
-                                                int32_t& microseconds)
+__device__ int64_t to_epoch_seconds(int year, int month, int day, int hour, int minute, int second)
 {
   // if it's a just time timestamp string, then the `days` is 0, because
-  // default date in ts_segments is 1970-01-01
-  int64_t const days = ts.to_epoch_day();
+  // default date is 1970-01-01
+  int64_t const days = date_time_utils::to_epoch_day(year, month, day);
 
-  // seconds part
-  seconds = (days * 24L * 3600L) + (ts.hour * 3600L) + (ts.minute * 60L) + ts.second;
-
-  // microseconds part
-  microseconds = ts.microseconds;
-  return RESULT_TYPE::SUCCESS;
+  // get seconds
+  return (days * 24L * 3600L) + (hour * 3600L) + (minute * 60L) + second;
 }
+
+__device__ bool is_valid_digits(int segment, int digits)
+{
+  // A Long is able to represent a timestamp within [+-]200 thousand years
+  const int maxDigitsYear = 6;
+
+  // Check the validity of the digits based on the segment
+  return (segment == 6) || (segment == 0 && digits >= 4 && digits <= maxDigitsYear) ||
+         (segment == 7 && digits <= 2) ||
+         (segment != 0 && segment != 6 && segment != 7 && digits > 0 && digits <= 2);
+}
+
+enum segment_index { YEAR = 0, MONTH, DAY, HOUR, MINUTE, SECOND, MICROSECOND };
 
 /**
  * Parse a string with timezone
  */
-__device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
-                                              unsigned char const* const ptr_end,
+template <bool is_spark_320>
+__device__ result_type parse_timestamp_string(unsigned char const* const ptr,
+                                              unsigned char const* ptr_end,
                                               time_zone& tz,
                                               int64_t& seconds,
                                               int32_t& microseconds,
@@ -651,52 +514,190 @@ __device__ RESULT_TYPE parse_timestamp_string(unsigned char const* const ptr,
 
   // trim left
   while (pos < end_pos && is_whitespace(ptr[pos])) {
-    pos++;
+    ++pos;
   }
 
   // trim right
   while (pos < end_pos && is_whitespace(ptr[end_pos - 1])) {
-    end_pos--;
+    --end_pos;
   }
 
-  if (eof(pos, end_pos)) { return RESULT_TYPE::INVALID; }
+  if (eof(pos, end_pos)) { return result_type::INVALID; }
 
-  ts_segments ts;
-  bool negative_year_sign = false;
+  int bytes_length           = end_pos - pos;
+  int segments[]             = {1970, 1, 1, 0, 0, 0, 0, 0, 0};
+  int segments_len           = 9;
+  int i                      = 0;
+  int current_segment_value  = 0;
+  int current_segment_digits = 0;
+  int j                      = 0;
+  int digits_milli           = 0;
 
-  if (ptr[pos] == 'T' || (end_pos - pos > 1 && ptr[pos + 1] == ':') ||
-      (end_pos - pos > 2 && (ptr[pos + 1] == ':' || ptr[pos + 2] == ':'))) {
-    // first char is T, means only have time part
-    // or the second or third char is ':', e.g.: 12:00:00 or 1:00:00
-    just_time = TS_TYPE::JUST_TIME;
+  // It's safe to delete when Spark320 suport is removed.
+  // indicates if it has sign tz for spark320
+  bool has_sign_tz_for_spark320 = false;
+  // sign tz for spark320, it's 1 for '+', -1 for '-'
+  int tz_sign_for_spark320;
 
-    if (ptr[pos] == 'T') { pos++; }
-
-    // parse from time
-    if (!parse_from_time(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
-  } else {
-    just_time = TS_TYPE::NOT_JUST_TIME;
-
-    // parse sign
-    unsigned char const sign_c = ptr[pos];
-    if ('-' == sign_c || '+' == sign_c) {
-      pos++;
-      if ('-' == sign_c) { negative_year_sign = true; }
+  cuda::std::optional<int> year_sign;
+  if ('-' == ptr[pos + j] || '+' == ptr[pos + j]) {
+    if ('-' == ptr[pos + j]) {
+      year_sign = -1;
+    } else {
+      year_sign = 1;
     }
-
-    // parse from date
-    if (!parse_from_date(ptr, pos, end_pos, ts, tz)) { return RESULT_TYPE::INVALID; }
+    ++j;
   }
 
-  if (!is_valid(ts, tz)) { return RESULT_TYPE::INVALID; }
+  while (j < bytes_length) {
+    unsigned char const b  = ptr[pos + j];
+    int const parsed_value = static_cast<int32_t>(b) - '0';
+    if (parsed_value < 0 || parsed_value > 9) {
+      if (0 == j && 'T' == b) {
+        just_time = TS_TYPE::JUST_TIME;
+        i += 3;
+      } else if (i < 2) {
+        if (b == '-') {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else if (0 == i && ':' == b && !year_sign.has_value()) {
+          just_time = TS_TYPE::JUST_TIME;
+          if (!is_valid_digits(3, current_segment_digits)) { return result_type::INVALID; }
+          segments[3]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i                      = 4;
+        } else {
+          return result_type::INVALID;
+        }
+      } else if (2 == i) {
+        if (' ' == b || 'T' == b) {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return result_type::INVALID;
+        }
+      } else if (3 == i || 4 == i) {
+        if (':' == b) {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return result_type::INVALID;
+        }
+      } else if (5 == i || 6 == i) {
+        if (is_spark_320 && ('-' == b || '+' == b)) {
+          // It's safe to delete when Spark320 suport is removed.
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+          has_sign_tz_for_spark320 = true;
+          tz_sign_for_spark320     = (b == '+');
 
-  if (negative_year_sign) { ts.year = -ts.year; }
-  return to_long_check_max(ts, seconds, microseconds);
+        } else if ('.' == b && 5 == i) {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+
+          // parse timezone
+          int tz_pos = pos + j;
+          tz         = parse_from_tz(ptr, tz_pos, end_pos, is_spark_320);
+          if (tz.type == TZ_TYPE::INVALID_TZ) { return result_type::INVALID; }
+
+          j = bytes_length - 1;
+        }
+        if (i == 6 && '.' != b) { i += 1; }
+      } else {
+        if (i < segments_len && (':' == b || ' ' == b)) {
+          if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+          segments[i]            = current_segment_value;
+          current_segment_value  = 0;
+          current_segment_digits = 0;
+          i += 1;
+        } else {
+          return result_type::INVALID;
+        }
+      }
+    } else {
+      if (6 == i) { digits_milli += 1; }
+      // We will truncate the nanosecond part if there are more than 6 digits,
+      // which results in loss of precision
+      if (6 != i || current_segment_digits < 6) {
+        current_segment_value = current_segment_value * 10 + parsed_value;
+      }
+      current_segment_digits += 1;
+    }
+    j += 1;
+  }
+
+  if (!is_valid_digits(i, current_segment_digits)) { return result_type::INVALID; }
+  segments[i] = current_segment_value;
+
+  while (digits_milli < 6) {
+    segments[6] *= 10;
+    digits_milli += 1;
+  }
+
+  // It's safe to delete when Spark320 suport is removed.
+  if (has_sign_tz_for_spark320) {
+    // for spark320, the sign is not included in the tz offset
+    int hour_for_320   = segments[7];
+    int minute_for_320 = segments[8];
+    if (hour_for_320 > 18 || minute_for_320 > 59 ||
+        hour_for_320 * 3600 + minute_for_320 * 60 > 18 * 3600) {
+      // invalid timezone, e.g. +123:00; max offset is 18:00:00
+      return result_type::INVALID;
+    } else {
+      tz = make_fixed_tz(tz_sign_for_spark320 * (segments[7] * 3600 + segments[8] * 60));
+    }
+  }
+
+  segments[0] *= year_sign.value_or(1);
+  // above is ported from Spark.
+
+  if (!is_valid_timestamp(segments[segment_index::YEAR],
+                          segments[segment_index::MONTH],
+                          segments[segment_index::DAY],
+                          segments[segment_index::HOUR],
+                          segments[segment_index::MINUTE],
+                          segments[segment_index::SECOND],
+                          segments[segment_index::MICROSECOND]) ||
+      !is_valid_tz(tz)) {
+    return result_type::INVALID;
+  }
+
+  seconds      = to_epoch_seconds(segments[segment_index::YEAR],
+                             segments[segment_index::MONTH],
+                             segments[segment_index::DAY],
+                             segments[segment_index::HOUR],
+                             segments[segment_index::MINUTE],
+                             segments[segment_index::SECOND]);
+  microseconds = segments[segment_index::MICROSECOND];
+  return result_type::SUCCESS;
 }
 
 /**
  * Parse a string with timezone to a timestamp.
  */
+template <bool is_spark_320>
 struct parse_timestamp_string_fn {
   // inputs
   cudf::column_device_view d_strings;
@@ -742,8 +743,8 @@ struct parse_timestamp_string_fn {
     TS_TYPE just_time    = TS_TYPE::NOT_JUST_TIME;
 
     // parse the timestamp string
-    auto result_type =
-      parse_timestamp_string(str_ptr, str_end_ptr, tz, seconds, microseconds, just_time);
+    auto result_type = parse_timestamp_string<is_spark_320>(
+      str_ptr, str_end_ptr, tz, seconds, microseconds, just_time);
 
     // set result column
     result_types[idx]     = static_cast<uint8_t>(result_type);
@@ -754,8 +755,8 @@ struct parse_timestamp_string_fn {
     is_DSTs[idx]          = 0;
     tz_indices[idx]       = -1;
 
-    if (result_type != RESULT_TYPE::SUCCESS) {
-      // already set RESULT_TYPE::INVALID
+    if (result_type != result_type::SUCCESS) {
+      // already set result_type::INVALID
       return;
     }
 
@@ -837,12 +838,12 @@ struct parse_timestamp_string_fn {
         }
       } else {
         // not found tz, update result_type to invalid
-        result_types[idx] = static_cast<uint8_t>(RESULT_TYPE::INVALID);
+        result_types[idx] = static_cast<uint8_t>(result_type::INVALID);
         tz_indices[idx]   = -1;
         is_DSTs[idx]      = 0;
       }
     } else if (tz.type == TZ_TYPE::INVALID_TZ) {
-      cudf_assert(result_type == RESULT_TYPE::INVALID);
+      cudf_assert(result_type == result_type::INVALID);
     } else {
       // should not happen
       cudf_assert(false);
@@ -859,6 +860,7 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
                                                int64_t default_epoch_day,
                                                cudf::column_view const& tz_info,
                                                cudf::table_view const& transitions,
+                                               bool is_spark_320,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
@@ -893,24 +895,45 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   auto const ft_cdv_ptr        = cudf::column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
 
-  thrust::for_each_n(
-    rmm::exec_policy_nosync(stream),
-    thrust::make_counting_iterator(0),
-    num_rows,
-    parse_timestamp_string_fn{*d_input,
-                              default_tz_index,
-                              is_default_tz_dst,
-                              default_epoch_day,
-                              current_seconds_since_epoch,
-                              *d_tz_info,
-                              fixed_transitions,
-                              parsed_result_type_col->mutable_view().begin<uint8_t>(),
-                              parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
-                              parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
-                              parsed_tz_type_col->mutable_view().begin<uint8_t>(),
-                              parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
-                              is_DST_tz_col->mutable_view().begin<uint8_t>(),
-                              parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  if (is_spark_320) {
+    thrust::for_each_n(
+      rmm::exec_policy_nosync(stream),
+      thrust::make_counting_iterator(0),
+      num_rows,
+      parse_timestamp_string_fn<true>{*d_input,
+                                      default_tz_index,
+                                      is_default_tz_dst,
+                                      default_epoch_day,
+                                      current_seconds_since_epoch,
+                                      *d_tz_info,
+                                      fixed_transitions,
+                                      parsed_result_type_col->mutable_view().begin<uint8_t>(),
+                                      parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
+                                      parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
+                                      parsed_tz_type_col->mutable_view().begin<uint8_t>(),
+                                      parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
+                                      is_DST_tz_col->mutable_view().begin<uint8_t>(),
+                                      parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  } else {
+    thrust::for_each_n(
+      rmm::exec_policy_nosync(stream),
+      thrust::make_counting_iterator(0),
+      num_rows,
+      parse_timestamp_string_fn<false>{*d_input,
+                                       default_tz_index,
+                                       is_default_tz_dst,
+                                       default_epoch_day,
+                                       current_seconds_since_epoch,
+                                       *d_tz_info,
+                                       fixed_transitions,
+                                       parsed_result_type_col->mutable_view().begin<uint8_t>(),
+                                       parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
+                                       parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
+                                       parsed_tz_type_col->mutable_view().begin<uint8_t>(),
+                                       parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
+                                       is_DST_tz_col->mutable_view().begin<uint8_t>(),
+                                       parsed_tz_index_col->mutable_view().begin<int32_t>()});
+  }
 
   std::vector<std::unique_ptr<cudf::column>> output_columns;
   output_columns.emplace_back(std::move(parsed_result_type_col));
@@ -1090,6 +1113,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view 
                                                       int64_t default_epoch_day,
                                                       cudf::column_view const& tz_info,
                                                       cudf::table_view const& transitions,
+                                                      bool is_spark_320,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
@@ -1099,6 +1123,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view 
                           default_epoch_day,
                           tz_info,
                           transitions,
+                          is_spark_320,
                           stream,
                           mr);
 }
