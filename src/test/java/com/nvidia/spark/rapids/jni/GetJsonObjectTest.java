@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -785,6 +785,187 @@ public class GetJsonObjectTest {
         "{'data': 'TEST1'}", "{'\\u0064\\u0061t\\u0061': 'TEST2'}");
          ColumnVector expected = ColumnVector.fromStrings("TEST1", "TEST2");
          ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
+  /**
+   * Test path: '$.store.book[*].reader[*].age'
+   * When 'book' array size is one, then return one dimension array,
+   * When 'book' array size is bigger than one, then return two dimensions array.
+   *
+   */
+  @Test
+  void getJsonObjectTest_TwoWildcards() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("store"),
+        namedPath("book"),
+        wildcardPath(),
+        namedPath("reader"),
+        wildcardPath(),
+        namedPath("age")
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json: two book entries and four readers
+        "    {                              " +
+            "  'store': {                   " +
+            "    'book': [{                 " +
+            "      'author': 'jack',        " +
+            "      'title': 'war',          " +
+            "      'category': 'fiction',   " +
+            "      'reader': [{             " +
+            "        'age': 11,             " +
+            "        'name': 'bob'          " +
+            "      }, {                     " +
+            "        'age': 12,             " +
+            "        'name': 'jack'         " +
+            "      }]                       " +
+            "    }, {                       " +
+            "      'author': 'jack',        " +
+            "      'title': 'war',          " +
+            "      'category': 'fiction',   " +
+            "      'reader': [{             " +
+            "        'age': 21,             " +
+            "        'name': 'bob'          " +
+            "      }, {                     " +
+            "        'age': 22,             " +
+            "        'name': 'jack'         " +
+            "      }]                       " +
+            "    }]                         " +
+            "  }                            " +
+            "}                              ",
+
+        // json: one book entry and two readers
+        "{                                  " +
+            "  'store': {                   " +
+            "    'book': [                  " +
+            "      {                        " +
+            "        'author': 'jack',      " +
+            "        'title': 'war',        " +
+            "        'category': 'fiction', " +
+            "        'reader': [            " +
+            "          {                    " +
+            "            'age': 11,         " +
+            "            'name': 'bob'      " +
+            "          },                   " +
+            "          {                    " +
+            "            'age': 12,         " +
+            "            'name': 'jack'     " +
+            "          }                    " +
+            "        ]                      " +
+            "      }                        " +
+            "    ]                          " +
+            "  }                            " +
+            "}                              ");
+        ColumnVector expected = ColumnVector.fromStrings(
+            "[[11,12],[21,22]]",
+            "[11,12]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
+  /**
+   * Test select wildcard from array.
+   * E.g.: path: '$.a[*]'
+   */
+  @Test
+  void getJsonObjectTest_TestSelectWildcardFromArray() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("a"),
+        wildcardPath()
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json row 0
+        "             {                                 " +
+            "           'a' : [1]                       " +
+            "         }                                 ",
+
+        // json row 1
+        "             {                                 " +
+            "           'a' : [[1]]                     " +
+            "         }                                 ",
+
+        // json row 2
+        "             {                                 " +
+            "           'a' : [1,2,3]                   " +
+            "         }                                 ",
+
+        // json row 3
+        "             {                                 " +
+            "           'a' : [[1,2,3]]                 " +
+            "         }                                 ");
+        ColumnVector expected = ColumnVector.fromStrings(
+            "1",
+            "[1]",
+            "[1,2,3]",
+            "[1,2,3]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
+  /**
+   * Test consecutive two select wildcard from array.
+   * E.g.: Path is '$.a[*].b[*]'
+   */
+  @Test
+  void getJsonObjectTest_TestConsecutiveTwoSelectWildcardFromArray() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("a"),
+        wildcardPath(),
+        namedPath("b"),
+        wildcardPath()
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        // json row 0
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11, 12]              " +
+            "             },                            " +
+            "             {                             " +
+            "               'b' : [21, 22]              " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 1
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11]                  " +
+            "             },                            " +
+            "             {                             " +
+            "               'b' : [21]                  " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 2
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11, 12]              " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ",
+
+        // json row 3
+        "             {                                 " +
+            "           'a' : [                         " +
+            "             {                             " +
+            "               'b' : [11]                  " +
+            "             }                             " +
+            "           ]                               " +
+            "         }                                 ");
+
+        ColumnVector expected = ColumnVector.fromStrings(
+            "[[11,12],[21,22]]",
+            "[[11],[21]]",
+            "[11,12]",
+            "[11]");
+        ColumnVector output = JSONUtils.getJsonObject(input, query)) {
       assertColumnsAreEqual(expected, output);
     }
   }
