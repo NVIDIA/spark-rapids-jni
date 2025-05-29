@@ -267,9 +267,9 @@ __device__ time_zone parse_tz_from_sign(
     }
   }
 
-  if (minute > 59 || second > 59) { return make_invalid_tz(); }
+  // check hour, minute and second; max offset is 18:00:00
+  if (hour > 18 || minute > 59 || second > 59) { return make_invalid_tz(); }
   int num_seconds = hour * 3600 + minute * 60 + second;
-  // the upper bound is 18:00:00
   if (num_seconds > 18 * 3600) { return make_invalid_tz(); }
 
   if (s_digits > 0 && m_digits != 2) {
@@ -659,7 +659,15 @@ __device__ result_type parse_timestamp_string(unsigned char const* const ptr,
   // It's safe to delete when Spark320 suport is removed.
   if (has_sign_tz_for_spark320) {
     // for spark320, the sign is not included in the tz offset
-    tz = make_fixed_tz(tz_sign_for_spark320 * (segments[7] * 3600 + segments[8] * 60));
+    int hour_for_320   = segments[7];
+    int minute_for_320 = segments[8];
+    if (hour_for_320 > 18 || minute_for_320 > 59 ||
+        hour_for_320 * 3600 + minute_for_320 * 60 > 18 * 3600) {
+      // invalid timezone, e.g. +123:00; max offset is 18:00:00
+      return result_type::INVALID;
+    } else {
+      tz = make_fixed_tz(tz_sign_for_spark320 * (segments[7] * 3600 + segments[8] * 60));
+    }
   }
 
   segments[0] *= year_sign.value_or(1);
