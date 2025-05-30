@@ -22,7 +22,7 @@ public class Version {
   private final int minor;
   private final int patch;
 
-  Version(Platform platform, int major, int minor, int patch) {
+  public Version(Platform platform, int major, int minor, int patch) {
     this.platformOrdinal = platform.ordinal();
     this.major = major;
     this.minor = minor;
