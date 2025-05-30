@@ -272,15 +272,19 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
-                                                                   jclass,
-                                                                   jlong input_column,
-                                                                   int default_timezone_index,
-                                                                   bool is_default_timezone_dst,
-                                                                   long default_epoch_day,
-                                                                   jlong timezone_info_column,
-                                                                   jlong transitions_table,
-                                                                   jboolean is_spark_320)
+Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate(
+  JNIEnv* env,
+  jclass,
+  jlong input_column,
+  int default_timezone_index,
+  bool is_default_timezone_dst,
+  long default_epoch_day,
+  jlong timezone_info_column,
+  jlong transitions_table,
+  int platform,
+  int majorVersion,
+  int minorVersion,
+  int fixVersion)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
@@ -300,7 +304,10 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStrings(JNIEnv* env,
                                                 default_epoch_day,
                                                 *tz_info_view,
                                                 *transitions,
-                                                is_spark_320));
+                                                platform,
+                                                majorVersion,
+                                                minorVersion,
+                                                fixVersion));
   }
   CATCH_STD(env, 0);
 }

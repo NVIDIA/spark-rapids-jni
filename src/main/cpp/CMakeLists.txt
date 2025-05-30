@@ -239,6 +239,7 @@ add_library(
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
+  src/version.cpp
   src/xxhash64.cu
   src/zorder.cu
 )
