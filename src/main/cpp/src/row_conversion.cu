@@ -42,6 +42,7 @@
 #include <cooperative_groups.h>
 #include <cuda/barrier>
 #include <cuda/functional>
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -78,8 +79,8 @@ constexpr auto MAX_STRING_BLOCKS                   = MAX_BATCH_SIZE;
 #pragma nv_diag_suppress static_var_with_dynamic_init
 
 using namespace cudf;
+using detail::make_device_uvector;
 using detail::make_device_uvector_async;
-using detail::make_device_uvector_sync;
 using rmm::device_uvector;
 
 namespace spark_rapids_jni {
@@ -221,9 +222,8 @@ build_string_row_offsets(table_view const& tbl,
                     itr + tbl.num_columns(),
                     stencil,
                     std::back_inserter(offsets_iterators),
-                    thrust::identity<bool>{});
-    return make_device_uvector_sync(
-      offsets_iterators, stream, rmm::mr::get_current_device_resource());
+                    cuda::std::identity{});
+    return make_device_uvector(offsets_iterators, stream, rmm::mr::get_current_device_resource());
   }();
 
   auto const num_columns = static_cast<size_type>(d_offsets_iterators.size());

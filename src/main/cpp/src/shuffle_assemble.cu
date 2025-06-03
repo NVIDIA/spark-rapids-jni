@@ -1264,9 +1264,6 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
 
   __shared__ bitmask_type prev_word[block_size];
 
-  // note that in several cases here, we are reading past the end of the actual input buffer. but
-  // this is safe because we are always guaranteed final padding of partitions out to 8 bytes.
-
   // how many leading bytes we have. that is, how many bytes will be read by the initial read, which
   // accounts for misaligned source buffers.
   int const leading_bytes = (4 - (reinterpret_cast<uint64_t>(batch.src) % 4));
@@ -1279,16 +1276,35 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   int rows_in_batch =
     min(remaining_rows,
         leading_bytes != 4 ? (leading_bytes * 8) - batch.src_bit_shift : 32 - batch.src_bit_shift);
-  remaining_rows -= rows_in_batch;
+
+  // safely load a word, handling alignment and allocation boundaries
+  auto load_word = cuda::proclaim_return_type<bitmask_type>(
+    [] __device__(void const* const _src, int num_bits, int leading_bytes) {
+      uint8_t const* const src_b = reinterpret_cast<uint8_t const*>(_src);
+      if (num_bits > 24) {
+        // if we are aligned we can do a single read. this should be the most common case. only
+        // at the ends of the range of bits to copy will we hit the non-aligned cases.
+        return leading_bytes == 4
+                 ? (reinterpret_cast<bitmask_type const*>(_src))[0]
+                 : static_cast<bitmask_type>(src_b[0]) | static_cast<bitmask_type>(src_b[1] << 8) |
+                     static_cast<bitmask_type>(src_b[2] << 16) |
+                     static_cast<bitmask_type>(src_b[3] << 24);
+      } else if (num_bits > 16) {
+        return static_cast<bitmask_type>(src_b[0]) | static_cast<bitmask_type>(src_b[1] << 8) |
+               static_cast<bitmask_type>(src_b[2] << 16);
+      } else if (num_bits > 8) {
+        return static_cast<bitmask_type>(src_b[0]) | static_cast<bitmask_type>(src_b[1] << 8);
+      }
+      return static_cast<bitmask_type>(src_b[0]);
+    });
 
   size_type valid_count = 0;
-
   // thread 0 does all the work for the leading (unaligned) bytes in the source
   if (threadIdx.x == 0) {
-    bitmask_type word =
-      leading_bytes != 4
-        ? (batch.src[0] | (batch.src[1] << 8) | (batch.src[2] << 16) | (batch.src[3] << 24))
-        : (reinterpret_cast<bitmask_type const*>(batch.src))[0];
+    // note that the first row doesn't necessarily start at the byte boundary, so we need to add
+    // the src_bit_shift to get the true number of bits to read.
+    size_type const bits_to_load         = remaining_rows + batch.src_bit_shift;
+    bitmask_type word                    = load_word(batch.src, bits_to_load, leading_bytes);
     bitmask_type const relevant_row_mask = ((1 << rows_in_batch) - 1);
 
     // shift and mask the incoming word so that bit 0 is the first row we're going to store.
@@ -1303,8 +1319,18 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     valid_count += __popc(word);
     atomicOr(reinterpret_cast<bitmask_type*>(batch.dst), word);
   }
+  remaining_rows -= rows_in_batch;
   if (remaining_rows == 0) {
-    if (threadIdx.x == 0) { atomicAdd(batch.valid_count, valid_count); }
+    if (threadIdx.x == 0) {
+      // any overflow bits from the first word. the example case here is
+      // 12 bits of data.  dst_bit_shift is 22, so we end up with 2 extra bits
+      // (12 + 22 = 34) overflowing from the first batch.
+      if (prev_word[0] != 0) {
+        atomicOr(reinterpret_cast<bitmask_type*>(batch.dst) + 1, prev_word[0]);
+        valid_count += __popc(prev_word[0]);
+      }
+      atomicAdd(batch.valid_count, valid_count);
+    }
     return;
   }
 
@@ -1352,7 +1378,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // load current word, strip down to exactly the number of rows this thread is dealing with
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
-      cur                                  = (src[src_word_index] & relevant_row_mask);
+      cur = (load_word(&src[src_word_index], thread_num_rows, 4) & relevant_row_mask);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The
@@ -1771,7 +1797,7 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
   // assembled rows, null counts, etc
   auto [column_info, column_instance_info, per_partition_metadata_size] =
     assemble_build_column_info(metadata, partitions, partition_offsets, stream, temp_mr);
-  auto h_column_info = cudf::detail::make_std_vector_sync(column_info, stream);
+  auto h_column_info = cudf::detail::make_std_vector(column_info, stream);
 
   // generate the (empty) output buffers based on the column info.
   // generate the copy batches to be performed to copy data to the output buffers

@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/resource_ref.hpp>
@@ -137,5 +138,60 @@ std::unique_ptr<cudf::column> long_to_binary_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
+/**
+ * @brief Parse a timestamp string column into an intermediate struct column.
+ * The output column is a struct column with 7 children:
+ * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
+ * - seconds part of parsed UTC timestamp
+ * - microseconds part of parsed UTC timestamp
+ * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
+ * - Timezone offset for fixed type, only applies to fixed type
+ * - Timezone is DST, only applies to other type
+ * - Timezone index to `GpuTimeZoneDB.transitions` table
+ *
+ * @param input The input String column contains timestamp strings
+ * @param default_tz_index The default timezone index to `GpuTimeZoneDB` transition table.
+ * @param is_default_tz_dst If true, the default timezone is DST(Daylight Saving Time) timezone.
+ * @param default_epoch_day Default epoch day to use if just time, e.g.:
+ *   "T00:00:00Z" will use the default_epoch_day, e.g.: the result will be "2025-05-05T00:00:00Z"
+ * @param tz_info Timezone info column: STRUCT<tz_name: string, index_to_transition_table: int,
+ * is_DST: int8>, Refer to `GpuTimeZoneDB` for more details.
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ * @return a struct column constains 7 columns described above.
+ */
+std::unique_ptr<cudf::column> parse_timestamp_strings(
+  cudf::strings_column_view const& input,
+  cudf::size_type default_tz_index,
+  bool is_default_tz_dst,
+  int64_t default_epoch_day,
+  cudf::column_view const& tz_info,
+  cudf::table_view const& transitions,
+  bool is_spark_320,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+/**
+ * @brief Parse date string column to date column, first trim the input strings.
+ * Refer to https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
+ * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L298
+ *
+ * Allowed formats:
+ *   `[+-]yyyy*`
+ *   `[+-]yyyy*-[m]m`
+ *   `[+-]yyyy*-[m]m-[d]d`
+ *   `[+-]yyyy*-[m]m-[d]d `
+ *   `[+-]yyyy*-[m]m-[d]d *`
+ *   `[+-]yyyy*-[m]m-[d]dT*`
+ *
+ * @param input The input String column contains date strings
+ * @param stream Stream on which to operate.
+ * @param mr Memory resource for returned column
+ */
+std::unique_ptr<cudf::column> parse_strings_to_date(
+  cudf::strings_column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
