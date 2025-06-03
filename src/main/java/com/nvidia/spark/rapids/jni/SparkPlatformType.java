@@ -14,21 +14,20 @@
  * limitations under the License.
  */
 
-#include "version.hpp"
+package com.nvidia.spark.rapids.jni;
 
-#include <stdexcept>
+/**
+ * Enum representing the platform.
+ * NOTE: MUST keep sync with version.hpp
+ * The ordinal values are used to represent the platform in JNI calls.
+ */
+public enum SparkPlatformType {
+  // ordinal 0 is vanilla Spark, JNI and kernel use 0 representing Spark
+  VANILLA_SPARK,
 
-namespace spark_rapids_jni {
+  // ordinal 1 is Databricks, JNI and kernel use 1 representing Databricks
+  DATABRICKS,
 
-platform_type get_platform_type(int platform_ordinal)
-{
-  switch (platform_ordinal) {
-    case PLATFORM_SPARK: return platform_type::SPARK;
-    case PLATFORM_DATABRICKS: return platform_type::DATABRICKS;
-    case PLATFORM_CLOUDERA: return platform_type::CLOUDERA;
-    default:
-      throw std::invalid_argument("Invalid platform ordinal: " + std::to_string(platform_ordinal));
-  }
+  // ordinal 2 is Cloudera, JNI and kernel use 2 representing Cloudera
+  CLOUDERA;
 }
-
-}  // namespace spark_rapids_jni

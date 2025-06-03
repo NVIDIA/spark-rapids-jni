@@ -18,16 +18,51 @@
 
 namespace spark_rapids_jni {
 
-// NOTE: MUST keep sync with Platform.java
-constexpr int PLATFORM_SPARK      = 0;
-constexpr int PLATFORM_DATABRICKS = 1;
-constexpr int PLATFORM_CLOUDERA   = 2;
-
-enum class platform_type { SPARK, DATABRICKS, CLOUDERA };
-
 /**
- * @brief Get the platform type based on the integer value from JNI.
+ * @brief Enum class representing different Spark platform types.
+ * The values must match the ordinal values defined in SparkPlatformType.java.
+ * - VANILLA_SPARK: Represents the standard Apache Spark platform.
+ * - DATABRICKS: Represents the Databricks platform.
+ * - CLOUDERA: Represents the Cloudera platform.
+ * - NUM_PLATFORMS: Represents the total number of platforms defined.
  */
-platform_type get_platform_type(int platform_ordinal);
+enum class spark_platform_type { VANILLA_SPARK = 0, DATABRICKS, CLOUDERA, NUM_PLATFORMS };
+
+class spark_system {
+ public:
+  /**
+   * @brief Constructor to initialize the spark system with platform type and version.
+   * NOTE: The `spark_platform_ordinal` MUST keep sync with SparkPlatformType.java
+   * @param spark_platform The platform ordinal value.
+   * @param major Major version number.
+   * @param minor Minor version number.
+   * @param patch Patch version number.
+   */
+  spark_system(int spark_platform_ordinal, int major_, int minor_, int patch_)
+    : platform(spark_platform_ordinal), major(major_), minor(minor_), patch(patch_)
+  {
+  }
+
+  bool isVanillaSpark() const { return spark_platform() == spark_platform_type::VANILLA_SPARK; }
+  bool isDatabricks() const { return spark_platform() == spark_platform_type::DATABRICKS; }
+
+  bool isVanilla_320() const { return isVanillaSpark() && major == 3 && minor == 2 && patch == 0; }
+
+  bool isVanilla_400_or_later() const
+  {
+    return isVanillaSpark() &&
+           (major > 4 || (major == 4 && minor >= 0) || (major == 4 && minor == 0 && patch >= 0));
+  }
+
+  bool isDatabricks_14_3_or_later() const
+  {
+    return (isDatabricks() && (major > 14 || (major == 14 && minor >= 3)));
+  }
+
+ private:
+  spark_platform_type spark_platform() const { return static_cast<spark_platform_type>(platform); }
+
+  int platform, major, minor, patch;
+};
 
 }  // namespace spark_rapids_jni

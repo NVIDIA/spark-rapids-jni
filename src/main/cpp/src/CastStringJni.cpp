@@ -284,7 +284,7 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
   int platform,
   int majorVersion,
   int minorVersion,
-  int fixVersion)
+  int patchVersion)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
@@ -297,6 +297,8 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
     auto const* tz_info_view = reinterpret_cast<cudf::column_view const*>(timezone_info_column);
     auto const* transitions  = reinterpret_cast<cudf::table_view const*>(transitions_table);
+    auto const spark_system =
+      spark_rapids_jni::spark_system(platform, majorVersion, minorVersion, patchVersion);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::parse_timestamp_strings(input_view,
                                                 default_timezone_index,
@@ -304,10 +306,7 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
                                                 default_epoch_day,
                                                 *tz_info_view,
                                                 *transitions,
-                                                platform,
-                                                majorVersion,
-                                                minorVersion,
-                                                fixVersion));
+                                                spark_system));
   }
   CATCH_STD(env, 0);
 }

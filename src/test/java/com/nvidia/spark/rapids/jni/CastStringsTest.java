@@ -1319,7 +1319,7 @@ public class CastStringsTest {
       }
     }
     // test spark 400+
-    Version v400 = new Version(Platform.SPARK, 4, 0, 0);
+    Version v400 = new Version(SparkPlatformType.VANILLA_SPARK, 4, 0, 0);
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         // test spark 320
         ColumnVector actual = CastStrings.toTimestamp(
@@ -1330,7 +1330,7 @@ public class CastStringsTest {
     }
 
     // test spark DB 14.3+
-    Version vDB14_3 = new Version(Platform.DATABRICKS, 14, 3, 0);
+    Version vDB14_3 = new Version(SparkPlatformType.DATABRICKS, 14, 3, 0);
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         // test spark 320
         ColumnVector actual = CastStrings.toTimestamp(

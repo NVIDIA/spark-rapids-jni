@@ -1106,26 +1106,20 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
 
 }  // anonymous namespace
 
-std::unique_ptr<cudf::column> parse_timestamp_strings(cudf::strings_column_view const& input,
-                                                      cudf::size_type default_tz_index,
-                                                      bool is_default_tz_dst,
-                                                      int64_t default_epoch_day,
-                                                      cudf::column_view const& tz_info,
-                                                      cudf::table_view const& transitions,
-                                                      int platform_ordinal,
-                                                      int major_version,
-                                                      int minor_version,
-                                                      int fix_version,
-                                                      rmm::cuda_stream_view stream,
-                                                      rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> parse_timestamp_strings(
+  cudf::strings_column_view const& input,
+  cudf::size_type default_tz_index,
+  bool is_default_tz_dst,
+  int64_t default_epoch_day,
+  cudf::column_view const& tz_info,
+  cudf::table_view const& transitions,
+  spark_rapids_jni::spark_system const& spark_system,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
-  platform_type const platform = spark_rapids_jni::get_platform_type(platform_ordinal);
-  int v                        = major_version * 100 + minor_version * 10 + fix_version;
-  bool is_spark_320            = (platform == platform_type::SPARK && v == 320);
-  bool is_spark_400_or_later   = (platform == platform_type::SPARK && v >= 400);
-  int v_for_db                 = major_version * 100 + minor_version;
-  bool is_db_14_3_or_later     = (platform == platform_type::DATABRICKS && v_for_db >= 1403);
-  bool is_spark_400_or_later_or_db_14_3_or_later = is_spark_400_or_later || is_db_14_3_or_later;
+  bool is_spark_320 = spark_system.isVanilla_320();
+  bool is_spark_400_or_later_or_db_14_3_or_later =
+    spark_system.isVanilla_400_or_later() || spark_system.isDatabricks_14_3_or_later();
 
   return parse_ts_strings(input,
                           default_tz_index,

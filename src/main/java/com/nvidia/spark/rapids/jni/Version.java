@@ -22,7 +22,7 @@ public class Version {
   private final int minor;
   private final int patch;
 
-  public Version(Platform platform, int major, int minor, int patch) {
+  public Version(SparkPlatformType platform, int major, int minor, int patch) {
     this.platformOrdinal = platform.ordinal();
     this.major = major;
     this.minor = minor;
@@ -31,7 +31,7 @@ public class Version {
 
   /**
    * Note: this is used in the JNI code and kernel code, so it must match the
-   * enum Platform in com.nvidia.spark.rapids.jni.Platform.
+   * enum SparkPlatformType in com.nvidia.spark.rapids.jni.SparkPlatformType.
    */
   public int getPlatformOrdinal() {
     return platformOrdinal;

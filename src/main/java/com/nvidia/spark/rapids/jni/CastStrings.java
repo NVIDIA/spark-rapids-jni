@@ -195,7 +195,7 @@ public class CastStrings {
       boolean isSpark320) {
 
     if (isSpark320) {
-      Version sparkVersion = new Version(Platform.SPARK, 3, 2, 0);
+      Version sparkVersion = new Version(SparkPlatformType.VANILLA_SPARK, 3, 2, 0);
       return new ColumnVector(parseTimestampStringsToIntermediate(
           input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
           defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(),
@@ -204,7 +204,7 @@ public class CastStrings {
     } else {
       // This function will be deprecated in the future.
       // use a temporary spark version to avoid breaking changes.
-      Version sparkVersion = new Version(Platform.SPARK, 3, 5, 0);
+      Version sparkVersion = new Version(SparkPlatformType.VANILLA_SPARK, 3, 5, 0);
       return new ColumnVector(parseTimestampStringsToIntermediate(
           input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
           defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(),
