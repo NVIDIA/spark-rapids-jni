@@ -5,7 +5,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "54925a37f8bec3a83ea60a4a834b96c30918711f",
+      "git_tag" : "dc1db8aefcfe52c66c26c6038fef58da37a46ae9",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "version" : "3.0.0"
     },
