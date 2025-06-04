@@ -25,8 +25,9 @@ REPODIR=$(realpath "$REPODIR_REL")
 GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
 GIT_COMMON_DIR=$(realpath "$GIT_COMMON_DIR_REL")
 WORKDIR=${WORKDIR:-$REPODIR}
+TZ=${TZ:-UTC}
 
-CUDA_VERSION=${CUDA_VERSION:-11.8.0}
+CUDA_VERSION=${CUDA_VERSION:-12.8.0}
 DOCKER_CMD=${DOCKER_CMD:-docker}
 DOCKER_BUILD_EXTRA_ARGS=${DOCKER_BUILD_EXTRA_ARGS:-""}
 if [ "$(uname -m)" == "aarch64" ]; then
@@ -101,6 +102,7 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e CUDA_VISIBLE_DEVICES \
   -e PARALLEL_LEVEL \
   -e VERBOSE \
+  -e TZ=${TZ} \
   $DOCKER_OPTS \
   $SPARK_IMAGE_NAME \
   bash -c "$RUN_CMD"

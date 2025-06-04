@@ -181,16 +181,20 @@ public class CastStrings {
    * @param timeZoneInfo Timezone info column:
    *   STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
    *   Refer to `GpuTimeZoneDB` for more details.
+   * @param transitions Timezone transition table.
+   * @param isSpark320 is Spark 3.2.0 version
    * @return a struct column constains 7 columns described above.
    */
   static ColumnVector parseTimestampStrings(
       ColumnView input, int defaultTimeZoneIndex,
       boolean isDefaultTimeZoneDST, long defaultEpochDay,
-      ColumnView timeZoneInfo) {
+      ColumnView timeZoneInfo,
+      Table transitions,
+      boolean isSpark320) {
 
     return new ColumnVector(parseTimestampStrings(
         input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
-        defaultEpochDay, timeZoneInfo.getNativeView()));
+        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(), isSpark320));
   }
 
   private static ColumnVector convertToTimestamp(
@@ -267,7 +271,8 @@ public class CastStrings {
   public static ColumnVector toTimestamp(
       ColumnView input,
       String defaultTimeZone,
-      boolean ansi_enabled) {
+      boolean ansi_enabled,
+      boolean isSpark320) {
 
     // 1. check default timezone is valid
     Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
@@ -281,8 +286,10 @@ public class CastStrings {
 
     // 2. parse to intermediate result
     try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
+         Table transitions = GpuTimeZoneDB.getTransitions();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo);
+            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo, 
+            transitions, isSpark320);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
@@ -306,6 +313,36 @@ public class CastStrings {
     }
   }
 
+  /**
+   * Parse date string column to date column, first trim the input strings.
+   * Refer to https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
+   * org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L298
+   *
+   * Allowed formats:
+   *   `[+-]yyyy*`
+   *   `[+-]yyyy*-[m]m`
+   *   `[+-]yyyy*-[m]m-[d]d`
+   *   `[+-]yyyy*-[m]m-[d]d `
+   *   `[+-]yyyy*-[m]m-[d]d *`
+   *   `[+-]yyyy*-[m]m-[d]dT*`
+   *
+   * @param input        the input date strings
+   * @param ansi_enabled is Ansi mode enabled
+   * @return date column, or null if it's ansi mode and has invalid input values.
+   */
+  public static ColumnVector toDate(ColumnView input, boolean ansiEnabled) {
+    try (ColumnVector result = new ColumnVector(parseDateStringsToDate(input.getNativeView()))) {
+      if (ansiEnabled && result.getNullCount() > input.getNullCount()) {
+        // has new nulls, means has any invalid data,
+        // e.g.: format is invalid, year is out of range.
+        // protocol: if ansi mode and has any invalid data, return null
+        return null;
+      } else {
+        return result.incRefCount();
+      }
+    }
+  }
+
   private static native long toInteger(long nativeColumnView, boolean ansi_enabled, boolean strip,
       int dtype);
   private static native long toDecimal(long nativeColumnView, boolean ansi_enabled, boolean strip,
@@ -321,6 +358,8 @@ public class CastStrings {
 
   private static native long parseTimestampStrings(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
-      long defaultEpochDay, long timeZoneInfo);
+      long defaultEpochDay, long timeZoneInfo, long transitions, boolean isSpark320);
+
+  private static native long parseDateStringsToDate(long input);
 
 }
