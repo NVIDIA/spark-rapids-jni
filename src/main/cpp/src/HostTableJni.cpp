@@ -26,8 +26,8 @@
 #include <cuda_runtime_api.h>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <vector>
