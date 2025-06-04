@@ -25,7 +25,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -36,7 +35,6 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
 import ai.rapids.cudf.Table;
-import net.bytebuddy.asm.Advice.Local;
 
 public class CastStringsTest {
   @Test
@@ -460,12 +458,12 @@ public class CastStringsTest {
 
     // valid time
     list.add(Arrays.asList("T00", 0, 0L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList(" T1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T1:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T01:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList(" T01:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList(" T1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
     list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 0, 1));
 
@@ -1290,6 +1288,53 @@ public class CastStringsTest {
         // test spark 320
         ColumnVector actual = CastStrings.toTimestamp(
             inputCv, "Z", /* ansi */ false, /* is spark 320 */ true);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            expectedTS.toArray(new Long[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  /**
+   * Spark400+ and DB14.3+: do not support pattern: spaces + Thh:mm:ss
+   * Refer to https://github.com/NVIDIA/spark-rapids-jni/issues/3401
+   */
+  @Test
+  void castStringToTimestampOnGpuForSpark400PlusDB14_3Plus() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    List<List<Object>> list = new ArrayList<>();
+    List<String> input = new ArrayList<>(list.size());
+    List<Long> expectedTS = new ArrayList<>(list.size());
+
+    // invalid value
+    list.add(Arrays.asList("    T00:00:00", 0, false));
+
+    for (List<Object> row : list) {
+      input.add(row.get(0).toString());
+      if ((Boolean) row.get(2)) {
+        expectedTS.add(Long.parseLong(row.get(1).toString()));
+      } else {
+        expectedTS.add(null);
+      }
+    }
+    // test spark 400+
+    Version v400 = new Version(SparkPlatformType.VANILLA_SPARK, 4, 0, 0);
+    try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
+        // test spark 320
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, v400);
+        ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
+            expectedTS.toArray(new Long[0]))) {
+      AssertUtils.assertColumnsAreEqual(expected, actual);
+    }
+
+    // test spark DB 14.3+
+    Version vDB14_3 = new Version(SparkPlatformType.DATABRICKS, 14, 3, 0);
+    try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
+        // test spark 320
+        ColumnVector actual = CastStrings.toTimestamp(
+            inputCv, "Z", /* ansi */ false, vDB14_3);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
