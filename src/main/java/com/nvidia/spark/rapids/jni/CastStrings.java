@@ -160,7 +160,7 @@ public class CastStrings {
   }
 
   /**
-   * This function will be deprecated in the future.
+   * @Deprecated
    *
    * Trims and parses strings to intermediate result.
    * This is the first phase of casting string with timezone to timestamp.

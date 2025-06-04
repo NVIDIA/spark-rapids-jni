@@ -32,37 +32,43 @@ class spark_system {
  public:
   /**
    * @brief Constructor to initialize the spark system with platform type and version.
-   * NOTE: The `spark_platform_ordinal` MUST keep sync with SparkPlatformType.java
-   * @param spark_platform The platform ordinal value.
+   * NOTE: The `platform_ordinal` MUST keep sync with SparkPlatformType.java
+   * @param platform_ordinal The platform ordinal value.
    * @param major Major version number.
    * @param minor Minor version number.
    * @param patch Patch version number.
    */
-  spark_system(int spark_platform_ordinal, int major_, int minor_, int patch_)
-    : platform(spark_platform_ordinal), major(major_), minor(minor_), patch(patch_)
+  spark_system(int platform_ordinal, int major_, int minor_, int patch_)
+    : platform_type{static_cast<spark_platform_type>(platform_ordinal)},
+      major{major_},
+      minor{minor_},
+      patch{patch_}
   {
   }
 
-  bool isVanillaSpark() const { return spark_platform() == spark_platform_type::VANILLA_SPARK; }
-  bool isDatabricks() const { return spark_platform() == spark_platform_type::DATABRICKS; }
+  bool is_vanilla_spark() const { return platform_type == spark_platform_type::VANILLA_SPARK; }
+  bool is_databricks() const { return platform_type == spark_platform_type::DATABRICKS; }
 
-  bool isVanilla_320() const { return isVanillaSpark() && major == 3 && minor == 2 && patch == 0; }
-
-  bool isVanilla_400_or_later() const
+  bool is_version_eq(int major_, int minor_, int patch_) const
   {
-    return isVanillaSpark() &&
-           (major > 4 || (major == 4 && minor >= 0) || (major == 4 && minor == 0 && patch >= 0));
+    return major == major_ && minor == minor_ && patch == patch_;
   }
 
-  bool isDatabricks_14_3_or_later() const
+  bool is_version_ge(int major_, int minor_, int patch_) const
   {
-    return (isDatabricks() && (major > 14 || (major == 14 && minor >= 3)));
+    return (major > major_) || (major == major_ && minor > minor_) ||
+           (major == major_ && minor == minor_ && patch >= patch_);
   }
+
+  bool is_vanilla_320() const { return is_vanilla_spark() && is_version_eq(3, 2, 0); }
+
+  bool is_vanilla_400_or_later() const { return is_vanilla_spark() && is_version_ge(4, 0, 0); }
+
+  bool is_databricks_14_3_or_later() const { return is_databricks() && is_version_ge(14, 3, 0); }
 
  private:
-  spark_platform_type spark_platform() const { return static_cast<spark_platform_type>(platform); }
-
-  int platform, major, minor, patch;
+  spark_platform_type platform_type;
+  int major, minor, patch;
 };
 
 }  // namespace spark_rapids_jni

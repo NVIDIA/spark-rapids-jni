@@ -1117,9 +1117,9 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
-  bool is_spark_320 = spark_system.isVanilla_320();
+  bool is_spark_320 = spark_system.is_vanilla_320();
   bool is_spark_400_or_later_or_db_14_3_or_later =
-    spark_system.isVanilla_400_or_later() || spark_system.isDatabricks_14_3_or_later();
+    spark_system.is_vanilla_400_or_later() || spark_system.is_databricks_14_3_or_later();
 
   return parse_ts_strings(input,
                           default_tz_index,
