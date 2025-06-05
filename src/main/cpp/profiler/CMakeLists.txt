@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -77,6 +77,11 @@ configure_file(
 
 add_executable(spark_rapids_profile_converter
   spark_rapids_profile_converter.cpp
+  initialize_nvtxw.cpp
+  nvtxw3.cpp
+  nvtxw3.h
+  NvtxwEvents.cpp
+  NvtxwEvents.h
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/profiler_schema.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/spark_rapids_jni_version.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}/profiler_generated.h"
@@ -86,6 +91,8 @@ target_include_directories(
   spark_rapids_profile_converter
   PRIVATE
   "${CUDAToolkit_INCLUDE_DIRS}"
+  "${SPARK_RAPIDS_JNI_SOURCE_DIR}"
+  "${SPARK_RAPIDS_JNI_SOURCE_DIR}/profiler"
   "${SPARK_RAPIDS_JNI_SOURCE_DIR}/src"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}"
 )
