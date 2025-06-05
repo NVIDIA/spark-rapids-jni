@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e80fa6c8c53c1d868b46571f3335c3964a63e816",
+      "git_tag" : "dc1db8aefcfe52c66c26c6038fef58da37a46ae9",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
-      "version" : "2.8.4"
+      "version" : "3.0.0"
     },
     "GTest" : 
     {
@@ -77,9 +77,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5d48fa87f222b31b43f02f8949bb13c99f677f46",
+      "git_tag" : "bf6174d92b047e308e75fe7e1fc27b35cad9b789",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.06"
+      "version" : "25.08"
     },
     "nanoarrow" : 
     {
@@ -111,9 +111,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "4808eeda29bb6dcfd38291d1a8ea280b48562c57",
+      "git_tag" : "69c9949150ac1c310758a304082228a36d5e4758",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
-      "version" : "3.1.0"
+      "version" : "3.2.0"
     },
     "rapids_logger" : 
     {
@@ -127,9 +127,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "013e20318592cd4f09fab43e66aa3e4932af2936",
+      "git_tag" : "ccd5c75489e1611d16fc70c100c374755ae5e656",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.06"
+      "version" : "25.08"
     },
     "spdlog" : 
     {
