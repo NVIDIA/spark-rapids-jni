@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "version.hpp"
+
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
@@ -168,7 +170,7 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
   int64_t default_epoch_day,
   cudf::column_view const& tz_info,
   cudf::table_view const& transitions,
-  bool is_spark_320,
+  spark_rapids_jni::spark_system const& spark_system,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 

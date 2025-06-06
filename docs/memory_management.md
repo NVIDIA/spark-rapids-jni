@@ -43,7 +43,7 @@ Shuffle threads have the highest priority to avoid priority inversion as the tas
 
 ### Deadlock Resolution
 
-Deadlocks occur when every active task has at least one thread blocked on memory allocation, either directly during its execution or indirectly by dependencies on shuffle blocked.
+Deadlocks occur when every active task has at least one dedicated thread blocked on memory allocation, and all of the pool threads working on that task are also blocked.
 The lowest priority thread (see the above [Thread priority](thread-priority) section for the thread priority) is selected to break the deadlock. There are two kinds of deadlocks.
 
 1) All threads are blocked, either `THREAD_BLOCKED` or `THREAD_BUFN`, and there is at least one thread in the `THREAD_BLOCKED` state.
@@ -52,3 +52,10 @@ The selected thread transitions its state to `THREAD_BUFN_THROW`. Any threads th
 After the rollback, all data of the thread will be spillable and the thread will be blocked before allocating more GPU memory until enough memory is freed up for other threads.
 2) If all threads are in the `THREAD_BUFN` state, the lowest priority thread is selected to split its data first and then retry.
 The selected thread transitions its state to `THREAD_SPLIT_THROW` and throws an exception to initiate the split-and-retry process.
+
+### Dedicated Threads vs. Pool Threads
+
+From the view of the OOM state machine, each task has one or more "dedicated threads", along with zero or more "pool threads". When checking whether a task is blocked, OOM state machine is lenient on dedicated threads (only require any one of the dedicated threads to be blocked), but stringent on pool threads (all pool threads must be blocked). Being treated leniently is not always a good thing, it increases the chance of being mistakenly identified as a block task, thus causing unnecessary deadlock resolution. So we don't want a thread to be treated as a dedicated thread unless it is really necessary. There are two ways of avoiding a thread being treated as a dedicated thread:
+
+1. Avoid calling TaskContext.setTaskContext() in the current thread, this will prevent OOM state machine connecting the current thread to the task as a dedicated thread. 
+2. If you have to set TaskContext, then it's also a good idea to proactively register thread itself as a pool thread instead of a dedicated thread. An example can be found [here](https://github.com/NVIDIA/spark-rapids/blob/c39f6a6004b0cf684ca526172e87b2bd4481eb3a/sql-plugin/src/main/scala/com/nvidia/spark/rapids/GpuOrcScan.scala#L2056) for registering threads.
