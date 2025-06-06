@@ -118,7 +118,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     }
 
     @Override
-    public void visitStruct(Schema structType) {
+    public void preVisitStruct(Schema structType) {
         long validityOffset = INVALID_OFFSET;
         long validityBufferLen = 0;
 
@@ -131,6 +131,11 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         columnOffsets[curColIdx] = new ColumnOffsetInfo(validityOffset, validityBufferLen,
             INVALID_OFFSET, 0, INVALID_OFFSET, 0);
         curColIdx++;
+    }
+
+    @Override
+    public void visitStruct(Schema structType) {
+        // Noop
     }
 
     @Override
@@ -222,11 +227,16 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         }
 
         @Override
-        public void visitStruct(Schema structType) {
+        public void preVisitStruct(Schema structType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
             rowCount[curColIdx] += sliceInfo.getRowCount();
 
             curColIdx++;
+        }
+
+        @Override
+        public void visitStruct(Schema structType) {
+            // Noop
         }
 
         @Override

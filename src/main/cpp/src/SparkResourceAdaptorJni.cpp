@@ -24,6 +24,7 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
+#include <task_priority.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -81,6 +82,8 @@ void cache_thread_reg_jni(JNIEnv* env)
 // again until we know that progress has been made. We might add an API
 // in the future to know when a retry section has passed, which would
 // probably be a preferable time to restart all BUFN threads.
+//
+// See `docs/memory_management.md` for the design of the state machine.
 enum class thread_state {
   UNKNOWN = -1,  // unknown state, this is really here for logging and anything transitioning to
                  // this state should actually be accomplished by deleting the thread from the state
@@ -149,16 +152,17 @@ static auto make_logger(std::string const& filename)
  */
 class thread_priority {
  public:
-  thread_priority(long const tsk_id, long const t_id) : task_id(tsk_id), thread_id(t_id) {}
+  thread_priority(long const tsk_id, long const t_id)
+    : task_priority(spark_rapids_jni::get_task_priority(tsk_id)), thread_id(t_id)
+  {
+  }
 
   long get_thread_id() const { return thread_id; }
 
-  long get_task_id() const { return task_id; }
-
   bool operator<(const thread_priority& other) const
   {
-    long task_priority       = this->task_priority();
-    long other_task_priority = other.task_priority();
+    long task_priority       = this->task_priority;
+    long other_task_priority = other.task_priority;
     if (task_priority < other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -169,8 +173,8 @@ class thread_priority {
 
   bool operator>(const thread_priority& other) const
   {
-    long task_priority       = this->task_priority();
-    long other_task_priority = other.task_priority();
+    long task_priority       = this->task_priority;
+    long other_task_priority = other.task_priority;
     if (task_priority > other_task_priority) {
       return true;
     } else if (task_priority == other_task_priority) {
@@ -181,15 +185,13 @@ class thread_priority {
 
   void operator=(const thread_priority& other)
   {
-    task_id   = other.task_id;
-    thread_id = other.thread_id;
+    task_priority = other.task_priority;
+    thread_id     = other.thread_id;
   }
 
  private:
-  long task_id;
+  long task_priority;
   long thread_id;
-
-  long task_priority() const { return std::numeric_limits<long>::max() - (task_id + 1); }
 };
 
 /**
@@ -205,8 +207,19 @@ struct task_metrics {
   long time_blocked_nanos         = 0;
   // The amount of time that this thread has lost due to retries (not including blocked time)
   long time_lost_nanos = 0;
+  // The amount of time total that this task has been blocked or lost to retry.
+  // This is effectively time_lost_nanos + time_blocked_nanos, but I don't
+  // want this value to be reset when it is read.
+  long time_lost_or_blocked = 0;
 
   long gpu_max_memory_allocated = 0;
+
+  // This is the amount of "active" memory per task. It effectively means that
+  // it ignored freeing data when it is spilled and allocating data when that
+  // spilled data is read back in. The goal is to get a measurement of
+  // how much memory a task used to complete it's processing.
+  long gpu_memory_active_footprint = 0;
+  long gpu_memory_max_footprint    = 0;
 
   void take_from(task_metrics& other)
   {
@@ -220,8 +233,16 @@ struct task_metrics {
     this->num_times_split_retry_throw += other.num_times_split_retry_throw;
     this->time_blocked_nanos += other.time_blocked_nanos;
     this->time_lost_nanos += other.time_lost_nanos;
+    this->time_lost_or_blocked += other.time_lost_or_blocked;
     this->gpu_max_memory_allocated =
       std::max(this->gpu_max_memory_allocated, other.gpu_max_memory_allocated);
+    // each task_metric represents a separate thread that contributed to a task
+    // We don't know if those threads were run at the same time or not so
+    // to be conservative in the measurement we are adding them. If we assumed
+    // that they never used memory at the same time, then we could take the max
+    // of both of them.
+    this->gpu_memory_max_footprint += other.gpu_memory_max_footprint;
+    this->gpu_memory_active_footprint += other.gpu_memory_active_footprint;
   }
 
   void clear()
@@ -230,6 +251,10 @@ struct task_metrics {
     num_times_split_retry_throw = 0;
     time_blocked_nanos          = 0;
     time_lost_nanos             = 0;
+    time_lost_or_blocked        = 0;
+    gpu_max_memory_allocated    = 0;
+    gpu_memory_max_footprint    = 0;
+    gpu_memory_active_footprint = 0;
   }
 };
 
@@ -312,6 +337,8 @@ class full_thread_state {
   long time_retry_running_nanos = 0;
   std::chrono::time_point<std::chrono::steady_clock> block_start;
 
+  // Is the alloc/free due to a spill/unspill or not...
+  bool is_in_spilling = false;
   // metrics for the current thread
   task_metrics metrics;
 
@@ -338,12 +365,24 @@ class full_thread_state {
     record_and_reset_pending_retry_time();
   }
 
+  long currently_blocked_for()
+  {
+    if (state == thread_state::THREAD_BLOCKED || state == thread_state::THREAD_BUFN) {
+      auto const end  = std::chrono::steady_clock::now();
+      auto const diff = end - block_start;
+      return std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
+    } else {
+      return 0;
+    }
+  }
+
   void after_block()
   {
-    auto const end  = std::chrono::steady_clock::now();
-    auto const diff = end - block_start;
-    metrics.time_blocked_nanos +=
-      std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
+    auto const end    = std::chrono::steady_clock::now();
+    auto const diff   = end - block_start;
+    auto const amount = std::chrono::duration_cast<std::chrono::nanoseconds>(diff).count();
+    metrics.time_blocked_nanos += amount;
+    metrics.time_lost_or_blocked += amount;
     if (is_in_retry) { retry_start_or_block_end = end; }
   }
 
@@ -352,6 +391,7 @@ class full_thread_state {
     if (is_in_retry) {
       record_and_reset_pending_retry_time();
       metrics.time_lost_nanos += time_retry_running_nanos;
+      metrics.time_lost_or_blocked += time_retry_running_nanos;
       time_retry_running_nanos = 0;
     }
   }
@@ -391,6 +431,17 @@ class full_thread_state {
     } else {
       return thread_priority(task_id, thread_id);
     }
+  }
+
+  // To string for logging.
+  std::string to_string() const
+  {
+    std::stringstream ss;
+    ss << "thread_id: " << thread_id << ", task_id: " << task_id << ", state: " << as_str(state)
+       << ", is_for_shuffle: " << is_for_shuffle << ", pool_blocked: " << pool_blocked
+       << ", is_cpu_alloc: " << is_cpu_alloc
+       << ", is_retry_alloc_before_bufn: " << is_retry_alloc_before_bufn;
+    return ss.str();
   }
 };
 
@@ -793,6 +844,24 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return ret;
   }
 
+  template <class T>
+  T get_metric(long const task_id, T task_metrics::*MetricPtr)
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    T ret              = 0;
+    auto const task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto const thread_id : task_at->second) {
+        auto const threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) { ret += (threads_at->second.metrics.*MetricPtr); }
+      }
+    }
+
+    auto const metrics_at = task_to_metrics.find(task_id);
+    if (metrics_at != task_to_metrics.end()) { ret += (metrics_at->second.*MetricPtr); }
+    return ret;
+  }
+
   /**
    * get the number of times a retry was thrown and reset the value to 0.
    */
@@ -828,6 +897,33 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   long get_and_reset_gpu_max_memory_allocated(long const task_id)
   {
     return get_and_reset_metric(task_id, &task_metrics::gpu_max_memory_allocated);
+  }
+
+  long get_max_gpu_task_memory(long const task_id)
+  {
+    return get_metric(task_id, &task_metrics::gpu_memory_max_footprint);
+  }
+
+  long get_total_blocked_or_lost(long const task_id)
+  {
+    // This is a little more complex than a regular get_metric, because we want
+    // to be up to date at the time this is called, even if the task is blocked.
+    std::unique_lock<std::mutex> lock(state_mutex);
+    long ret           = 0;
+    auto const task_at = task_to_threads.find(task_id);
+    if (task_at != task_to_threads.end()) {
+      for (auto const thread_id : task_at->second) {
+        auto const threads_at = threads.find(thread_id);
+        if (threads_at != threads.end()) {
+          ret += threads_at->second.currently_blocked_for();
+          ret += threads_at->second.metrics.time_lost_or_blocked;
+        }
+      }
+    }
+
+    auto const metrics_at = task_to_metrics.find(task_id);
+    if (metrics_at != task_to_metrics.end()) { ret += (metrics_at->second.time_lost_or_blocked); }
+    return ret;
   }
 
   void check_and_break_deadlocks()
@@ -868,6 +964,22 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // amount is not used yet, but is here in case we want it for debugging/metrics.
     std::unique_lock<std::mutex> lock(state_mutex);
     dealloc_core(true, lock, amount);
+  }
+
+  void spill_range_start()
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto const tid    = static_cast<long>(pthread_self());
+    auto const thread = threads.find(tid);
+    if (thread != threads.end()) { thread->second.is_in_spilling = true; }
+  }
+
+  void spill_range_done()
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    auto const tid    = static_cast<long>(pthread_self());
+    auto const thread = threads.find(tid);
+    if (thread != threads.end()) { thread->second.is_in_spilling = false; }
   }
 
   /**
@@ -1384,9 +1496,13 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // The allocation succeeded so we are no longer doing a retry
       if (thread->second.is_retry_alloc_before_bufn) {
         thread->second.is_retry_alloc_before_bufn = false;
-        logger->debug(
-          "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
-          thread_id);
+
+        if (is_log_enabled) {
+          auto note = fmt::format(
+            "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
+            thread_id);
+          log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+        }
       }
       switch (thread->second.state) {
         case thread_state::THREAD_ALLOC:
@@ -1404,6 +1520,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           // num_bytes is likely not padded, which could cause slight inaccuracies
           // but for now it shouldn't matter for watermark purposes
           if (!is_for_cpu) {
+            if (!thread->second.is_in_spilling) {
+              thread->second.metrics.gpu_memory_active_footprint += num_bytes;
+              thread->second.metrics.gpu_memory_max_footprint =
+                std::max(thread->second.metrics.gpu_memory_active_footprint,
+                         thread->second.metrics.gpu_memory_max_footprint);
+            }
             gpu_memory_allocated_bytes += num_bytes;
             thread->second.metrics.gpu_max_memory_allocated =
               std::max(thread->second.metrics.gpu_max_memory_allocated, gpu_memory_allocated_bytes);
@@ -1551,6 +1673,23 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return ret;
   }
 
+  // Function to convert a set (ordered or unordered) to a concatenated string
+  template <typename SetType>
+  std::string to_string(SetType const& set, std::string const& separator = ",")
+  {
+    // Use std::ostringstream for efficient string building.
+    std::ostringstream oss;
+
+    oss << "{";
+    // Iterate through the set.
+    for (auto it = set.begin(); it != set.end(); ++it) {
+      oss << *it;
+      if (std::next(it) != set.end()) { oss << separator; }
+    }
+    oss << "}";
+    return oss.str();
+  }
+
   bool is_in_deadlock(std::map<long, long>& pool_bufn_task_thread_count,
                       std::map<long, long>& pool_task_thread_count,
                       std::unordered_set<long>& bufn_task_ids,
@@ -1636,16 +1775,36 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
-    if (ret) {
-      logger->info(
-        "deadlock state is reached with all_task_ids size: {}, blocked_task_ids: {}, "
-        "bufn_task_ids: {}, threads size: {}",
+    if (ret && is_log_enabled) {
+      std::set<long> threads_key_set;
+      for (auto const& [k, v] : threads) {
+        threads_key_set.insert(k);
+      }
+      auto note = fmt::format(
+        "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
+        "bufn_task_ids: {} ({}), threads: {} ({})",
+        to_string(all_task_ids),
         all_task_ids.size(),
+        to_string(blocked_task_ids),
         blocked_task_ids.size(),
+        to_string(bufn_task_ids),
         bufn_task_ids.size(),
+        to_string(threads_key_set),
         threads.size());
+      log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
     }
     return ret;
+  }
+
+  void log_all_threads_states()
+  {
+    std::stringstream oss;
+    oss << "States of all threads: ";
+    for (auto it = threads.begin(); it != threads.end(); ++it) {
+      oss << it->second.to_string();
+      if (std::next(it) != threads.end()) { oss << ";"; }
+    }
+    log_status("DETAIL", -1, -1, thread_state::UNKNOWN, oss.str());
   }
 
   /**
@@ -1691,10 +1850,15 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
-            logger->debug("thread (id: {}) is_retry_alloc_before_bufn set to true",
-                          thread_id_to_bufn);
+            if (is_log_enabled) {
+              auto note = fmt::format("thread (id: {}) is_retry_alloc_before_bufn set to true",
+                                      thread_id_to_bufn);
+              log_status(
+                "DETAIL", thread_id_to_bufn, thread->second.task_id, thread->second.state, note);
+            }
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
+            log_all_threads_states();
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
           }
           thread->second.wake_condition->notify_all();
@@ -1717,7 +1881,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       bool const all_bufn = all_task_ids.size() == bufn_task_ids.size();
 
       if (all_bufn) {
-        logger->info("all_bufn state is reached with all_task_ids size: {}", all_task_ids.size());
+        if (is_log_enabled) {
+          auto note = fmt::format("all_bufn state is reached with all_task_ids size: {}",
+                                  all_task_ids.size());
+          log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
+        }
         thread_priority to_wake(-1, -1);
         bool is_to_wake_set = false;
         for (auto const& [thread_id, t_state] : threads) {
@@ -1780,18 +1948,27 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           if (is_oom && thread->second.is_retry_alloc_before_bufn) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-              logger->debug(
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
+              if (is_log_enabled) {
+                auto note = fmt::format(
+                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
+                  "post_alloc_failed_core",
+                  thread_id);
+                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+              }
             }
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
             thread->second.wake_condition->notify_all();
           } else if (is_oom && blocking) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-              logger->debug(
-                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
-                thread_id);
+
+              if (is_log_enabled) {
+                auto note = fmt::format(
+                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
+                  "post_alloc_failed_core",
+                  thread_id);
+                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
+              }
             }
             transition(thread->second, thread_state::THREAD_BLOCKED);
           } else {
@@ -1845,7 +2022,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const thread = threads.find(tid);
     if (thread != threads.end()) {
       log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
-      if (!is_for_cpu) { gpu_memory_allocated_bytes -= num_bytes; }
+      if (!is_for_cpu) {
+        if (!thread->second.is_in_spilling) {
+          thread->second.metrics.gpu_memory_active_footprint -= num_bytes;
+        }
+        gpu_memory_allocated_bytes -= num_bytes;
+      }
     } else {
       log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
     }
@@ -2193,6 +2375,33 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getAndResetGpuMaxMemoryAll
   CATCH_STD(env, 0)
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getMaxGpuTaskMemory(
+  JNIEnv* env, jclass, jlong ptr, jlong task_id)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    return mr->get_max_gpu_task_memory(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getTotalBlockedOrLostTime(JNIEnv* env,
+                                                                                jclass,
+                                                                                jlong ptr,
+                                                                                jlong task_id)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    return mr->get_total_blocked_or_lost(task_id);
+  }
+  CATCH_STD(env, 0)
+}
+
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_startRetryBlock(
   JNIEnv* env, jclass, jlong ptr, jlong thread_id)
 {
@@ -2279,6 +2488,30 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_cpu
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
     mr->cpu_dealloc(reinterpret_cast<void*>(addr), amount);
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_spillRangeStart(
+  JNIEnv* env, jclass, jlong ptr)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    mr->spill_range_start();
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_spillRangeDone(JNIEnv* env, jclass, jlong ptr)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    mr->spill_range_done();
   }
   CATCH_STD(env, )
 }

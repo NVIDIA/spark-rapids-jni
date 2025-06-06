@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,8 +37,8 @@
 
 #include <cub/device/device_segmented_reduce.cuh>
 #include <cuda/functional>
+#include <cuda/std/functional>
 #include <thrust/for_each.h>
-#include <thrust/functional.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/tabulate.h>
@@ -188,7 +188,7 @@ std::unique_ptr<cudf::column> cast_strings_to_booleans(cudf::column_view const& 
     });
 
   auto [null_mask, null_count] =
-    cudf::detail::valid_if(validity.begin(), validity.end(), thrust::identity{}, stream, mr);
+    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
   output->set_null_mask(null_count > 0 ? std::move(null_mask) : rmm::device_buffer{0, stream, mr},
                         null_count);
 
@@ -239,7 +239,7 @@ std::unique_ptr<cudf::column> cast_strings_to_integers(cudf::column_view const& 
   auto const [null_mask, null_count] =
     cudf::detail::valid_if(valids.begin(),
                            valids.end(),
-                           thrust::identity{},
+                           cuda::std::identity{},
                            stream,
                            cudf::get_current_device_resource_ref());
   // If the null count doesn't change, just use the input column for conversion.

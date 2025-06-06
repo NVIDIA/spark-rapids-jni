@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,9 +32,9 @@
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table_view.hpp>
 
+#include <cuda/std/functional>
 #include <thrust/binary_search.h>
 #include <thrust/for_each.h>
-#include <thrust/functional.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/permutation_iterator.h>
@@ -218,7 +218,7 @@ struct percentile_dispatcher {
     }
 
     auto [null_mask, null_count] = cudf::detail::valid_if(
-      out_validities.begin(), out_validities.end(), thrust::identity{}, stream, mr);
+      out_validities.begin(), out_validities.end(), cuda::std::identity{}, stream, mr);
     if (null_count > 0) { return {std::move(percentiles), std::move(null_mask), null_count}; }
 
     return {std::move(percentiles), rmm::device_buffer{}, 0};
@@ -329,7 +329,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
                        check_valid[idx] = static_cast<int8_t>(frequencies[idx] > 0);
                      });
 
-  auto const h_checks = cudf::detail::make_std_vector_sync(check_invalid_and_zero, stream);
+  auto const h_checks = cudf::detail::make_std_vector(check_invalid_and_zero, stream);
   CUDF_EXPECTS(!h_checks.front(),  // check invalid (negative) frequencies
                "The input frequencies must not contain negative values.",
                std::invalid_argument);
@@ -409,7 +409,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     // the null mask.
     // By doing so, the input rows corresponding to zero frequencies will be output as empty lists.
     auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), thrust::identity{}, stream, default_mr);
+      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, default_mr);
     lists_histograms->set_null_mask(std::move(null_mask), null_count);
     lists_histograms = cudf::detail::purge_nonempty_nulls(lists_histograms->view(), stream, mr);
     lists_histograms->set_null_mask(rmm::device_buffer{}, 0);
@@ -421,7 +421,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
 
     // We nullify the values corresponding to zero frequencies.
     auto [null_mask, null_count] = cudf::detail::valid_if(
-      check_valid.begin(), check_valid.end(), thrust::identity{}, stream, mr);
+      check_valid.begin(), check_valid.end(), cuda::std::identity{}, stream, mr);
     return make_structs_histogram(std::move(null_mask), null_count);
   }
 }
@@ -439,10 +439,9 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
   auto const data_col       = cudf::structs_column_view{histograms}.get_sliced_child(0);
   auto const counts_col     = cudf::structs_column_view{histograms}.get_sliced_child(1);
 
-  auto const default_mr = rmm::mr::get_current_device_resource();
-  auto const d_data     = cudf::column_device_view::create(data_col, stream);
-  auto const d_percentages =
-    cudf::detail::make_device_uvector_sync(percentages, stream, default_mr);
+  auto const default_mr    = rmm::mr::get_current_device_resource();
+  auto const d_data        = cudf::column_device_view::create(data_col, stream);
+  auto const d_percentages = cudf::detail::make_device_uvector(percentages, stream, default_mr);
 
   // Attach histogram labels to the input.
   auto histogram_labels =

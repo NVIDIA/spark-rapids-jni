@@ -35,6 +35,12 @@ public interface SimpleSchemaVisitor {
     void visitTopSchema(Schema schema);
 
     /**
+     * Visit a struct schema before actually visiting its children.
+     * @param structType the struct schema to visit
+     */
+    void preVisitStruct(Schema structType);
+
+    /**
      * Visit a struct schema.
      * @param structType the struct schema to visit
      */

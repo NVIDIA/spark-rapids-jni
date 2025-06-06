@@ -14,6 +14,8 @@
 
 cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
 
+# CUDF_DIR is set from the environment variable, allowing to specify
+# a custom cudf repository other than `thirdparty/cudf`.
 set(CUDF_DIR
   "$ENV{CUDF_ROOT}"
   CACHE STRING "path to cudf repository"
@@ -26,33 +28,24 @@ set(CUDFJNI_BUILD_DIR
   "$ENV{CUDFJNI_BUILD_DIR}"
   CACHE STRING "path to libcudfjni build root"
 )
-set(CUDF_CPP_BUILD_DIR
-  "$ENV{CUDF_CPP_BUILD_DIR}"
-  CACHE STRING "path to libcudf build root"
-)
+
 # libcudf's kvikio dependency requires this to be set when statically linking CUDA runtime
 set(CUDA_STATIC_RUNTIME ON)
 
-include("${CUDF_DIR}/rapids_config.cmake")
+include("${CUDF_DIR}/cmake/rapids_config.cmake")
 include(rapids-cmake)
 include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
-include(rapids-cpm)
 rapids_cpm_init()
-
-# Use GPU_ARCHS if it is defined
-if(DEFINED GPU_ARCHS)
-  set(CMAKE_CUDA_ARCHITECTURES "${GPU_ARCHS}")
-endif()
 
 rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.04.00
-  LANGUAGES C CXX CUDA
+  VERSION 25.06.00
+  LANGUAGES CXX CUDA
 )
 
 # ##################################################################################################
@@ -73,10 +66,6 @@ message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build tests: ${BUILD_TESTS
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build (nvbench) benchmarks: ${BUILD_BENCHMARKS}")
 message(VERBOSE "SPARK_RAPIDS_JNI: Configure CMake to build fault injection: ${BUILD_FAULTINJ}")
 
-set(SPARK_RAPIDS_JNI_CXX_FLAGS "")
-set(SPARK_RAPIDS_JNI_CUDA_FLAGS "")
-set(SPARK_RAPIDS_JNI_CXX_DEFINITIONS "")
-set(SPARK_RAPIDS_JNI_CUDA_DEFINITIONS "")
 set(SPARK_RAPIDS_JNI_BUILD_TESTS ${BUILD_TESTS})
 set(SPARK_RAPIDS_JNI_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(SPARK_RAPIDS_JNI_BUILD_FAULTINJ ${BUILD_FAULTINJ})
@@ -97,16 +86,13 @@ set_property(
 )
 message(VERBOSE "SPARK_RAPIDS_JNI: RMM_LOGGING_LEVEL = '${RMM_LOGGING_LEVEL}'.")
 
-set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR})
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
+# ##################################################################################################
+# * compiler options ------------------------------------------------------------------------------
+
+rapids_find_package(CUDAToolkit REQUIRED)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type("Release")
-
-# ##################################################################################################
-# * compiler options ------------------------------------------------------------------------------
-rapids_find_package(CUDAToolkit REQUIRED)
-include(cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
 # ##################################################################################################
 # * dependencies ----------------------------------------------------------------------------------
@@ -126,14 +112,16 @@ configure_file(
   @ONLY
 )
 
-# find NVTX
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_nvtx.cmake)
+# Path to search for the pre-installed packages.
+set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR} "${CUDF_INSTALL_DIR}/lib64/cmake")
 
-# find CCCL
-include(${CUDF_DIR}/cpp/cmake/thirdparty/get_cccl.cmake)
+# Reuse cached nvtx package that is already available after installing libcudf.
+find_package(nvtx3 REQUIRED)
 
-# find spdlog
-include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+if(NOT TARGET spdlog::spdlog_header_only)
+  message(STATUS "Fetch package spdlog from source.")
+  include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
+endif()
 
 # JNI
 find_package(JNI REQUIRED)
@@ -151,6 +139,12 @@ if(BUILD_TESTS)
 else()
   rapids_find_package(cudf REQUIRED)
 endif()
+
+# Get the compilation flags and definitions from cudf.
+get_target_property(CUDF_CXX_FLAGS cudf::cudf CUDF_CXX_FLAGS)
+get_target_property(CUDF_CUDA_FLAGS cudf::cudf CUDF_CUDA_FLAGS)
+get_target_property(CUDF_CXX_DEFINITIONS cudf::cudf CUDF_CXX_DEFINITIONS)
+get_target_property(CUDF_CUDA_DEFINITIONS cudf::cudf CUDF_CUDA_DEFINITIONS)
 
 # cudfjni
 find_library(CUDFJNI_LIB "libcudfjni.a" REQUIRED NO_DEFAULT_PATH
@@ -201,14 +195,17 @@ add_library(
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
+  src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
+  src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
+  src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
   src/bloom_filter.cu
   src/case_when.cu
@@ -217,6 +214,7 @@ add_library(
   src/cast_long_to_binary_string.cu
   src/cast_string.cu
   src/cast_string_to_float.cu
+  src/cast_string_to_datetime.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
@@ -232,6 +230,7 @@ add_library(
   src/list_slice.cu
   src/map.cu
   src/murmur_hash.cu
+  src/number_converter.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
@@ -260,8 +259,8 @@ set_target_properties(
 )
 
 target_compile_options(
-  spark_rapids_jni PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_FLAGS}>"
-                           "$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_FLAGS}>"
+  spark_rapids_jni PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                           "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>"
 )
 
 # Specify include paths for the current target and dependents
@@ -274,8 +273,8 @@ target_include_directories(
 )
 
 target_compile_definitions(
-  spark_rapids_jni PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${SPARK_RAPIDS_JNI_CXX_DEFINITIONS}>"
-                          "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:${SPARK_RAPIDS_JNI_CUDA_DEFINITIONS}>>"
+  spark_rapids_jni PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_DEFINITIONS}>"
+                          "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_DEFINITIONS}>>"
 )
 
 # Per-thread default stream

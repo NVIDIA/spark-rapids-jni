@@ -1,6 +1,6 @@
 #!/usr/local/env groovy
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -72,8 +72,10 @@ pipeline {
         MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
         PVC = credentials("pvc")
-        CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
         CUDA_CLASSIFIER = 'cuda11'
+        CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
+        PVC_MOUNT_PATH = "/pvc"
+        PVC_WORKSPACE = "/pvc/workspace/${BUILD_TAG}"
     }
 
     stages {
@@ -137,7 +139,7 @@ pipeline {
                         ]
                     )
 
-                    stash(name: "source_tree", includes: "**")
+                    stash(name: "source_tree", includes: "**,.git/**", useDefaultExcludes: false)
 
                     container('cpu') {
                         // check if pre-merge dockerfile modified
@@ -202,19 +204,23 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                 kubernetes {
                     label "premerge-ci-1-${BUILD_TAG}"
                     cloud "${common.CLOUD_NAME}"
-                    yaml pod.getGPUYAML("${IMAGE_PREMERGE}", "${env.GPU_RESOURCE}", '8', '32Gi')
-                    workspaceVolume persistentVolumeClaimWorkspaceVolume(claimName: "${PVC}", readOnly: false)
+                    yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '8', '32Gi')
                     customWorkspace "${CUSTOM_WORKSPACE}"
                 }
             }
 
             steps {
                 script {
+                    unstash "source_tree"
                     container('gpu') {
                         timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
                             common.resolveIncompatibleDriverIssue(this)
-                            sh 'scl enable gcc-toolset-11 "ci/premerge-build.sh"'
-                            sh 'bash ci/fuzz-test.sh'
+                            try {
+                                sh 'ci/premerge-build.sh'
+                                sh 'bash ci/fuzz-test.sh'
+                            } finally {
+                                common.syncDir(this, "${CUSTOM_WORKSPACE}", "${PVC_WORKSPACE}", false, ['.m2/'])
+                            }
                         }
                     }
                 }
