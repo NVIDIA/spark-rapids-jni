@@ -22,12 +22,16 @@ package com.nvidia.spark.rapids.jni;
  * The ordinal values are used to represent the platform in JNI calls.
  */
 public enum SparkPlatformType {
-  // ordinal 0 is vanilla Spark, JNI and kernel use 0 representing Spark
+  // ordinal 0 is vanilla Spark, Will translate to spark_platform_type::VANILLA_SPARK
   VANILLA_SPARK,
 
-  // ordinal 1 is Databricks, JNI and kernel use 1 representing Databricks
+  // ordinal 1 is Databricks, Will translate to spark_platform_type::DATABRICKS
   DATABRICKS,
 
-  // ordinal 2 is Cloudera, JNI and kernel use 2 representing Cloudera
-  CLOUDERA;
+  // ordinal 2 is Cloudera, Will translate to spark_platform_type::CLOUDERA
+  CLOUDERA,
+
+  // ordinal 3 is Unknown. Will translate to spark_platform_type::NUM_PLATFORMS
+  // Maybe customized Spark distributions.
+  UNKNOWN;
 }
