@@ -31,7 +31,7 @@ public enum SparkPlatformType {
   // ordinal 2 is Cloudera, Will translate to spark_platform_type::CLOUDERA
   CLOUDERA,
 
-  // ordinal 3 is Unknown. Will translate to spark_platform_type::NUM_PLATFORMS
+  // ordinal 3 is Unknown. Will translate to spark_platform_type::UNKNOWN
   // Maybe customized Spark distributions.
   UNKNOWN;
 }
