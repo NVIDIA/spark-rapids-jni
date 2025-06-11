@@ -21,6 +21,10 @@ import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmWrappingDeviceMemoryResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Arrays;
 
 /**
  * This is an internal class that provides an interface to a C++ spark_resource_adaptor class that
@@ -31,6 +35,7 @@ public class SparkResourceAdaptor
   static {
     NativeDepsLoader.loadNativeDeps();
   }
+  private static final Logger log = LoggerFactory.getLogger(SparkResourceAdaptor.class);
   /*
    * Please note that this class itself is not 100% thread safe. Most of the thread safety is handled
    * by RmmSpark, as no one else should interact with this class directly. There are a few functions
@@ -121,6 +126,9 @@ public class SparkResourceAdaptor
    * @param taskId the task ID this thread is associated with.
    */
   public void startDedicatedTaskThread(long threadId, long taskId) {
+    log.info("startDedicatedTaskThread: threadId: {}, task id: {}",
+        threadId, taskId
+    );
     startDedicatedTaskThread(getHandle(), threadId, taskId);
   }
 
@@ -152,6 +160,9 @@ public class SparkResourceAdaptor
    */
   public void poolThreadWorkingOnTasks(boolean isForShuffle, long threadId, long[] taskIds) {
     if (taskIds.length > 0) {
+      log.info("poolThreadWorkingOnTasks: threadId: {}, task id: {}",
+          threadId, Arrays.toString(taskIds)
+      );
       poolThreadWorkingOnTasks(getHandle(), isForShuffle, threadId, taskIds);
     }
   }

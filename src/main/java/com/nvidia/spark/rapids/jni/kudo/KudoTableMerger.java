@@ -105,7 +105,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   }
 
   @Override
-  public void visitStruct(Schema structType) {
+  public void preVisitStruct(Schema structType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
     int nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
@@ -116,11 +116,15 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     for (int i=0; i<kudoTables.length; i++) {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
-      if (header.hasValidityBuffer(curColIdx)) {
-        validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+      if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
+        validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
     }
     curColIdx++;
+  }
+
+  public void visitStruct(Schema structType) {
+    // Noop
   }
 
   @Override
@@ -136,11 +140,11 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     for (int i=0; i<kudoTables.length; i++) {
       KudoTableHeader header = kudoTables[i].getHeader();
       SliceInfo sliceInfo = sliceInfoOf(i);
-      if (header.hasValidityBuffer(curColIdx)) {
-        validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+      if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
+        validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
       }
       if (sliceInfo.getRowCount() > 0) {
-        offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+        offsetOffsets[i] += (sliceInfo.getRowCount() + 1L) * Integer.BYTES;
       }
       sliceInfos[i].addLast(sliceInfoBuf[i]);
     }
@@ -173,23 +177,23 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       for (int i=0; i<kudoTables.length; i++) {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
-        if (header.hasValidityBuffer(curColIdx)) {
-          validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+        if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
+          validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
-          offsetOffsets[i] += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
-          dataOffsets[i] += padForHostAlignment(sliceInfoBuf[i].getRowCount());
+          offsetOffsets[i] += (sliceInfo.getRowCount() + 1L) * Integer.BYTES;
+          dataOffsets[i] += sliceInfoBuf[i].getRowCount();
         }
       }
     } else {
       for (int i=0; i<kudoTables.length; i++) {
         KudoTableHeader header = kudoTables[i].getHeader();
         SliceInfo sliceInfo = sliceInfoOf(i);
-        if (header.hasValidityBuffer(curColIdx)) {
-          validityOffsets[i] += padForHostAlignment(sliceInfo.getValidityBufferInfo().getBufferLength());
+        if (header.hasValidityBuffer(curColIdx) && sliceInfo.getRowCount() > 0) {
+          validityOffsets[i] += sliceInfo.getValidityBufferInfo().getBufferLength();
         }
         if (sliceInfo.getRowCount() > 0) {
-          dataOffsets[i] += padForHostAlignment(primitiveType.getType().getSizeInBytes() * sliceInfo.getRowCount());
+          dataOffsets[i] += primitiveType.getType().getSizeInBytes() * sliceInfo.getRowCount();
         }
       }
     }
@@ -481,7 +485,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       int outputMask = (1 << curDestBitIdx) - 1;
       int destOutput = dest.getInt(curDestIntIdx) & outputMask;
 
-      int rawInput = src.getInt(curSrcIntIdx);
+      int rawInput = getIntSafe(src, curSrcIntIdx);
       int input = (rawInput >>> curSrcBitIdx) << curDestBitIdx;
       destOutput = input | destOutput;
       dest.setInt(curDestIntIdx, destOutput);
@@ -515,7 +519,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           break;
         }
 
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+        getIntsSafe(src, inputBuf, 0, curSrcIntIdx, curArrLen);
 
         for (int i=0; i<curArrLen; i++) {
           outputBuf[i] = (inputBuf[i] << rshift) | lastValue;
@@ -555,7 +559,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       int destMask = (1 << curDestBitIdx) - 1;
       int destOutput = dest.getInt(curDestIntIdx) & destMask;
 
-      int input = src.getInt(curSrcIntIdx);
+      int input = getIntSafe(src, curSrcIntIdx);
       if (srcIntBufLen == 1) {
         int leftRem = 32 - curSrcBitIdx - leftRowCount;
         assert leftRem >= 0;
@@ -581,7 +585,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           leftRowCount = 0;
           break;
         }
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+        getIntsSafe(src, inputBuf, 0, curSrcIntIdx, curArrLen);
         for (int i=0; i<curArrLen; i++) {
           outputBuf[i] = (inputBuf[i] << (32 - rshift)) | lastValue;
           nullCount += 32 - Integer.bitCount(outputBuf[i]);
@@ -601,6 +605,40 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       return nullCount;
     }
 
+    private static int getIntAsBytes(HostMemoryBuffer src, long offset, long length) {
+      // We need to build up the int ourselves and pad it as needed
+      int ret = 0;
+      for (int at = 0; at < 4 && (offset + at) < length ; at++) {
+        int b = src.getByte(offset + at) & 0xFF;
+        ret |= b << (at * 8);
+      }
+      return ret;
+    }
+
+    private static int getIntSafe(HostMemoryBuffer src, long offset) {
+      long length = src.getLength();
+      if (offset + 4 < length) {
+        return src.getInt(offset);
+      } else {
+        return getIntAsBytes(src, offset, length);
+      }
+    }
+
+    private static void getIntsSafe(HostMemoryBuffer src, int[] dst, long dstIndex, long srcOffset, int count) {
+      long length = src.getLength();
+      if (srcOffset + (4L * count) < length) {
+        src.getInts(dst, dstIndex, srcOffset, count);
+      } else {
+        // Read as much as we can the fast way
+        int fastCount = (int)((length - srcOffset) / 4);
+        src.getInts(dst, dstIndex, srcOffset, fastCount);
+        // Then read the rest slowly...
+        for (int index = fastCount; index < count; index++) {
+          dst[index + (int)dstIndex] = getIntAsBytes(src, srcOffset + (index * 4L), length);
+        }
+      }
+    }
+
     private int copySourceCaseThree(HostMemoryBuffer src, int srcOffset,
                                     SliceInfo sliceInfo) {
       int leftRowCount = sliceInfo.getRowCount();
@@ -615,7 +653,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
 
       // Process first element
       int mask = (1 << curDestBitIdx) - 1;
-      int firstInput = src.getInt(curSrcIntIdx);
+      int firstInput = getIntSafe(src, curSrcIntIdx);
       int destOutput = dest.getInt(curDestIntIdx);
       destOutput = (firstInput & ~mask) | (destOutput & mask);
       dest.setInt(curDestIntIdx, destOutput);
@@ -637,7 +675,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       while (leftRowCount > 0) {
         int curArrLen = min(min(inputBuf.length, outputBuf.length), srcIntBufLen - (curSrcIntIdx - srcOffset) / 4);
         assert curArrLen > 0;
-        src.getInts(inputBuf, 0, curSrcIntIdx, curArrLen);
+        getIntsSafe(src, inputBuf, 0, curSrcIntIdx, curArrLen);
         for (int i=0; i<curArrLen; i++) {
           nullCount += 32 - Integer.bitCount(inputBuf[i]);
           leftRowCount -= 32;
