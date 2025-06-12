@@ -61,7 +61,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
     int size             = type_nums.size();
     if (names.size() != size || indexes.size() != static_cast<std::size_t>(size) ||
         type_nums.size() != static_cast<std::size_t>(size)) {
-      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
+      JNI_THROW_NEW(
+        env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "wrong number of entries passed in", 0);
     }
 
     for (int i = 0; i < size; i++) {
@@ -111,7 +112,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
     if (num_entries < 0 || names.size() != num_entries ||
         indexes.size() != static_cast<std::size_t>(num_entries) ||
         type_nums.size() != static_cast<std::size_t>(num_entries)) {
-      JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_CLASS, "wrong number of entries passed in", 0);
+      JNI_THROW_NEW(
+        env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "wrong number of entries passed in", 0);
     }
 
     for (std::size_t i = 0; i < num_paths; ++i) {
