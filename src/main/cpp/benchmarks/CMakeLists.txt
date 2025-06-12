@@ -15,7 +15,7 @@
 #=============================================================================
 
 add_library(spark_rapids_jni_datagen STATIC common/generate_input.cu)
-target_compile_features(spark_rapids_jni_datagen PUBLIC cxx_std_17 cuda_std_17)
+target_compile_features(spark_rapids_jni_datagen PUBLIC cxx_std_20 cuda_std_20)
 
 target_compile_options(
   spark_rapids_jni_datagen PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
