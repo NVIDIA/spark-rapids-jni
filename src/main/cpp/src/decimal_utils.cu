@@ -535,13 +535,14 @@ __device__ chunked256 set_scale_and_round(chunked256 data, int old_scale, int ne
 {
   if (old_scale != new_scale) {
     if (new_scale < old_scale) {
-      int const raise      = old_scale - new_scale;
-      int const multiplier = pow_ten(raise).as_128_bits();
-      data                 = multiply(data, chunked256(multiplier));
+      int const raise       = old_scale - new_scale;
+      auto const multiplier = pow_ten(raise);
+      data                  = multiply(data, multiplier);
     } else {
-      int const drop    = new_scale - old_scale;
-      int const divisor = pow_ten(drop).as_128_bits();
-      data              = divide_and_round(data, divisor);
+      int const drop = new_scale - old_scale;
+      // `drop` should not exceed 38 thus `10^drop` should fit in __int128_t.
+      auto const divisor = pow_ten(drop).as_128_bits();
+      data               = divide_and_round(data, divisor);
     }
   }
   return data;
@@ -695,11 +696,11 @@ struct dec128_multiplier {
         // this would overflow...
         overflows[i] = true;
         return;
-      } else {
-        auto const scale_mult = pow_ten(-exponent).as_128_bits();
-        product               = multiply(product, chunked256(scale_mult));
       }
+      auto const scale_mult = pow_ten(-exponent);
+      product               = multiply(product, scale_mult);
     } else {
+      // `exponent` should not exceed 38 thus `10^exponent` should fit in __int128_t.
       auto const scale_divisor = pow_ten(exponent).as_128_bits();
 
       // scale and round to target scale
