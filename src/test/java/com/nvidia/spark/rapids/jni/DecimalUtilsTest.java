@@ -47,10 +47,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1",   "1",    "1");
          ColumnVector expectedBasic =
              makeDec128Column("1.0", "10.0", "1000000000000000000000000000000000000.0");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -63,10 +63,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1.0", "1.5");
          ColumnVector expectedBasic =
              makeDec128Column("1.0", "5.6");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -79,10 +79,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1e1");
          ColumnVector expectedBasic =
              makeDec128Column("10.0");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -92,9 +92,9 @@ public class DecimalUtilsTest {
     try (ColumnVector lhs = makeDec128Column("-8533444864753048107770677711.1312637916");
          ColumnVector rhs = makeDec128Column("-12.0000000000");
          ColumnVector expectedBasic = makeDec128Column("102401338377036577293248132533.575165");
-         ColumnVector expectedValid = ColumnVector.fromBooleans(false);
+         ColumnVector expectedOverflow = ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -6, false)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -107,10 +107,10 @@ public class DecimalUtilsTest {
              makeDec128Column("100.0000000000");
          ColumnVector expectedBasic =
              makeDec128Column("57769494016143628581155544731.031211");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -121,10 +121,10 @@ public class DecimalUtilsTest {
              makeDec128Column("577694938495380589068894346.7625198736");
          ColumnVector rhs =
              makeDec128Column("-1258508260891400005608241690.1564700995");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(true);
          Table found = DecimalUtils.multiply128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
     }
 
   }
@@ -137,10 +137,10 @@ public class DecimalUtilsTest {
              makeDec128Column("-1",   "1",    "-1");
          ColumnVector expectedBasic =
              makeDec128Column("-1.0", "-1.0", "-10.0");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -153,10 +153,10 @@ public class DecimalUtilsTest {
              makeDec128Column("-1.0", "-1.0", "-1.5");
          ColumnVector expectedBasic =
              makeDec128Column("-1.0",  "1.0", "-5.6");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -180,10 +180,10 @@ public class DecimalUtilsTest {
              makeDec128Column("-40300528065877158141419371877.580354",
                  "-85932261422232121885321650559.128933",
                  "-110083130231976019291714061058.575920");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.multiply128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -196,10 +196,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1",   "2",    "0",   "5");
          ColumnVector expectedBasic =
              makeDec128Column("1.0", "5.0",  "0",   "200000000000000000000000000000000000.0");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, true, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -211,9 +211,9 @@ public class DecimalUtilsTest {
          ColumnVector rhs =
              makeDec128Column("7317548469.64", "98565515088.44");
          ColumnVector expectedBasic = ColumnVector.fromLongs(464116053478747633L, -69941278912819784L);
-         ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
+         ColumnVector expectedOverflow = ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -228,9 +228,9 @@ public class DecimalUtilsTest {
          ColumnVector rhs =
              makeDec128Column("-961.110", "181.958");
          ColumnVector expectedBasic = ColumnVector.fromLongs(2284624887606872042L, -2928582767902049472L);
-         ColumnVector expectedValid = ColumnVector.fromBooleans(false, false);
+         ColumnVector expectedOverflow = ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -240,9 +240,9 @@ public class DecimalUtilsTest {
     try (ColumnVector lhs =
              makeDec128Column("-999999999999999999999999999999999999.99", "999999999999999999999999999999999999.99");
          ColumnVector rhs = makeDec128Column("0", "0");
-         ColumnVector expectedValid = ColumnVector.fromBooleans(true, true);
+         ColumnVector expectedOverflow = ColumnVector.fromBooleans(true, true);
          Table found = DecimalUtils.integerDivide128(lhs, rhs)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
     }
   }
 
@@ -254,8 +254,9 @@ public class DecimalUtilsTest {
             makeDec128Column("-4890990637589340307512622401149178814.1", "4890990637589340307512622401149178814.1", "-4890990637589340307512622401149178814.1", "4890990637589340307512622401149178814.1");
         ColumnVector expected =
             makeDec128Column("2775750723350045263458396405825339066.0", "2775750723350045263458396405825339066.0", "-2775750723350045263458396405825339066.0", "-2775750723350045263458396405825339066.0");
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false, false, false, false);
         Table found = DecimalUtils.remainder128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(ColumnVector.fromBooleans(false, false, false, false), found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
   }
@@ -268,8 +269,9 @@ public class DecimalUtilsTest {
             makeDec128Column("6749200345857154099505910298895800952.1", "-6749200345857154099505910298895800952.1", "-43880265997097383351377368851255372.5");
         ColumnVector expected =
             makeDec128Column("-80968577325845461854951721352418610.13", "-80968577325845461854951721352418610.13", "-22806206771607948382943983655241529.21");
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false, false, false);
         Table found = DecimalUtils.remainder128(lhs, rhs, -2)) {
-      assertColumnsAreEqual(ColumnVector.fromBooleans(false, false, false), found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
   }
@@ -282,8 +284,9 @@ public class DecimalUtilsTest {
             makeDec128Column("-67337920196996830.354487679299");
         ColumnVector expected =
             makeDec128Column("16310460742282291.8108019");
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false);
         Table found = DecimalUtils.remainder128(lhs, rhs, -7)) {
-      assertColumnsAreEqual(ColumnVector.fromBooleans(false), found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
   }
@@ -296,8 +299,9 @@ public class DecimalUtilsTest {
             makeDec128Column("-6733792019699683035.4487679299");
         ColumnVector expected =
             makeDec128Column("3585222007130884413.9709383255");
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false);
         Table found = DecimalUtils.remainder128(lhs, rhs, -10)) {
-      assertColumnsAreEqual(ColumnVector.fromBooleans(false), found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expected, found.getColumn(1));
     }
   }
@@ -310,10 +314,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1.0", "1.5", "4.5");
          ColumnVector expectedBasic =
              makeDec128Column("1.0", "2.5", "22.2");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -326,10 +330,10 @@ public class DecimalUtilsTest {
              makeDec128Column("-1.0", "1.5", "-4.5");
          ColumnVector expectedBasic =
              makeDec128Column("-1.0", "-2.5", "22.2");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -1)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -342,10 +346,10 @@ public class DecimalUtilsTest {
              makeDec128Column("3.0000000000000000000000000000000000000");
          ColumnVector expectedBasic =
              makeDec128Column("33333333333333333333333333333333.333333");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -361,10 +365,10 @@ public class DecimalUtilsTest {
          ColumnVector expectedBasic =
              makeDec128Column("14.54482878857608841",
                  "36.55544384232883566");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -17)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -377,10 +381,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1e2");
          ColumnVector expectedBasic =
              makeDec128Column("14.54482878857608841");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.divide128(lhs, rhs, -17)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -393,10 +397,10 @@ public class DecimalUtilsTest {
              makeDec128Column("1e2");
          ColumnVector expectedBasic =
              makeDec128Column("57769494016143.628581");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false);
          Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -415,10 +419,10 @@ public class DecimalUtilsTest {
              makeDec128Column("0.614904",
                  "0.972815",
                  "0.556138");
-         ColumnVector expectedValid =
+         ColumnVector expectedOverflow =
              ColumnVector.fromBooleans(false, false, false);
          Table found = DecimalUtils.divide128(lhs, rhs, -6)) {
-      assertColumnsAreEqual(expectedValid, found.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, found.getColumn(0));
       assertColumnsAreEqual(expectedBasic, found.getColumn(1));
     }
   }
@@ -430,9 +434,9 @@ public class DecimalUtilsTest {
             "-9191008513307131620269245301.1615457290");
         ColumnVector rhs = makeDec128Column("9447850332473678680446404122.5624623187",
             "-9447850332473678680446404122.5624623187");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true, true);
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(true, true);
         Table result = DecimalUtils.add128(lhs, rhs, -10)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
     }
   }
 
@@ -472,10 +476,10 @@ public class DecimalUtilsTest {
             "15341056326761453990059807229.158959802",
             "1333756118336991229799879886.522289520",
             "-2558243183478544783472313244.575638918");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(false, false, false, false, false,
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false, false, false, false, false,
             false, false, false, false, false, false);
         Table result = DecimalUtils.add128(lhs, rhs, -9)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
   }
@@ -516,10 +520,10 @@ public class DecimalUtilsTest {
             "1.149908961914933479275647884578761544E+41",
             "-6.5479604530576270812849514340029066E+39",
             null);
-        ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
+        ColumnVector expectedOverflow = ColumnVector.fromBoxedBooleans(false, false, false, false,
             false, false, false, false, false, null);
         Table result = DecimalUtils.add128(lhs, rhs, 5)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
   }
@@ -561,10 +565,10 @@ public class DecimalUtilsTest {
             "-3358323486547015837206742594.212605708",
             "7770175100125696617964074281.376399082",
             "-1869881956184352298725010129.272506370");
-        ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
+        ColumnVector expectedOverflow = ColumnVector.fromBoxedBooleans(false, false, false, false,
             false, false, false, false, false, false);
         Table result = DecimalUtils.add128(lhs, rhs, -9)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
   }
@@ -574,9 +578,9 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("50000000000000000000000000000000000000");
         ColumnVector rhs = makeDec128Column("2");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(true);
         Table result = DecimalUtils.multiply128(lhs, rhs, 0)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
     }
   }
 
@@ -585,9 +589,9 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("99999999999999999999999999999999999999");
         ColumnVector rhs = makeDec128Column("1");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(true);
         Table result = DecimalUtils.add128(lhs, rhs, 0)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
     }
   }
 
@@ -596,9 +600,9 @@ public class DecimalUtilsTest {
     try (
         ColumnVector lhs = makeDec128Column("-99999999999999999999999999999999999999");
         ColumnVector rhs = makeDec128Column("1");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(true);
         Table result = DecimalUtils.subtract128(lhs, rhs, 0)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
     }
   }
 
@@ -639,10 +643,10 @@ public class DecimalUtilsTest {
             "-15241233229122586666578925501.792605708",
             "8484593380070321326506943924.036399082",
             "-154984298778579123337137056.852506370");
-        ColumnVector expectedValid = ColumnVector.fromBoxedBooleans(false, false, false, false,
+        ColumnVector expectedOverflow = ColumnVector.fromBoxedBooleans(false, false, false, false,
             false, false, false, false, false, false);
         Table result = DecimalUtils.subtract128(lhs, rhs, -9)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
   }
@@ -653,9 +657,9 @@ public class DecimalUtilsTest {
         ColumnVector lhs = makeDec128Column("0.964808037102759");
         ColumnVector rhs = makeDec128Column("1");
         ColumnVector expected = makeDec128Column("-0.0351919628972410000000000");
-        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        ColumnVector expectedOverflow = ColumnVector.fromBooleans(false);
         Table result = DecimalUtils.subtract128(lhs, rhs, -25)) {
-      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expectedOverflow, result.getColumn(0));
       assertColumnsAreEqual(expected, result.getColumn(1));
     }
   }
