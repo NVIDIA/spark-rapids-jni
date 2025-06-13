@@ -1130,7 +1130,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // overhead
     if (state.num_times_retried + 1 > 500) {
       state.record_failed_retry_time();
-      throw_java_exception(cudf::jni::OOM_CLASS, "GPU OutOfMemory: retry limit exceeded");
+      throw_java_exception(cudf::jni::OOM_ERROR_CLASS, "GPU OutOfMemory: retry limit exceeded");
     }
     state.num_times_retried++;
   }
@@ -1425,7 +1425,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         log_status(
           "INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
         thread->second.record_failed_retry_time();
-        throw_java_exception(cudf::jni::CUDF_ERROR_CLASS, "injected CudfException");
+        throw_java_exception(cudf::jni::CUDF_EXCEPTION_CLASS, "injected CudfException");
       }
 
       if (thread->second.split_and_retry_oom.matches(is_for_cpu)) {
