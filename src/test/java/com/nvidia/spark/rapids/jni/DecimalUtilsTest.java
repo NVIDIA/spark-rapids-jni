@@ -648,6 +648,19 @@ public class DecimalUtilsTest {
   }
 
   @Test
+  void subDifferentLargeScales() {
+    try (
+        ColumnVector lhs = makeDec128Column("0.964808037102759");
+        ColumnVector rhs = makeDec128Column("1");
+        ColumnVector expected = makeDec128Column("-0.0351919628972410000000000");
+        ColumnVector expectedValid = ColumnVector.fromBooleans(true);
+        Table result = DecimalUtils.subtract128(lhs, rhs, -25)) {
+      assertColumnsAreEqual(expectedValid, result.getColumn(0));
+      assertColumnsAreEqual(expected, result.getColumn(1));
+    }
+  }
+
+  @Test
   void floatingPointToDecimalTest() {
     try (
         ColumnVector input1 = ColumnVector.fromDoubles(3527.61953125);
