@@ -44,7 +44,8 @@ namespace spark_rapids_jni {
  *  - Next 4 bytes: a 32-bit unsigned integer representing the number of serialized buffers `N`.
  *  - Next 8*(N+1) bytes: a series of 64-bit unsigned integers representing the offsets (in bytes)
  *    of the serialized data belonging to each individual buffer. These offsets are always relative
- *    to the position after the last offset values in the input byte array.
+ *    to the position after the last offset values in the input byte array. The last offset value
+ *    should be the total size of the serialized data of all buffers.
  *  - Within the serialized data for each buffer:
  *    - First 4 bytes: a 32-bit unsigned integer representing the checksum of the original data.
  *    - Next 4 bytes: a 32-bit SIGNED integer representing the compression type used for
