@@ -187,6 +187,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
+  src/DataSerializationJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/GpuTimeZoneDBJni.cpp
@@ -195,7 +196,6 @@ add_library(
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
-  src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
   src/NativeParquetJni.cpp
@@ -215,6 +215,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/cast_string_to_datetime.cu
+  src/cookie_serializer.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
