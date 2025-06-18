@@ -50,7 +50,10 @@ namespace spark_rapids_jni {
  *    - First 4 bytes: a 32-bit unsigned integer representing the checksum of the original data.
  *    - Next 4 bytes: a 32-bit SIGNED integer representing the compression type used for
  *      compressing the original data, which is one of the `cudf::io::compression_type` enum values.
- *    - The rest bytes: the buffer's compressed data.
+ *      This is stored per buffer as for some buffers, the compressed data may have large size than
+ *      then uncompressed one thus we will store the uncompressed data instead.
+ *    - The rest bytes: the compressed buffer data if it has smaller size than the original data, or
+ *      the original data otherwise.
  */
 
 /**
@@ -60,8 +63,9 @@ namespace spark_rapids_jni {
  * @param inputs An array of host buffers to be serialized
  * @return A vector of bytes representing the serialized data
  */
-std::vector<uint8_t> serialize_cookie(cudf::io::compression_type compression,
-                                      cudf::host_span<cudf::host_span<uint8_t const> const> inputs);
+[[nodiscard]] std::vector<uint8_t> serialize_cookie(
+  cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
+  cudf::io::compression_type compression = cudf::io::compression_type::SNAPPY);
 
 /**
  * @brief Deserialize a byte vector into an array of byte vectors using Cookie serialization format.
@@ -69,6 +73,7 @@ std::vector<uint8_t> serialize_cookie(cudf::io::compression_type compression,
  * @param input A byte vector representing the serialized data in Cookie format
  * @return A vector of byte vectors, each representing a deserialized data buffer
  */
-std::vector<std::vector<uint8_t>> deserialize_cookie(cudf::host_span<uint8_t const> input);
+[[nodiscard]] std::vector<std::vector<uint8_t>> deserialize_cookie(
+  cudf::host_span<uint8_t const> input);
 
 }  // namespace spark_rapids_jni
