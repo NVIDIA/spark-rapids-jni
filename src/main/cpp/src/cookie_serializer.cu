@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <future>
 #include <numeric>
+#include <string_view>
 #include <utility>
 
 namespace spark_rapids_jni {
@@ -47,6 +48,29 @@ std::vector<std::future<std::pair<size_t, std::vector<uint8_t>>>> codec(
     tasks.emplace_back(cudf::detail::host_worker_pool().submit_task(std::move(task)));
   }
   return tasks;
+}
+
+// The header is defined as containing the following fields:
+// - Magic string "COOKIE" (6 bytes)
+// - Version major (4 bytes)
+// - Version minor (4 bytes)
+// - Number of input buffers (4 bytes)
+// - Offsets for the input buffers (num_chunks + 1) * 8 bytes
+std::size_t compute_header_size(uint32_t num_chunks)
+{
+  std::size_t header_size = 0;
+  header_size += 6ul;                                  // magic "COOKIE"
+  header_size += 2ul * sizeof(uint32_t);               // version major and minor
+  header_size += sizeof(uint32_t);                     // number of input buffers
+  header_size += sizeof(uint64_t) * (num_chunks + 1);  // offsets
+  return header_size;
+}
+
+template <typename T, typename U>
+[[nodiscard]] std::size_t copy(U* dst, T const* src, std::size_t size)
+{
+  std::memcpy(reinterpret_cast<uint8_t*>(dst), reinterpret_cast<uint8_t const*>(src), size);
+  return size;
 }
 
 }  // namespace
@@ -82,48 +106,63 @@ std::vector<uint8_t> serialize_cookie(cudf::host_span<cudf::host_span<uint8_t co
     offsets[idx + 1] = out_data_size;
   }
 
-  // Header is the extra data that is stored before the compressed input data.
-  std::size_t header_size = 0;
-  header_size += 6ul;                                  // magic "COOKIE"
-  header_size += 2ul * sizeof(uint32_t);               // version major and minor
-  header_size += sizeof(uint32_t);                     // number of input buffers
-  header_size += sizeof(uint64_t) * (num_chunks + 1);  // offsets
-
   std::vector<uint8_t> output;
-  output.reserve(header_size + out_data_size);
+  output.resize(compute_header_size(num_chunks) + out_data_size);
 
   // Write the output.
   auto ptr = output.data();
 
   auto const magic_size = strlen(MAGIC);
-  CUDF_EXPECTS(magic_size == 6, "Internal error: Invalid Cookie MAGIC.");
-  std::memcpy(ptr, MAGIC, magic_size);
-  ptr += magic_size;
+  CUDF_EXPECTS(magic_size == 6ul, "Internal error: Invalid Cookie MAGIC.");
+  ptr += copy(ptr, MAGIC, magic_size);
 
-  std::memcpy(ptr, &VERSION_MAJOR, sizeof(uint32_t));
-  ptr += sizeof(uint32_t);
-  std::memcpy(ptr, &VERSION_MINOR, sizeof(uint32_t));
-  ptr += sizeof(uint32_t);
-
-  std::memcpy(ptr, &num_chunks, sizeof(uint32_t));
-  ptr += sizeof(uint32_t);
-
-  std::memcpy(ptr, offsets.data(), offsets.size() * sizeof(uint64_t));
-  ptr += offsets.size() * sizeof(uint64_t);
+  ptr += copy(ptr, &VERSION_MAJOR, sizeof(uint32_t));
+  ptr += copy(ptr, &VERSION_MINOR, sizeof(uint32_t));
+  ptr += copy(ptr, &num_chunks, sizeof(uint32_t));
+  ptr += copy(ptr, offsets.data(), offsets.size() * sizeof(uint64_t));
 
   for (std::size_t idx = 0; idx < num_chunks; ++idx) {
     uint32_t const check_sum = 0;  // dummy checksum, currently not implemented.
-    std::memcpy(ptr, &check_sum, sizeof(uint32_t));
-    ptr += sizeof(uint32_t);
-
-    std::memcpy(ptr, &buff_compressions[idx], sizeof(int32_t));
-    ptr += sizeof(int32_t);
+    ptr += copy(ptr, &check_sum, sizeof(uint32_t));
+    ptr += copy(ptr, &buff_compressions[idx], sizeof(int32_t));
 
     cudf::host_span<uint8_t const> out_buff =
       buff_compressions[idx] == cudf::io::compression_type::NONE ? inputs[idx]
                                                                  : compressed_inputs[idx];
-    std::memcpy(ptr, out_buff.data(), out_buff.size());
-    ptr += out_buff.size();
+    ptr += copy(ptr, out_buff.data(), out_buff.size());
+  }
+
+  return output;
+}
+
+std::vector<std::vector<uint8_t>> deserialize_cookie(cudf::host_span<uint8_t const> input)
+{
+  CUDF_EXPECTS(input.size() > 6ul, "Input data for Cookie deserialization is too short.");
+
+  auto ptr         = input.data();
+  auto const magic = std::string_view{reinterpret_cast<char const*>(ptr), 6};
+  CUDF_EXPECTS(magic == MAGIC, "Invalid input for Cookie deserialization: invalid MAGIC.");
+  ptr += 6ul;  // Skip the magic string.
+
+  uint32_t version = 0;
+  ptr += copy(&version, ptr, sizeof(uint32_t));
+  CUDF_EXPECTS(version == VERSION_MAJOR,
+               "Invalid input for Cookie deserialization: incompatible data versions.");
+  ptr += copy(&version, ptr, sizeof(uint32_t));  // minor version is unused for now
+
+  uint32_t num_chunks = 0;
+  ptr += copy(&num_chunks, ptr, sizeof(uint32_t));
+
+  std::vector<uint64_t> offsets(num_chunks + 1, 0);
+  ptr += copy(offsets.data(), ptr, (num_chunks + 1) * sizeof(uint64_t));
+
+  std::vector<std::vector<uint8_t>> output(num_chunks);
+  uint32_t check_sum                          = 0;
+  cudf::io::compression_type compression_type = cudf::io::compression_type::NONE;
+
+  for (std::size_t idx = 0; idx < num_chunks; ++idx) {
+    ptr += copy(&check_sum, ptr, sizeof(uint32_t));  // unused for now
+    ptr += copy(&compression_type, ptr, sizeof(int32_t));
   }
 
   return output;
