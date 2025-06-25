@@ -45,7 +45,7 @@ set_target_properties(
   PROPERTIES BUILD_RPATH "\$ORIGIN"
              INSTALL_RPATH "\$ORIGIN"
              # set target compile options
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              CXX_VISIBILITY_PRESET "hidden"
              VISIBILITY_INLINES_HIDDEN TRUE
