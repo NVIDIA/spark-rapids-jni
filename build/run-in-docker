@@ -20,6 +20,11 @@
 
 set -e
 
+# Set this environment variable to ON to build the docker image for local development,
+# with gcc-toolset enabled by default.
+# This is necessary especially if the docker container is used for local development with an IDE.
+JNI_DOCKER_DEV_BUILD=${JNI_DOCKER_DEV_BUILD:-OFF}
+
 REPODIR_REL=$(git rev-parse --show-toplevel)
 REPODIR=$(realpath "$REPODIR_REL")
 GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
@@ -39,13 +44,20 @@ DOCKER_RUN_EXTRA_ARGS=${DOCKER_RUN_EXTRA_ARGS:-""}
 LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}
 LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 
-SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
+if [ "$JNI_DOCKER_DEV_BUILD" == "ON" ]; then
+  echo "Building docker image for local development, gcc-toolset is enabled by default..."
+  SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
+else
+  echo "Building docker image for production, gcc-toolset is NOT enabled by default..."
+  SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux8"
+fi
 
 # ensure directories exist
 mkdir -p "$LOCAL_CCACHE_DIR" "$LOCAL_MAVEN_REPO"
 
 $DOCKER_CMD build $DOCKER_BUILD_EXTRA_ARGS -f $REPODIR/ci/Dockerfile \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
+  --build-arg DEV_BUILD=$JNI_DOCKER_DEV_BUILD \
   -t $SPARK_IMAGE_NAME \
   $REPODIR/build
 
