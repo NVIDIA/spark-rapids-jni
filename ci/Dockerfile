@@ -28,7 +28,10 @@ ARG TARGETPLATFORM=linux/amd64
 # check available official arm-based docker images at https://hub.docker.com/r/nvidia/cuda/tags (OS/ARCH)
 FROM --platform=$TARGETPLATFORM nvidia/cuda:$CUDA_VERSION-devel-rockylinux$OS_RELEASE
 
-### Software versions for development
+# If DEV_BUILD is ON, the gcc-toolset will be enabled by default for bash shell
+ARG DEV_BUILD=OFF
+
+# Dependency versions
 ARG TOOLSET_VERSION=11
 ARG CMAKE_VERSION=3.30.4
 ARG CCACHE_VERSION=4.11.2
@@ -42,10 +45,12 @@ RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-${TOOLSET_VERSI
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
 
-# Enable the toolset by default for bash shell
-RUN echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashrc
+# Enable the gcc-toolset by default for bash shell if DEV_BUILD is ON
+RUN if [ "$DEV_BUILD" = "ON" ]; then \
+        echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashrc; \
+    fi
 
-# Execute every time a new non-interactive bash shell is started to enable gcc-toolset
+# Execute every time a new non-interactive bash shell is started
 ENV BASH_ENV=/etc/bashrc
 
 ## pre-create the CMAKE_INSTALL_PREFIX folder, set writable by any user for Jenkins
