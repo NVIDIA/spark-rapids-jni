@@ -46,10 +46,10 @@ LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 
 if [ "$JNI_DOCKER_DEV_BUILD" == "ON" ]; then
   echo "Building docker image for local development, gcc-toolset is enabled by default..."
-  SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
+  JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
 else
   echo "Building docker image for production, gcc-toolset is NOT enabled by default..."
-  SPARK_IMAGE_NAME="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux8"
+  JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux8"
 fi
 
 # ensure directories exist
@@ -58,7 +58,7 @@ mkdir -p "$LOCAL_CCACHE_DIR" "$LOCAL_MAVEN_REPO"
 $DOCKER_CMD build $DOCKER_BUILD_EXTRA_ARGS -f $REPODIR/ci/Dockerfile \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
   --build-arg DEV_BUILD=$JNI_DOCKER_DEV_BUILD \
-  -t $SPARK_IMAGE_NAME \
+  -t $JNI_DOCKER_IMAGE \
   $REPODIR/build
 
 if [[ "$DOCKER_CMD" == "docker" ]]; then
@@ -114,5 +114,5 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e VERBOSE \
   -e TZ=${TZ} \
   $DOCKER_OPTS \
-  $SPARK_IMAGE_NAME \
+  $JNI_DOCKER_IMAGE \
   scl enable gcc-toolset-11 "$RUN_CMD"
