@@ -117,14 +117,15 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_float
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(j_input);
-    cudf::jni::native_jlongArray output(env, 2);
+    cudf::jni::native_jlongArray output(env, 3);
 
-    auto [casted_col, has_failure] = cudf::jni::floating_point_to_decimal(
+    auto [casted_col, has_failure, failure_row_id] = cudf::jni::floating_point_to_decimal(
       *input,
       cudf::data_type{static_cast<cudf::type_id>(output_type_id), static_cast<int>(decimal_scale)},
       precision);
     output[0] = cudf::jni::release_as_jlong(std::move(casted_col));
     output[1] = static_cast<jlong>(has_failure);
+    output[2] = static_cast<jlong>(failure_row_id);
     return output.get_jArray();
   }
   CATCH_STD(env, 0);
