@@ -188,12 +188,10 @@ public class DecimalUtils {
    */
   public static class CastFloatToDecimalResult {
     public final ColumnVector result; // the cast result
-    public final boolean hasFailure; // whether the cast operation has failed for any input rows
-    public final long failureRowId; // the index of one faliure row, -1 means no failures.
+    public final long failureRowId; // the index of one faliure row, negative means no failures.
 
-    public CastFloatToDecimalResult(ColumnVector result, boolean hasFailure, long failureId) {
+    public CastFloatToDecimalResult(ColumnVector result, long failureId) {
       this.result = result;
-      this.hasFailure = hasFailure;
       this.failureRowId = failureId;
     }
   }
@@ -211,7 +209,7 @@ public class DecimalUtils {
     long[] result = floatingPointToDecimal(
         input.getNativeView(), outputType.getTypeId().getNativeId(), precision,
         outputType.getScale());
-    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1] != 0, result[2]);
+    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1]);
   }
 
   private static native long[] multiply128(long viewA, long viewB, int productScale, boolean interimCast);

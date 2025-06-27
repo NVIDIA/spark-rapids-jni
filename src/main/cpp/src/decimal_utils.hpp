@@ -74,7 +74,7 @@ std::unique_ptr<cudf::table> sub_decimal128(
  * @return A cudf column containing the cast result and a boolean value indicating whether the cast
            operation has failed for any input rows
  */
-std::tuple<std::unique_ptr<cudf::column>, bool, cudf::size_type> floating_point_to_decimal(
+std::pair<std::unique_ptr<cudf::column>, cudf::size_type> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
   int32_t precision,
