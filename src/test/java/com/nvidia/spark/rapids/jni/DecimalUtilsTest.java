@@ -686,11 +686,11 @@ public class DecimalUtilsTest {
       DecimalUtils.CastFloatToDecimalResult output5 = DecimalUtils.floatingPointToDecimal(input5, DType.create(DType.DTypeEnum.DECIMAL64, -1), 4);
 
       try {
-        assert (!output1.hasFailure);
-        assert (!output2.hasFailure);
-        assert (!output3.hasFailure);
-        assert (output4.hasFailure);
-        assert (output5.hasFailure);
+        assert (output1.failureRowId < 0);
+        assert (output2.failureRowId < 0);
+        assert (output3.failureRowId < 0);
+        assert (output4.failureRowId >= 0);
+        assert (output5.failureRowId >= 0);
 
         assertColumnsAreEqual(expected1, output1.result);
         assertColumnsAreEqual(expected2, output2.result);
