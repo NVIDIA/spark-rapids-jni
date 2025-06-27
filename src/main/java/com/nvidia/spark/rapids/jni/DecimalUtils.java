@@ -188,7 +188,7 @@ public class DecimalUtils {
    */
   public static class CastFloatToDecimalResult {
     public final ColumnVector result; // the cast result
-    public final long failureRowId; // the index of one faliure row, negative means no failures.
+    public final long failureRowId; // the index of one failure row, negative means no failures
 
     public CastFloatToDecimalResult(ColumnVector result, long failureId) {
       this.result = result;
