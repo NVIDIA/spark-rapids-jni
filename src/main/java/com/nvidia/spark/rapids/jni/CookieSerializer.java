@@ -18,6 +18,9 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import ai.rapids.cudf.HostMemoryBuffer;
+import ai.rapids.cudf.NativeDepsLoader;
+
 public class CookieSerializer {
     static {
         NativeDepsLoader.loadNativeDeps();
@@ -25,18 +28,30 @@ public class CookieSerializer {
 
     // Class storing unique_ptr<std::vector<uint8_t>>
     // This is just a prototype and can be changed later
-    public class NativeBuffer implements AutoCloseable {
-        private long std_vector_handle;
+    public static class NativeBuffer implements AutoCloseable {
+        private long address;
+        private long length;
+        private long handle;
 
-        public NativeBuffer(long std_vector_handle) {
-            this.std_vector_handle = std_vector_handle;
+        public NativeBuffer(long[] stdVectorInfo) {
+            this.address = stdVectorInfo[0];
+            this.length = stdVectorInfo[1];
+            this.handle = stdVectorInfo[2];
+        }
+
+        public long getAddress() {
+            return address;
+        }
+
+        public long getLength() {
+            return length;
         }
 
         @Override
         public void close() {
-            if (std_vector_handle != 0) {
-                closeStdVector(std_vector_handle);
-                std_vector_handle = 0;
+            if (handle != 0) {
+                closeStdVector(handle);
+                handle = 0;
             }
         }
 
@@ -44,7 +59,7 @@ public class CookieSerializer {
     }
 
     
-    public static NativeBuffer serialize(long[] addrsSizes) {
+    public static NativeBuffer serializeFromAddrsAndSizes(long[] addrsSizes) {
         return new NativeBuffer(serialize(addrsSizes));
     }
 
@@ -57,16 +72,18 @@ public class CookieSerializer {
         return new NativeBuffer(serialize(addrsSizes));
     }
 
-    public static NativeBuffer[] deserialize(long addr, long size) {
-        long[] bufferHandles = deserialize(addr, size);
-        NativeBuffer[] buffers = new NativeBuffer[bufferHandles.length];
-        for (int i = 0; i < bufferHandles.length; i++) {
-            buffers[i] = new NativeBuffer(bufferHandles[i]);
+    public static NativeBuffer[] deserializeFromAddrsAndSizes(long addr, long size) {
+        long[] bufferInfos = deserialize(addr, size);
+        NativeBuffer[] buffers = new NativeBuffer[bufferInfos.length / 3];
+        for (int i = 0; i < buffers.length; i++) {
+            long[] bufferInfo = {bufferInfos[i * 3], bufferInfos[i * 3 + 1], bufferInfos[i * 3 + 2]};
+            buffers[i] = new NativeBuffer(bufferInfo);
         }
         return buffers;
     }
 
-    private static native long serialize(long[] addrsSizes);
+    
+    private static native long[] serialize(long[] addrsSizes);
 
     private static native long[] deserialize(long addr, long size);
 }

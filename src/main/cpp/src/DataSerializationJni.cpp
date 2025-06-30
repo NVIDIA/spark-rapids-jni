@@ -115,7 +115,7 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serialize(
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serialize(
   JNIEnv* env, jclass, jlongArray j_addrs_sizes)
 {
   JNI_NULL_CHECK(env, j_addrs_sizes, "Array containing buffers' address/size is null", 0);
@@ -130,7 +130,12 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serial
       buffers[i] = cudf::host_span<uint8_t const>{reinterpret_cast<uint8_t const*>(addrs_sizes[i]),
                                                   static_cast<std::size_t>(addrs_sizes[i + 1])};
     }
-    return reinterpret_cast<jlong>(spark_rapids_jni::serialize_cookie(buffers).release());
+    auto output = spark_rapids_jni::serialize_cookie(buffers);
+    cudf::jni::native_jlongArray result(env, 3);
+    result[0] = reinterpret_cast<jlong>(output->data());
+    result[1] = static_cast<jlong>(output->size());
+    result[2] = reinterpret_cast<jlong>(output.release());
+    return result.get_jArray();
   }
   CATCH_STD(env, 0);
 }
@@ -144,9 +149,11 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_d
   try {
     auto deserialized = spark_rapids_jni::deserialize_cookie(cudf::host_span<uint8_t const>{
       reinterpret_cast<uint8_t const*>(j_addr), static_cast<std::size_t>(j_size)});
-    cudf::jni::native_jlongArray result(env, deserialized.size());
+    cudf::jni::native_jlongArray result(env, deserialized.size() * 3);
     for (std::size_t i = 0; i < deserialized.size(); ++i) {
-      result[i] = reinterpret_cast<jlong>(deserialized[i].release());
+      result[i * 3]     = reinterpret_cast<jlong>(deserialized[i]->data());
+      result[i * 3 + 1] = static_cast<jlong>(deserialized[i]->size());
+      result[i * 3 + 2] = reinterpret_cast<jlong>(deserialized[i].release());
     }
     return result.get_jArray();
   }
