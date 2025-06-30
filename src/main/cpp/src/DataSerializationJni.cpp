@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "cookie_serializer.hpp"
 #include "cudf_jni_apis.hpp"
 #include "shuffle_split.hpp"
 
@@ -110,6 +111,44 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
                        offsets,
                        cudf::get_default_stream(),
                        cudf::get_current_device_resource()));
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serialize(
+  JNIEnv* env, jclass, jlongArray j_addrs_sizes)
+{
+  JNI_NULL_CHECK(env, j_addrs_sizes, "Array containing buffers' address/size is null", 0);
+  try {
+    auto const addrs_sizes = cudf::jni::native_jlongArray{env, j_addrs_sizes};
+    if (addrs_sizes.size() % 2 != 0) {
+      throw std::logic_error("Length of addrs_sizes is not a multiple of 2.");
+    }
+    std::size_t const num_buffers = addrs_sizes.size() / 2;
+    std::vector<cudf::host_span<uint8_t const>> buffers(num_buffers);
+    for (int i = 0; i < addrs_sizes.size(); i += 2) {
+      buffers[i] = cudf::host_span<uint8_t const>{reinterpret_cast<uint8_t const*>(addrs_sizes[i]),
+                                                  static_cast<std::size_t>(addrs_sizes[i + 1])};
+    }
+    return reinterpret_cast<jlong>(spark_rapids_jni::serialize_cookie(buffers).release());
+  }
+  CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_deserialize(
+  JNIEnv* env, jclass, jlong j_addr, jlong j_size)
+{
+  JNI_NULL_CHECK(env, j_addr, "Input buffer address is null", NULL);
+  CUDF_EXPECTS(j_size > 0, "Input buffer size is non-positive", std::invalid_argument);
+
+  try {
+    auto deserialized = spark_rapids_jni::deserialize_cookie(cudf::host_span<uint8_t const>{
+      reinterpret_cast<uint8_t const*>(j_addr), static_cast<std::size_t>(j_size)});
+    cudf::jni::native_jlongArray result(env, deserialized.size());
+    for (std::size_t i = 0; i < deserialized.size(); ++i) {
+      result[i] = reinterpret_cast<jlong>(deserialized[i].release());
+    }
+    return result.get_jArray();
   }
   CATCH_STD(env, NULL);
 }

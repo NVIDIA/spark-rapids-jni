@@ -19,6 +19,7 @@
 #include <cudf/io/types.hpp>
 #include <cudf/utilities/span.hpp>
 
+#include <memory>
 #include <vector>
 
 namespace spark_rapids_jni {
@@ -64,7 +65,7 @@ namespace spark_rapids_jni {
  * @param inputs An array of host buffers to be serialized
  * @return A vector of bytes representing the serialized data
  */
-[[nodiscard]] std::vector<uint8_t> serialize_cookie(
+[[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize_cookie(
   cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
   cudf::io::compression_type compression = cudf::io::compression_type::SNAPPY);
 
@@ -74,7 +75,7 @@ namespace spark_rapids_jni {
  * @param input A byte vector representing the serialized data in Cookie format
  * @return A vector of byte vectors, each representing a deserialized data buffer
  */
-[[nodiscard]] std::vector<std::vector<uint8_t>> deserialize_cookie(
+[[nodiscard]] std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie(
   cudf::host_span<uint8_t const> input);
 
 }  // namespace spark_rapids_jni

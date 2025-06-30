@@ -75,8 +75,9 @@ template <typename T, typename U>
 
 }  // namespace
 
-std::vector<uint8_t> serialize_cookie(cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
-                                      cudf::io::compression_type compression)
+std::unique_ptr<std::vector<uint8_t>> serialize_cookie(
+  cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
+  cudf::io::compression_type compression)
 {
   // Compress the input buffers first to detect any issues with the compression early on.
   auto codec_tasks =
@@ -108,10 +109,10 @@ std::vector<uint8_t> serialize_cookie(cudf::host_span<cudf::host_span<uint8_t co
     offsets[idx + 1] = out_data_size;
   }
 
-  std::vector<uint8_t> output;
-  output.resize(compute_header_size(num_chunks) + out_data_size);
+  auto output = std::make_unique<std::vector<uint8_t>>();
+  output->resize(compute_header_size(num_chunks) + out_data_size);
 
-  auto ptr = output.data();
+  auto ptr = output->data();
 
   // Write the header.
   auto const magic_size = strlen(MAGIC);
@@ -138,7 +139,8 @@ std::vector<uint8_t> serialize_cookie(cudf::host_span<cudf::host_span<uint8_t co
   return output;
 }
 
-std::vector<std::vector<uint8_t>> deserialize_cookie(cudf::host_span<uint8_t const> input)
+std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie(
+  cudf::host_span<uint8_t const> input)
 {
   CUDF_EXPECTS(input.size() > 6ul, "Input data for Cookie deserialization is too short.");
 
@@ -183,10 +185,10 @@ std::vector<std::vector<uint8_t>> deserialize_cookie(cudf::host_span<uint8_t con
       return cudf::io::detail::decompress(compression_types[idx], input);
     });
 
-  std::vector<std::vector<uint8_t>> output(num_chunks);
+  std::vector<std::unique_ptr<std::vector<uint8_t>>> output(num_chunks);
   for (auto& task : codec_tasks) {
     auto [idx, decompressed] = task.get();
-    output[idx]              = std::move(decompressed);
+    output[idx]              = std::make_unique<std::vector<uint8_t>>(std::move(decompressed));
   }
   return output;
 }
