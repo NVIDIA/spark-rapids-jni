@@ -152,4 +152,17 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_d
   }
   CATCH_STD(env, NULL);
 }
+
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_closeStdVector(
+  JNIEnv* env, jclass, jlong j_std_vector_handle)
+{
+  JNI_NULL_CHECK(env, j_std_vector_handle, "std_vector_handle is null", );
+  try {
+    auto const ptr = reinterpret_cast<std::unique_ptr<std::vector<uint8_t>>*>(j_std_vector_handle);
+    ptr->reset();  // reset, not release, as we are deleting the underlying vector
+    delete ptr;    // must also delete the handler
+  }
+  CATCH_STD(env, );
+}
 }
