@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -119,12 +119,12 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_float
     auto const input = reinterpret_cast<cudf::column_view const*>(j_input);
     cudf::jni::native_jlongArray output(env, 2);
 
-    auto [casted_col, has_failure] = cudf::jni::floating_point_to_decimal(
+    auto [casted_col, failure_row_id] = cudf::jni::floating_point_to_decimal(
       *input,
       cudf::data_type{static_cast<cudf::type_id>(output_type_id), static_cast<int>(decimal_scale)},
       precision);
     output[0] = cudf::jni::release_as_jlong(std::move(casted_col));
-    output[1] = static_cast<jlong>(has_failure);
+    output[1] = static_cast<jlong>(failure_row_id);
     return output.get_jArray();
   }
   CATCH_STD(env, 0);
