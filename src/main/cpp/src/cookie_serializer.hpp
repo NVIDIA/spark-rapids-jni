@@ -47,13 +47,14 @@ namespace spark_rapids_jni {
  *    to the position after the last offset values in the input byte array. The last offset value
  *    should be the total size of the serialized data of all buffers.
  *  - Within the serialized data for each buffer:
- *    - First 4 bytes: a 32-bit unsigned integer representing the checksum of the original data.
- *    - Next 4 bytes: a 32-bit SIGNED integer representing the compression type used for
+ *    - First 4 bytes: a 32-bit SIGNED integer representing the compression type used for
  *      compressing the original data, which is one of the `cudf::io::compression_type` enum values.
- *      This is stored per buffer as for some buffers, the compressed data may have large size than
- *      then uncompressed one thus we will store the uncompressed data instead.
- *    - The rest bytes: the compressed buffer data if it has smaller size than the original data, or
+ *      This is stored per buffer as for some buffers the compressed data may have large size than
+ *      then uncompressed one thus we will store the uncompressed data for that buffer instead.
+ *    - Next bytes: the compressed buffer data if it has smaller size than the original data, or
  *      the original data otherwise.
+ *    - Last 4 bytes: a 32-bit unsigned integer representing the checksum of the original data, for
+ *    data integrity verification.
  */
 
 /**
