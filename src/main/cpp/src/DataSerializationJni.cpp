@@ -115,7 +115,7 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serialize(
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serializeNative(
   JNIEnv* env, jclass, jlongArray j_addrs_sizes)
 {
   JNI_NULL_CHECK(env, j_addrs_sizes, "Array containing buffers' address/size is null", 0);
@@ -140,7 +140,30 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_s
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_deserialize(
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_serializeToFileNative(
+  JNIEnv* env, jclass, jlongArray j_addrs_sizes, jstring j_output_file)
+{
+  JNI_NULL_CHECK(env, j_addrs_sizes, "Array containing buffers' address/size is null", );
+  JNI_NULL_CHECK(env, j_output_file, "Output file is null", );
+  try {
+    auto const addrs_sizes = cudf::jni::native_jlongArray{env, j_addrs_sizes};
+    if (addrs_sizes.size() % 2 != 0) {
+      throw std::logic_error("Length of addrs_sizes is not a multiple of 2.");
+    }
+    std::size_t const num_buffers = addrs_sizes.size() / 2;
+    std::vector<cudf::host_span<uint8_t const>> buffers(num_buffers);
+    for (int i = 0; i < addrs_sizes.size(); i += 2) {
+      buffers[i] = cudf::host_span<uint8_t const>{reinterpret_cast<uint8_t const*>(addrs_sizes[i]),
+                                                  static_cast<std::size_t>(addrs_sizes[i + 1])};
+    }
+    auto const output_file_jstr = cudf::jni::native_jstring(env, j_output_file);
+    auto const output_file = std::string(output_file_jstr.get(), output_file_jstr.size_bytes());
+    spark_rapids_jni::serialize_cookie_to_file(buffers, output_file);
+  }
+  CATCH_STD(env, );
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_deserializeNative(
   JNIEnv* env, jclass, jlong j_addr, jlong j_size)
 {
   JNI_NULL_CHECK(env, j_addr, "Input buffer address is null", NULL);
@@ -149,6 +172,27 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_d
   try {
     auto deserialized = spark_rapids_jni::deserialize_cookie(cudf::host_span<uint8_t const>{
       reinterpret_cast<uint8_t const*>(j_addr), static_cast<std::size_t>(j_size)});
+    cudf::jni::native_jlongArray result(env, deserialized.size() * 3);
+    for (std::size_t i = 0; i < deserialized.size(); ++i) {
+      result[i * 3]     = reinterpret_cast<jlong>(deserialized[i]->data());
+      result[i * 3 + 1] = static_cast<jlong>(deserialized[i]->size());
+      result[i * 3 + 2] = reinterpret_cast<jlong>(deserialized[i].release());
+    }
+    return result.get_jArray();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_CookieSerializer_deserializeFromFileNative(JNIEnv* env,
+                                                                            jclass,
+                                                                            jstring j_input_file)
+{
+  JNI_NULL_CHECK(env, j_input_file, "Input file is null", NULL);
+  try {
+    auto const input_file_jstr = cudf::jni::native_jstring(env, j_input_file);
+    auto const input_file      = std::string(input_file_jstr.get(), input_file_jstr.size_bytes());
+    auto deserialized          = spark_rapids_jni::deserialize_cookie_from_file(input_file);
     cudf::jni::native_jlongArray result(env, deserialized.size() * 3);
     for (std::size_t i = 0; i < deserialized.size(); ++i) {
       result[i * 3]     = reinterpret_cast<jlong>(deserialized[i]->data());
@@ -171,5 +215,20 @@ Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_closeStdVector(
     delete ptr;    // must also delete the handler
   }
   CATCH_STD(env, );
+}
+
+// TODO: for testing only, remove this later
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_getLongNative(JNIEnv* env,
+                                                                             jclass,
+                                                                             jlong j_address,
+                                                                             int index)
+{
+  JNI_NULL_CHECK(env, j_address, "address is null", 0);
+  try {
+    auto const ptr = reinterpret_cast<long*>(j_address);
+    return ptr[index];
+  }
+  CATCH_STD(env, 0);
 }
 }

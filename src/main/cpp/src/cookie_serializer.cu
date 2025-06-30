@@ -18,6 +18,7 @@
 #include <cudf/io/detail/codec.hpp>
 
 #include <algorithm>
+#include <fstream>
 #include <future>
 #include <numeric>
 #include <string_view>
@@ -139,6 +140,16 @@ std::unique_ptr<std::vector<uint8_t>> serialize_cookie(
   return output;
 }
 
+void serialize_cookie_to_file(cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
+                              std::string const& output_file,
+                              cudf::io::compression_type compression)
+{
+  auto output = serialize_cookie(inputs, compression);
+  std::ofstream out(output_file, std::ios::binary);
+  out.write(reinterpret_cast<char*>(output->data()), output->size());
+  out.close();
+}
+
 std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie(
   cudf::host_span<uint8_t const> input)
 {
@@ -191,6 +202,32 @@ std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie(
     output[idx]              = std::make_unique<std::vector<uint8_t>>(std::move(decompressed));
   }
   return output;
+}
+namespace {
+std::vector<uint8_t> readFileToVector(const std::string& filename)
+{
+  std::ifstream file(filename, std::ios::binary | std::ios::ate);
+  if (!file) {
+    // Handle error (could throw, return empty vector, etc.)
+    return {};
+  }
+  std::streamsize size = file.tellg();
+  file.seekg(0, std::ios::beg);
+
+  std::vector<uint8_t> buffer(size);
+  if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+    // Handle error
+    return {};
+  }
+  return buffer;
+}
+}  // namespace
+
+std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie_from_file(
+  std::string const& input_file)
+{
+  auto input = readFileToVector(input_file);
+  return deserialize_cookie(input);
 }
 
 }  // namespace spark_rapids_jni

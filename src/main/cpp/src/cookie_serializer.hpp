@@ -69,6 +69,12 @@ namespace spark_rapids_jni {
   cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
   cudf::io::compression_type compression = cudf::io::compression_type::SNAPPY);
 
+// Same as above, but does not return a vector, instead writes the serialized data to a file.
+void serialize_cookie_to_file(
+  cudf::host_span<cudf::host_span<uint8_t const> const> inputs,
+  std::string const& output_file,
+  cudf::io::compression_type compression = cudf::io::compression_type::SNAPPY);
+
 /**
  * @brief Deserialize a byte vector into an array of byte vectors using Cookie serialization format.
  *
@@ -77,5 +83,9 @@ namespace spark_rapids_jni {
  */
 [[nodiscard]] std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie(
   cudf::host_span<uint8_t const> input);
+
+// Same as above, but reads the serialized data from a file.
+[[nodiscard]] std::vector<std::unique_ptr<std::vector<uint8_t>>> deserialize_cookie_from_file(
+  std::string const& input_file);
 
 }  // namespace spark_rapids_jni

@@ -47,6 +47,10 @@ public class CookieSerializer {
             return length;
         }
 
+        public long getLong(int index) {
+            return getLongNative(address, index);
+        }
+
         @Override
         public void close() {
             if (handle != 0) {
@@ -55,12 +59,15 @@ public class CookieSerializer {
             }
         }
 
-        private native void closeStdVector(long std_vector_handle);
+        private static native void closeStdVector(long std_vector_handle);
+
+        
+        private static native long getLongNative(long address, int index);
     }
 
     
     public static NativeBuffer serializeFromAddrsAndSizes(long[] addrsSizes) {
-        return new NativeBuffer(serialize(addrsSizes));
+        return new NativeBuffer(serializeNative(addrsSizes));
     }
 
     public static NativeBuffer serialize(HostMemoryBuffer... buffers) {
@@ -69,11 +76,11 @@ public class CookieSerializer {
             addrsSizes[i * 2] = buffers[i].getAddress();
             addrsSizes[(i * 2) + 1] = buffers[i].getLength();
         }
-        return new NativeBuffer(serialize(addrsSizes));
+        return new NativeBuffer(serializeNative(addrsSizes));
     }
 
     public static NativeBuffer[] deserializeFromAddrsAndSizes(long addr, long size) {
-        long[] bufferInfos = deserialize(addr, size);
+        long[] bufferInfos = deserializeNative(addr, size);
         NativeBuffer[] buffers = new NativeBuffer[bufferInfos.length / 3];
         for (int i = 0; i < buffers.length; i++) {
             long[] bufferInfo = {bufferInfos[i * 3], bufferInfos[i * 3 + 1], bufferInfos[i * 3 + 2]};
@@ -82,8 +89,33 @@ public class CookieSerializer {
         return buffers;
     }
 
-    
-    private static native long[] serialize(long[] addrsSizes);
+    public static void serializeToFile(String outputFile, HostMemoryBuffer... buffers) {
+        long[] addrsSizes = new long[buffers.length * 2];
+        for (int i = 0; i < buffers.length; i++) {
+            addrsSizes[i * 2] = buffers[i].getAddress();
+            addrsSizes[(i * 2) + 1] = buffers[i].getLength();
+        }
+        serializeToFileNative(addrsSizes, outputFile);
+    }
 
-    private static native long[] deserialize(long addr, long size);
+    public static NativeBuffer[] deserializeFromFile(String inputFile) {
+        long[] bufferInfos = deserializeNative(inputFile);
+        NativeBuffer[] buffers = new NativeBuffer[bufferInfos.length / 3];
+        for (int i = 0; i < buffers.length; i++) {
+            long[] bufferInfo = {bufferInfos[i * 3], bufferInfos[i * 3 + 1], bufferInfos[i * 3 + 2]};
+            buffers[i] = new NativeBuffer(bufferInfo);
+        }
+        return buffers;
+    }
+
+    // TODO: fix names
+    private static native long[] serializeNative(long[] addrsSizes);
+
+    private static native void serializeToFileNative(long[] addrsSizes, String outputFile);
+
+    private static native long[] deserializeNative(long addr, long size);
+
+    private static native long[] deserializeNative(String inputFile);
+
+    
 }

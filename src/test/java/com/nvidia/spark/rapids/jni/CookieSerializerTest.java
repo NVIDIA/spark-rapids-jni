@@ -20,39 +20,29 @@ import ai.rapids.cudf.*;
 
 import org.junit.jupiter.api.Test;
 
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class CookieSerializerTest {
 
-  private static class NoopCleaner extends MemoryBuffer.MemoryBufferCleaner {
-    @Override
-    protected boolean cleanImpl(boolean logErrorIfNotClean) {
-      return true;
-    }
 
-    @Override
-    public boolean isClean() {
-      return true;
-    }
-  }
-
-  private static final NoopCleaner cleaner = new NoopCleaner();
 
   @Test
   void simpleRoundTripTest() {
-    try (HostMemoryBuffer input = new HostMemoryBuffer(1000L * Long.BYTES);) {
+    try (HostMemoryBuffer input = HostMemoryBuffer.allocate(1000L * Long.BYTES);) {
       for (int i = 0; i < 1000; i++) {
         input.setLong(i * Long.BYTES, i);
       }
-      try (CookieSerializer.NativeBuffer serialized = CookieSerializer.serialize(input);
-           CookieSerializer.NativeBuffer[] deserialized = CookieSerializer.deserialize(
-            serialized.getAddress(), serialized.getLength());
-           HostMemoryBuffer output = new HostMemoryBuffer(deserialized[0].getAddress(), 
-           deserialized[0].getLength(), cleaner);
-      ) {
-         assertColumnsAreEqual(input, output);
+      CookieSerializer.serializeToFile("/tmp/cookie_test.bin", input);
+      CookieSerializer.NativeBuffer[] deserialized = CookieSerializer.deserializeFromFile("/tmp/cookie_test.bin");
+      for(int i = 0; i < 1000; i++) {
+        assertEquals(input.getLong(i * Long.BYTES), deserialized[0].getLong(i));
       }
+
+      // TODO: fix this
+      deserialized[0].close();
+      input.close();
     }
   }
   
+
 }
