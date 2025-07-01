@@ -40,6 +40,10 @@ include(rapids-export)
 include(rapids-find)
 rapids_cpm_init()
 
+# find thread_pool
+# This may just be replaced by linking to pthread, need to verify.
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thread_pool.cmake)
+
 rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
@@ -296,6 +300,7 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
+    $<BUILD_LOCAL_INTERFACE:BS::thread_pool>
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
