@@ -48,21 +48,18 @@ public class CookieSerializer {
         }
 
         public long getLong(int index) {
-            return getLongNative(address, index);
+            return CookieSerializer.getLongNative(address, index);
         }
 
         @Override
         public void close() {
             if (handle != 0) {
-                closeStdVector(handle);
+                CookieSerializer.closeStdVector(handle);
                 handle = 0;
             }
         }
 
-        private static native void closeStdVector(long std_vector_handle);
-
         
-        private static native long getLongNative(long address, int index);
     }
 
     
@@ -99,7 +96,7 @@ public class CookieSerializer {
     }
 
     public static NativeBuffer[] deserializeFromFile(String inputFile) {
-        long[] bufferInfos = deserializeNative(inputFile);
+        long[] bufferInfos = deserializeFromFileNative(inputFile);
         NativeBuffer[] buffers = new NativeBuffer[bufferInfos.length / 3];
         for (int i = 0; i < buffers.length; i++) {
             long[] bufferInfo = {bufferInfos[i * 3], bufferInfos[i * 3 + 1], bufferInfos[i * 3 + 2]};
@@ -115,7 +112,11 @@ public class CookieSerializer {
 
     private static native long[] deserializeNative(long addr, long size);
 
-    private static native long[] deserializeNative(String inputFile);
+    private static native long[] deserializeFromFileNative(String inputFile);
+
+    private static native void closeStdVector(long std_vector_handle);
+
+    private static native long getLongNative(long address, int index);
 
     
 }

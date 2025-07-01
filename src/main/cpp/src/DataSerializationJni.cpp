@@ -204,8 +204,7 @@ Java_com_nvidia_spark_rapids_jni_CookieSerializer_deserializeFromFileNative(JNIE
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT void JNICALL
-Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_closeStdVector(
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_closeStdVector(
   JNIEnv* env, jclass, jlong j_std_vector_handle)
 {
   JNI_NULL_CHECK(env, j_std_vector_handle, "std_vector_handle is null", );
@@ -218,11 +217,8 @@ Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_closeStdVector(
 }
 
 // TODO: for testing only, remove this later
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_CookieSerializer_NativeBuffer_getLongNative(JNIEnv* env,
-                                                                             jclass,
-                                                                             jlong j_address,
-                                                                             int index)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CookieSerializer_getLongNative(
+  JNIEnv* env, jclass, jlong j_address, int index)
 {
   JNI_NULL_CHECK(env, j_address, "address is null", 0);
   try {

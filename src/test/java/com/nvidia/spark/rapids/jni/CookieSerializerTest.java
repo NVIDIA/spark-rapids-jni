@@ -40,7 +40,6 @@ public class CookieSerializerTest {
 
       // TODO: fix this
       deserialized[0].close();
-      input.close();
     }
   }
   
