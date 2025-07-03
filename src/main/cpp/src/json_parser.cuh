@@ -905,7 +905,8 @@ class json_parser {
   }
 
   /**
-   * try skip 4 HEX chars
+   * try skip 4 HEX chars, and possibly another \u escaped hex char
+   * sequence, if the sequence is part of a surrogate pair.
    * in pattern: '\\' 'u' HEX HEX HEX HEX, it's a code point of unicode
    */
   static __device__ bool try_skip_unicode(char_range_reader& str,
@@ -914,8 +915,7 @@ class json_parser {
                                           int& output_size_bytes,
                                           bool& matched_field_name)
   {
-    // already parsed \u
-    // now we expect 4 hex chars.
+    // Parse initial \u escape sequence
     cudf::char_utf8 code_point = 0;
     for (size_t i = 0; i < 4; i++) {
       if (str.is_empty()) { return false; }
@@ -924,6 +924,36 @@ class json_parser {
       if (!is_hex_digit(c)) { return false; }
       code_point = (code_point * 16) + hex_value(c);
     }
+
+    // Check for high surrogate
+    if (code_point >= 0xD800 && code_point <= 0xDBFF) {
+      // We need to peek ahead 6 characters: \uXXXX
+      if (str.size() >= 6) {
+        // Peek for '\'
+        if (str[0] == '\\' && str[1] == 'u' &&
+            is_hex_digit(str[2]) &&
+            is_hex_digit(str[3]) &&
+            is_hex_digit(str[4]) &&
+            is_hex_digit(str[5])) {
+          cudf::char_utf8 low_surrogate = 0;
+          for (size_t i = 0; i < 4; i++) {
+            char const c = str[i + 2];
+            low_surrogate = (low_surrogate * 16) + hex_value(c);
+          }
+          // If valid low surrogate, combine
+          if (low_surrogate >= 0xDC00 && low_surrogate <= 0xDFFF) {
+            code_point = 0x10000 + ((code_point - 0xD800) << 10) + (low_surrogate - 0xDC00);
+            str.next();
+            str.next();
+            str.next();
+            str.next();
+            str.next();
+            str.next();
+          }
+        }
+      }
+    }
+
     auto utf_char = codepoint_to_utf8(code_point);
     // write utf8 bytes.
     // In UTF-8, the maximum number of bytes used to encode a single character
