@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,7 +74,7 @@ std::unique_ptr<cudf::table> sub_decimal128(
  * @return A cudf column containing the cast result and a boolean value indicating whether the cast
            operation has failed for any input rows
  */
-std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
+std::pair<std::unique_ptr<cudf::column>, cudf::size_type> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
   int32_t precision,

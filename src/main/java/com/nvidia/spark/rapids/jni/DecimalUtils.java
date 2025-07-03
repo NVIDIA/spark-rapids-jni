@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -188,11 +188,11 @@ public class DecimalUtils {
    */
   public static class CastFloatToDecimalResult {
     public final ColumnVector result; // the cast result
-    public final boolean hasFailure; // whether the cast operation has failed for any input rows
+    public final long failureRowId; // the index of one failure row, negative means no failures
 
-    public CastFloatToDecimalResult(ColumnVector result, boolean hasFailure) {
+    public CastFloatToDecimalResult(ColumnVector result, long failureId) {
       this.result = result;
-      this.hasFailure = hasFailure;
+      this.failureRowId = failureId;
     }
   }
 
@@ -209,7 +209,7 @@ public class DecimalUtils {
     long[] result = floatingPointToDecimal(
         input.getNativeView(), outputType.getTypeId().getNativeId(), precision,
         outputType.getScale());
-    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1] != 0);
+    return new CastFloatToDecimalResult(new ColumnVector(result[0]), result[1]);
   }
 
   private static native long[] multiply128(long viewA, long viewB, int productScale, boolean interimCast);

@@ -1310,7 +1310,7 @@ template <typename FloatType, typename DecimalRepType>
 struct floating_point_to_decimal_fn {
   cudf::column_device_view input;
   int8_t* validity;
-  bool* has_failure;
+  cudf::size_type* failure_row_id;
   int32_t decimal_places;
   DecimalRepType exclusive_bound;
 
@@ -1319,7 +1319,6 @@ struct floating_point_to_decimal_fn {
     auto const x = input.element<FloatType>(idx);
 
     if (input.is_null(idx) || !std::isfinite(x)) {
-      if (!std::isfinite(x)) { *has_failure = true; }
       validity[idx] = false;
       return DecimalRepType{0};
     }
@@ -1327,7 +1326,7 @@ struct floating_point_to_decimal_fn {
     auto const scaled_rounded = scaled_round<FloatType, DecimalRepType>(x, -decimal_places);
     auto const is_out_of_bound =
       -exclusive_bound >= scaled_rounded || scaled_rounded >= exclusive_bound;
-    if (is_out_of_bound) { *has_failure = true; }
+    if (is_out_of_bound) { *failure_row_id = idx; }
     validity[idx] = !is_out_of_bound;
 
     return is_out_of_bound ? DecimalRepType{0} : scaled_rounded;
@@ -1360,7 +1359,7 @@ struct floating_point_to_decimal_dispatcher {
   void operator()(cudf::column_view const& input,
                   cudf::mutable_column_view const& output,
                   int8_t* validity,
-                  bool* has_failure,
+                  cudf::size_type* failure_row_id,
                   int32_t decimal_places,
                   int32_t precision,
                   rmm::cuda_stream_view stream) const
@@ -1375,13 +1374,13 @@ struct floating_point_to_decimal_dispatcher {
                      output.begin<DecimalRepType>(),
                      output.end<DecimalRepType>(),
                      floating_point_to_decimal_fn<FloatType, DecimalRepType>{
-                       *d_input_ptr, validity, has_failure, decimal_places, exclusive_bound});
+                       *d_input_ptr, validity, failure_row_id, decimal_places, exclusive_bound});
   }
 };
 
 }  // namespace
 
-std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
+std::pair<std::unique_ptr<cudf::column>, cudf::size_type> floating_point_to_decimal(
   cudf::column_view const& input,
   cudf::data_type output_type,
   int32_t precision,
@@ -1395,7 +1394,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
   auto const default_mr     = rmm::mr::get_current_device_resource();
 
   rmm::device_uvector<int8_t> validity(input.size(), stream, default_mr);
-  rmm::device_scalar<bool> has_failure(false, stream, default_mr);
+  rmm::device_scalar<cudf::size_type> failure_row_id(-1, stream, default_mr);
 
   cudf::double_type_dispatcher(input.type(),
                                output_type,
@@ -1403,7 +1402,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
                                input,
                                output->mutable_view(),
                                validity.begin(),
-                               has_failure.data(),
+                               failure_row_id.data(),
                                decimal_places,
                                precision,
                                stream);
@@ -1412,7 +1411,7 @@ std::pair<std::unique_ptr<cudf::column>, bool> floating_point_to_decimal(
     cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
   if (null_count > 0) { output->set_null_mask(std::move(null_mask), null_count); }
 
-  return {std::move(output), has_failure.value(stream)};
+  return {std::move(output), failure_row_id.value(stream)};
 }
 
 }  // namespace cudf::jni
