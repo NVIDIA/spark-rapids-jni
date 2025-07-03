@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -930,14 +930,11 @@ class json_parser {
       // We need to peek ahead 6 characters: \uXXXX
       if (str.size() >= 6) {
         // Peek for '\'
-        if (str[0] == '\\' && str[1] == 'u' &&
-            is_hex_digit(str[2]) &&
-            is_hex_digit(str[3]) &&
-            is_hex_digit(str[4]) &&
-            is_hex_digit(str[5])) {
+        if (str[0] == '\\' && str[1] == 'u' && is_hex_digit(str[2]) && is_hex_digit(str[3]) &&
+            is_hex_digit(str[4]) && is_hex_digit(str[5])) {
           cudf::char_utf8 low_surrogate = 0;
           for (size_t i = 0; i < 4; i++) {
-            char const c = str[i + 2];
+            char const c  = str[i + 2];
             low_surrogate = (low_surrogate * 16) + hex_value(c);
           }
           // If valid low surrogate, combine
