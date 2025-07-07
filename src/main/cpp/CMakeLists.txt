@@ -198,6 +198,7 @@ add_library(
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
+  src/MathJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
@@ -229,6 +230,7 @@ add_library(
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/multiply.cu
   src/murmur_hash.cu
   src/number_converter.cu
   src/parse_uri.cu
