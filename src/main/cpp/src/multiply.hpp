@@ -33,6 +33,7 @@ namespace spark_rapids_jni {
  * @param stream CUDA stream to use for the operation.
  * @param mr Memory resource to use for allocations.
  * @return A new column containing the results of the multiplication.
+ * @throws spark_rapids_jni::error_at_row exception if it's ansi mode and overflow occurs.
  */
 std::unique_ptr<cudf::column> multiply(
   cudf::column_view const& left_input,
