@@ -102,7 +102,7 @@ std::unique_ptr<cudf::column> multiply(cudf::column_view const& left_input,
   // make null mask and null count
   auto [null_mask, null_count] = cudf::detail::valid_if(
     validity.data(), validity.data() + validity.size(), cuda::std::identity{}, stream, mr);
-  result->set_null_mask(std::move(null_mask), null_count, stream);
+  if (null_count > 0) { result->set_null_mask(std::move(null_mask), null_count, stream); }
 
   if (is_ansi_mode) {
     // throw an error if any row has an overflow if ANSI mode is enabled
