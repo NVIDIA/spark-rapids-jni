@@ -74,8 +74,8 @@ ConfigureTest(CAST_STRING
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
 
-ConfigureTest(ERROR_AT_ROW
-    error_at_row.cpp)
+ConfigureTest(EXCEPTION_WITH_ROW_INDEX
+    exception_with_row_index.cpp)
 
 ConfigureTest(FORMAT_FLOAT
     format_float.cpp)

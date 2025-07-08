@@ -24,17 +24,17 @@ public class Math {
    * If the types of the two vectors do not match, an IllegalArgumentException is
    * thrown. If the row counts of the two vectors do not match, an
    * IllegalArgumentException is thrown. If the operation results in an overflow
-   * in ANSI mode, an ExceptionAtRow is thrown.
+   * in ANSI mode, an ExceptionWithRowIndex is thrown.
    *
    * @param left       left column vector
    * @param right      right column vector
    * @param isAnsiMode is ANSI mode enabled
-   *                   (if true, overflow will throw an ExceptionAtRow)
+   *                   (if true, overflow will throw an ExceptionWithRowIndex)
    *                   (if false, overflow will result in wrong values, e.g.
    *                   Integer.MAX_VALUE * 2 = -2)
    * @return a new ColumnVector containing the result of multiplying the two input
    *         vectors
-   * @throws ExceptionAtRow if an overflow occurs in ANSI mode
+   * @throws ExceptionWithRowIndex if an overflow occurs in ANSI mode
    */
   public static ColumnVector multiply(ColumnVector left, ColumnVector right, boolean isAnsiMode) {
     if (left.getType() != right.getType()) {

@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
+#include "error.hpp"
 #include "multiply.hpp"
-#include "utilities.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
@@ -31,14 +31,14 @@ namespace spark_rapids_jni {
 namespace {
 
 // Functor to perform multiplication on two columns with overflow checks if ANSI mode is enabled.
-struct MultiplyFn {
+struct multiply_fn {
   cudf::column_device_view left_cdv;
   cudf::column_device_view right_cdv;
   bool is_ansi_mode;
   int* results;
   bool* validity;
 
-  __device__ void operator()(int row_idx)
+  __device__ void operator()(int row_idx) const
   {
     if (left_cdv.is_null(row_idx) || right_cdv.is_null(row_idx)) {
       validity[row_idx] = false;
@@ -49,12 +49,12 @@ struct MultiplyFn {
       long a = left_cdv.element<int>(row_idx);
       long b = right_cdv.element<int>(row_idx);
       long r = a * b;
-      if (static_cast<int>(r) != r) {
+      if (auto r_cast = static_cast<int>(r); static_cast<long>(r_cast) == r) {
+        validity[row_idx] = true;
+        results[row_idx]  = r_cast;
+      } else {
         // Overflow detected
         validity[row_idx] = false;
-      } else {
-        validity[row_idx] = true;
-        results[row_idx]  = static_cast<int>(r);
       }
     } else {
       validity[row_idx] = true;
@@ -93,20 +93,20 @@ std::unique_ptr<cudf::column> multiply(cudf::column_view const& left_input,
   auto dcv_right = cudf::column_device_view::create(right_input, stream);
 
   thrust::for_each_n(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0),
     left_input.size(),
-    MultiplyFn{
+    multiply_fn{
       *dcv_left, *dcv_right, is_ansi_mode, result->mutable_view().data<int>(), validity.data()});
 
   // make null mask and null count
-  auto [null_mask, null_count] = cudf::detail::valid_if(
-    validity.data(), validity.data() + validity.size(), cuda::std::identity{}, stream, mr);
+  auto [null_mask, null_count] =
+    cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
   if (null_count > 0) { result->set_null_mask(std::move(null_mask), null_count, stream); }
 
   if (is_ansi_mode) {
     // throw an error if any row has an overflow if ANSI mode is enabled
-    spark_rapids_jni::throw_row_error_if_has(left_input, right_input, result->view(), stream);
+    spark_rapids_jni::throw_row_error_if_any(left_input, right_input, result->view(), stream);
   }
 
   return result;

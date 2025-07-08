@@ -13,24 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.nvidia.spark.rapids.jni;
 
 /**
- * ExceptionWithRow is an exception thrown by JNI functions when an error
+ * ExceptionWithRowIndex is an exception thrown by JNI functions when an error
  * occurs, it indicates the first row which causes an error.
  * Typically it's used by Ansi mode.
  * In Spark-Rapids repo, use the following code to get the row value:
- * `input.getScalarElement(exception.getRowWithError)`
+ * `input.getScalarElement(exception.getRowIndex)`
  *
  */
-public class ExceptionAtRow extends RuntimeException {
-  private final int rowWithError;
+public class ExceptionWithRowIndex extends RuntimeException {
+  private final int rowIndex;
 
-  ExceptionAtRow(int rowWithError) {
-    this.rowWithError = rowWithError;
+  ExceptionWithRowIndex(int rowIndex) {
+    this.rowIndex = rowIndex;
   }
 
-  public int getRowWithError() {
-    return rowWithError;
+  public int getRowIndex() {
+    return rowIndex;
   }
 }

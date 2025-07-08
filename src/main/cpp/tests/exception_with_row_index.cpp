@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "utilities.hpp"
+#include "error.hpp"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
@@ -28,14 +28,14 @@ TEST_F(ErrorAtRowTests, unary)
   cudf::test::fixed_width_column_wrapper<int64_t> result{{1, 2}, {1, 0}};
 
   try {
-    spark_rapids_jni::throw_row_error_if_has(input, result, cudf::get_default_stream());
+    spark_rapids_jni::throw_row_error_if_any(input, result, cudf::get_default_stream());
     FAIL() << "Expected error_at_row exception to be thrown";
-  } catch (const spark_rapids_jni::error_at_row& e) {
-    EXPECT_EQ(e.get_row_with_error(), 1);
+  } catch (const spark_rapids_jni::exception_with_row_index& e) {
+    EXPECT_EQ(e.get_row_index(), 1);
   }
 
   // This should not throw an exception since input and result has the same nulls
-  spark_rapids_jni::throw_row_error_if_has(input2, result, cudf::get_default_stream());
+  spark_rapids_jni::throw_row_error_if_any(input2, result, cudf::get_default_stream());
 }
 
 TEST_F(ErrorAtRowTests, binary)
@@ -45,14 +45,14 @@ TEST_F(ErrorAtRowTests, binary)
   cudf::test::fixed_width_column_wrapper<int64_t> result{{1, 2}, {1, 0}};
 
   try {
-    spark_rapids_jni::throw_row_error_if_has(input1, input2, result, cudf::get_default_stream());
+    spark_rapids_jni::throw_row_error_if_any(input1, input2, result, cudf::get_default_stream());
     FAIL() << "Expected error_at_row exception to be thrown";
-  } catch (const spark_rapids_jni::error_at_row& e) {
-    EXPECT_EQ(e.get_row_with_error(), 1);
+  } catch (const spark_rapids_jni::exception_with_row_index& e) {
+    EXPECT_EQ(e.get_row_index(), 1);
   }
 
   // This should not throw an exception since inputs and result has the same nulls
-  spark_rapids_jni::throw_row_error_if_has(input1, input1, input1, cudf::get_default_stream());
+  spark_rapids_jni::throw_row_error_if_any(input1, input1, input1, cudf::get_default_stream());
 }
 
 TEST_F(ErrorAtRowTests, ternary)
@@ -63,14 +63,14 @@ TEST_F(ErrorAtRowTests, ternary)
   cudf::test::fixed_width_column_wrapper<int64_t> result{{1, 2}, {1, 0}};
 
   try {
-    spark_rapids_jni::throw_row_error_if_has(
+    spark_rapids_jni::throw_row_error_if_any(
       input1, input2, input3, result, cudf::get_default_stream());
     FAIL() << "Expected error_at_row exception to be thrown";
-  } catch (const spark_rapids_jni::error_at_row& e) {
-    EXPECT_EQ(e.get_row_with_error(), 1);
+  } catch (const spark_rapids_jni::exception_with_row_index& e) {
+    EXPECT_EQ(e.get_row_index(), 1);
   }
 
   // This should not throw an exception since inputs and result has the same nulls
-  spark_rapids_jni::throw_row_error_if_has(
+  spark_rapids_jni::throw_row_error_if_any(
     input1, input1, input1, input1, cudf::get_default_stream());
 }

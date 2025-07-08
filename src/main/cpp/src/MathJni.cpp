@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include "cudf_jni_apis.hpp"
+#include "error.hpp"
 #include "jni_utils.hpp"
 #include "multiply.hpp"
-#include "utilities.hpp"
 
 extern "C" {
 
@@ -43,8 +44,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Math_multiply(JNIEnv* e
       throw cudf::logic_error("Both left and right must be column views");
     }
   }
-  // throw ExceptionAtRow if an exception occurs if in ansi mode
-  // ExceptionAtRow contains the row number that caused the exception
-  CATCH_EXCEPTION_AT_ROW(env, 0);
+  // throw ExceptionWithRowIndex if an exception occurs if in ansi mode
+  // ExceptionWithRowIndex contains the row number that caused the exception
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 }

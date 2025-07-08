@@ -219,6 +219,7 @@ add_library(
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
+  src/error.cu
   src/format_float.cu
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu

@@ -23,7 +23,7 @@ namespace spark_rapids_jni {
 
 /**
  * @brief Multiply two columns with optional ANSI SQL mode.
- * Only supports integer types.
+ * Only supports 32-bit integer.
  * This function performs element-wise multiplication of two columns.
  * If `is_ansi_mode` is true, it checks for overflow and sets the validity accordingly.
  *
@@ -33,7 +33,8 @@ namespace spark_rapids_jni {
  * @param stream CUDA stream to use for the operation.
  * @param mr Memory resource to use for allocations.
  * @return A new column containing the results of the multiplication.
- * @throws spark_rapids_jni::error_at_row exception if it's ansi mode and overflow occurs.
+ * @throws spark_rapids_jni::exception_with_row_index exception if it's ansi mode and overflow
+ * occurs.
  */
 std::unique_ptr<cudf::column> multiply(
   cudf::column_view const& left_input,

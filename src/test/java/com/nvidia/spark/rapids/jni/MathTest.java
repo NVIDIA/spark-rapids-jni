@@ -26,7 +26,7 @@ import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 public class MathTest {
 
   @Test
-  void multiplyNoThrow() {
+  void multiplyAnsiOffWithOverflowWithoutThrow() {
     // Integer.MAX_VALUE * 2 = -2 in non-ANSI mode
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
@@ -39,13 +39,13 @@ public class MathTest {
   }
 
   @Test
-  void multiplyThrow() {
+  void multiplyAnsiOnWithThrow() {
     // Integer.MAX_VALUE * 2 throws exception in ANSI mode
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2)) {
       ColumnVector r = Math.multiply(left, right, /* isAnsiMode */ true);
-      
+
       System.out.println(r.copyToHost().isNull(0));
       System.out.println(r.copyToHost().isNull(1));
       System.out.println(r.copyToHost().isNull(2));
@@ -54,9 +54,9 @@ public class MathTest {
       System.out.println(r.copyToHost().getInt(1));
       System.out.println(r.copyToHost().getInt(2));
 
-      Assertions.fail("Expected ExceptionAtRow due to overflow");
-    } catch (ExceptionAtRow e) {
-      Assertions.assertEquals(2, e.getRowWithError());
+      Assertions.fail("Expected ExceptionWithRowIndex due to overflow");
+    } catch (ExceptionWithRowIndex e) {
+      Assertions.assertEquals(2, e.getRowIndex());
     }
   }
 }
