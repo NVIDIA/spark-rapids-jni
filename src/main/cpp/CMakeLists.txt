@@ -184,6 +184,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
@@ -198,7 +199,6 @@ add_library(
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapJni.cpp
-  src/MathJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
