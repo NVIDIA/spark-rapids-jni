@@ -17,7 +17,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 
-public class Math {
+public class Arithmetic {
 
   /**
    * Computes the element-wise multiplication of two ColumnVectors.

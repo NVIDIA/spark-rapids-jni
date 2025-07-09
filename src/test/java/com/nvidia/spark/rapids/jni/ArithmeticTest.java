@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-public class MathTest {
+public class ArithmeticTest {
 
   @Test
   void multiplyAnsiOffWithOverflowWithoutThrow() {
@@ -32,7 +32,7 @@ public class MathTest {
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2);
         ColumnVector expected = ColumnVector.fromInts(0, 1, -2)) {
-      try (ColumnVector actual = Math.multiply(left, right, /* isAnsiMode */ false)) {
+      try (ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false)) {
         assertColumnsAreEqual(expected, actual);
       }
     }
@@ -44,7 +44,7 @@ public class MathTest {
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2)) {
-      ColumnVector r = Math.multiply(left, right, /* isAnsiMode */ true);
+      ColumnVector r = Arithmetic.multiply(left, right, /* isAnsiMode */ true);
 
       System.out.println(r.copyToHost().isNull(0));
       System.out.println(r.copyToHost().isNull(1));

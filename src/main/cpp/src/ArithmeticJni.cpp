@@ -21,13 +21,13 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Math_multiply(JNIEnv* env,
-                                                                       jclass,
-                                                                       jlong left,
-                                                                       jboolean is_left_cv,
-                                                                       jlong right,
-                                                                       jboolean is_right_cv,
-                                                                       jboolean ansi_enabled)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmeticmultiply(JNIEnv* env,
+                                                                            jclass,
+                                                                            jlong left,
+                                                                            jboolean is_left_cv,
+                                                                            jlong right,
+                                                                            jboolean is_right_cv,
+                                                                            jboolean ansi_enabled)
 {
   JNI_NULL_CHECK(env, left, "input column is null", 0);
   JNI_NULL_CHECK(env, right, "input column is null", 0);
