@@ -341,6 +341,22 @@ TEST_F(StringToDecimalTests, ExponentalNotation)
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
 
+TEST_F(StringToDecimalTests, Overflow)
+{
+  auto const strings =
+    test::strings_column_wrapper({"123456789", "+987651342", "-1.23e8", "-1256789012"});
+  strings_column_view scv{strings};
+
+  auto const result =
+    spark_rapids_jni::string_to_decimal(4, -3, scv, false, true, cudf::get_default_stream());
+
+  // overflow, all nulls.
+  test::fixed_point_column_wrapper<int32_t> expected(
+    {0, 0, 0, 0}, {0, 0, 0, 0}, numeric::scale_type{-3});
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
+}
+
 TEST_F(StringToDecimalTests, PositiveScale)
 {
   {
