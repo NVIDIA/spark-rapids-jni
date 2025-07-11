@@ -16,6 +16,7 @@
 #include "error.hpp"
 #include "row_error_utilities.hpp"
 
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/utilities/bit.hpp>
 
 #include <rmm/exec_policy.hpp>
@@ -157,4 +158,29 @@ void throw_row_error_if_any(cudf::column_view const& input1,
   if (has_error) { throw spark_rapids_jni::exception_with_row_index(*first_row_idx_with_error); }
 }
 
+void throw_row_error_if_any(cudf::column_view const& input1,
+                            cudf::scalar const& input2,
+                            cudf::column_view const& result,
+                            rmm::cuda_stream_view stream)
+{
+  CUDF_EXPECTS(input1.size() == result.size(),
+               "The row counts of the input and result columns must match.");
+
+  if (input2.is_valid(stream)) {
+    // scalar is not null, only need to check the `input1` and `result` columns.
+    throw_row_error_if_any(input1, result, stream);
+  } else {
+    // scalar is null
+    CUDF_EXPECTS(result.null_count() == result.size(),
+                 "If the scalar is null, the result must be all null.");
+  }
+}
+
+void throw_row_error_if_any(cudf::scalar const& input1,
+                            cudf::column_view const& input2,
+                            cudf::column_view const& result,
+                            rmm::cuda_stream_view stream)
+{
+  throw_row_error_if_any(input2, input1, result, stream);
+}
 }  // namespace spark_rapids_jni

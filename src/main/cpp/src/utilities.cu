@@ -28,6 +28,13 @@
 
 namespace spark_rapids_jni {
 
+bool is_basic_spark_numeric(cudf::data_type type)
+{
+  return type.id() == cudf::type_id::INT8 || type.id() == cudf::type_id::INT16 ||
+         type.id() == cudf::type_id::INT32 || type.id() == cudf::type_id::INT64 ||
+         type.id() == cudf::type_id::FLOAT32 || type.id() == cudf::type_id::FLOAT64;
+}
+
 std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
   std::vector<cudf::device_span<cudf::bitmask_type const>> const& input,
   rmm::cuda_stream_view stream,

@@ -27,21 +27,32 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
                                                                              jboolean is_left_cv,
                                                                              jlong right,
                                                                              jboolean is_right_cv,
-                                                                             jboolean ansi_enabled)
+                                                                             jboolean ansi_enabled,
+                                                                             jboolean is_try_mode)
 {
-  JNI_NULL_CHECK(env, left, "input column is null", 0);
-  JNI_NULL_CHECK(env, right, "input column is null", 0);
+  JNI_NULL_CHECK(env, left, "left input is null", 0);
+  JNI_NULL_CHECK(env, right, "right input is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
 
     if (is_left_cv && is_right_cv) {
-      auto left_cv  = *reinterpret_cast<cudf::column_view*>(left);
-      auto right_cv = *reinterpret_cast<cudf::column_view*>(right);
+      auto const& left_cv  = *reinterpret_cast<cudf::column_view const*>(left);
+      auto const& right_cv = *reinterpret_cast<cudf::column_view const*>(right);
       return cudf::jni::release_as_jlong(
-        spark_rapids_jni::multiply(left_cv, right_cv, ansi_enabled));
+        spark_rapids_jni::multiply(left_cv, right_cv, ansi_enabled, is_try_mode));
+    } else if (is_left_cv && !is_right_cv) {
+      auto const& left_cv      = *reinterpret_cast<cudf::column_view const*>(left);
+      auto const& right_scalar = *reinterpret_cast<cudf::scalar const*>(right);
+      return cudf::jni::release_as_jlong(
+        spark_rapids_jni::multiply(left_cv, right_scalar, ansi_enabled, is_try_mode));
+    } else if (!is_left_cv && is_right_cv) {
+      auto const& left_scalar = *reinterpret_cast<cudf::scalar const*>(left);
+      auto const& right_cv    = *reinterpret_cast<cudf::column_view*>(right);
+      return cudf::jni::release_as_jlong(
+        spark_rapids_jni::multiply(left_scalar, right_cv, ansi_enabled, is_try_mode));
     } else {
-      throw cudf::logic_error("Both left and right must be column views");
+      throw cudf::logic_error("Unsupported: Both left and right are scalars");
     }
   }
   // throw ExceptionWithRowIndex if an exception occurs if in ansi mode
