@@ -184,6 +184,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
@@ -229,11 +230,13 @@ add_library(
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/multiply.cu
   src/murmur_hash.cu
   src/number_converter.cu
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/row_error_utilities.cu
   src/shuffle_assemble.cu
   src/shuffle_split.cu
   src/substring_index.cu
