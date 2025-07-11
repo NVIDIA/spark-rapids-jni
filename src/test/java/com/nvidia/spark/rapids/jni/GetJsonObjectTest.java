@@ -789,6 +789,19 @@ public class GetJsonObjectTest {
     }
   }
 
+  @Test
+  void getJsonObjectTest_testUCS2Surrogates() {
+    JSONUtils.PathInstructionJni[] query = new JSONUtils.PathInstructionJni[] {
+        namedPath("package_name")
+    };
+    try (ColumnVector input = ColumnVector.fromStrings(
+        "{'package_name': 'TEST1'}", "{'package_name': '\\uD83E\\uDD66'}");
+         ColumnVector expected = ColumnVector.fromStrings("TEST1", "\uD83E\uDD66");
+         ColumnVector output = JSONUtils.getJsonObject(input, query)) {
+      assertColumnsAreEqual(expected, output);
+    }
+  }
+
   /**
    * Test path: '$.store.book[*].reader[*].age'
    * When 'book' array size is one, then return one dimension array,
