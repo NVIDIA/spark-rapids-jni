@@ -348,11 +348,11 @@ TEST_F(StringToDecimalTests, Overflow)
   strings_column_view scv{strings};
 
   auto const result =
-    spark_rapids_jni::string_to_decimal(4, -3, scv, false, true, cudf::get_default_stream());
+    spark_rapids_jni::string_to_decimal(4, 3, scv, false, true, cudf::get_default_stream());
 
   // overflow, all nulls.
   test::fixed_point_column_wrapper<int32_t> expected(
-    {0, 0, 0, 0}, {0, 0, 0, 0}, numeric::scale_type{-3});
+    {0, 0, 0, 0}, {0, 0, 0, 0}, numeric::scale_type{3});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(result->view(), expected);
 }
