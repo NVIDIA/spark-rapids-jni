@@ -102,4 +102,6 @@ target_link_libraries(spark_rapids_profile_converter
   flatbuffers::flatbuffers
   dl
   pthread
-  rt)
+  rt
+  -static-libstdc++
+  -static-libgcc)

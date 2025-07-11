@@ -4,27 +4,26 @@ This directory contains the Spark Rapids Profile Converter, a tool for convertin
 
 ## Building the Tool
 
-### Using the Docker Build Script
+The profiler converter is built as part of the regular Maven build when `BUILD_PROFILER=ON` (default).
+
+### Using Docker Build
 
 From the repository root:
 
 ```bash
-./build/build-profiler-in-docker
+./build/build-in-docker clean package
 ```
 
-This script will:
-1. Use the existing devtoolset Docker container
-2. Build the necessary dependencies (cudf) if not already built
-3. Build just the `spark_rapids_profile_converter` executable
+This will build the entire project including the profiler converter.
 
 The built executable will be located at:
 ```
 target/jni/cmake-build/profiler/spark_rapids_profile_converter
 ```
 
-### Integration with Maven Build
+### Native Build
 
-The profiler is also built as part of the regular Maven build when `BUILD_PROFILER=ON` (default):
+You can also build natively if you have the required dependencies:
 
 ```bash
 mvn clean package
