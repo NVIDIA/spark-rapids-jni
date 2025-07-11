@@ -237,6 +237,7 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/row_error_utilities.cu
   src/shuffle_assemble.cu
   src/shuffle_split.cu
   src/substring_index.cu

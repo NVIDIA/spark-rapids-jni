@@ -44,7 +44,7 @@ public class ArithmeticTest {
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2)) {
-      ColumnVector r = Arithmetic.multiply(left, right, /* isAnsiMode */ true);
+      Arithmetic.multiply(left, right, /* isAnsiMode */ true);
       Assertions.fail("Expected ExceptionWithRowIndex due to overflow");
     } catch (ExceptionWithRowIndex e) {
       Assertions.assertEquals(2, e.getRowIndex());
