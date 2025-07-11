@@ -79,9 +79,7 @@ add_executable(spark_rapids_profile_converter
   spark_rapids_profile_converter.cpp
   initialize_nvtxw.cpp
   nvtxw3.cpp
-  nvtxw3.h
   NvtxwEvents.cpp
-  NvtxwEvents.h
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/profiler_schema.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/spark_rapids_jni_version.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}/profiler_generated.h"
