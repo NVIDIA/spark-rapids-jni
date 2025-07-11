@@ -17,7 +17,6 @@
 #pragma once
 
 #include <cudf/types.hpp>
-#include <cudf/utilities/default_stream.hpp>
 
 namespace spark_rapids_jni {
 
@@ -25,14 +24,14 @@ constexpr char const* JNI_EXCEPTION_WITH_ROW_INDEX_CLASS =
   "com/nvidia/spark/rapids/jni/ExceptionWithRowIndex";
 
 /**
- * @brief Exception class indicating that which row in a column caused an error.\
+ * @brief Exception class indicating which row in a column caused an error.
+ *
  * Typically it's used in ANSI mode to indicate which row has an error.
  */
 class exception_with_row_index : public std::runtime_error {
  public:
   /**
    * @brief Constructs a exception_with_row_index with a row index which caused an error.
-   *
    */
   exception_with_row_index(cudf::size_type row_index)
     : std::runtime_error(""), _row_index(row_index)
@@ -49,43 +48,6 @@ class exception_with_row_index : public std::runtime_error {
  private:
   cudf::size_type _row_index;
 };
-
-/**
- * @brief Throws an error with the row index if has any row is invalid for a unary operation.
- * If the input is not null and the result is null, it means the row is invalid.
- * @param input The input column view.
- * @param result The result column view.
- */
-void throw_row_error_if_any(cudf::column_view const& input,
-                            cudf::column_view const& result,
-                            rmm::cuda_stream_view stream = cudf::get_default_stream());
-
-/**
- * @brief Throws an error with the row index if has any row is invalid for a binary operation.
- * If the inputs are not null and the result is null, it means the row is invalid.
- * @param input1 The first input column view.
- * @param input2 The second input column view.
- * @param result The result column view.
- */
-void throw_row_error_if_any(cudf::column_view const& input1,
-                            cudf::column_view const& input2,
-                            cudf::column_view const& result,
-                            rmm::cuda_stream_view stream = cudf::get_default_stream());
-
-/**
- * @brief Throws an error with the row index if has any row is invalid for a ternary operation.
- * If the inputs are not null and the result is null, it means the row is invalid.
- *
- * @param input1 The first input column view.
- * @param input2 The second input column view.
- * @param input3 The third input column view.
- * @param result The result column view.
- */
-void throw_row_error_if_any(cudf::column_view const& input1,
-                            cudf::column_view const& input2,
-                            cudf::column_view const& input3,
-                            cudf::column_view const& result,
-                            rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 // catch a exception_with_row_index exception and throw a Java exception.
 // This macro is used in JNI functions to throw an ExceptionWithRowIndex if error occurs

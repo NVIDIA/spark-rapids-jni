@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 #include "error.hpp"
+#include "row_error_utilities.hpp"
 
-#include <cudf/column/column.hpp>
 #include <cudf/utilities/bit.hpp>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
 #include <thrust/find.h>
@@ -92,8 +91,8 @@ void throw_row_error_if_any(cudf::column_view const& input,
                             cudf::column_view const& result,
                             rmm::cuda_stream_view stream)
 {
-  cudf_assert(input.size() == result.size() &&
-              "The row counts of the input and result columns must match.");
+  CUDF_EXPECTS(input.size() == result.size(),
+               "The row counts of the input and result columns must match.");
   if (result.size() == 0) {
     // No rows to check, so no errors.
     return;
@@ -116,8 +115,8 @@ void throw_row_error_if_any(cudf::column_view const& input1,
                             cudf::column_view const& result,
                             rmm::cuda_stream_view stream)
 {
-  cudf_assert(input1.size() == input2.size() && input2.size() == result.size() &&
-              "The row counts of the input and result columns must match.");
+  CUDF_EXPECTS((input1.size() == input2.size() && input2.size() == result.size()),
+               "The row counts of the input and result columns must match.");
   if (result.size() == 0) {
     // No rows to check, so no errors.
     return;
@@ -139,9 +138,9 @@ void throw_row_error_if_any(cudf::column_view const& input1,
                             cudf::column_view const& result,
                             rmm::cuda_stream_view stream)
 {
-  cudf_assert(input1.size() == input2.size() && input2.size() == input3.size() &&
-              input3.size() == result.size() &&
-              "The row counts of the input and result columns must match.");
+  CUDF_EXPECTS((input1.size() == input2.size() && input2.size() == input3.size() &&
+                input3.size() == result.size()),
+               "The row counts of the input and result columns must match.");
   if (result.size() == 0) {
     // No rows to check, so no errors.
     return;

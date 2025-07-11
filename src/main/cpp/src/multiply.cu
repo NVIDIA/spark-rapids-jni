@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "error.hpp"
 #include "multiply.hpp"
+#include "row_error_utilities.hpp"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
