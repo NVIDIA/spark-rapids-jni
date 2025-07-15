@@ -54,7 +54,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(
  * The 64-bit value is reconstructed by overlapping the 64-bit values by 32-bits. The least
  * significant 32-bits of the least significant 64-bit value are used directly as the least
  * significant 32-bits of the final 64-bit value, and the remaining 32-bits are added to the next
- * most significant 64-bit value. 
+ * most significant 64-bit value.
  *
  * A null input row will result in a corresponding null output row.
  *

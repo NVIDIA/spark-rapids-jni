@@ -28,12 +28,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Aggregation64Utils_extr
     cudf::jni::auto_set_device(env);
     auto cview = reinterpret_cast<cudf::column_view const*>(j_column_view);
     auto dtype = cudf::jni::make_data_type(j_out_dtype, 0);
-    return cudf::jni::release_as_jlong(cudf::jni::extract_chunk32_from_64bit(*cview, dtype, j_chunk_idx));
+    return cudf::jni::release_as_jlong(
+      cudf::jni::extract_chunk32_from_64bit(*cview, dtype, j_chunk_idx));
   }
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_Aggregation64Utils_combineInt64SumChunks(
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_Aggregation64Utils_combineInt64SumChunks(
   JNIEnv* env, jclass, jlong j_table_view, jint j_dtype, jint j_scale)
 {
   JNI_NULL_CHECK(env, j_table_view, "table is null", 0);

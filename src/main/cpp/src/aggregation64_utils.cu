@@ -35,9 +35,7 @@ namespace {
 // Functor to reassemble a 64-bit value from two 64-bit chunks with overflow detection.
 class chunk_assembler_64bit {
  public:
-  chunk_assembler_64bit(bool* overflows,
-                        uint64_t const* chunks0,
-                        int64_t const* chunks1)
+  chunk_assembler_64bit(bool* overflows, uint64_t const* chunks0, int64_t const* chunks1)
     : overflows(overflows), chunks0(chunks0), chunks1(chunks1)
   {
   }
@@ -47,9 +45,9 @@ class chunk_assembler_64bit {
     // Starting with the least significant input and moving to the most significant, propagate the
     // upper 32-bits of the previous column into the next column, i.e.: propagate the "carry" bits
     // of each 64-bit chunk into the next chunk.
-    uint64_t const c0      = chunks0[i];
-    int64_t const c1       = chunks1[i] + (c0 >> 32);
-    int64_t const result   = (c1 << 32) | static_cast<uint32_t>(c0);
+    uint64_t const c0    = chunks0[i];
+    int64_t const c1     = chunks1[i] + (c0 >> 32);
+    int64_t const result = (c1 << 32) | static_cast<uint32_t>(c0);
 
     // check for overflow by ensuring the sign bit matches the top carry bits
     int32_t const replicated_sign_bit = static_cast<int32_t>(c1) >> 31;
@@ -78,23 +76,28 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
                                                          int chunk_idx,
                                                          rmm::cuda_stream_view stream)
 {
-  CUDF_EXPECTS(in_col.type().id() == cudf::type_id::INT64 || in_col.type().id() == cudf::type_id::UINT64, "Input column must be a 64-bit type (INT64 or UINT64).");
-  CUDF_EXPECTS(chunk_idx >= 0 && chunk_idx < 2, "Invalid chunk index. Must be 0 (lower 32-bits) or 1 (upper 32-bits).");
-  CUDF_EXPECTS(type.id() == cudf::type_id::INT32 || type.id() == cudf::type_id::UINT32, "Output type must be a 32-bit integer type (INT32 or UINT32).");
+  CUDF_EXPECTS(
+    in_col.type().id() == cudf::type_id::INT64 || in_col.type().id() == cudf::type_id::UINT64,
+    "Input column must be a 64-bit type (INT64 or UINT64).");
+  CUDF_EXPECTS(chunk_idx >= 0 && chunk_idx < 2,
+               "Invalid chunk index. Must be 0 (lower 32-bits) or 1 (upper 32-bits).");
+  CUDF_EXPECTS(type.id() == cudf::type_id::INT32 || type.id() == cudf::type_id::UINT32,
+               "Output type must be a 32-bit integer type (INT32 or UINT32).");
 
   auto const num_rows = in_col.size();
   auto out_col =
     cudf::make_fixed_width_column(type, num_rows, copy_bitmask(in_col), in_col.null_count());
   auto out_view = out_col->mutable_view();
 
-  if (chunk_idx == 0) { // Extract lower 32 bits
+  if (chunk_idx == 0) {  // Extract lower 32 bits
     thrust::transform(rmm::exec_policy(stream),
                       in_col.begin<uint64_t>(),
                       in_col.end<uint64_t>(),
                       out_view.data<uint32_t>(),
                       [] __device__(uint64_t val) { return static_cast<uint32_t>(val); });
-  } else { // Extract upper 32 bits
-    // Cast to int32_t for the upper chunk to correctly handle signedness during potential future aggregation.
+  } else {  // Extract upper 32 bits
+    // Cast to int32_t for the upper chunk to correctly handle signedness during potential future
+    // aggregation.
     thrust::transform(rmm::exec_policy(stream),
                       in_col.begin<uint64_t>(),
                       in_col.end<uint64_t>(),
@@ -109,14 +112,17 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
                                                  cudf::data_type output_type,
                                                  rmm::cuda_stream_view stream)
 {
-  CUDF_EXPECTS(output_type.id() == cudf::type_id::INT64 || output_type.id() == cudf::type_id::UINT64, "Output type must be a 64-bit integer type (INT64 or UINT64).");
+  CUDF_EXPECTS(
+    output_type.id() == cudf::type_id::INT64 || output_type.id() == cudf::type_id::UINT64,
+    "Output type must be a 64-bit integer type (INT64 or UINT64).");
   CUDF_EXPECTS(chunks_table.num_columns() == 2, "Input table must contain exactly 2 columns.");
 
   auto const num_rows = chunks_table.num_rows();
-  auto const chunks0 = chunks_table.column(0);
-  auto const chunks1 = chunks_table.column(1);
+  auto const chunks0  = chunks_table.column(0);
+  auto const chunks1  = chunks_table.column(1);
 
-  CUDF_EXPECTS(cudf::size_of(chunks0.type()) == 8 && chunks1.type().id() == cudf::type_id::INT64, "Input chunk columns must be 64-bit types.");
+  CUDF_EXPECTS(cudf::size_of(chunks0.type()) == 8 && chunks1.type().id() == cudf::type_id::INT64,
+               "Input chunk columns must be 64-bit types.");
 
   std::vector<std::unique_ptr<cudf::column>> columns;
   columns.push_back(cudf::make_fixed_width_column(
@@ -125,13 +131,13 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
     output_type, num_rows, copy_bitmask(chunks0), chunks0.null_count()));
   auto overflows_view = columns[0]->mutable_view();
   auto assembled_view = columns[1]->mutable_view();
-  thrust::transform(rmm::exec_policy(stream),
-                    thrust::make_counting_iterator<cudf::size_type>(0),
-                    thrust::make_counting_iterator<cudf::size_type>(num_rows),
-                    assembled_view.begin<int64_t>(),
-                    chunk_assembler_64bit(overflows_view.begin<bool>(),
-                                          chunks0.begin<uint64_t>(),
-                                          chunks1.begin<int64_t>()));
+  thrust::transform(
+    rmm::exec_policy(stream),
+    thrust::make_counting_iterator<cudf::size_type>(0),
+    thrust::make_counting_iterator<cudf::size_type>(num_rows),
+    assembled_view.begin<int64_t>(),
+    chunk_assembler_64bit(
+      overflows_view.begin<bool>(), chunks0.begin<uint64_t>(), chunks1.begin<int64_t>()));
 
   return std::make_unique<cudf::table>(std::move(columns));
 }
