@@ -184,6 +184,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/Aggregation64Utils.cpp
   src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
@@ -208,6 +209,7 @@ add_library(
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/aggregation64_utils.cu
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
