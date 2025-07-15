@@ -35,7 +35,7 @@ public class Aggregation64Utils {
    * @param col column of 64-bit values (e.g.: INT64)
    * @param outType integer type to use for the output column (e.g.: UINT32 or INT32)
    * @param chunkIdx index of the 32-bit chunk to extract where 0 is the least significant chunk
-   *                 and 3 is the most significant chunk
+   *                 and 1 is the most significant chunk
    * @return column containing the specified 32-bit chunk of the input column values. A null input
    *                row will result in a corresponding null output row.
    */

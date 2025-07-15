@@ -107,7 +107,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
   return out_col;
 }
 
-// Reassemble a column of 64-bit values from four 64-bit integer columns with overflow detection.
+// Reassemble a column of 64-bit values from two 64-bit integer columns with overflow detection.
 std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_table,
                                                  cudf::data_type output_type,
                                                  rmm::cuda_stream_view stream)
