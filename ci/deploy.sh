@@ -82,7 +82,7 @@ if [ "$SIGN_FILE" == true ]; then
         *)
             echo "Error unsupported sign type : $SIGN_TYPE !"
             echo "Please set variable SIGN_TOOL 'nvsec'or 'gpg'"
-            exit 0
+            exit 1
             ;;
     esac
 else
