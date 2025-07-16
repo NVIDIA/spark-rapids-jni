@@ -86,13 +86,14 @@ __device__ void multiply(T x, T y, bool check_overflow, bool* valid, T* result)
 
 __device__ bool is_multiply_overflow(int64_t a, int64_t b)
 {
-  // constexpr int64_t INT64_MIN = (-9223372036854775807L - 1L); // -2^63
-  // constexpr int64_t INT64_MAX = 9223372036854775807L; // 2^63 - 1
+  constexpr auto int64_min = cuda::std::numeric_limits<int64_t>::min();
+  constexpr auto int64_max = cuda::std::numeric_limits<int64_t>::max();
 
-  if (a > 0 && b > 0 && a > 9223372036854775807L / b) return true;          // Positive overflow
-  if (a < 0 && b < 0 && a < 9223372036854775807L / b) return true;          // Negative overflow
-  if (a > 0 && b < 0 && b < (-9223372036854775807L - 1L) / a) return true;  // Mixed sign overflow
-  if (a < 0 && b > 0 && a < (-9223372036854775807L - 1L) / b) return true;  // Mixed sign overflow
+  if (a > 0 && b > 0 && a > int64_max / b) return true;  // Positive overflow
+  if (a < 0 && b < 0 && a < int64_max / b) return true;  // Negative overflow
+  if (a > 0 && b < 0 && b < int64_min / a) return true;  // Mixed sign overflow
+  if (a < 0 && b > 0 && a < int64_min / b) return true;  // Mixed sign overflow
+
   return false;
 }
 
