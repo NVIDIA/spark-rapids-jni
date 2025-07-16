@@ -1,22 +1,31 @@
+/*
+ * Copyright (c) 2025, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 #include "map_zip_with_utils.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/column/column_view.hpp>
-#include <cudf/copying.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/gather.hpp>
-#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/lists/set_operations.hpp>
-#include <cudf/null_mask.hpp>
 #include <cudf/reduction.hpp>
 #include <cudf/table/table_view.hpp>
-#include <cudf/types.hpp>
-#include <cudf/utilities/error.hpp>
-#include <cudf/utilities/memory_resource.hpp>
+#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/utilities/span.hpp>
-#include <cudf/utilities/traits.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
 #include <thrust/scan.h>
 
@@ -68,7 +77,7 @@ namespace spark_rapids_jni {
     keys_labels->view().begin<size_type>(),
     [list_sizes_ptr = list_sizes->view().begin<size_type>(),
      num_lists] __device__(auto const offset_val) {
-      return offset_val >= num_lists ? 0 : *(list_sizes_ptr + offset_val);
+      return offset_val >= num_lists ? 0 : list_sizes_ptr[offset_val];
     });
 
   // Calculate cumulative offsets for the associated list sizes
@@ -143,6 +152,17 @@ namespace spark_rapids_jni {
                  : idx;
       }));
 
+  // Use row comparator to allow nested/NULL/NaN comparisons
+  auto const keys_tview  = cudf::table_view{{all_keys}};
+  auto const child_tview = cudf::table_view{{all_values}};
+  auto const has_nulls   = has_nested_nulls(child_tview) || has_nested_nulls(keys_tview);
+  auto const comparator =
+    cudf::experimental::row::equality::two_table_comparator(child_tview, keys_tview, stream);
+  auto const d_comp = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
+
+  using lhs_index_type = cudf::experimental::row::lhs_index_type;
+  using rhs_index_type = cudf::experimental::row::rhs_index_type;
+
   // Perform the actual key-value comparisons
   // For each comparison: if key == value, return the value index; otherwise return 100
   auto compare_results = make_numeric_column(
@@ -155,11 +175,11 @@ namespace spark_rapids_jni {
     cuda::proclaim_return_type<size_type>(
       [values_idx,
        d_key_index,
-       all_keys   = all_keys.begin<size_type>(),
-       all_values = all_values.begin<size_type>(),
        d_val_offsets,
+       d_comp,
        d_list_sizes_val_offsets = search_values.offsets_begin()] __device__(auto const idx) {
-        return all_keys[d_key_index[idx]] == all_values[values_idx[idx]]
+        return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
+                      static_cast<rhs_index_type>(d_key_index[idx]))
                  ? values_idx[idx] - d_list_sizes_val_offsets[d_val_offsets[idx]]
                  : 100;
       }));
@@ -255,9 +275,10 @@ namespace spark_rapids_jni {
                                   out_of_bounds_policy::NULLIFY);
 
   std::vector<std::unique_ptr<column>> value_pair_children;
-  value_pair_children.push_back(std::move(map1_values_list_gather));
-  value_pair_children.push_back(std::move(map2_values_list_gather));
-  auto value_pair = make_structs_column(search_keys_list.size(),
+  value_pair_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*map1_values_list_gather).child())));
+  value_pair_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*map2_values_list_gather).child())));
+  
+  auto value_pair = make_structs_column(cudf::lists_column_view(*map1_values_list_gather).child().size(),
                                         std::move(value_pair_children),
                                         0,
                                         rmm::device_buffer{0, stream, mr},
@@ -265,9 +286,10 @@ namespace spark_rapids_jni {
                                         mr);
 
   std::vector<std::unique_ptr<column>> map_structs_children;
-  map_structs_children.push_back(std::move(search_keys));
+  map_structs_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*search_keys).child())));
   map_structs_children.push_back(std::move(value_pair));
-  auto map_structs = make_structs_column(search_keys_list.size(),
+  
+  auto map_structs = make_structs_column(cudf::lists_column_view(*search_keys).child().size(),
                                          std::move(map_structs_children),
                                          0,
                                          rmm::device_buffer{0, stream, mr},

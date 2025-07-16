@@ -1,28 +1,53 @@
-#include <cudf/column/column_factories.hpp>
+/*
+ * Copyright (c) 2025, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 #include <cudf/column/column_view.hpp>
-#include <cudf/copying.hpp>
-#include <cudf/detail/labeling/label_segments.cuh>
-#include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/lists_column_view.hpp>
-#include <cudf/null_mask.hpp>
-#include <cudf/table/table_view.hpp>
-#include <cudf/types.hpp>
-#include <cudf/utilities/error.hpp>
 #include <cudf/utilities/memory_resource.hpp>
-#include <cudf/utilities/span.hpp>
-#include <cudf/utilities/traits.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
 using namespace cudf;
 
 namespace spark_rapids_jni {
 
 /**
- * @brief Zip two lists columns element-wise to create key-value pairs
+ * @brief Zip two lists columns row-wise to create key-value pairs
  *
- * This function combines two lists columns by zipping their elements together to form
- * key-value pairs. Each element from `col1` is paired with the corresponding element
- * from `col2` with the same key. If a value cannot be matched to a key, it is replaced with null.
+ * The map_zip function combines two lists columns row-wise to create key-value pairs, 
+ * similar to Spark SQL's map_zip_with function. It takes two input 
+ * columns where each row contains lists of key-value pairs, merges 
+ * them based on matching keys, and produces a result where each key 
+ * maps to a tuple containing the corresponding values from both 
+ * input columns (with NULL values for missing keys).
+ * 
+ * @code{.pseudo}
+ * col1 = [
+ *   [(1,100), (2, 200), (3, 300), (4, 400)],
+ *   [(5,500), (6,600), (7,700)],
+ * ]
+ * col2 = [
+ *   [(2,20), (4,40), (8,80)],
+ *   [(9,90), (6,60), (10,100)],
+ * ]
+ *
+ * result = [
+ *   [(1, (100, NULL), (2, (200,20)), (3, (300, NULL)), (4, (400,40)), (8, (NULL, 80))],
+ *   [(5, (500, NULL)), (6, (600, 60)), (7, (700, NULL)), (9, (NULL,90)), (10, (NULL, 100))],
+ * ]
+ * @endcode
  *
  * @param col1 The first lists column (keys)
  * @param col2 The second lists column (values)
