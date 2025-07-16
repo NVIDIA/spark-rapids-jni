@@ -15,8 +15,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuMapZipWithUtils_mapZ
     // If the type is not LIST, an exception will be thrown.
     cudf::lists_column_view col1{*reinterpret_cast<cudf::column_view const*>(input_column1)};
     cudf::lists_column_view col2{*reinterpret_cast<cudf::column_view const*>(input_column2)};
-    return cudf::jni::release_as_jlong(
-      spark_rapids_jni::map_zip(col1, col2));
+    return cudf::jni::release_as_jlong(spark_rapids_jni::map_zip(col1, col2));
   }
   CATCH_STD(env, 0);
 }

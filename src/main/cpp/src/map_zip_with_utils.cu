@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 #include "map_zip_with_utils.hpp"
 
 #include <cudf/column/column_factories.hpp>
@@ -23,8 +22,8 @@
 #include <cudf/lists/gather.hpp>
 #include <cudf/lists/set_operations.hpp>
 #include <cudf/reduction.hpp>
-#include <cudf/table/table_view.hpp>
 #include <cudf/table/experimental/row_operators.cuh>
+#include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
 
 #include <thrust/scan.h>
@@ -75,10 +74,8 @@ namespace spark_rapids_jni {
   // This tells us how many values we need to compare against for each key
   auto associated_list_sizes = thrust::make_transform_iterator(
     keys_labels->view().begin<size_type>(),
-    [list_sizes_ptr = list_sizes->view().begin<size_type>(),
-     num_lists] __device__(auto const offset_val) {
-      return offset_val >= num_lists ? 0 : list_sizes_ptr[offset_val];
-    });
+    [list_sizes_ptr = list_sizes->view().begin<size_type>(), num_lists] __device__(
+      auto const offset_val) { return offset_val >= num_lists ? 0 : list_sizes_ptr[offset_val]; });
 
   // Calculate cumulative offsets for the associated list sizes
   // This gives us the starting position for each key's value comparisons
@@ -164,7 +161,7 @@ namespace spark_rapids_jni {
   using rhs_index_type = cudf::experimental::row::rhs_index_type;
 
   // Perform the actual key-value comparisons
-  // For each comparison: if key == value, return the value index; otherwise return 100
+  // For each comparison: if key == value, return the value index; otherwise return Out of Bounds index
   auto compare_results = make_numeric_column(
     data_type(type_to_id<size_type>()), total_compares, cudf::mask_state::UNALLOCATED, stream, mr);
   thrust::transform(
@@ -173,7 +170,8 @@ namespace spark_rapids_jni {
     thrust::make_counting_iterator(total_compares),
     compare_results->mutable_view().template begin<size_type>(),
     cuda::proclaim_return_type<size_type>(
-      [values_idx,
+      [total_compares,
+       values_idx,
        d_key_index,
        d_val_offsets,
        d_comp,
@@ -181,11 +179,11 @@ namespace spark_rapids_jni {
         return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
                       static_cast<rhs_index_type>(d_key_index[idx]))
                  ? values_idx[idx] - d_list_sizes_val_offsets[d_val_offsets[idx]]
-                 : 100;
+                 : total_compares + 1;
       }));
 
   // Use segmented reduction to find the minimum value (first match) for each list
-  // This gives us the first matching value index for each row, or 100 if no match found
+  // This gives us the first matching value index for each row, or Out of Bounds index if no match found
   auto offsets_span = cudf::device_span<cudf::size_type const>(list_sizes_offsets->view());
   auto results =
     cudf::segmented_reduce(compare_results->view(),
@@ -200,8 +198,8 @@ namespace spark_rapids_jni {
   cudf::lists_column_view const& col1,  // First map column containing key-value pairs
   cudf::lists_column_view const& col2,  // Second map column containing key-value pairs
   rmm::cuda_stream_view stream,         // CUDA stream for asynchronous execution
-  rmm::device_async_resource_ref mr)
-{                                       // Memory resource for allocations
+  rmm::device_async_resource_ref mr)    // Memory resource for allocations
+{
 
   // Extract keys and values from the first map column (col1)
   // Create a column view that represents the keys and values part of col1
@@ -245,8 +243,8 @@ namespace spark_rapids_jni {
                                                  cudf::lists_column_view(map2_keys));
   auto search_keys_list = cudf::lists_column_view(*search_keys);
 
-  // Find the indices of each key in the first map (map1)
-  // This tells us where each key appears in map1, or if it doesn't exist
+  // Find the indices of each key in the first map
+  // This tells us where each key appears in the first map, or if it doesn't exist
   auto map1_indices = indices_of(search_keys_list, cudf::lists_column_view(map1_keys), stream, mr);
   auto map1_indices_list = make_lists_column(search_keys_list.size(),
                                              std::make_unique<column>(search_keys_list.offsets()),
@@ -254,8 +252,8 @@ namespace spark_rapids_jni {
                                              0,
                                              rmm::device_buffer{0, stream, mr});
 
-  // Find the indices of each key in the second map (map2)
-  // This tells us where each key appears in map2, or if it doesn't exist
+  // Find the indices of each key in the second map
+  // This tells us where each key appears in the second map, or if it doesn't exist
   auto map2_indices = indices_of(search_keys_list, cudf::lists_column_view(map2_keys), stream, mr);
   auto map2_indices_list = make_lists_column(search_keys_list.size(),
                                              std::make_unique<column>(search_keys_list.offsets()),
@@ -275,20 +273,24 @@ namespace spark_rapids_jni {
                                   out_of_bounds_policy::NULLIFY);
 
   std::vector<std::unique_ptr<column>> value_pair_children;
-  value_pair_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*map1_values_list_gather).child())));
-  value_pair_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*map2_values_list_gather).child())));
-  
-  auto value_pair = make_structs_column(cudf::lists_column_view(*map1_values_list_gather).child().size(),
-                                        std::move(value_pair_children),
-                                        0,
-                                        rmm::device_buffer{0, stream, mr},
-                                        stream,
-                                        mr);
+  value_pair_children.push_back(
+    std::move(std::make_unique<column>(cudf::lists_column_view(*map1_values_list_gather).child())));
+  value_pair_children.push_back(
+    std::move(std::make_unique<column>(cudf::lists_column_view(*map2_values_list_gather).child())));
+
+  auto value_pair =
+    make_structs_column(cudf::lists_column_view(*map1_values_list_gather).child().size(),
+                        std::move(value_pair_children),
+                        0,
+                        rmm::device_buffer{0, stream, mr},
+                        stream,
+                        mr);
 
   std::vector<std::unique_ptr<column>> map_structs_children;
-  map_structs_children.push_back(std::move(std::make_unique<column>(cudf::lists_column_view(*search_keys).child())));
+  map_structs_children.push_back(
+    std::move(std::make_unique<column>(cudf::lists_column_view(*search_keys).child())));
   map_structs_children.push_back(std::move(value_pair));
-  
+
   auto map_structs = make_structs_column(cudf::lists_column_view(*search_keys).child().size(),
                                          std::move(map_structs_children),
                                          0,
@@ -296,14 +298,11 @@ namespace spark_rapids_jni {
                                          stream,
                                          mr);
 
-  auto return_map = make_lists_column(search_keys_list.size(),
+  return make_lists_column(search_keys_list.size(),
                                       std::make_unique<column>(search_keys_list.offsets()),
                                       std::move(map_structs),
                                       0,
                                       rmm::device_buffer{0, stream, mr});
-
-  // Return the gathered values from map1
-  return return_map;
 }
 
 }  // namespace spark_rapids_jni

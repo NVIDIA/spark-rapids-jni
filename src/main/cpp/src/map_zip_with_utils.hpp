@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 #include <cudf/column/column_view.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/utilities/memory_resource.hpp>
@@ -26,13 +25,13 @@ namespace spark_rapids_jni {
 /**
  * @brief Zip two lists columns row-wise to create key-value pairs
  *
- * The map_zip function combines two lists columns row-wise to create key-value pairs, 
- * similar to Spark SQL's map_zip_with function. It takes two input 
- * columns where each row contains lists of key-value pairs, merges 
- * them based on matching keys, and produces a result where each key 
- * maps to a tuple containing the corresponding values from both 
+ * The map_zip function combines two lists columns row-wise to create key-value pairs,
+ * similar to Spark SQL's map_zip_with function. It takes two input
+ * columns where each row contains lists of key-value pairs, merges
+ * them based on matching keys, and produces a result where each key
+ * maps to a tuple containing the corresponding values from both
  * input columns (with NULL values for missing keys).
- * 
+ *
  * @code{.pseudo}
  * col1 = [
  *   [(1,100), (2, 200), (3, 300), (4, 400)],

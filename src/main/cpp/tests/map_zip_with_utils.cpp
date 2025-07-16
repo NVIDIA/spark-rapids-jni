@@ -84,8 +84,8 @@ TEST_F(MapZipWithUtilsTests, CharKeysTest)
     auto list_col2      = cudf::make_lists_column(
       num_list_rows2, std::move(list_offsets_column2), std::move(struct_col2), 0, {});
 
-    auto const k =
-      cudf::test::strings_column_wrapper{"a", "b", "g", "h", "c", "i", "d", "e", "j", "k", "f", "l"};
+    auto const k = cudf::test::strings_column_wrapper{
+      "a", "b", "g", "h", "c", "i", "d", "e", "j", "k", "f", "l"};
     auto const v1 = cudf::test::fixed_width_column_wrapper<size_type>{
       {48, 27, 3, 4, 25, 6, 31, 351, 9, 31, 351, 351}, {1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0}};
     auto const v2 = cudf::test::fixed_width_column_wrapper<size_type>{
@@ -105,33 +105,47 @@ TEST_F(MapZipWithUtilsTests, StringKeysTest)
 {
   {
     // Test with string keys and multiple rows in the list
-    std::initializer_list<std::string> names1 = {"apple", "banana", "cherry", "date", "strawberry", "fig", "grape"};
+    std::initializer_list<std::string> names1 = {
+      "apple", "banana", "cherry", "date", "strawberry", "fig", "grape"};
     auto keys1 = cudf::test::strings_column_wrapper{names1.begin(), names1.end()};
-    auto vals1 = cudf::test::fixed_width_column_wrapper<int32_t>{{100, 200, 300, 400, 500, 600, 700},
-                                                                 {1, 1, 1, 1, 1, 1, 1}};
+    auto vals1 = cudf::test::fixed_width_column_wrapper<int32_t>{
+      {100, 200, 300, 400, 500, 600, 700}, {1, 1, 1, 1, 1, 1, 1}};
     auto struct_col1 =
       cudf::test::structs_column_wrapper({keys1, vals1}, {1, 1, 1, 1, 1, 1, 1}).release();
-    auto list_offsets_column1 = cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 4, 7}.release();
+    auto list_offsets_column1 =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 4, 7}.release();
     auto num_list_rows1 = list_offsets_column1->size() - 1;
-    auto list_col1 = cudf::make_lists_column(
+    auto list_col1      = cudf::make_lists_column(
       num_list_rows1, std::move(list_offsets_column1), std::move(struct_col1), 0, {});
 
-    std::initializer_list<std::string> names2 = {"banana", "cherry", "date", "fig", "grape", "honeydew", "kiwi"};
+    std::initializer_list<std::string> names2 = {
+      "banana", "cherry", "date", "fig", "grape", "honeydew", "kiwi"};
     auto keys2 = cudf::test::strings_column_wrapper{names2.begin(), names2.end()};
-    auto vals2 = cudf::test::fixed_width_column_wrapper<int32_t>{{250, 350, 450, 650, 750, 850, 950},
-                                                                 {1, 1, 1, 1, 1, 1, 1}};
+    auto vals2 = cudf::test::fixed_width_column_wrapper<int32_t>{
+      {250, 350, 450, 650, 750, 850, 950}, {1, 1, 1, 1, 1, 1, 1}};
     auto struct_col2 =
       cudf::test::structs_column_wrapper({keys2, vals2}, {1, 1, 1, 1, 1, 1, 1}).release();
-    auto list_offsets_column2 = cudf::test::fixed_width_column_wrapper<size_type>{0, 3, 5, 7}.release();
+    auto list_offsets_column2 =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 3, 5, 7}.release();
     auto num_list_rows2 = list_offsets_column2->size() - 1;
-    auto list_col2 = cudf::make_lists_column(
+    auto list_col2      = cudf::make_lists_column(
       num_list_rows2, std::move(list_offsets_column2), std::move(struct_col2), 0, {});
 
-    auto results = spark_rapids_jni::map_zip(cudf::lists_column_view(*list_col1),
+    auto results  = spark_rapids_jni::map_zip(cudf::lists_column_view(*list_col1),
                                              cudf::lists_column_view(*list_col2));
-    auto const k = cudf::test::strings_column_wrapper{
-      "apple", "banana", "cherry", "date", "cherry", "date", "fig", "grape", 
-      "strawberry", "fig", "grape", "honeydew", "kiwi"};
+    auto const k  = cudf::test::strings_column_wrapper{"apple",
+                                                      "banana",
+                                                      "cherry",
+                                                      "date",
+                                                      "cherry",
+                                                      "date",
+                                                      "fig",
+                                                      "grape",
+                                                      "strawberry",
+                                                      "fig",
+                                                      "grape",
+                                                      "honeydew",
+                                                      "kiwi"};
     auto const v1 = cudf::test::fixed_width_column_wrapper<int32_t>{
       {100, 200, 0, 0, 300, 400, 0, 0, 500, 600, 700, 0, 0},
       {1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0}};
@@ -154,14 +168,16 @@ TEST_F(MapZipWithUtilsTests, OneEmptyMapTest)
     auto keys1       = cudf::test::fixed_width_column_wrapper<int32_t>{1, 2, 3};
     auto vals1       = cudf::test::fixed_width_column_wrapper<int32_t>{{10, 20, 30}, {1, 1, 1}};
     auto struct_col1 = cudf::test::structs_column_wrapper({keys1, vals1}, {1, 1, 1}).release();
-    auto list_offsets_column1 = cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 3}.release();
+    auto list_offsets_column1 =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 3}.release();
     auto list_col1 =
       cudf::make_lists_column(2, std::move(list_offsets_column1), std::move(struct_col1), 0, {});
 
-    auto keys2                = cudf::test::fixed_width_column_wrapper<int32_t>{};
-    auto vals2                = cudf::test::fixed_width_column_wrapper<int32_t>{};
-    auto struct_col2          = cudf::test::structs_column_wrapper({keys2, vals2}).release();
-    auto list_offsets_column2 = cudf::test::fixed_width_column_wrapper<size_type>{0, 0, 0}.release();
+    auto keys2       = cudf::test::fixed_width_column_wrapper<int32_t>{};
+    auto vals2       = cudf::test::fixed_width_column_wrapper<int32_t>{};
+    auto struct_col2 = cudf::test::structs_column_wrapper({keys2, vals2}).release();
+    auto list_offsets_column2 =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 0, 0}.release();
     auto list_col2 =
       cudf::make_lists_column(2, std::move(list_offsets_column2), std::move(struct_col2), 0, {});
 
