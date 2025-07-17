@@ -44,11 +44,17 @@ jobs:
           echo "${rename_files}"
           echo "changed_files=${changed_files}" >> $GITHUB_OUTPUT
           echo "Detected files: ${changed_files}"
+      
+      - name: Prepare isolated directory
+        if: ${{ steps.changed_files.outputs.file_to_check != '' }}
+        run: |
+          mkdir -p .shellcheck_temp
+          cp ci/deploy.sh .shellcheck_temp/
 
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
         if: ${{ steps.changed_files.outputs.changed_files != '' }}
         with:
-          additional_files: ${{ steps.changed_files.outputs.changed_files }}
+          scandir: ".shellcheck_temp"
           severity: warning
           check_together: true
