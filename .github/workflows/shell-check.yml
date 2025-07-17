@@ -24,37 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.pull_request.title, '[bot]')"
     steps:
-      - name: Get checkout depth
-        run: |
-          echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 10 ))" >> $GITHUB_ENV
-
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ env.PR_FETCH_DEPTH }}
-
-      - name: Identify changed Shell files
-        id: changed_files
-        run: |
-          # Get changed files
-          BASE_REF=$(git --no-pager log --oneline -1 | awk '{ print $NF }')
-          echo "Base REF: ${BASE_REF}"
-          changed_files=$(git diff --name-only --diff-filter=AM ${BASE_REF} HEAD | grep '\.sh$' | tr '\n' ' ') || (echo "Your base commit ID is too old, please try upmerge first." && exit 1)
-          rename_files=$(git diff --name-status ${BASE_REF} HEAD | grep "^R" | grep -v "R100" | awk '{print $3}' | grep '\.sh$' | tr '\n' ' ' || echo "")
-          echo "${rename_files}"
-          echo "changed_files=${changed_files}" >> $GITHUB_OUTPUT
-          echo "Detected files: ${changed_files}"
-      
-      - name: Prepare isolated directory
-        if: ${{ steps.changed_files.outputs.changed_files != '' }}
-        run: |
-          mkdir -p .shellcheck_temp
-          cp ci/deploy.sh .shellcheck_temp/
 
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
-        if: ${{ steps.changed_files.outputs.changed_files != '' }}
-        with:
-          scandir: ".shellcheck_temp"
-          severity: warning
-          check_together: true
