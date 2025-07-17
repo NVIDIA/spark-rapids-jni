@@ -52,3 +52,4 @@ jobs:
           directory: "."
           additional_files: ${{ steps.changed_files.outputs.changed_files }}
           severity: warning
+          check_together: true
