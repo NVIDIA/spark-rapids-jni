@@ -46,7 +46,7 @@ jobs:
           echo "Detected files: ${changed_files}"
       
       - name: Prepare isolated directory
-        if: ${{ steps.changed_files.outputs.file_to_check != '' }}
+        if: ${{ steps.changed_files.outputs.changed_files != '' }}
         run: |
           mkdir -p .shellcheck_temp
           cp ci/deploy.sh .shellcheck_temp/
