@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ if [ "$SIGN_FILE" == true ]; then
         *)
             echo "Error unsupported sign type : $SIGN_TYPE !"
             echo "Please set variable SIGN_TOOL 'nvsec'or 'gpg'"
-            exit 1
+            exit -1
             ;;
     esac
 else
