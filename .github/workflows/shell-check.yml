@@ -49,7 +49,6 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         if: ${{ steps.changed_files.outputs.changed_files != '' }}
         with:
-          directory: "."
           additional_files: ${{ steps.changed_files.outputs.changed_files }}
           severity: warning
           check_together: true
