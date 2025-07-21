@@ -75,8 +75,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
                                                          cudf::data_type type,
                                                          int chunk_idx,
                                                          rmm::cuda_stream_view stream,
-                                                         rmm::device_async_resource_ref mr
-                                                         )
+                                                         rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(
     in_col.type().id() == cudf::type_id::INT64 || in_col.type().id() == cudf::type_id::UINT64,
@@ -87,9 +86,13 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
                "Output type must be a 32-bit integer type (INT32 or UINT32).");
 
   auto const num_rows = in_col.size();
-  auto out_col =
-    cudf::make_fixed_width_column(type, num_rows, cudf::detail::copy_bitmask(in_col, stream, mr), in_col.null_count(), stream, mr);
-  auto out_view = out_col->mutable_view();
+  auto out_col        = cudf::make_fixed_width_column(type,
+                                               num_rows,
+                                               cudf::detail::copy_bitmask(in_col, stream, mr),
+                                               in_col.null_count(),
+                                               stream,
+                                               mr);
+  auto out_view       = out_col->mutable_view();
 
   if (chunk_idx == 0) {  // Extract lower 32 bits
     thrust::transform(rmm::exec_policy(stream),
@@ -128,10 +131,18 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
                "Input chunk columns must be 64-bit types.");
 
   std::vector<std::unique_ptr<cudf::column>> columns;
-  columns.push_back(cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::BOOL8}, num_rows, cudf::detail::copy_bitmask(chunks0, stream, mr), chunks0.null_count(), stream, mr));
-  columns.push_back(cudf::make_fixed_width_column(
-    output_type, num_rows, cudf::detail::copy_bitmask(chunks0, stream, mr), chunks0.null_count(), stream, mr));
+  columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
+                                                  num_rows,
+                                                  cudf::detail::copy_bitmask(chunks0, stream, mr),
+                                                  chunks0.null_count(),
+                                                  stream,
+                                                  mr));
+  columns.push_back(cudf::make_fixed_width_column(output_type,
+                                                  num_rows,
+                                                  cudf::detail::copy_bitmask(chunks0, stream, mr),
+                                                  chunks0.null_count(),
+                                                  stream,
+                                                  mr));
   auto overflows_view = columns[0]->mutable_view();
   auto assembled_view = columns[1]->mutable_view();
   thrust::transform(
@@ -145,4 +156,4 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
   return std::make_unique<cudf::table>(std::move(columns));
 }
 
-}  // namespace cudf::jni
+}  // namespace spark_rapids_jni
