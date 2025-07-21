@@ -95,7 +95,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
   auto out_view       = out_col->mutable_view();
 
   if (chunk_idx == 0) {  // Extract lower 32 bits
-    thrust::transform(rmm::exec_policy(stream),
+    thrust::transform(rmm::exec_policy_nosync(stream),
                       in_col.begin<uint64_t>(),
                       in_col.end<uint64_t>(),
                       out_view.data<uint32_t>(),
@@ -103,7 +103,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
   } else {  // Extract upper 32 bits
     // Cast to int32_t for the upper chunk to correctly handle signedness during potential future
     // aggregation.
-    thrust::transform(rmm::exec_policy(stream),
+    thrust::transform(rmm::exec_policy_nosync(stream),
                       in_col.begin<uint64_t>(),
                       in_col.end<uint64_t>(),
                       out_view.data<int32_t>(),
@@ -146,7 +146,7 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
   auto overflows_view = columns[0]->mutable_view();
   auto assembled_view = columns[1]->mutable_view();
   thrust::transform(
-    rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator<cudf::size_type>(0),
     thrust::make_counting_iterator<cudf::size_type>(num_rows),
     assembled_view.begin<int64_t>(),
