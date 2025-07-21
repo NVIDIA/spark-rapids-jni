@@ -17,37 +17,8 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.Scalar;
-import ai.rapids.cudf.DType;
 
 public class Arithmetic {
-
-  private static void checkMultiply(DType leftType, DType rightType, 
-      long leftRowCount, long rightRowCount, boolean isAnsiMode, boolean isTryMode) {
-    
-    if (!(leftType.getTypeId() == DType.DTypeEnum.INT8 ||
-          leftType.getTypeId() == DType.DTypeEnum.INT16 ||
-          leftType.getTypeId() == DType.DTypeEnum.INT32 ||
-          leftType.getTypeId() == DType.DTypeEnum.INT64 ||
-          leftType.getTypeId() == DType.DTypeEnum.FLOAT32 ||
-          leftType.getTypeId() == DType.DTypeEnum.FLOAT64)) {
-      throw new IllegalArgumentException("Multiplication types must be signed integral or float, " +
-          "but get type: " + leftType);
-    }
-
-    if (leftType != rightType) {
-      throw new IllegalArgumentException("Column types do not match: " + leftType
-          + " vs " + rightType);
-    }
-
-    if (leftRowCount != rightRowCount) {
-      throw new IllegalArgumentException("Row counts do not match: " + leftRowCount
-          + " vs " + rightRowCount);
-    }
-
-    if (isAnsiMode && isTryMode) {
-      throw new IllegalArgumentException("isAnsiMode and isTryMode cannot both be true");
-    }
-  }
 
   /**
    * Computes multiplication on two ColumnVectors.
@@ -72,9 +43,6 @@ public class Arithmetic {
    */
   public static ColumnVector multiply(ColumnVector left, ColumnVector right, boolean isAnsiMode,
       boolean isTryMode) {
-    checkMultiply(left.getType(), right.getType(), left.getRowCount(),
-        right.getRowCount(), isAnsiMode, isTryMode);
-
     return new ColumnVector(multiply(
         left.getNativeView(), true, right.getNativeView(), true, isAnsiMode,
         isTryMode));
@@ -103,8 +71,6 @@ public class Arithmetic {
    */
   public static ColumnVector multiply(ColumnVector left, Scalar right, boolean isAnsiMode,
       boolean isTryMode) {
-    checkMultiply(left.getType(), right.getType(), left.getRowCount(),
-        left.getRowCount(), isAnsiMode, isTryMode);
     return new ColumnVector(multiply(
         left.getNativeView(), true, right.getScalarHandle(), false, isAnsiMode,
         isTryMode));
@@ -133,8 +99,6 @@ public class Arithmetic {
    */
   public static ColumnVector multiply(Scalar left, ColumnVector right, boolean isAnsiMode,
       boolean isTryMode) {
-    checkMultiply(left.getType(), right.getType(), right.getRowCount(),
-        right.getRowCount(), isAnsiMode, isTryMode);
     return new ColumnVector(multiply(
         left.getScalarHandle(), false, right.getNativeView(), true, isAnsiMode,
         isTryMode));

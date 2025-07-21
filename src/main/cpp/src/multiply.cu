@@ -156,8 +156,7 @@ std::unique_ptr<cudf::column> multiply(cudf::data_type type,
                                        cudf::size_type num_rows,
                                        LEFT_ACCESSOR const& left_accessor,
                                        RIGHT_ACCESSOR const& right_accessor,
-                                       bool is_ansi_mode,
-                                       bool is_try_mode,
+                                       bool check_overflow,
                                        rmm::cuda_stream_view stream,
                                        rmm::device_async_resource_ref mr)
 {
@@ -169,7 +168,6 @@ std::unique_ptr<cudf::column> multiply(cudf::data_type type,
     rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
 
   // excute the multiplication
-  bool check_overflow = is_ansi_mode || is_try_mode;
   thrust::for_each_n(
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0),
@@ -202,8 +200,7 @@ struct dispatch_multiply {
   template <typename T, CUDF_ENABLE_IF(is_basic_spark_numeric<T>())>
   std::unique_ptr<cudf::column> operator()(cudf::data_type type,
                                            cudf::size_type num_rows,
-                                           bool is_ansi_mode,
-                                           bool is_try_mode,
+                                           bool check_overflow,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr) const
   {
@@ -213,7 +210,7 @@ struct dispatch_multiply {
       auto const right_cdv      = cudf::column_device_view::create(*right_cv, stream);
       auto const right_accessor = column_accessor<T>(*right_cdv);
       return multiply<T, column_accessor<T>, column_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, is_ansi_mode, is_try_mode, stream, mr);
+        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
     } else if (left_cv != nullptr && right_scalar != nullptr) {
       auto const left_cdv      = cudf::column_device_view::create(*left_cv, stream);
       auto const left_accessor = column_accessor<T>(*left_cdv);
@@ -221,7 +218,7 @@ struct dispatch_multiply {
         static_cast<cudf::scalar_type_t<T>&>(const_cast<cudf::scalar&>(*right_scalar)));
       auto const right_accessor = numeric_scalar_accessor<T>(right_sdv);
       return multiply<T, column_accessor<T>, numeric_scalar_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, is_ansi_mode, is_try_mode, stream, mr);
+        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
     } else if (left_scalar != nullptr && right_cv != nullptr) {
       auto const left_sdv = cudf::get_scalar_device_view(
         static_cast<cudf::scalar_type_t<T>&>(const_cast<cudf::scalar&>(*left_scalar)));
@@ -229,7 +226,7 @@ struct dispatch_multiply {
       auto const right_cdv      = cudf::column_device_view::create(*right_cv, stream);
       auto const right_accessor = column_accessor<T>(*right_cdv);
       return multiply<T, numeric_scalar_accessor<T>, column_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, is_ansi_mode, is_try_mode, stream, mr);
+        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
     } else {
       CUDF_FAIL("Unsupported combination of inputs for multiplication.");
     }
@@ -238,8 +235,7 @@ struct dispatch_multiply {
   template <typename T, CUDF_ENABLE_IF(!is_basic_spark_numeric<T>())>
   std::unique_ptr<cudf::column> operator()(cudf::data_type type,
                                            cudf::size_type num_rows,
-                                           bool is_ansi_mode,
-                                           bool is_try_mode,
+                                           bool check_overflow,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr) const
   {
@@ -262,8 +258,7 @@ std::unique_ptr<cudf::column> multiply(cudf::column_view const& left_cv,
                                       dispatch_multiply{&left_cv, nullptr, &right_cv, nullptr},
                                       left_cv.type(),
                                       left_cv.size(),
-                                      is_ansi_mode,
-                                      is_try_mode,
+                                      is_ansi_mode || is_try_mode,
                                       stream,
                                       mr);
   // check for overflow if ANSI mode is enabled
@@ -287,8 +282,7 @@ std::unique_ptr<cudf::column> multiply(cudf::column_view const& left_cv,
                                       dispatch_multiply{&left_cv, nullptr, nullptr, &right_scalar},
                                       left_cv.type(),
                                       left_cv.size(),
-                                      is_ansi_mode,
-                                      is_try_mode,
+                                      is_ansi_mode || is_try_mode,
                                       stream,
                                       mr);
   // check for overflow if ANSI mode is enabled
@@ -316,8 +310,7 @@ std::unique_ptr<cudf::column> multiply(cudf::scalar const& left_scalar,
                                       dispatch_multiply{nullptr, &left_scalar, &right_cv, nullptr},
                                       right_cv.type(),
                                       right_cv.size(),
-                                      is_ansi_mode,
-                                      is_try_mode,
+                                      is_ansi_mode || is_try_mode,
                                       stream,
                                       mr);
   // check for overflow if ANSI mode is enabled

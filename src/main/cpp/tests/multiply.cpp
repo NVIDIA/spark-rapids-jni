@@ -157,11 +157,8 @@ TEST_F(MultiplyTests, checkTypeEquals)
   cudf::test::fixed_width_column_wrapper<int8_t> input{{1, 127}};
   cudf::test::fixed_width_column_wrapper<int16_t> input2{{1, 2}};
 
-  try {
-    spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false);
-    FAIL() << "Expected logic_error";
-  } catch (const cudf::logic_error& e) {
-  }
+  EXPECT_THROW(spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false),
+               cudf::logic_error);
 }
 
 TEST_F(MultiplyTests, checkRows)
@@ -169,11 +166,8 @@ TEST_F(MultiplyTests, checkRows)
   cudf::test::fixed_width_column_wrapper<int8_t> input{{1, 2, 3}};
   cudf::test::fixed_width_column_wrapper<int8_t> input2{{1, 2}};
 
-  try {
-    spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false);
-    FAIL() << "Expected logic_error";
-  } catch (const cudf::logic_error& e) {
-  }
+  EXPECT_THROW(spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false),
+               cudf::logic_error);
 }
 
 TEST_F(MultiplyTests, invalidType)
@@ -181,11 +175,8 @@ TEST_F(MultiplyTests, invalidType)
   cudf::test::fixed_width_column_wrapper<bool> input{{1, 0}};
   cudf::test::fixed_width_column_wrapper<int8_t> input2{{1, 2}};
 
-  try {
-    spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false);
-    FAIL() << "Expected logic_error";
-  } catch (const cudf::logic_error& e) {
-  }
+  EXPECT_THROW(spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ false),
+               cudf::logic_error);
 }
 
 TEST_F(MultiplyTests, invalidMode)
@@ -193,9 +184,6 @@ TEST_F(MultiplyTests, invalidMode)
   cudf::test::fixed_width_column_wrapper<int8_t> input{{1, 2}};
   cudf::test::fixed_width_column_wrapper<int8_t> input2{{1, 2}};
 
-  try {
-    spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ true);
-    FAIL() << "Expected logic_error";
-  } catch (const cudf::logic_error& e) {
-  }
+  EXPECT_THROW(spark_rapids_jni::multiply(input, input2, /*ansi*/ true, /*try*/ true),
+               cudf::logic_error);
 }
