@@ -24,7 +24,7 @@
 
 #include <memory>
 
-namespace cudf::jni {
+namespace spark_rapids_jni {
 
 /**
  * @brief Extract a 32-bit integer column from a column of 64-bit values.
@@ -46,7 +46,8 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(
   cudf::column_view const& col,
   cudf::data_type dtype,
   int chunk_idx,
-  rmm::cuda_stream_view stream = cudf::get_default_stream());
+  rmm::cuda_stream_view stream = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Reassemble a 64-bit column from two 64-bit integer columns with overflow detection.
@@ -69,6 +70,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(
 std::unique_ptr<cudf::table> assemble64_from_sum(
   cudf::table_view const& chunks_table,
   cudf::data_type output_type,
-  rmm::cuda_stream_view stream = cudf::get_default_stream());
+  rmm::cuda_stream_view stream = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace cudf::jni

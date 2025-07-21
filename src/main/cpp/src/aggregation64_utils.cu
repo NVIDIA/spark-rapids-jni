@@ -68,13 +68,15 @@ class chunk_assembler_64bit {
 
 }  // anonymous namespace
 
-namespace cudf::jni {
+namespace spark_rapids_jni {
 
 // Extract a 32-bit chunk from a 64-bit value.
 std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const& in_col,
                                                          cudf::data_type type,
                                                          int chunk_idx,
-                                                         rmm::cuda_stream_view stream)
+                                                         rmm::cuda_stream_view stream,
+                                                         rmm::device_async_resource_ref mr
+                                                         )
 {
   CUDF_EXPECTS(
     in_col.type().id() == cudf::type_id::INT64 || in_col.type().id() == cudf::type_id::UINT64,
@@ -86,7 +88,7 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
 
   auto const num_rows = in_col.size();
   auto out_col =
-    cudf::make_fixed_width_column(type, num_rows, copy_bitmask(in_col), in_col.null_count());
+    cudf::make_fixed_width_column(type, num_rows, cudf::detail::copy_bitmask(in_col, stream, mr), in_col.null_count(), stream, mr);
   auto out_view = out_col->mutable_view();
 
   if (chunk_idx == 0) {  // Extract lower 32 bits
@@ -110,7 +112,8 @@ std::unique_ptr<cudf::column> extract_chunk32_from_64bit(cudf::column_view const
 // Reassemble a column of 64-bit values from two 64-bit integer columns with overflow detection.
 std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_table,
                                                  cudf::data_type output_type,
-                                                 rmm::cuda_stream_view stream)
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(
     output_type.id() == cudf::type_id::INT64 || output_type.id() == cudf::type_id::UINT64,
@@ -126,9 +129,9 @@ std::unique_ptr<cudf::table> assemble64_from_sum(cudf::table_view const& chunks_
 
   std::vector<std::unique_ptr<cudf::column>> columns;
   columns.push_back(cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::BOOL8}, num_rows, copy_bitmask(chunks0), chunks0.null_count()));
+    cudf::data_type{cudf::type_id::BOOL8}, num_rows, cudf::detail::copy_bitmask(chunks0, stream, mr), chunks0.null_count(), stream, mr));
   columns.push_back(cudf::make_fixed_width_column(
-    output_type, num_rows, copy_bitmask(chunks0), chunks0.null_count()));
+    output_type, num_rows, cudf::detail::copy_bitmask(chunks0, stream, mr), chunks0.null_count(), stream, mr));
   auto overflows_view = columns[0]->mutable_view();
   auto assembled_view = columns[1]->mutable_view();
   thrust::transform(
