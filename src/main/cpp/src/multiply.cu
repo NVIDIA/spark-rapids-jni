@@ -18,7 +18,9 @@
 #include "row_error_utilities.hpp"
 #include "utilities.hpp"
 
+#include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/iterator.cuh>
 #include <cudf/detail/valid_if.cuh>
 
 #include <rmm/device_uvector.hpp>
@@ -26,6 +28,7 @@
 
 #include <cuda/std/limits>
 #include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
 
 namespace spark_rapids_jni {
 
@@ -138,27 +141,30 @@ struct multiply_fn {
 
   __device__ void operator()(int row_idx) const
   {
-    if (left_accessor.is_null(row_idx) || right_accessor.is_null(row_idx)) {
+    auto const& left_pair   = left_accessor[row_idx];
+    auto const& right_pair  = right_accessor[row_idx];
+    auto const& left_value  = left_pair.first;
+    auto const& right_value = right_pair.first;
+    auto const& left_valid  = left_pair.second;
+    auto const& right_valid = right_pair.second;
+
+    if (!left_valid || !right_valid) {
       validity[row_idx] = false;
       return;
     }
 
-    multiply<T>(left_accessor.element(row_idx),
-                right_accessor.element(row_idx),
-                check_overflow,
-                &validity[row_idx],
-                &results[row_idx]);
+    multiply<T>(left_value, right_value, check_overflow, &validity[row_idx], &results[row_idx]);
   }
 };
 
 template <typename T, typename LEFT_ACCESSOR, typename RIGHT_ACCESSOR>
-std::unique_ptr<cudf::column> multiply(cudf::data_type type,
-                                       cudf::size_type num_rows,
-                                       LEFT_ACCESSOR const& left_accessor,
-                                       RIGHT_ACCESSOR const& right_accessor,
-                                       bool check_overflow,
-                                       rmm::cuda_stream_view stream,
-                                       rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> multiply_impl(cudf::data_type type,
+                                            cudf::size_type num_rows,
+                                            LEFT_ACCESSOR left_accessor,
+                                            RIGHT_ACCESSOR right_accessor,
+                                            bool check_overflow,
+                                            rmm::cuda_stream_view stream,
+                                            rmm::device_async_resource_ref mr)
 {
   auto result =
     cudf::make_numeric_column(type, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
@@ -205,28 +211,57 @@ struct dispatch_multiply {
                                            rmm::device_async_resource_ref mr) const
   {
     if (left_cv != nullptr && right_cv != nullptr) {
-      auto const left_cdv       = cudf::column_device_view::create(*left_cv, stream);
-      auto const left_accessor  = column_accessor<T>(*left_cdv);
-      auto const right_cdv      = cudf::column_device_view::create(*right_cv, stream);
-      auto const right_accessor = column_accessor<T>(*right_cdv);
-      return multiply<T, column_accessor<T>, column_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      auto const left_cdv  = cudf::column_device_view::create(*left_cv, stream);
+      auto const right_cdv = cudf::column_device_view::create(*right_cv, stream);
+      if (left_cv->has_nulls()) {
+        if (right_cv->has_nulls()) {
+          auto const left_accessor  = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
+          auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+          return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+            type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+        } else {
+          auto const left_accessor  = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
+          auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+          return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+            type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+        }
+      } else {
+        if (right_cv->has_nulls()) {
+          auto const left_accessor  = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
+          auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+          return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+            type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+        } else {
+          auto const left_accessor  = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
+          auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+          return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+            type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+        }
+      }
     } else if (left_cv != nullptr && right_scalar != nullptr) {
-      auto const left_cdv      = cudf::column_device_view::create(*left_cv, stream);
-      auto const left_accessor = column_accessor<T>(*left_cdv);
-      auto const right_sdv     = cudf::get_scalar_device_view(
-        static_cast<cudf::scalar_type_t<T>&>(const_cast<cudf::scalar&>(*right_scalar)));
-      auto const right_accessor = numeric_scalar_accessor<T>(right_sdv);
-      return multiply<T, column_accessor<T>, numeric_scalar_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      auto const right_accessor = cudf::detail::make_pair_iterator<T>(*right_scalar);
+      auto const left_cdv       = cudf::column_device_view::create(*left_cv, stream);
+      if (left_cv->has_nulls()) {
+        auto const left_accessor = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
+        return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+          type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      } else {
+        auto const left_accessor = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
+        return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+          type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      }
     } else if (left_scalar != nullptr && right_cv != nullptr) {
-      auto const left_sdv = cudf::get_scalar_device_view(
-        static_cast<cudf::scalar_type_t<T>&>(const_cast<cudf::scalar&>(*left_scalar)));
-      auto const left_accessor  = numeric_scalar_accessor<T>(left_sdv);
-      auto const right_cdv      = cudf::column_device_view::create(*right_cv, stream);
-      auto const right_accessor = column_accessor<T>(*right_cdv);
-      return multiply<T, numeric_scalar_accessor<T>, column_accessor<T>>(
-        type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      auto const left_accessor = cudf::detail::make_pair_iterator<T>(*left_scalar);
+      auto const right_cdv     = cudf::column_device_view::create(*right_cv, stream);
+      if (right_cv->has_nulls()) {
+        auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
+        return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+          type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      } else {
+        auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
+        return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
+          type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
+      }
     } else {
       CUDF_FAIL("Unsupported combination of inputs for multiplication.");
     }

@@ -28,48 +28,6 @@
 
 namespace spark_rapids_jni {
 
-/**
- * @brief Element accessor from a column device view.
- * It has the same interfaces as the `numeric_scalar_accessor`.
- * This is used to access element from column and scalar with a unified model.
- */
-template <typename T>
-class column_accessor {
- public:
-  column_accessor(cudf::column_device_view cdv) : _cdv(cdv) {}
-
-  __device__ bool is_null(cudf::size_type row_index) const { return _cdv.is_null(row_index); }
-
-  __device__ T element(cudf::size_type row_index) const { return _cdv.element<T>(row_index); }
-
- private:
-  cudf::column_device_view _cdv;
-};
-
-/**
- * @brief Element accessor from a scalar. For any row index, return the same constant value.
- * It has the same interfaces as the `column_accessor`
- * This is used to access element from column and scalar with a unified model.
- */
-template <typename T>
-class numeric_scalar_accessor {
- public:
-  numeric_scalar_accessor(cudf::numeric_scalar_device_view<T> sdv) : _sdv(sdv) {}
-
-  /**
-   * @brief Ignore the row index when checking if the element is null.
-   */
-  __device__ bool is_null(cudf::size_type) const { return !_sdv.is_valid(); }
-
-  /**
-   * @brief Ignore the row index when accessing the element value.
-   */
-  __device__ T element(cudf::size_type) const { return _sdv.value(); }
-
- private:
-  cudf::numeric_scalar_device_view<T> _sdv;
-};
-
 template <typename T>
 constexpr inline bool is_basic_spark_numeric()
 {

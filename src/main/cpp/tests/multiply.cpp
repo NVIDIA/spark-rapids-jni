@@ -72,6 +72,9 @@ TEST_F(MultiplyTests, int32)
   cudf::test::fixed_width_column_wrapper<int32_t> expected{{0, 1, 4, 0, 0, 0, 0, 0},
                                                            {0, 1, 1, 0, 0, 0, 0, 0}};
 
+  // 0, 1, 1, 1, 0, 1, 0, 1
+  // 1, 1, 1, 1, 1, 0, 0, 1
+  // 0, 1, 1, 0, 0, 0, 0, 0
   auto result1 = spark_rapids_jni::multiply(input, input2, /*ansi*/ false, /*try*/ true);
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(*result1, expected);
 
