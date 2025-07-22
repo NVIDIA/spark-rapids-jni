@@ -141,13 +141,8 @@ struct multiply_fn {
 
   __device__ void operator()(int row_idx) const
   {
-    auto const& left_pair   = left_accessor[row_idx];
-    auto const& right_pair  = right_accessor[row_idx];
-    auto const& left_value  = left_pair.first;
-    auto const& right_value = right_pair.first;
-    auto const& left_valid  = left_pair.second;
-    auto const& right_valid = right_pair.second;
-
+    auto const [left_value, left_valid]   = left_accessor[row_idx];
+    auto const [right_value, right_valid] = right_accessor[row_idx];
     if (!left_valid || !right_valid) {
       validity[row_idx] = false;
       return;
