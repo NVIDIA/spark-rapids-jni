@@ -26,25 +26,78 @@ import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 public class ArithmeticTest {
 
   @Test
-  void multiplyAnsiOffWithOverflowWithoutThrow() {
-    // Integer.MAX_VALUE * 2 = -2 in non-ANSI mode
+  void multiplyAnsiOffWithOverflow() {
+    // Integer.MAX_VALUE * 2 = -2 in non-ANSI/non-try mode
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2);
-        ColumnVector expected = ColumnVector.fromInts(0, 1, -2)) {
-      try (ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false)) {
-        assertColumnsAreEqual(expected, actual);
-      }
+        ColumnVector expected = ColumnVector.fromInts(0, 1, -2);
+        ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false,
+            /* isTryMode */ false)) {
+      assertColumnsAreEqual(expected, actual);
     }
   }
 
   @Test
-  void multiplyAnsiOnWithThrow() {
+  void multiplyAnsiOnWithOverflow() {
     // Integer.MAX_VALUE * 2 throws exception in ANSI mode
     try (
         ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
         ColumnVector right = ColumnVector.fromInts(0, 1, 2)) {
-      Arithmetic.multiply(left, right, /* isAnsiMode */ true);
+      Arithmetic.multiply(left, right, /* isAnsiMode */ true, /* isTryMode */ false);
+      Assertions.fail("Expected ExceptionWithRowIndex due to overflow");
+    } catch (ExceptionWithRowIndex e) {
+      Assertions.assertEquals(2, e.getRowIndex());
+    }
+  }
+
+  @Test
+  void multiplyTryOnWithOverflow() {
+    // Integer.MAX_VALUE * 2 = null in try mode
+    try (
+        ColumnVector left = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
+        ColumnVector right = ColumnVector.fromInts(0, 1, 2);
+        ColumnVector expected = ColumnVector.fromBoxedInts(0, 1, null);
+        ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false,
+            /* isTryMode */ true)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void multiplyLongScalar() {
+    // Integer.MAX_VALUE * 2 = -2 in non-ANSI/non-try mode
+    try (
+        ColumnVector left = ColumnVector.fromLongs(0, 1, Long.MAX_VALUE);
+        Scalar right = Scalar.fromLong(2);
+        ColumnVector expected = ColumnVector.fromBoxedLongs(0L, 2L, null);
+        ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false,
+            /* isTryMode */ true)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void multiplyScalarInt() {
+    // Integer.MAX_VALUE * 2 = -2 in non-ANSI/non-try mode
+    try (
+        Scalar left = Scalar.fromInt(2);
+        ColumnVector right = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE);
+        ColumnVector expected = ColumnVector.fromInts(0, 2, -2);
+        ColumnVector actual = Arithmetic.multiply(left, right, /* isAnsiMode */ false,
+            /* isTryMode */ false)) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void multiplyScalarIntAnsi() {
+    // Integer.MAX_VALUE * 2 = -2 in non-ANSI/non-try mode
+    try (
+        Scalar left = Scalar.fromInt(2);
+        ColumnVector right = ColumnVector.fromInts(0, 1, Integer.MAX_VALUE)) {
+      Arithmetic.multiply(left, right, /* isAnsiMode */ true,
+          /* isTryMode */ false);
       Assertions.fail("Expected ExceptionWithRowIndex due to overflow");
     } catch (ExceptionWithRowIndex e) {
       Assertions.assertEquals(2, e.getRowIndex());

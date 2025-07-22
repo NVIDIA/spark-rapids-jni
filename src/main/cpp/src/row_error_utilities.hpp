@@ -22,12 +22,12 @@
 namespace spark_rapids_jni {
 
 /**
- * @brief Throws an error with the row index if has any row is invalid for a unary operation.
+ * @brief Throws exception_with_row_index if has any row is invalid for a unary operation.
  * If the input is not null and the result is null, it means the row is invalid.
  *
  * @throws exception_with_row_index if any row is invalid.
  *
- * @param input The input column view.
+ * @param input The input.
  * @param result The result column view.
  */
 void throw_row_error_if_any(cudf::column_view const& input,
@@ -35,13 +35,13 @@ void throw_row_error_if_any(cudf::column_view const& input,
                             rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 /**
- * @brief Throws an error with the row index if has any row is invalid for a binary operation.
- * If the inputs are not null and the result is null, it means the row is invalid.
+ * @brief Throws exception_with_row_index if has any row is invalid for a binary operation.
+ * If the input is not null and the result is null, it means the row is invalid.
  *
  * @throws exception_with_row_index if any row is invalid.
  *
- * @param input1 The first input column view.
- * @param input2 The second input column view.
+ * @param input1 The first input.
+ * @param input2 The second input.
  * @param result The result column view.
  */
 void throw_row_error_if_any(cudf::column_view const& input1,
@@ -50,14 +50,14 @@ void throw_row_error_if_any(cudf::column_view const& input1,
                             rmm::cuda_stream_view stream = cudf::get_default_stream());
 
 /**
- * @brief Throws an error with the row index if has any row is invalid for a ternary operation.
- * If the inputs are not null and the result is null, it means the row is invalid.
+ * @brief Throws exception_with_row_index if has any row is invalid for a ternary operation.
+ * If the input is not null and the result is null, it means the row is invalid.
  *
  * @throws exception_with_row_index if any row is invalid.
  *
- * @param input1 The first input column view.
- * @param input2 The second input column view.
- * @param input3 The third input column view.
+ * @param input1 The first input.
+ * @param input2 The second input.
+ * @param input3 The third input.
  * @param result The result column view.
  */
 void throw_row_error_if_any(cudf::column_view const& input1,
@@ -65,4 +65,35 @@ void throw_row_error_if_any(cudf::column_view const& input1,
                             cudf::column_view const& input3,
                             cudf::column_view const& result,
                             rmm::cuda_stream_view stream = cudf::get_default_stream());
+
+/**
+ * @brief Throws exception_with_row_index if has any row is invalid for a binary operation.
+ * If the input is not null and the result is null, it means the row is invalid.
+ *
+ * @throws exception_with_row_index if any row is invalid.
+ *
+ * @param input1 The first input.
+ * @param input2 The second input.
+ * @param result The result column view.
+ */
+void throw_row_error_if_any(cudf::column_view const& input1,
+                            cudf::scalar const& input2,
+                            cudf::column_view const& result,
+                            rmm::cuda_stream_view stream = cudf::get_default_stream());
+
+/**
+ * @brief Throws exception_with_row_index if has any row is invalid for a binary operation.
+ * If the input is not null and the result is null, it means the row is invalid.
+ *
+ * @throws exception_with_row_index if any row is invalid.
+ *
+ * @param input1 The first input.
+ * @param input2 The second input.
+ * @param result The result column view.
+ */
+void throw_row_error_if_any(cudf::scalar const& input1,
+                            cudf::column_view const& input2,
+                            cudf::column_view const& result,
+                            rmm::cuda_stream_view stream = cudf::get_default_stream());
+
 }  // namespace spark_rapids_jni
