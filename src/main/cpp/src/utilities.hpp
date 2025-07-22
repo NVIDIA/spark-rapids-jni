@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/span.hpp>
@@ -25,6 +27,15 @@
 #include <rmm/resource_ref.hpp>
 
 namespace spark_rapids_jni {
+
+template <typename T>
+constexpr inline bool is_basic_spark_numeric()
+{
+  return std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> || std::is_same_v<T, int32_t> ||
+         std::is_same_v<T, int64_t> || std::is_same_v<T, float> || std::is_same_v<T, double>;
+}
+
+bool is_basic_spark_numeric(cudf::data_type type);
 
 /**
  * @brief Bitwise-or an array of equally-sized bitmask buffers into a single output buffer

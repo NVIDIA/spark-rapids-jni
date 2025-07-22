@@ -121,3 +121,6 @@ ConfigureTest(HLLPP
 
 ConfigureTest(CONV
     number_converter.cpp)
+
+ConfigureTest(MULTIPLY
+    multiply.cpp)
