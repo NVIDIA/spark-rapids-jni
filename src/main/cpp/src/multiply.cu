@@ -209,25 +209,23 @@ struct dispatch_multiply {
       auto const left_cdv  = cudf::column_device_view::create(*left_cv, stream);
       auto const right_cdv = cudf::column_device_view::create(*right_cv, stream);
       if (left_cv->has_nulls()) {
+        auto const left_accessor = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
         if (right_cv->has_nulls()) {
-          auto const left_accessor  = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
           auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
         } else {
-          auto const left_accessor  = cudf::detail::make_pair_iterator<T, true>(*left_cdv);
           auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
         }
       } else {
+        auto const left_accessor = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
         if (right_cv->has_nulls()) {
-          auto const left_accessor  = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
           auto const right_accessor = cudf::detail::make_pair_iterator<T, true>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
         } else {
-          auto const left_accessor  = cudf::detail::make_pair_iterator<T, false>(*left_cdv);
           auto const right_accessor = cudf::detail::make_pair_iterator<T, false>(*right_cdv);
           return multiply_impl<T, decltype(left_accessor), decltype(right_accessor)>(
             type, num_rows, left_accessor, right_accessor, check_overflow, stream, mr);
