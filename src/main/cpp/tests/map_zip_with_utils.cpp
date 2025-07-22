@@ -56,6 +56,52 @@ TEST_F(MapZipWithUtilsTests, BasicMapZipTest)
   }
 }
 
+TEST_F(MapZipWithUtilsTests, NullMapTest)
+{
+  {
+    auto keys1 = cudf::test::fixed_width_column_wrapper<int32_t>{1, 2, 3, 4, 5, 6};
+    auto vals1 = cudf::test::fixed_width_column_wrapper<int32_t>{{48, 27, 25, 31, 351, 351},
+                                                                 {1, 1, 1, 1, 1, 1}};
+    auto struct_col1 =
+      cudf::test::structs_column_wrapper({keys1, vals1}, {1, 1, 1, 1, 1, 1}).release();
+    auto expected_unchanged_struct_col1 = cudf::column(*struct_col1);
+    auto list_offsets_column =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 3, 5, 6}.release();
+    auto num_list_rows = list_offsets_column->size() - 1;
+    auto mask          = cudf::create_null_mask(4, cudf::mask_state::ALL_VALID);
+    cudf::set_null_mask(static_cast<cudf::bitmask_type*>(mask.data()), 1, 2, false);
+    auto list_col1 = cudf::make_lists_column(
+      num_list_rows, std::move(list_offsets_column), std::move(struct_col1), 1, std::move(mask));
+
+    auto keys2 = cudf::test::fixed_width_column_wrapper<int32_t>{7, 8, 9, 10, 11, 12};
+    auto vals2 = cudf::test::fixed_width_column_wrapper<int32_t>{{12, 35, 25, 31, 351, 351},
+                                                                 {1, 1, 1, 1, 1, 1}};
+    auto struct_col2 =
+      cudf::test::structs_column_wrapper({keys2, vals2}, {1, 1, 1, 1, 1, 1}).release();
+    auto expected_unchanged_struct_col2 = cudf::column(*struct_col2);
+    auto list_offsets_column2 =
+      cudf::test::fixed_width_column_wrapper<size_type>{0, 2, 3, 5, 6}.release();
+    auto num_list_rows2 = list_offsets_column2->size() - 1;
+    auto list_col2      = cudf::make_lists_column(
+      num_list_rows2, std::move(list_offsets_column2), std::move(struct_col2), 0, {});
+
+    auto const k = cudf::test::fixed_width_column_wrapper<size_type>{
+      {1, 2, 7, 8, 4, 5, 10, 11, 6, 12}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1}};
+    auto const v1 = cudf::test::fixed_width_column_wrapper<size_type>{
+      {48, 27, 3, 4, 31, 351, 9, 10, 351, 12}, {1, 1, 0, 0, 1, 1, 0, 0, 1, 0}};
+    auto const v2 = cudf::test::fixed_width_column_wrapper<size_type>{
+      {5, 6, 12, 35, 3, 3, 31, 351, 2, 351}, {0, 0, 1, 1, 0, 0, 1, 1, 0, 1}};
+    auto results = spark_rapids_jni::map_zip(cudf::lists_column_view(*list_col1),
+                                             cudf::lists_column_view(*list_col2));
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+      k, cudf::lists_column_view(*results).child().child(0), verbosity);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+      v1, cudf::lists_column_view(*results).child().child(1).child(0), verbosity);
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
+      v2, cudf::lists_column_view(*results).child().child(1).child(1), verbosity);
+  }
+}
+
 TEST_F(MapZipWithUtilsTests, CharKeysTest)
 {
   {

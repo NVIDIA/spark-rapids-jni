@@ -18,6 +18,7 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
+#include <cudf/detail/null_mask.hpp>
 #include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/gather.hpp>
 #include <cudf/lists/set_operations.hpp>
@@ -33,10 +34,11 @@ using namespace cudf;
 namespace spark_rapids_jni {
 
 // Taken from src/lists/utilities.cu
-std::unique_ptr<column> generate_labels(lists_column_view const& input,
-                                                         size_type n_elements,
-                                                         rmm::cuda_stream_view stream = cudf::get_default_stream(),
-                                                         rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref())
+std::unique_ptr<column> generate_labels(
+  lists_column_view const& input,
+  size_type n_elements,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref())
 {
   auto labels = make_numeric_column(
     data_type(type_to_id<size_type>()), n_elements, cudf::mask_state::UNALLOCATED, stream, mr);
@@ -49,15 +51,15 @@ std::unique_ptr<column> generate_labels(lists_column_view const& input,
 /*
  *
  * Example using two list columns and indexing
- * 
+ *
  * search_keys     | search_values
  * [1, 2, 3]       | [10, 2, 3]
- * [4, 5]          | [4, 14, 5, 16]  
+ * [4, 5]          | [4, 14, 5, 16]
  * [6, 7, 8, 9]    | [6, 8]
 
  * search_keys child: 1, 2, 3, 4, 5, 6, 7, 8, 9
  * search_values child: 10, 2, 3, 4, 14, 16, 6, 8
- * 
+ *
  * keys_labels: 0, 0, 0, 1, 1, 2, 2, 2, 2
  * search_key_to_num_search_values: 3, 3, 3, 4, 4, 2, 2, 2, 2
  * list_sizes_offsets: 0, 3, 6, 9, 13, 17, 19, 21, 23, 25
@@ -69,10 +71,13 @@ std::unique_ptr<column> generate_labels(lists_column_view const& input,
  * values_idx: 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7, 8, 7, 8, 7, 8, 7, 8
 */
 std::unique_ptr<column> indices_of(
-  lists_column_view const& search_keys,    // Column containing lists of keys to search with
-  lists_column_view const& search_values,  // Column containing lists of values to search for (i.e. search space)
-  rmm::cuda_stream_view stream = cudf::get_default_stream(),            // CUDA stream for asynchronous execution
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref())       // Memory resource for allocations
+  lists_column_view const& search_keys,  // Column containing lists of keys to search with
+  lists_column_view const&
+    search_values,  // Column containing lists of values to search for (i.e. search space)
+  rmm::cuda_stream_view stream =
+    cudf::get_default_stream(),               // CUDA stream for asynchronous execution
+  rmm::device_async_resource_ref mr =
+    cudf::get_current_device_resource_ref())  // Memory resource for allocations
 {
   CUDF_EXPECTS(search_keys.size() == search_values.size(),
                "Number of search keys lists must match search values lists.");
@@ -87,7 +92,7 @@ std::unique_ptr<column> indices_of(
 
   // Calculate the number of elements in each list for both keys and values
   auto values_sizes = cudf::lists::count_elements(search_values, stream);
-  auto keys_sizes = cudf::lists::count_elements(search_keys, stream);
+  auto keys_sizes   = cudf::lists::count_elements(search_keys, stream);
 
   // Generate labels to map each key back to its corresponding list index
   // This helps us know which list each key belongs to
@@ -97,8 +102,12 @@ std::unique_ptr<column> indices_of(
   // This tells us how many values we need to compare against for each key
   auto search_key_to_num_search_values = thrust::make_transform_iterator(
     keys_labels->view().begin<size_type>(),
-    [values_sizes_ptr = values_sizes->view().begin<size_type>(), num_lists] __device__(
-      auto const keys_label) { return keys_label >= num_lists ? 0 : values_sizes_ptr[keys_label]; });
+    [values_sizes = values_sizes->view().begin<size_type>(),
+     num_lists] __device__(auto const keys_label) {
+      return keys_label >= num_lists
+               ? 0
+               : (values_sizes[keys_label] == NULL ? 0 : values_sizes[keys_label]);
+    });
 
   // Calculate cumulative offsets for the associated list sizes
   // This gives us the starting position for each key's value comparisons
@@ -114,10 +123,13 @@ std::unique_ptr<column> indices_of(
   // For each list row in search_keys, we need: number_of_keys * number_of_values comparisons
   auto total_compares_per_row = thrust::make_transform_iterator(
     thrust::make_counting_iterator(0),
-    [keys_sizes = keys_sizes->view().begin<size_type>(),
+    [keys_sizes   = keys_sizes->view().begin<size_type>(),
      values_sizes = values_sizes->view().begin<size_type>(),
      num_lists] __device__(auto const offset_val) {
-      return offset_val >= num_lists ? 0 : keys_sizes[offset_val] * values_sizes[offset_val];
+      return offset_val >= num_lists
+               ? 0
+               : (keys_sizes[offset_val] == NULL ? 0 : keys_sizes[offset_val]) *
+                   (values_sizes[offset_val] == NULL ? 0 : values_sizes[offset_val]);
     });
   // Sum up all comparisons across all rows
   auto total_compares = thrust::reduce(
@@ -174,9 +186,9 @@ std::unique_ptr<column> indices_of(
       }));
 
   // Use row comparator to allow nested/NULL/NaN comparisons
-  auto const keys_tview  = cudf::table_view{{all_keys}};
+  auto const keys_tview   = cudf::table_view{{all_keys}};
   auto const values_tview = cudf::table_view{{all_values}};
-  auto const has_nulls   = has_nested_nulls(values_tview) || has_nested_nulls(keys_tview);
+  auto const has_nulls    = has_nested_nulls(values_tview) || has_nested_nulls(keys_tview);
   auto const comparator =
     cudf::experimental::row::equality::two_table_comparator(values_tview, keys_tview, stream);
   auto const d_comp = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
@@ -185,7 +197,8 @@ std::unique_ptr<column> indices_of(
   using rhs_index_type = cudf::experimental::row::rhs_index_type;
 
   // Perform the actual key-value comparisons
-  // For each comparison: if key == value, return the value index; otherwise return Out of Bounds index
+  // For each comparison: if key == value, return the value index; otherwise return Out of Bounds
+  // index
   auto compare_results = make_numeric_column(
     data_type(type_to_id<size_type>()), total_compares, cudf::mask_state::UNALLOCATED, stream);
   thrust::transform(
@@ -207,7 +220,8 @@ std::unique_ptr<column> indices_of(
       }));
 
   // Use segmented reduction to find the minimum value (first match) for each list
-  // This gives us the first matching value index for each row, or Out of Bounds index if no match found
+  // This gives us the first matching value index for each row, or Out of Bounds index if no match
+  // found
   auto offsets_span = cudf::device_span<cudf::size_type const>(values_sizes_offsets->view());
   auto results =
     cudf::segmented_reduce(compare_results->view(),
@@ -226,7 +240,6 @@ std::unique_ptr<cudf::column> map_zip(
   rmm::cuda_stream_view stream,         // CUDA stream for asynchronous execution
   rmm::device_async_resource_ref mr)    // Memory resource for allocations
 {
-
   // Extract keys and values from the first map column (col1)
   // Create a column view that represents the keys and values part of col1
   auto map1_keys = column_view{data_type{type_id::LIST},
@@ -271,7 +284,7 @@ std::unique_ptr<cudf::column> map_zip(
 
   // Find the indices of each key in the first map
   // This tells us where each key appears in the first map, or if it doesn't exist
-  auto map1_indices = indices_of(search_keys_list, cudf::lists_column_view(map1_keys), stream);
+  auto map1_indices      = indices_of(search_keys_list, cudf::lists_column_view(map1_keys), stream);
   auto map1_indices_list = make_lists_column(search_keys_list.size(),
                                              std::make_unique<column>(search_keys_list.offsets()),
                                              std::move(map1_indices),
@@ -280,7 +293,7 @@ std::unique_ptr<cudf::column> map_zip(
 
   // Find the indices of each key in the second map
   // This tells us where each key appears in the second map, or if it doesn't exist
-  auto map2_indices = indices_of(search_keys_list, cudf::lists_column_view(map2_keys), stream);
+  auto map2_indices      = indices_of(search_keys_list, cudf::lists_column_view(map2_keys), stream);
   auto map2_indices_list = make_lists_column(search_keys_list.size(),
                                              std::make_unique<column>(search_keys_list.offsets()),
                                              std::move(map2_indices),
@@ -325,10 +338,12 @@ std::unique_ptr<cudf::column> map_zip(
                                          mr);
 
   return make_lists_column(search_keys_list.size(),
-                                      std::make_unique<column>(search_keys_list.offsets()),
-                                      std::move(map_structs),
-                                      0,
-                                      rmm::device_buffer{0, stream, mr});
+                           std::make_unique<column>(search_keys_list.offsets()),
+                           std::move(map_structs),
+                           col1.null_count(),
+                           cudf::detail::copy_bitmask(col1.parent(), stream, mr),
+                           stream,
+                           mr);
 }
 
 }  // namespace spark_rapids_jni
