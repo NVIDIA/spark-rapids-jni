@@ -112,13 +112,9 @@ configure_file(
   @ONLY
 )
 
-# find spdlog
-include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
 # Path to search for the pre-installed packages.
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR} "${CUDF_INSTALL_DIR}/lib64/cmake")
 
-# find NVTX 3.2
-include(${CMAKE_SOURCE_DIR}/cmake/get_nvtx.cmake)
 
 if(NOT TARGET spdlog::spdlog_header_only)
   message(STATUS "Fetch package spdlog from source.")
