@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "a1c47643a941eb3b13128f96afd4a050e824acf2",
+      "git_tag" : "dc1db8aefcfe52c66c26c6038fef58da37a46ae9",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
-      "version" : "3.0.1"
+      "version" : "3.0.0"
     },
     "GTest" : 
     {
@@ -77,7 +77,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "cb76305eef35d370a1ff62d4f5171dea5df1926b",
+      "git_tag" : "33a734cde6f4c5af5960fed826131e8797b5b46a",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "version" : "25.08"
     },
