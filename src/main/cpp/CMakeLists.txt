@@ -115,6 +115,8 @@ configure_file(
 # Path to search for the pre-installed packages.
 set(CMAKE_PREFIX_PATH ${CUDF_INSTALL_DIR} "${CUDF_INSTALL_DIR}/lib64/cmake")
 
+# Reuse cached nvtx package that is already available after installing libcudf.
+find_package(nvtx3 REQUIRED)
 
 if(NOT TARGET spdlog::spdlog_header_only)
   message(STATUS "Fetch package spdlog from source.")
