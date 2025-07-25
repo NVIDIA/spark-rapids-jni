@@ -27,6 +27,7 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
 #include <thrust/scan.h>
+#include <cudf/detail/null_mask.hpp>
 
 using namespace cudf;
 
@@ -333,12 +334,12 @@ std::unique_ptr<cudf::column> map_zip(
                                          rmm::device_buffer{0, stream, mr},
                                          stream,
                                          mr);
-
+  auto [result_mask, null_count] = cudf::bitmask_and(cudf::table_view({col1.parent(), col2.parent()}), stream);
   return make_lists_column(search_keys_list.size(),
                            std::make_unique<column>(search_keys_list.offsets()),
                            std::move(map_structs),
-                           col1.null_count(),
-                           cudf::detail::copy_bitmask(col1.parent(), stream, mr),
+                           null_count,
+                           std::move(result_mask),
                            stream,
                            mr);
 }
