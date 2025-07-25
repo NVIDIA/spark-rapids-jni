@@ -18,6 +18,8 @@
 #include "jni_utils.hpp"
 #include "task_priority.hpp"
 
+#include <unordered_map>
+
 namespace {
 // Track the next priority to assign and maintain a map of attempt_id to priority
 static long next_task_priority = std::numeric_limits<long>::max() - 1;
