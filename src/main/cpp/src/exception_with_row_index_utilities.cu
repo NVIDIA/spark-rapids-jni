@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "error.hpp"
-#include "row_error_utilities.hpp"
+#include "exception_with_row_index.hpp"
+#include "exception_with_row_index_utilities.hpp"
 
 #include <cudf/scalar/scalar.hpp>
 #include <cudf/utilities/bit.hpp>

@@ -16,7 +16,7 @@
 
 #include "multiply.hpp"
 
-#include "error.hpp"
+#include "exception_with_row_index.hpp"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
