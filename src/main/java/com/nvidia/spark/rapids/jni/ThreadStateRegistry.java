@@ -30,6 +30,8 @@ class ThreadStateRegistry {
   private static final Logger LOG = LoggerFactory.getLogger(ThreadStateRegistry.class);
 
   private static final HashMap<Long, Thread> knownThreads = new HashMap<>();
+  
+  private static final String PRINT_STACK_TRACE_PROPERTY = "com.nvidia.spark.rapids.printStackTraceCausingThreadBlocked";
 
   public static synchronized void addThread(long nativeId, Thread t) {
     knownThreads.put(nativeId, t);
@@ -46,6 +48,15 @@ class ThreadStateRegistry {
     if (t == null || !t.isAlive()) {
       // Dead is as good as blocked. This is mostly for tests, not so much for
       // production
+      if (Boolean.getBoolean(PRINT_STACK_TRACE_PROPERTY)) {
+        LOG.info("Thread with native ID {} is null or not alive, printing stack trace:", nativeId);
+        if (t != null) {
+          LOG.info("Thread {} stack trace:", t.getName());
+          for (StackTraceElement element : t.getStackTrace()) {
+            LOG.info("  at {}", element);
+          }
+        }
+      }
       return true;
     }
     Thread.State state = t.getState();
@@ -55,10 +66,24 @@ class ThreadStateRegistry {
       case WAITING:
         // fall through
       case TIMED_WAITING:
+        if (Boolean.getBoolean(PRINT_STACK_TRACE_PROPERTY)) {
+          LOG.info("Thread {} (native ID: {}) is blocked in state {}, printing stack trace:", 
+                   t.getName(), nativeId, state);
+          for (StackTraceElement element : t.getStackTrace()) {
+            LOG.info("  at {}", element);
+          }
+        }
         return true;
       case TERMINATED:
         // Technically there is a race with `!t.isAlive` check above, and dead is as good as
         // blocked.
+        if (Boolean.getBoolean(PRINT_STACK_TRACE_PROPERTY)) {
+          LOG.info("Thread {} (native ID: {}) is terminated, printing stack trace:", 
+                   t.getName(), nativeId);
+          for (StackTraceElement element : t.getStackTrace()) {
+            LOG.info("  at {}", element);
+          }
+        }
         return true;
       default:
         return false;
