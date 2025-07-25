@@ -26,7 +26,6 @@
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/span.hpp>
-
 #include <thrust/scan.h>
 
 using namespace cudf;
@@ -89,11 +88,11 @@ std::unique_ptr<column> indices_of(
   auto const all_keys   = search_keys.child();
   auto const num_keys   = all_keys.size();
   auto const all_values = search_values.child();
-
+                                
   // Calculate the number of elements in each list for both keys and values
   auto values_sizes = cudf::lists::count_elements(search_values, stream);
   auto keys_sizes   = cudf::lists::count_elements(search_keys, stream);
-
+  
   // Generate labels to map each key back to its corresponding list index
   // This helps us know which list each key belongs to
   auto keys_labels = generate_labels(search_keys, num_keys, stream);
@@ -101,12 +100,16 @@ std::unique_ptr<column> indices_of(
   // For each key, get the size of the associated values list
   // This tells us how many values we need to compare against for each key
   auto search_key_to_num_search_values = thrust::make_transform_iterator(
-    keys_labels->view().begin<size_type>(),
+    thrust::make_counting_iterator(0),
     [values_sizes = values_sizes->view().begin<size_type>(),
-     num_lists] __device__(auto const keys_label) {
-      return keys_label >= num_lists
-               ? 0
-               : (values_sizes[keys_label] == NULL ? 0 : values_sizes[keys_label]);
+     keys_labels = keys_labels->view().begin<size_type>(),
+     num_lists,
+     num_keys] __device__(auto const idx) {
+      if (idx < num_keys) {
+        auto keys_label = keys_labels[idx];
+        return values_sizes[keys_label];
+      }
+      return 0;
     });
 
   // Calculate cumulative offsets for the associated list sizes
@@ -118,7 +121,6 @@ std::unique_ptr<column> indices_of(
                          search_key_to_num_search_values,
                          search_key_to_num_search_values + num_keys + 1,
                          d_values_sizes_offsets);
-
   // Calculate the total number of comparisons needed for each row
   // For each list row in search_keys, we need: number_of_keys * number_of_values comparisons
   auto total_compares_per_row = thrust::make_transform_iterator(
@@ -128,13 +130,11 @@ std::unique_ptr<column> indices_of(
      num_lists] __device__(auto const offset_val) {
       return offset_val >= num_lists
                ? 0
-               : (keys_sizes[offset_val] == NULL ? 0 : keys_sizes[offset_val]) *
-                   (values_sizes[offset_val] == NULL ? 0 : values_sizes[offset_val]);
+               : keys_sizes[offset_val] * values_sizes[offset_val];
     });
   // Sum up all comparisons across all rows
   auto total_compares = thrust::reduce(
     rmm::exec_policy(stream), total_compares_per_row, total_compares_per_row + num_lists);
-
   // Create an index array that maps each comparison to its corresponding key
   // This tells us which key we're comparing in each comparison operation
   auto key_index = make_numeric_column(
@@ -158,7 +158,6 @@ std::unique_ptr<column> indices_of(
                          total_compares_per_row,
                          total_compares_per_row + num_lists + 1,
                          d_total_compares_offsets);
-
   // Create an array that maps each comparison to its corresponding value list
   // This tells us which value list we're comparing against
   auto val_offsets = make_numeric_column(
@@ -184,7 +183,6 @@ std::unique_ptr<column> indices_of(
                      d_values_sizes_val_offsets[d_val_offsets[idx]]
                  : idx;
       }));
-
   // Use row comparator to allow nested/NULL/NaN comparisons
   auto const keys_tview   = cudf::table_view{{all_keys}};
   auto const values_tview = cudf::table_view{{all_values}};
@@ -192,7 +190,6 @@ std::unique_ptr<column> indices_of(
   auto const comparator =
     cudf::experimental::row::equality::two_table_comparator(values_tview, keys_tview, stream);
   auto const d_comp = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
-
   using lhs_index_type = cudf::experimental::row::lhs_index_type;
   using rhs_index_type = cudf::experimental::row::rhs_index_type;
 
@@ -213,12 +210,14 @@ std::unique_ptr<column> indices_of(
        d_val_offsets,
        d_comp,
        d_value_sizes_val_offsets = search_values.offsets_begin()] __device__(auto const idx) {
+        //printf("idx = %d\n", idx);
+        //printf("values_idx[idx] = %d\n", values_idx[idx]);
+        //printf("d_key_index[idx] = %d\n", d_key_index[idx]);
         return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
                       static_cast<rhs_index_type>(d_key_index[idx]))
                  ? values_idx[idx] - d_value_sizes_val_offsets[d_val_offsets[idx]]
-                 : total_compares + 1;
+                 : -total_compares - 1;
       }));
-
   // Use segmented reduction to find the minimum value (first match) for each list
   // This gives us the first matching value index for each row, or Out of Bounds index if no match
   // found
@@ -226,7 +225,7 @@ std::unique_ptr<column> indices_of(
   auto results =
     cudf::segmented_reduce(compare_results->view(),
                            offsets_span,
-                           *cudf::make_min_aggregation<cudf::segmented_reduce_aggregation>(),
+                           *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
                            cudf::data_type{cudf::type_to_id<size_type>()},
                            cudf::null_policy::EXCLUDE,
                            stream,
@@ -249,7 +248,6 @@ std::unique_ptr<cudf::column> map_zip(
                                col1.null_count(),
                                col1.offset(),
                                {col1.offsets(), col1.child().child(0)}};
-
   auto map1_values = column_view{data_type{type_id::LIST},
                                  col1.size(),
                                  nullptr,
@@ -275,7 +273,6 @@ std::unique_ptr<cudf::column> map_zip(
                                  col2.null_count(),
                                  col2.offset(),
                                  {col2.offsets(), col2.child().child(1)}};
-
   // Find the union of all unique keys from both maps
   // This creates a combined set of keys that will be used for the final result
   auto search_keys      = cudf::lists::union_distinct(cudf::lists_column_view(map1_keys),
@@ -306,6 +303,7 @@ std::unique_ptr<cudf::column> map_zip(
     cudf::lists::segmented_gather(cudf::lists_column_view(map1_values),
                                   cudf::lists_column_view(*map1_indices_list),
                                   out_of_bounds_policy::NULLIFY);
+
   auto map2_values_list_gather =
     cudf::lists::segmented_gather(cudf::lists_column_view(map2_values),
                                   cudf::lists_column_view(*map2_indices_list),
@@ -318,13 +316,12 @@ std::unique_ptr<cudf::column> map_zip(
     std::move(std::make_unique<column>(cudf::lists_column_view(*map2_values_list_gather).child())));
 
   auto value_pair =
-    make_structs_column(cudf::lists_column_view(*map1_values_list_gather).child().size(),
+    make_structs_column(cudf::lists_column_view(*search_keys).child().size(),
                         std::move(value_pair_children),
                         0,
                         rmm::device_buffer{0, stream, mr},
                         stream,
                         mr);
-
   std::vector<std::unique_ptr<column>> map_structs_children;
   map_structs_children.push_back(
     std::move(std::make_unique<column>(cudf::lists_column_view(*search_keys).child())));

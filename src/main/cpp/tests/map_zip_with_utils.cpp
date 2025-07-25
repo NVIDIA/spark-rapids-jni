@@ -1,9 +1,10 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
-
+#include <cudf_test/debug_utilities.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 
 #include <map_zip_with_utils.hpp>
+#include <cudf/io/parquet.hpp>
 
 using namespace cudf;
 using indices_col = cudf::test::fixed_width_column_wrapper<cudf::size_type>;
@@ -99,6 +100,8 @@ TEST_F(MapZipWithUtilsTests, NullMapTest)
       v1, cudf::lists_column_view(*results).child().child(1).child(0), verbosity);
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(
       v2, cudf::lists_column_view(*results).child().child(1).child(1), verbosity);
+    // check to see of results size and list_col1 size are the same
+    EXPECT_EQ(cudf::lists_column_view(*list_col1).size(), cudf::lists_column_view(*results).size());
   }
 }
 
