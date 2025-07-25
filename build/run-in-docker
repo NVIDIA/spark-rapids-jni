@@ -115,4 +115,4 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e TZ=${TZ} \
   $DOCKER_OPTS \
   $JNI_DOCKER_IMAGE \
-  scl enable gcc-toolset-11 "$RUN_CMD"
+  scl enable gcc-toolset-14 "$RUN_CMD"

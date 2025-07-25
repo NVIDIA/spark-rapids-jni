@@ -216,7 +216,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
                             common.resolveIncompatibleDriverIssue(this)
                             try {
-                                sh 'scl enable gcc-toolset-11 "ci/premerge-build.sh"'
+                                sh 'scl enable gcc-toolset-14 "ci/premerge-build.sh"'
                                 sh 'bash ci/fuzz-test.sh'
                             } finally {
                                 common.syncDir(this, "${CUSTOM_WORKSPACE}", "${PVC_WORKSPACE}", false, ['.m2/'])
