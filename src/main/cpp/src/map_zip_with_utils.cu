@@ -25,9 +25,10 @@
 #include <cudf/reduction.hpp>
 #include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_view.hpp>
+#include <cudf/unary.hpp>
 #include <cudf/utilities/span.hpp>
+
 #include <thrust/scan.h>
-#include <cudf/detail/null_mask.hpp>
 
 using namespace cudf;
 
@@ -89,11 +90,12 @@ std::unique_ptr<column> indices_of(
   auto const all_keys   = search_keys.child();
   auto const num_keys   = all_keys.size();
   auto const all_values = search_values.child();
-                                
+
   // Calculate the number of elements in each list for both keys and values
   auto values_sizes = cudf::lists::count_elements(search_values, stream);
+  auto values_nulls = cudf::is_null(*values_sizes, stream);
   auto keys_sizes   = cudf::lists::count_elements(search_keys, stream);
-  
+  auto keys_nulls   = cudf::is_null(*keys_sizes, stream);
   // Generate labels to map each key back to its corresponding list index
   // This helps us know which list each key belongs to
   auto keys_labels = generate_labels(search_keys, num_keys, stream);
@@ -103,12 +105,13 @@ std::unique_ptr<column> indices_of(
   auto search_key_to_num_search_values = thrust::make_transform_iterator(
     thrust::make_counting_iterator(0),
     [values_sizes = values_sizes->view().begin<size_type>(),
-     keys_labels = keys_labels->view().begin<size_type>(),
-     num_lists,
+     keys_labels  = keys_labels->view().begin<size_type>(),
+     keys_nulls   = keys_nulls->view().begin<bool>(),
+     values_nulls = values_nulls->view().begin<bool>(),
      num_keys] __device__(auto const idx) {
       if (idx < num_keys) {
         auto keys_label = keys_labels[idx];
-        return values_sizes[keys_label];
+        return values_nulls[keys_label] ? 0 : values_sizes[keys_label]
       }
       return 0;
     });
@@ -128,10 +131,14 @@ std::unique_ptr<column> indices_of(
     thrust::make_counting_iterator(0),
     [keys_sizes   = keys_sizes->view().begin<size_type>(),
      values_sizes = values_sizes->view().begin<size_type>(),
-     num_lists] __device__(auto const offset_val) {
-      return offset_val >= num_lists
-               ? 0
-               : keys_sizes[offset_val] * values_sizes[offset_val];
+     num_lists,
+     keys_nulls   = keys_nulls->view().begin<bool>(),
+     values_nulls = values_nulls->view().begin<bool>()] __device__(auto const offset_val) {
+      if (offset_val >= num_lists) return 0;
+      if (keys_nulls[offset_val] || values_nulls[offset_val])
+        return 0;
+      else
+        return keys_sizes[offset_val] * values_sizes[offset_val];
     });
   // Sum up all comparisons across all rows
   auto total_compares = thrust::reduce(
@@ -190,7 +197,7 @@ std::unique_ptr<column> indices_of(
   auto const has_nulls    = has_nested_nulls(values_tview) || has_nested_nulls(keys_tview);
   auto const comparator =
     cudf::experimental::row::equality::two_table_comparator(values_tview, keys_tview, stream);
-  auto const d_comp = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
+  auto const d_comp    = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
   using lhs_index_type = cudf::experimental::row::lhs_index_type;
   using rhs_index_type = cudf::experimental::row::rhs_index_type;
 
@@ -211,9 +218,6 @@ std::unique_ptr<column> indices_of(
        d_val_offsets,
        d_comp,
        d_value_sizes_val_offsets = search_values.offsets_begin()] __device__(auto const idx) {
-        //printf("idx = %d\n", idx);
-        //printf("values_idx[idx] = %d\n", values_idx[idx]);
-        //printf("d_key_index[idx] = %d\n", d_key_index[idx]);
         return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
                       static_cast<rhs_index_type>(d_key_index[idx]))
                  ? values_idx[idx] - d_value_sizes_val_offsets[d_val_offsets[idx]]
@@ -242,13 +246,13 @@ std::unique_ptr<cudf::column> map_zip(
 {
   // Extract keys and values from the first map column (col1)
   // Create a column view that represents the keys and values part of col1
-  auto map1_keys = column_view{data_type{type_id::LIST},
+  auto map1_keys   = column_view{data_type{type_id::LIST},
                                col1.size(),
                                nullptr,
                                col1.null_mask(),
                                col1.null_count(),
                                col1.offset(),
-                               {col1.offsets(), col1.child().child(0)}};
+                                 {col1.offsets(), col1.child().child(0)}};
   auto map1_values = column_view{data_type{type_id::LIST},
                                  col1.size(),
                                  nullptr,
@@ -316,13 +320,12 @@ std::unique_ptr<cudf::column> map_zip(
   value_pair_children.push_back(
     std::move(std::make_unique<column>(cudf::lists_column_view(*map2_values_list_gather).child())));
 
-  auto value_pair =
-    make_structs_column(cudf::lists_column_view(*search_keys).child().size(),
-                        std::move(value_pair_children),
-                        0,
-                        rmm::device_buffer{0, stream, mr},
-                        stream,
-                        mr);
+  auto value_pair = make_structs_column(cudf::lists_column_view(*search_keys).child().size(),
+                                        std::move(value_pair_children),
+                                        0,
+                                        rmm::device_buffer{0, stream, mr},
+                                        stream,
+                                        mr);
   std::vector<std::unique_ptr<column>> map_structs_children;
   map_structs_children.push_back(
     std::move(std::make_unique<column>(cudf::lists_column_view(*search_keys).child())));
@@ -334,7 +337,8 @@ std::unique_ptr<cudf::column> map_zip(
                                          rmm::device_buffer{0, stream, mr},
                                          stream,
                                          mr);
-  auto [result_mask, null_count] = cudf::bitmask_and(cudf::table_view({col1.parent(), col2.parent()}), stream);
+  auto [result_mask, null_count] =
+    cudf::bitmask_and(cudf::table_view({col1.parent(), col2.parent()}), stream);
   return make_lists_column(search_keys_list.size(),
                            std::make_unique<column>(search_keys_list.offsets()),
                            std::move(map_structs),

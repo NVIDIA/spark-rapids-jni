@@ -1,10 +1,12 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
+
+#include <cudf/column/column_view.hpp>
+#include <cudf/io/parquet.hpp>
 #include <cudf/lists/lists_column_view.hpp>
 
 #include <map_zip_with_utils.hpp>
-#include <cudf/io/parquet.hpp>
 
 using namespace cudf;
 using indices_col = cudf::test::fixed_width_column_wrapper<cudf::size_type>;
