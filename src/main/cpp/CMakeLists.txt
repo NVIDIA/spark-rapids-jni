@@ -221,6 +221,7 @@ add_library(
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
+  src/exception_with_row_index_utilities.cu
   src/format_float.cu
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
@@ -238,7 +239,6 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
-  src/row_error_utilities.cu
   src/shuffle_assemble.cu
   src/shuffle_split.cu
   src/substring_index.cu
