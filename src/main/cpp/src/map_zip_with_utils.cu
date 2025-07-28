@@ -58,23 +58,29 @@ std::unique_ptr<column> generate_labels(
  * [4, 5]          | [4, 14, 5, 16]
  * [6, 7, 8, 9]    | [6, 8]
 
- * search_keys child: 1, 2, 3, 4, 5, 6, 7, 8, 9
- * search_values child: 10, 2, 3, 4, 14, 16, 6, 8
+ * search_keys child:      1, 2, 3, 4,  5,  6, 7, 8, 9
+ * search_values child:   10, 2, 3, 4, 14, 16, 6, 8
  *
- * keys_labels: 0, 0, 0, 1, 1, 2, 2, 2, 2
+ * This algorithm works by comparing each key and value parallelly,
+ * hence the need for separate indexes. The algorithm first calculates
+ * the total number of comparisons need, which is a row-wise dot product.
+ * Then for each comparison, it generates the key index and value index which
+ * is used to compare the associated key and value.
+ *
+ * keys_labels:            0, 0, 0, 1,  1,  2, 2, 2, 2
  * search_key_to_num_search_values: 3, 3, 3, 4, 4, 2, 2, 2, 2
  * list_sizes_offsets: 0, 3, 6, 9, 13, 17, 19, 21, 23, 25
- * key_index: 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8
+ * key_index:   0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8
  *
  * total_compares_per_row: 9, 8, 8
  * total_compares_offsets: 0, 9, 17, 25
- * val_offsets: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2
- * values_idx: 0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7, 8, 7, 8, 7, 8, 7, 8
+ * val_offsets: 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2
+ * values_idx:  0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7, 8, 7, 8, 7, 8, 7, 8
 */
 std::unique_ptr<column> indices_of(
-  lists_column_view const& search_keys,  // Column containing lists of keys to search with
+  lists_column_view const& search_keys,  // Column containing lists of keys to search for
   lists_column_view const&
-    search_values,  // Column containing lists of values to search for (i.e. search space)
+    search_values,  // Column containing lists of values to search through (i.e. search space)
   rmm::cuda_stream_view stream =
     cudf::get_default_stream(),               // CUDA stream for asynchronous execution
   rmm::device_async_resource_ref mr =
@@ -96,8 +102,8 @@ std::unique_ptr<column> indices_of(
   auto values_nulls = cudf::is_null(*values_sizes, stream);
   auto keys_sizes   = cudf::lists::count_elements(search_keys, stream);
   auto keys_nulls   = cudf::is_null(*keys_sizes, stream);
-  // Generate labels to map each key back to its corresponding list index
-  // This helps us know which list each key belongs to
+  // Generate labels to map each key back to its corresponding row index
+  // This helps us know which list-row each key belongs to
   auto keys_labels = generate_labels(search_keys, num_keys, stream);
 
   // For each key, get the size of the associated values list
@@ -155,7 +161,7 @@ std::unique_ptr<column> indices_of(
                                d_key_index + total_compares,
                                stream);
 
-  // Calculate indicies for search values
+  // Calculate indices for search values
   // Calculate offsets for the total comparisons per row
   // This gives us the starting position for each row's comparisons
   auto total_compares_offsets = make_numeric_column(
@@ -187,7 +193,8 @@ std::unique_ptr<column> indices_of(
        d_values_sizes_val_offsets = search_values.offsets_begin()] __device__(auto const idx) {
         return d_values_sizes_offsets[d_key_index[idx]] > 0
                  ? idx % d_values_sizes_offsets[d_key_index[idx]] +
-                     d_values_sizes_val_offsets[d_val_offsets[idx]]
+                     d_values_sizes_val_offsets[d_val_offsets[idx]]  // This is to add the offset of
+                                                                     // the previous row size
                  : idx;
       }));
   // Use row comparator to allow nested/NULL/NaN comparisons
@@ -220,11 +227,13 @@ std::unique_ptr<column> indices_of(
         return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
                       static_cast<rhs_index_type>(d_key_index[idx]))
                  ? values_idx[idx] - d_value_sizes_val_offsets[d_val_offsets[idx]]
-                 : -total_compares - 1;
+                 : -total_compares -
+                     1;  // For non-matches, we'd like the final gather to produce a NULL.
       }));
-  // Use segmented reduction to find the minimum value (first match) for each list
-  // This gives us the first matching value index for each row, or Out of Bounds index if no match
-  // found
+  // Use segmented reduction to find the maximum value (last match) for each list.
+  // (When there are repeated keys, Spark uses the *last* key/value in the output.  The others are
+  // ignored.) This gives us the first matching value index for each row, or Out of Bounds index if
+  // no match found
   auto offsets_span = cudf::device_span<cudf::size_type const>(values_sizes_offsets->view());
   auto results =
     cudf::segmented_reduce(compare_results->view(),
