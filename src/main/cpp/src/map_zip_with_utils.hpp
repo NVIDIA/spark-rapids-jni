@@ -43,7 +43,7 @@ namespace spark_rapids_jni {
  * ]
  *
  * result = [
- *   [(1, (100, NULL), (2, (200,20)), (3, (300, NULL)), (4, (400,40)), (8, (NULL, 80))],
+ *   [(1, (100, NULL)), (2, (200,20)), (3, (300, NULL)), (4, (400,40)), (8, (NULL, 80))],
  *   [(5, (500, NULL)), (6, (600, 60)), (7, (700, NULL)), (9, (NULL,90)), (10, (NULL, 100))],
  * ]
  * @endcode
@@ -58,8 +58,6 @@ namespace spark_rapids_jni {
  * @note Both input columns must have the same number of rows.
  *
  * @note The function preserves the null mask and validity of the input columns.
- *
- * ```
  */
 [[maybe_unused]] std::unique_ptr<cudf::column> map_zip(
   cudf::lists_column_view const& col1,

@@ -106,12 +106,11 @@ std::unique_ptr<column> indices_of(
     thrust::make_counting_iterator(0),
     [values_sizes = values_sizes->view().begin<size_type>(),
      keys_labels  = keys_labels->view().begin<size_type>(),
-     keys_nulls   = keys_nulls->view().begin<bool>(),
      values_nulls = values_nulls->view().begin<bool>(),
      num_keys] __device__(auto const idx) {
       if (idx < num_keys) {
         auto keys_label = keys_labels[idx];
-        return values_nulls[keys_label] ? 0 : values_sizes[keys_label]
+        return values_nulls[keys_label] ? 0 : values_sizes[keys_label];
       }
       return 0;
     });
@@ -244,6 +243,15 @@ std::unique_ptr<cudf::column> map_zip(
   rmm::cuda_stream_view stream,         // CUDA stream for asynchronous execution
   rmm::device_async_resource_ref mr)    // Memory resource for allocations
 {
+  CUDF_EXPECTS(col1.child().type().id() == cudf::type_id::STRUCT,
+               "col1 must have exactly 1 child (STRUCT) column.");
+  CUDF_EXPECTS(col1.child().num_children() == 2,
+               "col1 key-value struct must have exactly 2 children.");
+  CUDF_EXPECTS(col2.child().type().id() == cudf::type_id::STRUCT,
+               "col2 must have exactly 1 child (STRUCT) column.");
+  CUDF_EXPECTS(col2.child().num_children() == 2,
+               "col2 key-value struct must have exactly 2 children.");
+
   // Extract keys and values from the first map column (col1)
   // Create a column view that represents the keys and values part of col1
   auto map1_keys   = column_view{data_type{type_id::LIST},
