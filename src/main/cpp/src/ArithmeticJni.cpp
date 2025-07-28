@@ -15,7 +15,7 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "error.hpp"
+#include "exception_with_row_index.hpp"
 #include "jni_utils.hpp"
 #include "multiply.hpp"
 

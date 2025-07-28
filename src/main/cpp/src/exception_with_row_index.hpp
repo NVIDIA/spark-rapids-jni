@@ -66,5 +66,6 @@ class exception_with_row_index : public std::runtime_error {
       }                                                                                     \
     }                                                                                       \
     return ret_val;                                                                         \
-  }
+  }                                                                                         \
+  CATCH_STD(env, 0);
 }  // namespace spark_rapids_jni

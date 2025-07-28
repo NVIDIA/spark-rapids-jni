@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
+#include "exception_with_row_index_utilities.hpp"
 #include "multiply.hpp"
-#include "row_error_utilities.hpp"
 #include "utilities.hpp"
 
 #include <cudf/column/column_device_view.cuh>
@@ -178,10 +178,11 @@ std::unique_ptr<cudf::column> multiply_impl(cudf::data_type type,
                                                   check_overflow,
                                                   result->mutable_view().begin<T>(),
                                                   validity.data()});
+
   // collect null mask and set
   auto [null_mask, null_count] =
     cudf::detail::valid_if(validity.begin(), validity.end(), cuda::std::identity{}, stream, mr);
-  if (null_count > 0) { result->set_null_mask(std::move(null_mask), null_count, stream); }
+  if (null_count > 0) { result->set_null_mask(std::move(null_mask), null_count); }
 
   return result;
 }

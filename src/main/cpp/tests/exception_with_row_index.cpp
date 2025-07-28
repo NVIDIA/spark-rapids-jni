@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-#include "error.hpp"
-#include "row_error_utilities.hpp"
+#include "exception_with_row_index.hpp"
+
+#include "exception_with_row_index_utilities.hpp"
 
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
