@@ -98,13 +98,13 @@ std::unique_ptr<column> indices_of(
   auto const all_values = search_values.child();
 
   // Calculate the number of elements in each list for both keys and values
-  auto values_sizes = cudf::lists::count_elements(search_values, stream);
-  auto values_nulls = cudf::is_null(*values_sizes, stream);
-  auto keys_sizes   = cudf::lists::count_elements(search_keys, stream);
-  auto keys_nulls   = cudf::is_null(*keys_sizes, stream);
+  auto const values_sizes = cudf::lists::count_elements(search_values, stream);
+  auto const values_nulls = cudf::is_null(*values_sizes, stream);
+  auto const keys_sizes   = cudf::lists::count_elements(search_keys, stream);
+  auto const keys_nulls   = cudf::is_null(*keys_sizes, stream);
   // Generate labels to map each key back to its corresponding row index
   // This helps us know which list-row each key belongs to
-  auto keys_labels = generate_labels(search_keys, num_keys, stream);
+  auto const keys_labels = generate_labels(search_keys, num_keys, stream);
 
   // For each key, get the size of the associated values list
   // This tells us how many values we need to compare against for each key
@@ -146,7 +146,7 @@ std::unique_ptr<column> indices_of(
         return keys_sizes[offset_val] * values_sizes[offset_val];
     });
   // Sum up all comparisons across all rows
-  auto total_compares = thrust::reduce(
+  auto const total_compares = thrust::reduce(
     rmm::exec_policy(stream), total_compares_per_row, total_compares_per_row + num_lists);
   // Create an index array that maps each comparison to its corresponding key
   // This tells us which key we're comparing in each comparison operation
@@ -263,43 +263,43 @@ std::unique_ptr<cudf::column> map_zip(
 
   // Extract keys and values from the first map column (col1)
   // Create a column view that represents the keys and values part of col1
-  auto map1_keys   = column_view{data_type{type_id::LIST},
-                               col1.size(),
-                               nullptr,
-                               col1.null_mask(),
-                               col1.null_count(),
-                               col1.offset(),
-                                 {col1.offsets(), col1.child().child(0)}};
-  auto map1_values = column_view{data_type{type_id::LIST},
-                                 col1.size(),
-                                 nullptr,
-                                 col1.null_mask(),
-                                 col1.null_count(),
-                                 col1.offset(),
-                                 {col1.offsets(), col1.child().child(1)}};
+  auto const map1_keys   = column_view{data_type{type_id::LIST},
+                                     col1.size(),
+                                     nullptr,
+                                     col1.null_mask(),
+                                     col1.null_count(),
+                                     col1.offset(),
+                                       {col1.offsets(), col1.child().child(0)}};
+  auto const map1_values = column_view{data_type{type_id::LIST},
+                                       col1.size(),
+                                       nullptr,
+                                       col1.null_mask(),
+                                       col1.null_count(),
+                                       col1.offset(),
+                                       {col1.offsets(), col1.child().child(1)}};
 
   // Extract keys and values from the second map column (col2)
   // Create a column view that represents the keys and values part of col2
-  auto map2_keys = column_view{data_type{type_id::LIST},
-                               col2.size(),
-                               nullptr,
-                               col2.null_mask(),
-                               col2.null_count(),
-                               col2.offset(),
-                               {col2.offsets(), col2.child().child(0)}};
+  auto const map2_keys = column_view{data_type{type_id::LIST},
+                                     col2.size(),
+                                     nullptr,
+                                     col2.null_mask(),
+                                     col2.null_count(),
+                                     col2.offset(),
+                                     {col2.offsets(), col2.child().child(0)}};
 
-  auto map2_values = column_view{data_type{type_id::LIST},
-                                 col2.size(),
-                                 nullptr,
-                                 col2.null_mask(),
-                                 col2.null_count(),
-                                 col2.offset(),
-                                 {col2.offsets(), col2.child().child(1)}};
+  auto const map2_values = column_view{data_type{type_id::LIST},
+                                       col2.size(),
+                                       nullptr,
+                                       col2.null_mask(),
+                                       col2.null_count(),
+                                       col2.offset(),
+                                       {col2.offsets(), col2.child().child(1)}};
   // Find the union of all unique keys from both maps
   // This creates a combined set of keys that will be used for the final result
-  auto search_keys      = cudf::lists::union_distinct(cudf::lists_column_view(map1_keys),
-                                                 cudf::lists_column_view(map2_keys));
-  auto search_keys_list = cudf::lists_column_view(*search_keys);
+  auto const search_keys      = cudf::lists::union_distinct(cudf::lists_column_view(map1_keys),
+                                                       cudf::lists_column_view(map2_keys));
+  auto const search_keys_list = cudf::lists_column_view(*search_keys);
 
   // Find the indices of each key in the first map
   // This tells us where each key appears in the first map, or if it doesn't exist
