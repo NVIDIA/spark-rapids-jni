@@ -74,6 +74,9 @@ ConfigureTest(CAST_STRING
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
 
+ConfigureTest(EXCEPTION_WITH_ROW_INDEX
+    exception_with_row_index.cpp)
+
 ConfigureTest(FORMAT_FLOAT
     format_float.cpp)
 
@@ -118,3 +121,6 @@ ConfigureTest(HLLPP
 
 ConfigureTest(CONV
     number_converter.cpp)
+
+ConfigureTest(MULTIPLY
+    multiply.cpp)
