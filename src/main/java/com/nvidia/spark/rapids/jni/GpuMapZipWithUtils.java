@@ -50,8 +50,8 @@ public class GpuMapZipWithUtils {
      * ]
      * @endcode
      *
-     * @param col1 The first lists column (keys)
-     * @param col2 The second lists column (values)
+     * @param col1 The first lists column containing key-value pairs
+     * @param col2 The second lists column containing key-value pairs
      * @param stream CUDA stream for asynchronous execution (default: default stream)
      * @param mr Memory resource for device memory allocation (default: current device resource)
      *

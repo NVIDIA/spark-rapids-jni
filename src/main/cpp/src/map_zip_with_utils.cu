@@ -34,7 +34,18 @@ using namespace cudf;
 
 namespace spark_rapids_jni {
 
-// Taken from src/lists/utilities.cu
+namespace {
+
+/**
+ * Taken from CUDF at cpp/src/lists/utilities.cu
+ * @brief Generate list labels for elements in the child column of the input lists column.
+ *
+ * @param input The input lists column
+ * @param n_elements The number of elements in the child column of the input lists column
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned object
+ * @return A column containing list labels corresponding to each element in the child column
+ */
 std::unique_ptr<column> generate_labels(
   lists_column_view const& input,
   size_type n_elements,
@@ -49,43 +60,82 @@ std::unique_ptr<column> generate_labels(
   return labels;
 }
 
-/*
+/**
+ * @brief Find the indices of search keys within their corresponding search value lists.
  *
- * Example using two list columns and indexing
+ * This function performs a parallel search operation where each key from search_keys
+ * is compared against all values in the corresponding search_values list. The algorithm
+ * works by generating all possible key-value comparisons and then finding matches.
+ * When multiple matches exist for the same key, the last match is returned (following
+ * Spark's behavior where repeated keys use the last key/value in the output).
  *
- * search_keys     | search_values
- * [1, 2, 3]       | [10, 2, 3]
- * [4, 5]          | [4, 14, 5, 16]
- * [6, 7, 8, 9]    | [6, 8]
-
- * search_keys child:      1, 2, 3, 4,  5,  6, 7, 8, 9
- * search_values child:   10, 2, 3, 4, 14, 16, 6, 8
+ * This function takes two LISTS columns:
+ * 1. a `search_keys` column (keys being searched *for*)
+ * 2. a `search_space` column (the space being searched)
  *
- * This algorithm works by comparing each key and value parallelly,
- * hence the need for separate indexes. The algorithm first calculates
- * the total number of comparisons need, which is a row-wise dot product.
- * Then for each comparison, it generates the key index and value index which
- * is used to compare the associated key and value.
+ * The function's output is a LISTS column, where each row[i] contains the list
+ * indices of all matches between `search_keys[i]` and `search_space[i]`.
+ * i.e.
+ * For each row (i.e. list) in the search-space,
+ * 1. If an element matches with an element in the search-keys,
+ *    its list index is included in the output row.
+ * 2. If there are repeated values in the search-space row,
+ *    the last element's index is returned.
+ * 3. If there are values that simply aren't in the search-space row,
+ *    an out of bounds index is returned.
  *
- * keys_labels:            0, 0, 0, 1,  1,  2, 2, 2, 2
- * search_key_to_num_search_values: 3, 3, 3, 4, 4, 2, 2, 2, 2
- * list_sizes_offsets: 0, 3, 6, 9, 13, 17, 19, 21, 23, 25
- * key_index:   0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8
+ * For example, consider the following rows at index `i`:
  *
- * total_compares_per_row: 9, 8, 8
- * total_compares_offsets: 0, 9, 17, 25
- * val_offsets: 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2
- * values_idx:  0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7, 8, 7, 8, 7, 8, 7, 8
-*/
+ * auto const ∅ = -OuB; // Out of Bounds index
+ * search_keys[i]    == { B, C, D, Z};
+ * search_space[i]   == { A, B, C, C, D, E, F };
+ *
+ *
+ * results[i]        == { 1, 3, 4, ∅};
+ *
+ * The results column has as many (list) rows as search_keys or search_space.
+ * Note that each result (list) row has as many indices as unique values in search_space.
+ *
+ * @param search_keys Column containing lists of keys to search for
+ * @param search_values Column containing lists of values to search through (i.e. search space)
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned object
+ * @return A column containing the indices of matching values for each key, or -1 if no match found
+ *
+ * @note Both input list columns must have the same number of rows
+ */
 std::unique_ptr<column> indices_of(
-  lists_column_view const& search_keys,  // Column containing lists of keys to search for
-  lists_column_view const&
-    search_values,  // Column containing lists of values to search through (i.e. search space)
+  lists_column_view const& search_keys,       // Column containing lists of keys to search for
+  lists_column_view const& search_values,     // Column containing lists of values to search through
   rmm::cuda_stream_view stream =
     cudf::get_default_stream(),               // CUDA stream for asynchronous execution
   rmm::device_async_resource_ref mr =
     cudf::get_current_device_resource_ref())  // Memory resource for allocations
 {
+  /*
+  *
+  * Example using two list columns and indexing
+  *
+  * search_keys     | search_values
+  * [1, 2, 3]       | [10, 2, 3]
+  * [4, 5]          | [4, 14, 5, 16]
+  * [6, 7, 8, 9]    | [6, 8]
+
+  * search_keys child:      1, 2, 3, 4,  5,  6, 7, 8, 9
+  * search_values child:   10, 2, 3, 4, 14, 16, 6, 8
+  *
+  *
+  * keys_labels:                     0, 0, 0, 1, 1, 2, 2, 2, 2
+  * search_key_to_num_search_values: 3, 3, 3, 4, 4, 2, 2, 2, 2
+  * list_sizes_offsets:           0, 3, 6, 9, 13, 17, 19, 21, 23, 25
+  * key_index:   0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8
+  *
+  * total_compares_per_row:    9, 8, 8
+  * total_compares_offsets: 0, 9, 17, 25
+  * val_offsets: 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2
+  * values_idx:  0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7, 8, 7, 8, 7, 8, 7, 8
+  *
+  */
   CUDF_EXPECTS(search_keys.size() == search_values.size(),
                "Number of search keys lists must match search values lists.");
 
@@ -148,6 +198,26 @@ std::unique_ptr<column> indices_of(
   // Sum up all comparisons across all rows
   auto const total_compares = thrust::reduce(
     rmm::exec_policy(stream), total_compares_per_row, total_compares_per_row + num_lists);
+
+  // Calculate indices for search values
+  // Calculate offsets for the total comparisons per row
+  // This gives us the starting position for each row's comparisons
+  auto total_compares_offsets = make_numeric_column(
+    data_type(type_to_id<size_type>()), num_lists + 1, cudf::mask_state::UNALLOCATED, stream);
+  auto d_total_compares_offsets = total_compares_offsets->mutable_view().template data<size_type>();
+  thrust::exclusive_scan(rmm::exec_policy(stream),
+                         total_compares_per_row,
+                         total_compares_per_row + num_lists + 1,
+                         d_total_compares_offsets);
+
+  // Check for any overflow in getting the total number of compares
+  CUDF_EXPECTS(
+    !thrust::any_of(rmm::exec_policy(stream),
+                    d_total_compares_offsets,
+                    d_total_compares_offsets + num_lists + 1,
+                    [] __device__(auto const total_compares) { return total_compares < 0; }),
+    "Input Maps are too large to process");
+
   // Create an index array that maps each comparison to its corresponding key
   // This tells us which key we're comparing in each comparison operation
   auto key_index = make_numeric_column(
@@ -161,16 +231,6 @@ std::unique_ptr<column> indices_of(
                                d_key_index + total_compares,
                                stream);
 
-  // Calculate indices for search values
-  // Calculate offsets for the total comparisons per row
-  // This gives us the starting position for each row's comparisons
-  auto total_compares_offsets = make_numeric_column(
-    data_type(type_to_id<size_type>()), num_lists + 1, cudf::mask_state::UNALLOCATED, stream);
-  auto d_total_compares_offsets = total_compares_offsets->mutable_view().template data<size_type>();
-  thrust::exclusive_scan(rmm::exec_policy(stream),
-                         total_compares_per_row,
-                         total_compares_per_row + num_lists + 1,
-                         d_total_compares_offsets);
   // Create an array that maps each comparison to its corresponding value list
   // This tells us which value list we're comparing against
   auto val_offsets = make_numeric_column(
@@ -209,42 +269,34 @@ std::unique_ptr<column> indices_of(
 
   // Perform the actual key-value comparisons
   // For each comparison: if key == value, return the value index; otherwise return Out of Bounds
-  // index
-  auto compare_results = make_numeric_column(
-    data_type(type_to_id<size_type>()), total_compares, cudf::mask_state::UNALLOCATED, stream);
-  thrust::transform(
+  // index which is filled in at the start
+  auto results = make_numeric_column(
+    data_type(type_to_id<size_type>()), num_keys, cudf::mask_state::UNALLOCATED, stream);
+  thrust::fill(rmm::exec_policy(stream),
+               results->mutable_view().template begin<size_type>(),
+               results->mutable_view().template end<size_type>(),
+               -total_compares - 1);
+
+  // Since there are no duplicate keys, we can immediately write the found index into the output
+  // as there will be only one match per map
+  thrust::for_each(
     rmm::exec_policy(stream),
     thrust::make_counting_iterator(0),
     thrust::make_counting_iterator(total_compares),
-    compare_results->mutable_view().template begin<size_type>(),
-    cuda::proclaim_return_type<size_type>(
-      [total_compares,
-       values_idx,
-       d_key_index,
-       d_val_offsets,
-       d_comp,
-       d_value_sizes_val_offsets = search_values.offsets_begin()] __device__(auto const idx) {
-        return d_comp(static_cast<lhs_index_type>(values_idx[idx]),
-                      static_cast<rhs_index_type>(d_key_index[idx]))
-                 ? values_idx[idx] - d_value_sizes_val_offsets[d_val_offsets[idx]]
-                 : -total_compares -
-                     1;  // For non-matches, we'd like the final gather to produce a NULL.
-      }));
-  // Use segmented reduction to find the maximum value (last match) for each list.
-  // (When there are repeated keys, Spark uses the *last* key/value in the output.  The others are
-  // ignored.) This gives us the first matching value index for each row, or Out of Bounds index if
-  // no match found
-  auto offsets_span = cudf::device_span<cudf::size_type const>(values_sizes_offsets->view());
-  auto results =
-    cudf::segmented_reduce(compare_results->view(),
-                           offsets_span,
-                           *cudf::make_max_aggregation<cudf::segmented_reduce_aggregation>(),
-                           cudf::data_type{cudf::type_to_id<size_type>()},
-                           cudf::null_policy::EXCLUDE,
-                           stream,
-                           mr);
+    [values_idx,
+     d_key_index,
+     d_val_offsets,
+     d_comp,
+     d_value_sizes_val_offsets = search_values.offsets_begin(),
+     results = results->mutable_view().template begin<size_type>()] __device__(auto const idx) {
+      if (d_comp(static_cast<lhs_index_type>(values_idx[idx]),
+                 static_cast<rhs_index_type>(d_key_index[idx]))) {
+        results[d_key_index[idx]] = values_idx[idx] - d_value_sizes_val_offsets[d_val_offsets[idx]];
+      }
+    });
   return results;
 }
+}  // namespace
 
 std::unique_ptr<cudf::column> map_zip(
   cudf::lists_column_view const& col1,  // First map column containing key-value pairs
