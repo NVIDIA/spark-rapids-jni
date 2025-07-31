@@ -1497,7 +1497,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
           return batches[i].btype == buffer_type::DATA ? batches[i].size : 0;
         }));
 
-    size_t temp_storage_bytes;
+    size_t temp_storage_bytes{0};
     cub::DeviceMemcpy::Batched(
       nullptr, temp_storage_bytes, input_iter, output_iter, size_iter, batches.size(), stream);
     rmm::device_buffer temp_storage(

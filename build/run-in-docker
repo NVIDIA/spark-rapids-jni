@@ -20,6 +20,8 @@
 
 set -e
 
+source build/env.sh
+
 # Set this environment variable to ON to build the docker image for local development,
 # with gcc-toolset enabled by default.
 # This is necessary especially if the docker container is used for local development with an IDE.
@@ -115,4 +117,4 @@ $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --r
   -e TZ=${TZ} \
   $DOCKER_OPTS \
   $JNI_DOCKER_IMAGE \
-  scl enable gcc-toolset-11 "$RUN_CMD"
+  ${sclCMD} "$RUN_CMD"
