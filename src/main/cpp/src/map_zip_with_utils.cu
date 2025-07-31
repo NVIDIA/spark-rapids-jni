@@ -73,6 +73,8 @@ std::unique_ptr<column> generate_labels(
  * 1. a `search_keys` column (keys being searched *for*)
  * 2. a `search_space` column (the space being searched)
  *
+ * Neither list should have repeated keys within each list row.
+ *
  * The function's output is a LISTS column, where each row[i] contains the list
  * indices of all matches between `search_keys[i]` and `search_space[i]`.
  * i.e.
@@ -94,7 +96,9 @@ std::unique_ptr<column> generate_labels(
  * results[i]        == { 1, 3, 4, ∅};
  *
  * The results column has as many (list) rows as search_keys or search_space.
- * Note that each result (list) row has as many indices as unique values in search_space.
+ * Note that each result (list) row has as many indices as values in the search_keys row.
+ * Also note that this function assumes that neither search_keys nor search_space
+ * has repetitions in the keys.
  *
  * @param search_keys Column containing lists of keys to search for
  * @param search_values Column containing lists of values to search through (i.e. search space)
@@ -113,7 +117,6 @@ std::unique_ptr<column> indices_of(
     cudf::get_current_device_resource_ref())  // Memory resource for allocations
 {
   /*
-  *
   * Example using two list columns and indexing
   *
   * search_keys     | search_values
