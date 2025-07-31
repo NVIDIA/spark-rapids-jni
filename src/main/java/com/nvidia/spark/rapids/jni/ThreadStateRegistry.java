@@ -26,7 +26,7 @@ import java.util.HashSet;
  * This is used to allow us to map a native thread id to a java thread so we can look at the
  * state from a java perspective.
  */
-class ThreadStateRegistry {
+public class ThreadStateRegistry {
   private static final Logger LOG = LoggerFactory.getLogger(ThreadStateRegistry.class);
 
   private static final HashMap<Long, Thread> knownThreads = new HashMap<>();
