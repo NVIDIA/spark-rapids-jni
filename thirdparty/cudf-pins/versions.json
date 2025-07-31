@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9c40ed11560fa8ffd21abe4cdc8dc3ce875e48e3",
+      "git_tag" : "a1c47643a941eb3b13128f96afd4a050e824acf2",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
-      "version" : "3.0.2"
+      "version" : "3.0.1"
     },
     "GTest" : 
     {
@@ -77,9 +77,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "cb76305eef35d370a1ff62d4f5171dea5df1926b",
+      "git_tag" : "c9935d144f56e5b2d2c3557db0417ce2c1e9207c",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.08"
+      "version" : "25.10",
+      "source_subdir" : "cpp"
     },
     "nanoarrow" : 
     {
@@ -129,7 +130,7 @@
       "git_shallow" : false,
       "git_tag" : "9d6c0f179578b42ed9627027879ec412745f85c3",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.08"
+      "version" : "25.10"
     },
     "spdlog" : 
     {
@@ -145,7 +146,8 @@
       "git_shallow" : false,
       "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
       "git_url" : "https://github.com/facebook/zstd.git",
-      "version" : "1.5.7"
+      "version" : "1.5.7",
+      "source_subdir" : "build/cmake"
     }
   }
 }
