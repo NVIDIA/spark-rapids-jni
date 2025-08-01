@@ -723,14 +723,14 @@ void convert_to_nvtxt(std::ifstream& in, std::ostream& out, program_options cons
 
 #include "nvtxw_events.h"
 
-void convert_to_nvtxw(std::ifstream& in,
-                      nvtxwInterfaceCore_t*& nvtxwInterface,
-                      nvtxwSessionHandle_t& session,
-                      nvtxwStreamHandle_t& stream,
-                      program_options const& opts)
+int convert_to_nvtxw(std::ifstream& in,
+                     nvtxwInterfaceCore_t*& nvtxwInterface,
+                     nvtxwSessionHandle_t& session,
+                     nvtxwStreamHandle_t& stream,
+                     program_options const& opts)
 {
   nvtxwResultCode_t result = NVTXW3_RESULT_SUCCESS;
-  int errorCode            = 0;
+  int error_code           = 0;
   struct marker_start {
     uint64_t timestamp;
     uint32_t process_id;
@@ -767,17 +767,17 @@ void convert_to_nvtxw(std::ifstream& in,
         event.cbid       = a->cbid();
         event.process_id = a->process_id();
         if (api_process_id == 0) { api_process_id = a->process_id() & 0xffffff; }
-        event.thread_id                 = a->thread_id() & 0xffffff;
-        event.correlation_id            = a->correlation_id();
-        event.return_value              = a->return_value();
-        nvtxPayloadData_t payloadData[] = {
+        event.thread_id                  = a->thread_id() & 0xffffff;
+        event.correlation_id             = a->correlation_id();
+        event.return_value               = a->return_value();
+        nvtxPayloadData_t payload_data[] = {
           {NvidiaNvtxw::PayloadSchemaId::cuptiApiId, sizeof(event), &event},
         };
         result = nvtxwInterface->EventWrite(
-          stream, payloadData, std::extent<decltype(payloadData)>::value);
+          stream, payload_data, std::extent<decltype(payload_data)>::value);
         if (result != NVTXW3_RESULT_SUCCESS) {
           fprintf(stderr, "API EventWrite failed with code %d\n", (int)result);
-          errorCode |= 4;
+          error_code |= 4;
         }
       }
     }
@@ -813,15 +813,15 @@ void convert_to_nvtxw(std::ifstream& in,
         event.id                                   = d->id();
         event.ecc_enabled                          = d->ecc_enabled();
         event.name                                 = d->name()->c_str();
-        nvtxPayloadData_t payloadData[]            = {
+        nvtxPayloadData_t payload_data[]           = {
           {NvidiaNvtxw::PayloadSchemaId::nameId, strlen(event.name) + 1, event.name},
           {NvidiaNvtxw::PayloadSchemaId::cuptiDeviceId, sizeof(event), &event},
         };
         result = nvtxwInterface->EventWrite(
-          stream, payloadData, std::extent<decltype(payloadData)>::value);
+          stream, payload_data, std::extent<decltype(payload_data)>::value);
         if (result != NVTXW3_RESULT_SUCCESS) {
           fprintf(stderr, "Cupti Device EventWrite failed with code %d\n", (int)result);
-          errorCode |= 4;
+          error_code |= 4;
         }
       }
     }
@@ -888,26 +888,26 @@ void convert_to_nvtxw(std::ifstream& in,
                   } else {
                     fprintf(stderr, "createNvtxwStream failed for domain %s\n", domainStr.c_str());
                     nvtxStream = stream;
-                    errorCode |= 1;
+                    error_code |= 1;
                   }
                 }
               }
               NvidiaNvtxw::nvtxRangeEvent event;
-              event.time_start                = ms.timestamp;
-              event.time_stop                 = m->timestamp();
-              event.name                      = ms.name.c_str();
-              event.process_id                = ms.process_id & 0xffffff;
-              event.thread_id                 = ms.thread_id & 0xffffff;
-              event.color                     = ms.color;
-              nvtxPayloadData_t payloadData[] = {
+              event.time_start                 = ms.timestamp;
+              event.time_stop                  = m->timestamp();
+              event.name                       = ms.name.c_str();
+              event.process_id                 = ms.process_id & 0xffffff;
+              event.thread_id                  = ms.thread_id & 0xffffff;
+              event.color                      = ms.color;
+              nvtxPayloadData_t payload_data[] = {
                 {NvidiaNvtxw::PayloadSchemaId::nameId, strlen(event.name) + 1, event.name},
                 {NvidiaNvtxw::PayloadSchemaId::nvtxRangePushPopId, sizeof(event), &event},
               };
               result = nvtxwInterface->EventWrite(
-                nvtxStream, payloadData, std::extent<decltype(payloadData)>::value);
+                nvtxStream, payload_data, std::extent<decltype(payload_data)>::value);
               if (result != NVTXW3_RESULT_SUCCESS) {
                 fprintf(stderr, "NvtxRange EventWrite failed with code %d\n", (int)result);
-                errorCode |= 4;
+                error_code |= 4;
               }
               marker_start_map.erase(it);
             } else {
@@ -969,15 +969,15 @@ void convert_to_nvtxw(std::ifstream& in,
         event.shared_memory_carveout_requested    = k->shared_memory_carveout_requested();
         event.shmem_limit_config                  = k->shmem_limit_config();
         event.channel_type                        = k->channel_type();
-        nvtxPayloadData_t payloadData[]           = {
+        nvtxPayloadData_t payload_data[]          = {
           {NvidiaNvtxw::PayloadSchemaId::nameId, strlen(event.name) + 1, event.name},
           {NvidiaNvtxw::PayloadSchemaId::cuptiKernelId, sizeof(event), &event},
         };
         result = nvtxwInterface->EventWrite(
-          stream, payloadData, std::extent<decltype(payloadData)>::value);
+          stream, payload_data, std::extent<decltype(payload_data)>::value);
         if (result != NVTXW3_RESULT_SUCCESS) {
           fprintf(stderr, "Kernel EventWrite failed with code %d\n", (int)result);
-          errorCode |= 4;
+          error_code |= 4;
         }
       }
     }
@@ -985,31 +985,31 @@ void convert_to_nvtxw(std::ifstream& in,
     if (memcpy != nullptr) {
       NvidiaNvtxw::cuptiMemcpyEvent event;
       for (int i = 0; i < memcpy->size(); ++i) {
-        auto m                          = memcpy->Get(i);
-        event.time_start                = m->start();
-        event.time_stop                 = m->end();
-        event.bytes                     = m->bytes();
-        event.graph_node_id             = 0;
-        event.device_id                 = m->device_id();
-        event.context_id                = m->context_id();
-        event.stream_id                 = m->stream_id();
-        event.process_id                = api_process_id;
-        event.correlation_id            = m->correlation_id();
-        event.runtime_correlation_id    = m->runtime_correlation_id();
-        event.graph_id                  = 0;
-        event.channel_id                = m->channel_id();
-        event.copy_kind                 = m->copy_kind();
-        event.src_kind                  = m->src_kind();
-        event.dst_kind                  = m->dst_kind();
-        event.channelType               = m->channel_type();
-        nvtxPayloadData_t payloadData[] = {
+        auto m                           = memcpy->Get(i);
+        event.time_start                 = m->start();
+        event.time_stop                  = m->end();
+        event.bytes                      = m->bytes();
+        event.graph_node_id              = 0;
+        event.device_id                  = m->device_id();
+        event.context_id                 = m->context_id();
+        event.stream_id                  = m->stream_id();
+        event.process_id                 = api_process_id;
+        event.correlation_id             = m->correlation_id();
+        event.runtime_correlation_id     = m->runtime_correlation_id();
+        event.graph_id                   = 0;
+        event.channel_id                 = m->channel_id();
+        event.copy_kind                  = m->copy_kind();
+        event.src_kind                   = m->src_kind();
+        event.dst_kind                   = m->dst_kind();
+        event.channelType                = m->channel_type();
+        nvtxPayloadData_t payload_data[] = {
           {NvidiaNvtxw::PayloadSchemaId::cuptiMemcpyId, sizeof(event), &event},
         };
         result = nvtxwInterface->EventWrite(
-          stream, payloadData, std::extent<decltype(payloadData)>::value);
+          stream, payload_data, std::extent<decltype(payload_data)>::value);
         if (result != NVTXW3_RESULT_SUCCESS) {
           fprintf(stderr, "Memcpy EventWrite failed with code %d\n", (int)result);
-          errorCode |= 4;
+          error_code |= 4;
         }
       }
     }
@@ -1017,30 +1017,30 @@ void convert_to_nvtxw(std::ifstream& in,
     if (memset != nullptr) {
       NvidiaNvtxw::cuptiMemsetEvent event;
       for (int i = 0; i < memset->size(); ++i) {
-        auto m                          = memset->Get(i);
-        event.time_start                = m->start();
-        event.time_stop                 = m->end();
-        event.bytes                     = m->bytes();
-        event.graph_node_id             = 0;
-        event.device_id                 = m->device_id();
-        event.context_id                = m->context_id();
-        event.stream_id                 = m->stream_id();
-        event.process_id                = api_process_id;
-        event.correlation_id            = m->correlation_id();
-        event.graph_id                  = 0;
-        event.channel_id                = m->channel_id();
-        event.value                     = m->value();
-        event.mem_kind                  = m->memory_kind();
-        event.flags                     = m->flags();
-        event.channelType               = m->channel_type();
-        nvtxPayloadData_t payloadData[] = {
+        auto m                           = memset->Get(i);
+        event.time_start                 = m->start();
+        event.time_stop                  = m->end();
+        event.bytes                      = m->bytes();
+        event.graph_node_id              = 0;
+        event.device_id                  = m->device_id();
+        event.context_id                 = m->context_id();
+        event.stream_id                  = m->stream_id();
+        event.process_id                 = api_process_id;
+        event.correlation_id             = m->correlation_id();
+        event.graph_id                   = 0;
+        event.channel_id                 = m->channel_id();
+        event.value                      = m->value();
+        event.mem_kind                   = m->memory_kind();
+        event.flags                      = m->flags();
+        event.channelType                = m->channel_type();
+        nvtxPayloadData_t payload_data[] = {
           {NvidiaNvtxw::PayloadSchemaId::cuptiMemsetId, sizeof(event), &event},
         };
         result = nvtxwInterface->EventWrite(
-          stream, payloadData, std::extent<decltype(payloadData)>::value);
+          stream, payload_data, std::extent<decltype(payload_data)>::value);
         if (result != NVTXW3_RESULT_SUCCESS) {
           fprintf(stderr, "Memset EventWrite failed with code %d\n", (int)result);
-          errorCode |= 4;
+          error_code |= 4;
         }
       }
     }
@@ -1051,19 +1051,19 @@ void convert_to_nvtxw(std::ifstream& in,
         auto o         = overhead->Get(i);
         auto object_id = o->object_id();
         if (object_id != nullptr) {
-          event.time_start                = o->start();
-          event.time_stop                 = o->end();
-          event.process_id                = object_id->process_id() & 0xffffff;
-          event.thread_id                 = object_id->thread_id() & 0xffffff;
-          event.overhead_kind             = o->overhead_kind();
-          nvtxPayloadData_t payloadData[] = {
+          event.time_start                 = o->start();
+          event.time_stop                  = o->end();
+          event.process_id                 = object_id->process_id() & 0xffffff;
+          event.thread_id                  = object_id->thread_id() & 0xffffff;
+          event.overhead_kind              = o->overhead_kind();
+          nvtxPayloadData_t payload_data[] = {
             {NvidiaNvtxw::PayloadSchemaId::cuptiOverheadId, sizeof(event), &event},
           };
           result = nvtxwInterface->EventWrite(
-            stream, payloadData, std::extent<decltype(payloadData)>::value);
+            stream, payload_data, std::extent<decltype(payload_data)>::value);
           if (result != NVTXW3_RESULT_SUCCESS) {
             fprintf(stderr, "Overhead EventWrite failed with code %d\n", (int)result);
-            errorCode |= 4;
+            error_code |= 4;
           }
         } else {
           std::cerr << "Overhead activity has no object ID" << std::endl;
@@ -1081,14 +1081,15 @@ void convert_to_nvtxw(std::ifstream& in,
     if (result != NVTXW3_RESULT_SUCCESS) {
       fprintf(
         stderr, "StreamClose failed for domain %s with code %d\n", it.first.c_str(), (int)result);
-      errorCode |= 8;
+      error_code |= 8;
     }
   }
   result = nvtxwInterface->StreamClose(stream);
   if (result != NVTXW3_RESULT_SUCCESS) {
     fprintf(stderr, "StreamClose failed with code %d\n", (int)result);
-    errorCode |= 8;
+    error_code |= 8;
   }
+  return error_code;
 }
 
 int main(int argc, char* argv[])
@@ -1147,26 +1148,30 @@ int main(int argc, char* argv[])
       }
     } else if (opts.nvtxw) {
       if (opts.output_path) {
-        void* nvtxwModuleHandle              = nullptr;
+        void* nvtxw_module_handle            = nullptr;
         nvtxwInterfaceCore_t* nvtxwInterface = nullptr;
         nvtxwSessionHandle_t session;
         nvtxwStreamHandle_t stream;
-        auto const errorCode = initialize_nvtxw(in,
-                                     opts.output_path.value().string(),
-                                     nvtxwModuleHandle,
-                                     nvtxwInterface,
-                                     session,
-                                     stream,
-                                     opts.nvtxw_backend);
-        if (errorCode == 0) {
-          convert_to_nvtxw(in, nvtxwInterface, session, stream, opts);
+        auto const error_code = initialize_nvtxw(in,
+                                                 opts.output_path.value().string(),
+                                                 nvtxw_module_handle,
+                                                 nvtxwInterface,
+                                                 session,
+                                                 stream,
+                                                 opts.nvtxw_backend);
+        if (error_code == 0) {
+          int convert_error_code = convert_to_nvtxw(in, nvtxwInterface, session, stream, opts);
+          if (convert_error_code != 0) {
+            fprintf(stderr, "Conversion failed with error code %d\n", convert_error_code);
+            return RESULT_FAILURE;
+          }
           nvtxwResultCode_t result = nvtxwInterface->SessionEnd(session);
           if (result != NVTXW3_RESULT_SUCCESS) {
             fprintf(stderr, "SessionEnd failed with code %d\n", (int)result);
             return RESULT_FAILURE;
           }
         }
-        nvtxwUnload(nvtxwModuleHandle);
+        nvtxwUnload(nvtxw_module_handle);
       } else {
         std::cerr << "Missing output path" << std::endl;
         print_usage();
