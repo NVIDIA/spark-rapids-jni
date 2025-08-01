@@ -89,7 +89,6 @@ target_include_directories(
   spark_rapids_profile_converter
   PRIVATE
   "${CUDAToolkit_INCLUDE_DIRS}"
-  "${SPARK_RAPIDS_JNI_SOURCE_DIR}"
   "${SPARK_RAPIDS_JNI_SOURCE_DIR}/profiler"
   "${SPARK_RAPIDS_JNI_SOURCE_DIR}/src"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}"

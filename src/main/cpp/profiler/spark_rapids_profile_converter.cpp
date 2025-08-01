@@ -1097,7 +1097,7 @@ int main(int argc, char* argv[])
   constexpr int RESULT_FAILURE = 1;
   constexpr int RESULT_USAGE   = 2;
   program_options opts;
-  int errorCode = 0;
+  int error_code = 0;
   std::vector<std::string_view> files;
   if (argc < 2) {
     print_usage();
@@ -1151,7 +1151,7 @@ int main(int argc, char* argv[])
         nvtxwInterfaceCore_t* nvtxwInterface = nullptr;
         nvtxwSessionHandle_t session;
         nvtxwStreamHandle_t stream;
-        errorCode = initialize_nvtxw(in,
+        auto const errorCode = initialize_nvtxw(in,
                                      opts.output_path.value().string(),
                                      nvtxwModuleHandle,
                                      nvtxwInterface,
