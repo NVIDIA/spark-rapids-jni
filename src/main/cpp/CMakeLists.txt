@@ -199,6 +199,8 @@ add_library(
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
+  src/MapZipWithUtilsJNI.cpp
+  src/map_zip_with_utils.cu
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
