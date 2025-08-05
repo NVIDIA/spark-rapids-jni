@@ -37,7 +37,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6d0c28e855545a7b89df1c4276b2e7fef351682c",
+      "git_tag" : "162b99ec5b7bac6577e005a0abf1bcb857cfbca4",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -130,7 +130,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b6bb09188b1d4ec7980839f0e971c402f7427ad1",
+      "git_tag" : "72b156394c02788efb51fb3085d9ff42bdd9a7f0",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "25.10"
