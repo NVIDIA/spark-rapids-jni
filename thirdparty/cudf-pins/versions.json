@@ -37,7 +37,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6d0c28e855545a7b89df1c4276b2e7fef351682c",
+      "git_tag" : "162b99ec5b7bac6577e005a0abf1bcb857cfbca4",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -77,9 +77,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "cb76305eef35d370a1ff62d4f5171dea5df1926b",
+      "git_tag" : "ac5fc39b57e4761e8e9c768bb923093967be17d1",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.08"
+      "source_subdir" : "cpp",
+      "version" : "25.10"
     },
     "nanoarrow" : 
     {
@@ -103,7 +104,8 @@
       "proprietary_binary_cuda_version_mapping" : 
       {
         "11" : "11",
-        "12" : "12"
+        "12" : "12",
+        "13" : "12"
       },
       "version" : "4.2.0.11"
     },
@@ -113,6 +115,7 @@
       "git_shallow" : false,
       "git_tag" : "69c9949150ac1c310758a304082228a36d5e4758",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "source_subdir" : "c",
       "version" : "3.2.0"
     },
     "rapids_logger" : 
@@ -127,9 +130,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "9d6c0f179578b42ed9627027879ec412745f85c3",
+      "git_tag" : "daf60f2ecc9e26aba9c2c87c83f965f1ff9f2a03",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.08"
+      "source_subdir" : "cpp",
+      "version" : "25.10"
     },
     "spdlog" : 
     {
@@ -145,6 +149,7 @@
       "git_shallow" : false,
       "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
       "git_url" : "https://github.com/facebook/zstd.git",
+      "source_subdir" : "build/cmake",
       "version" : "1.5.7"
     }
   }
