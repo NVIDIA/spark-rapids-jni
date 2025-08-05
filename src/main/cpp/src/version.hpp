@@ -24,9 +24,10 @@ namespace spark_rapids_jni {
  * - VANILLA_SPARK: Represents the standard Apache Spark platform.
  * - DATABRICKS: Represents the Databricks platform.
  * - CLOUDERA: Represents the Cloudera platform.
+ * - UNKNOWN: Represents any other platform not specifically defined.
  * - NUM_PLATFORMS: Represents the total number of platforms defined.
  */
-enum class spark_platform_type { VANILLA_SPARK = 0, DATABRICKS, CLOUDERA, NUM_PLATFORMS };
+enum class spark_platform_type { VANILLA_SPARK = 0, DATABRICKS, CLOUDERA, UNKNOWN, NUM_PLATFORMS };
 
 class spark_system {
  public:

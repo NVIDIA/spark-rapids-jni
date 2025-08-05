@@ -36,13 +36,13 @@ single-process application.
 CUDA_INJECTION64_PATH=$PWD/target/jni/cmake-build/faultinj/libcufaultinj.so \
 FAULT_INJECTOR_CONFIG_PATH=src/test/cpp/faultinj/test_faultinj.json \
 $SPARK_HOME/bin/pyspark \
-  --jars $SPARK_RAPIDS_REPO/dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar \
+  --jars $SPARK_RAPIDS_REPO/dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda12.jar \
   --conf spark.plugins=com.nvidia.spark.SQLPlugin
 ```
 ### Distributed Mode
 ```bash
 $SPARK_HOME/bin/spark-shell \
-  --jars $SPARK_RAPIDS_REPO/dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar \
+  --jars $SPARK_RAPIDS_REPO/dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda12.jar \
   --conf spark.plugins=com.nvidia.spark.SQLPlugin \
   --files ./target/jni/cmake-build/faultinj/libcufaultinj.so,./src/test/cpp/faultinj/test_faultinj.json \
   --conf spark.executorEnv.CUDA_INJECTION64_PATH=./libcufaultinj.so \

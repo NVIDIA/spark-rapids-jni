@@ -165,7 +165,7 @@ $ ./build/build-in-docker install ...
 ```
 
 Now cd to ~/repos/NVIDIA/spark-rapids and build with one of the options from
-[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-25.06/CONTRIBUTING.md#building-from-source).
+[spark-rapids instructions](https://github.com/NVIDIA/spark-rapids/blob/branch-25.08/CONTRIBUTING.md#building-from-source).
 
 ```bash
 $ ./build/buildall
@@ -179,8 +179,8 @@ interactions in the background. To confirm that the artifact is correct we can e
 [INFO logging in Spark](https://github.com/NVIDIA/spark-rapids/blob/4c77f0db58d229b2e6cb75c196934fcc0ae3a485/sql-plugin/src/main/scala/com/nvidia/spark/rapids/Plugin.scala#L73-L83)
 or directly inspect the resulting jar for build info:
 ```bash
-$ unzip -c dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar *version-info.properties
-Archive:  dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda11.jar
+$ unzip -c dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda12.jar *version-info.properties
+Archive:  dist/target/rapids-4-spark_2.12-22.08.0-SNAPSHOT-cuda12.jar
   inflating: cudf-java-version-info.properties
 version=22.08.0-SNAPSHOT
 user=

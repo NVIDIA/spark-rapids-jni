@@ -537,7 +537,8 @@ CUDF_KERNEL void string_to_decimal_kernel(T* out,
       significant_digits_before_decimal_in_string + zeros_to_decimal + rounding_digits;
 
     // too many digits required to store decimal
-    if (max_digits_before_decimal < significant_digits_before_decimal) { valid = false; }
+    auto const leading_zeros = total_digits - num_precise_digits;
+    if (max_digits_before_decimal < decimal_location - leading_zeros) { valid = false; }
 
     // at this point we have the precise digits we need, but we might need trailing zeros on this
     // value both before and after the decimal

@@ -15,7 +15,7 @@
 #=============================================================================
 
 add_library(spark_rapids_jni_datagen STATIC common/generate_input.cu)
-target_compile_features(spark_rapids_jni_datagen PUBLIC cxx_std_17 cuda_std_17)
+target_compile_features(spark_rapids_jni_datagen PUBLIC cxx_std_20 cuda_std_20)
 
 target_compile_options(
   spark_rapids_jni_datagen PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
@@ -49,10 +49,10 @@ function(ConfigureBench CMAKE_BENCH_NAME)
     set_target_properties(${CMAKE_BENCH_NAME}
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/benchmarks>"
                    INSTALL_RPATH "\$ORIGIN/../../../lib"
-                   CXX_STANDARD 17
+                   CXX_STANDARD 20
                    CXX_STANDARD_REQUIRED ON
                    CXX_EXTENSIONS ON
-                   CUDA_STANDARD 17
+                   CUDA_STANDARD 20
                    CUDA_STANDARD_REQUIRED ON
         )
     target_link_libraries(${CMAKE_BENCH_NAME} nvbench::main spark_rapids_jni_datagen ${CUDF_BENCHMARK_COMMON}
