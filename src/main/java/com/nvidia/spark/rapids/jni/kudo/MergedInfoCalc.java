@@ -23,7 +23,6 @@ import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.util.*;
 
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.*;
 
@@ -37,8 +36,8 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     // Total data len in gpu, which accounts for 64 byte alignment
     private long totalDataLen;
     private final boolean[] hasNull;
-    private final int[] rowCount;
-    private final int[] dataLen;
+    private final long[] rowCount;
+    private final long[] dataLen;
 
     // Column offset in gpu device buffer, it has one field for each flattened column
     private final ColumnOffsetInfo[] columnOffsets;
@@ -51,8 +50,8 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         int columnCount = tables[0].getHeader().getNumColumns();
         this.hasNull = new boolean[columnCount];
         initHasNull();
-        this.rowCount = new int[columnCount];
-        this.dataLen = new int[columnCount];
+        this.rowCount = new long[columnCount];
+        this.dataLen = new long[columnCount];
         this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
 
@@ -74,7 +73,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         return kudoTables;
     }
 
-    public int[] getRowCount() {
+    public long[] getRowCount() {
         return rowCount;
     }
 

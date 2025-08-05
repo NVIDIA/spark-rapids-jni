@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 import ai.rapids.cudf.*;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
 
@@ -26,6 +27,8 @@ class ColumnViewInfo {
   private final DType dtype;
   private final ColumnOffsetInfo offsetInfo;
   private final int nullCount;
+  // Though `ColumnView` accepts `long` for row count, it will cast it to `int` internally, so we
+  // only use `int` here.
   private final int rowCount;
 
   public ColumnViewInfo(DType dtype, ColumnOffsetInfo offsetInfo,
@@ -42,12 +45,12 @@ class ColumnViewInfo {
     long baseAddress = buffer.getAddress();
 
     if (dtype.isNestedType()) {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress),
           childrenView);
     } else {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getDataBuffer(baseAddress),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress));
