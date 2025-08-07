@@ -285,15 +285,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           }
 
           sliceInfoBuf[tableIdx] = new SliceInfo(firstOffset, lastOffset - firstOffset);
-          int newAccumulatedDataLen = accumulatedDataLen + (lastOffset - firstOffset);
-          if (newAccumulatedDataLen < accumulatedDataLen) {
-            if (lastOffset < firstOffset) {
-              throw new IllegalArgumentException("Invalid kudo offset buffer content: " +
-                  "last offset " + lastOffset + " is less than first offset " + firstOffset);
-            }
-            throw new IllegalStateException("Accumulated data length overflow: " + newAccumulatedDataLen);
-          }
-          accumulatedDataLen = newAccumulatedDataLen;
+          long newAccumulatedDataLen = accumulatedDataLen + (long)(lastOffset - firstOffset);
+          accumulatedDataLen = toIntExact(newAccumulatedDataLen);
         } else {
           sliceInfoBuf[tableIdx] = EMPTY_SLICE;
         }

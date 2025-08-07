@@ -18,7 +18,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
 import com.nvidia.spark.rapids.jni.Arms;
-import java.io.IOException;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -699,7 +699,7 @@ public class KudoSerializerTest extends CudfTestBase {
         try (Table expected = Table.concatenate(t1, t2)) {
           assertTrue(expected.getDeviceMemorySize() > Integer.MAX_VALUE,
               "Expected table size should exceed Integer.MAX_VALUE");
-          final int sliceSize = 5000000;
+          final int sliceSize = 50000000;
 
           int rowCount1 = Math.toIntExact(t1.getRowCount());
           int rowCount2 = Math.toIntExact(t2.getRowCount());
@@ -726,19 +726,15 @@ public class KudoSerializerTest extends CudfTestBase {
     // Create three tables where both total row count AND null count exceed Integer.MAX_VALUE
     // Each table will have significant null counts that sum to > Integer.MAX_VALUE
 
-    // t1: ~800M rows with ~800M nulls
-    final int nonNullCount1 = 5000; // 50M non-null rows
-    final int nullCount1 = Integer.MAX_VALUE / 3 + 50000000; // ~800M nulls
+    final int nonNullCount1 = 5000;
+    final int nullCount1 = Integer.MAX_VALUE / 3 + 50000000;
 
-    // t2: ~700M rows with ~700M nulls
-    final int nonNullCount2 = 3000; // 30M non-null rows
-    final int nullCount2 = Integer.MAX_VALUE / 3 - 50000000; // ~700M nulls
+    final int nonNullCount2 = 3000; //
+    final int nullCount2 = Integer.MAX_VALUE / 3 - 50000000;
 
-    // t3: ~750M rows with ~750M nulls
-    final int nonNullCount3 = 4000; // 40M non-null rows
-    final int nullCount3 = Integer.MAX_VALUE / 3 + 10000000; // ~750M nulls
+    final int nonNullCount3 = 4000;
+    final int nullCount3 = Integer.MAX_VALUE / 3 + 10000000;
 
-    // Total: ~2.25B rows and ~2.25B nulls (both exceed Integer.MAX_VALUE)
 
     try(Table t1 = buildSingleLargeByteTable(nonNullCount1, nullCount1);
         Table t2 = buildSingleLargeByteTable(nonNullCount2, nullCount2);
@@ -758,12 +754,12 @@ public class KudoSerializerTest extends CudfTestBase {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
         }
 
-        // Add slices from second table (offset by first table's row count)
+        // Add slices from second table
         for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
         }
 
-        // Add slices from third table (offset by first and second table's row counts)
+        // Add slices from third table
         for (int startRow = 0; startRow < rowCount3; startRow += sliceSize) {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount3 - startRow), t3));
         }
@@ -783,17 +779,13 @@ public class KudoSerializerTest extends CudfTestBase {
     // Create tables with string columns where total string data size exceeds Integer.MAX_VALUE
     // This should trigger an offset overflow and throw IllegalStateException
 
-    // We'll create multiple tables with large strings that when combined exceed Integer.MAX_VALUE
-    // Each string will be fairly large to minimize the number of rows needed
-    final int stringSize = 100000; // 100KB per string
-    final int rowsPerTable = 15000; // 15K rows per table
-    // Total per table: ~2.5GB of string data
-    // We'll need at least 2 tables to exceed Integer.MAX_VALUE (~4.3GB total > 2.1GB limit)
+    final int stringSize = 100000;
+    final int rowsPerTable = 15000;
 
     try (Table t1 = buildLargeStringTable(stringSize, rowsPerTable);
          Table t2 = buildLargeStringTable(stringSize, rowsPerTable)) {
 
-        final int sliceSize = 50000; // Smaller slice size to create more serialization work
+        final int sliceSize = 50000;
 
         int rowCount1 = Math.toIntExact(t1.getRowCount());
         int rowCount2 = Math.toIntExact(t2.getRowCount());
@@ -805,7 +797,7 @@ public class KudoSerializerTest extends CudfTestBase {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
         }
 
-        // Add slices from second table (offset by first table's row count)
+        // Add slices from second table
         for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
         }
@@ -969,9 +961,7 @@ public class KudoSerializerTest extends CudfTestBase {
       
       // Create string array with the large string repeated
       String[] stringArray = new String[rowCount];
-      for (int i = 0; i < rowCount; i++) {
-        stringArray[i] = largeString;
-      }
+      Arrays.fill(stringArray, largeString);
       
       // Create the string column
       ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
