@@ -17,6 +17,20 @@
 ###################################################################################################
 # - compiler function -----------------------------------------------------------------------------
 
+# We need to include the source code defined in cudftestutil_impl, but it is an interface library
+# that does not compile, we need to define an object library for the compilation. By doing so, we
+# only compile such source files once instead of doing so for every test executable.
+add_library(spark_rapids_jni_test_common OBJECT)
+
+target_compile_options(spark_rapids_jni_test_common
+                PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUDF_CXX_FLAGS}>"
+                        "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>")
+target_link_libraries(
+    spark_rapids_jni_test_common
+    PUBLIC cudf::cudftestutil GTest::gmock GTest::gmock_main GTest::gtest GTest::gtest_main
+    PRIVATE cudf::cudftestutil_impl
+  )
+
 function(ConfigureTest CMAKE_TEST_NAME)
     add_executable(${CMAKE_TEST_NAME} ${ARGN})
     target_compile_options(${CMAKE_TEST_NAME}
@@ -29,10 +43,18 @@ function(ConfigureTest CMAKE_TEST_NAME)
         ${CMAKE_TEST_NAME}
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/gtests>"
                    INSTALL_RPATH "\$ORIGIN/../../../lib"
+                   CXX_STANDARD 20
+                   CXX_STANDARD_REQUIRED ON
+                   # For std:: support of __int128_t. Can be removed once using cuda::std
+                   CXX_EXTENSIONS ON
+                   CUDA_STANDARD 20
+                   CUDA_STANDARD_REQUIRED ON
     )
-    target_link_libraries(${CMAKE_TEST_NAME} GTest::gtest_main GTest::gmock_main cudf::cudf
-                                             cudf::cudftestutil cudf::cudftestutil_impl
-                                             spark_rapids_jni)
+    target_compile_definitions(
+        ${CMAKE_TEST_NAME} PRIVATE THRUST_FORCE_32_BIT_OFFSET_TYPE=1 CCCL_AVOID_SORT_UNROLL=1
+    )
+    target_link_libraries(${CMAKE_TEST_NAME} PRIVATE spark_rapids_jni_test_common
+                                                     spark_rapids_jni)
     add_test(NAME ${CMAKE_TEST_NAME} COMMAND ${CMAKE_TEST_NAME})
     install(
         TARGETS ${CMAKE_TEST_NAME}
@@ -51,6 +73,9 @@ ConfigureTest(CAST_STRING
 
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
+
+ConfigureTest(EXCEPTION_WITH_ROW_INDEX
+    exception_with_row_index.cpp)
 
 ConfigureTest(FORMAT_FLOAT
     format_float.cpp)
@@ -96,3 +121,6 @@ ConfigureTest(HLLPP
 
 ConfigureTest(CONV
     number_converter.cpp)
+
+ConfigureTest(MULTIPLY
+    multiply.cpp)

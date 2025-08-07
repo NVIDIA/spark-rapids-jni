@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>25.06.0</version>
+  <version>25.08.0</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -91,7 +91,7 @@
     <BUILD_PROFILER>ON</BUILD_PROFILER>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
-    <cuda.version>cuda11</cuda.version>
+    <cuda.version>cuda12</cuda.version>
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
@@ -107,7 +107,7 @@
     <maven.compiler.target>1.8</maven.compiler.target>
     <mockito.version>2.25.0</mockito.version>
     <native.build.path>${project.build.directory}/jni/cmake-build</native.build.path>
-    <parquet.version>1.10.0</parquet.version>
+    <parquet.version>1.15.2</parquet.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
@@ -189,6 +189,22 @@
       <artifactId>hilbert-curve</artifactId>
       <version>${hilbert.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-mapreduce-client-core</artifactId>
+      <version>${hadoop.version}</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>ch.qos.reload4j</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
   </dependencies>
 

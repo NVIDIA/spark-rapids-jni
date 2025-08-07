@@ -17,21 +17,21 @@
 package com.nvidia.spark.rapids.jni;
 
 /**
- * Enum representing the platform.
- * NOTE: MUST keep sync with version.hpp
- * The ordinal values are used to represent the platform in JNI calls.
+ * ExceptionWithRowIndex is an exception thrown by JNI functions when an error
+ * occurs, it indicates the first row which causes an error.
+ * Typically it's used by Ansi mode.
+ * In Spark-Rapids repo, use the following code to get the row value:
+ * `input.getScalarElement(exception.getRowIndex)`
+ *
  */
-public enum SparkPlatformType {
-  // ordinal 0 is vanilla Spark, Will translate to spark_platform_type::VANILLA_SPARK
-  VANILLA_SPARK,
+public class ExceptionWithRowIndex extends RuntimeException {
+  private final int rowIndex;
 
-  // ordinal 1 is Databricks, Will translate to spark_platform_type::DATABRICKS
-  DATABRICKS,
+  ExceptionWithRowIndex(int rowIndex) {
+    this.rowIndex = rowIndex;
+  }
 
-  // ordinal 2 is Cloudera, Will translate to spark_platform_type::CLOUDERA
-  CLOUDERA,
-
-  // ordinal 3 is Unknown. Will translate to spark_platform_type::UNKNOWN
-  // Maybe customized Spark distributions.
-  UNKNOWN;
+  public int getRowIndex() {
+    return rowIndex;
+  }
 }
