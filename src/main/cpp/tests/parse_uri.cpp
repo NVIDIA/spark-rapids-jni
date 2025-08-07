@@ -21,6 +21,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <parse_uri.hpp>
+#include <exception_with_row_index.hpp>
 
 struct ParseURIProtocolTests : public cudf::test::BaseFixture {};
 struct ParseURIHostTests : public cudf::test::BaseFixture {};
@@ -382,14 +383,14 @@ TEST_F(ParseURIQueryTests, Queries)
   }
   {
     auto const result =
-      spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, "param0");
+      spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, std::string("param0"));
     cudf::test::strings_column_wrapper const expected({"1", "", "true", "3", "", "5", "true", ""},
                                                       {1, 0, 1, 1, 0, 1, 1, 0});
 
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
   }
   {
-    auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, "C");
+    auto const result = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view{col}, std::string("C"));
     cudf::test::strings_column_wrapper const expected({"", "", "", "", "", "", "", "C"},
                                                       {0, 0, 0, 0, 0, 0, 0, 1});
 
@@ -512,4 +513,81 @@ TEST_F(ParseURIPathTests, UTF8)
 
   cudf::test::print(result->view());
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, result->view());
+}
+
+// ANSI mode tests
+struct ParseURIAnsiTests : public cudf::test::BaseFixture {};
+
+TEST_F(ParseURIAnsiTests, BasicAnsiMode)
+{
+  // Test valid URLs
+  cudf::test::strings_column_wrapper const valid_col({
+    "https://www.nvidia.com/path",
+    "ftp://example.com"
+  });
+
+  // ANSI mode with valid URLs should work normally
+  auto const result_valid = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{valid_col}, true);
+  cudf::test::strings_column_wrapper const expected_valid({"https", "ftp"});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_valid, result_valid->view());
+
+  // Non-ANSI mode should also work
+  auto const result_non_ansi = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{valid_col}, false);
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_valid, result_non_ansi->view());
+  
+  // Test invalid URLs
+  cudf::test::strings_column_wrapper const invalid_col({
+    "https://www.nvidia.com/path",
+    "://completely-malformed"
+  });
+
+  // ANSI mode with invalid URLs should throw exception
+  EXPECT_THROW(spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{invalid_col}, true),
+               spark_rapids_jni::exception_with_row_index);
+
+  // Non-ANSI mode should work without exception
+  auto const result_invalid_non_ansi = spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{invalid_col}, false);
+  cudf::test::strings_column_wrapper const expected_invalid({"https", ""}, {1, 0});
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_invalid, result_invalid_non_ansi->view());
+}
+
+TEST_F(ParseURIAnsiTests, MissingQueryParameterAnsiMode)
+{
+  cudf::test::strings_column_wrapper input{
+      "https://secure.payment.com/process?amount=100&currency=USD",  // has 'amount'
+      "http://analytics.site.com/track?event=click&user=456",        // no 'amount'  
+      "ftp://backup.server.com/files/data.csv"                       // no query at all
+  };
+
+  // Non-ANSI mode should return NULLs for missing parameters
+  {
+    auto results = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(input), 
+                                                        std::string("amount"));
+    cudf::test::strings_column_wrapper expected({"100", "", ""}, {1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *results);
+  }
+
+  // ANSI mode should ALSO return NULLs for missing parameters, not throw exceptions
+  {
+    auto results = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(input), 
+                                                        std::string("amount"),
+                                                        true);
+    cudf::test::strings_column_wrapper expected({"100", "", ""}, {1, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *results);
+  }
+
+  {
+    auto results = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(input), 
+                                                        std::string("nonexistent"));
+    cudf::test::strings_column_wrapper expected({"", "", ""}, {0, 0, 0});
+    CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *results);
+  }
+
+  // ANSI mode should still throw exception for invalid URLs
+  cudf::test::strings_column_wrapper invalid_input{"://completely-malformed"};
+  EXPECT_THROW(
+      spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(invalid_input),
+                                           std::string("param"),
+                                           true),
+      spark_rapids_jni::exception_with_row_index);
 }

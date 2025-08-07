@@ -30,76 +30,106 @@ public class ParseURI {
   /**
    * Parse protocol for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with protocol data extracted.
    */
-  public static ColumnVector parseURIProtocol(ColumnView uriColumn) {
+  public static ColumnVector parseURIProtocol(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parseProtocol(uriColumn.getNativeView()));
+    if (failOnError) {
+      return new ColumnVector(parseProtocol(uriColumn.getNativeView(), true));
+    } else {
+      return new ColumnVector(parseProtocol(uriColumn.getNativeView(), false));
+    }
   }
 
   /**
    * Parse host for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with host data extracted.
    */
-  public static ColumnVector parseURIHost(ColumnView uriColumn) {
+  public static ColumnVector parseURIHost(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parseHost(uriColumn.getNativeView()));
+    if (failOnError) {
+      return new ColumnVector(parseHost(uriColumn.getNativeView(), true));
+    } else {
+      return new ColumnVector(parseHost(uriColumn.getNativeView(), false));
+    }
   }
 
   /**
    * Parse query for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param failOnError If true, throw exception on invalid URLs.
    * @return A string column with query data extracted.
    */
-  public static ColumnVector parseURIQuery(ColumnView uriColumn) {
+  public static ColumnVector parseURIQuery(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parseQuery(uriColumn.getNativeView()));
+    if (failOnError) {
+      return new ColumnVector(parseQuery(uriColumn.getNativeView(), true));
+    } else {
+      return new ColumnVector(parseQuery(uriColumn.getNativeView(), false));
+    }
   }
 
   /**
    * Parse query and return a specific parameter for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
-   * @param String The parameter to extract from the query
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param query The parameter to extract from the query.
+   * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with query data extracted.
    */
-  public static ColumnVector parseURIQueryWithLiteral(ColumnView uriColumn, String query) {
+  public static ColumnVector parseURIQueryWithLiteral(ColumnView uriColumn, String query, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query));
+    if (failOnError) {
+      return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query, true));
+    } else {
+      return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query, false));
+    }
   }
 
-    /**
+  /**
    * Parse query and return a specific parameter for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
-   * @param String The parameter to extract from the query
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param queryColumn The parameter to extract from the query.
+   * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with query data extracted.
    */
-  public static ColumnVector parseURIQueryWithColumn(ColumnView uriColumn, ColumnView queryColumn) {
+  public static ColumnVector parseURIQueryWithColumn(ColumnView uriColumn, ColumnView queryColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
     assert queryColumn.getType().equals(DType.STRING) : "Query type must be String";
-    return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView()));
+    if (failOnError) {
+      return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), true));
+    } else {
+      return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), false));
+    }
   }
 
   /**
    * Parse path for each URI from the incoming column.
    *
-   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with the URI path extracted.
    */
-  public static ColumnVector parseURIPath(ColumnView uriColumn) {
+  public static ColumnVector parseURIPath(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    return new ColumnVector(parsePath(uriColumn.getNativeView()));
+    if (failOnError) {
+      return new ColumnVector(parsePath(uriColumn.getNativeView(), true));
+    } else {
+      return new ColumnVector(parsePath(uriColumn.getNativeView(), false));
+    }
   }
 
-  private static native long parseProtocol(long inputColumnHandle);
-  private static native long parseHost(long inputColumnHandle);
-  private static native long parseQuery(long inputColumnHandle);
-  private static native long parseQueryWithLiteral(long inputColumnHandle, String query);
-  private static native long parseQueryWithColumn(long inputColumnHandle, long queryColumnHandle);
-  private static native long parsePath(long inputColumnHandle);
+  private static native long parseProtocol(long inputColumnHandle, boolean ansiMode);
+  private static native long parseHost(long inputColumnHandle, boolean ansiMode);
+  private static native long parseQuery(long inputColumnHandle, boolean ansiMode);
+  private static native long parseQueryWithLiteral(long inputColumnHandle, String query, boolean ansiMode);
+  private static native long parseQueryWithColumn(long inputColumnHandle, long queryColumnHandle, boolean ansiMode);
+  private static native long parsePath(long inputColumnHandle, boolean ansiMode);
 }

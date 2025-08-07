@@ -37,6 +37,7 @@ namespace spark_rapids_jni {
  */
 std::unique_ptr<cudf::column> parse_uri_to_protocol(
   cudf::strings_column_view const& input,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -50,6 +51,7 @@ std::unique_ptr<cudf::column> parse_uri_to_protocol(
  */
 std::unique_ptr<cudf::column> parse_uri_to_host(
   cudf::strings_column_view const& input,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -63,6 +65,7 @@ std::unique_ptr<cudf::column> parse_uri_to_host(
  */
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -78,6 +81,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
   std::string const& query_match,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -93,6 +97,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
 std::unique_ptr<cudf::column> parse_uri_to_query(
   cudf::strings_column_view const& input,
   cudf::strings_column_view const& query_match,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 
@@ -106,6 +111,7 @@ std::unique_ptr<cudf::column> parse_uri_to_query(
  */
 std::unique_ptr<cudf::column> parse_uri_to_path(
   cudf::strings_column_view const& input,
+  bool ansi_mode                    = false,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
 

@@ -20,6 +20,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
@@ -41,7 +43,7 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedProtocol = ColumnVector.fromStrings(expectedProtocolStrings);
-      ColumnVector protocolResult = ParseURI.parseURIProtocol(v0)) {
+      ColumnVector protocolResult = ParseURI.parseURIProtocol(v0, false)) {
       AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
     }
   }
@@ -63,7 +65,7 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedHost = ColumnVector.fromStrings(expectedHostStrings);
-      ColumnVector hostResult = ParseURI.parseURIHost(v0)) {
+      ColumnVector hostResult = ParseURI.parseURIHost(v0, false)) {
       AssertUtils.assertColumnsAreEqual(expectedHost, hostResult);
     }
   }
@@ -85,7 +87,7 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
-      ColumnVector queryResult = ParseURI.parseURIQuery(v0)) {
+      ColumnVector queryResult = ParseURI.parseURIQuery(v0, false)) {
       AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
     }
   }
@@ -119,7 +121,7 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
-      ColumnVector queryResult = ParseURI.parseURIQueryWithLiteral(v0, param)) {
+      ColumnVector queryResult = ParseURI.parseURIQueryWithLiteral(v0, param, false)) {
       AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
     }
   }
@@ -154,7 +156,7 @@ public class ParseURITest {
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector p0 = ColumnVector.fromStrings(params);
       ColumnVector expectedQuery = ColumnVector.fromStrings(expectedQueryStrings);
-      ColumnVector queryResult = ParseURI.parseURIQueryWithColumn(v0, p0)) {
+      ColumnVector queryResult = ParseURI.parseURIQueryWithColumn(v0, p0, false)) {
       AssertUtils.assertColumnsAreEqual(expectedQuery, queryResult);
     }
   }
@@ -175,8 +177,138 @@ public class ParseURITest {
     }
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
       ColumnVector expectedPath = ColumnVector.fromStrings(expectedPathStrings);
-      ColumnVector pathResult = ParseURI.parseURIPath(v0)) {
+      ColumnVector pathResult = ParseURI.parseURIPath(v0, false)) {
       AssertUtils.assertColumnsAreEqual(expectedPath, pathResult);
+    }
+  }
+
+  @Test
+  void parseURIAnsiModeTest() {
+    String[] validTestData = {
+        "https://www.nvidia.com:443/path?query=value#fragment",
+        "https://valid.com/path"
+    };
+    
+    String[] invalidTestData = {
+        "https://www.nvidia.com:443/path?query=value#fragment",
+        "invalid://[bad:IPv6]",
+        "https://valid.com/path",
+        null
+    };
+    
+    // Test protocol parsing with ANSI mode on valid data
+    try (ColumnVector validData = ColumnVector.fromStrings(validTestData);
+         ColumnVector protocolResult = ParseURI.parseURIProtocol(validData, true)) {
+      try (ColumnVector expectedProtocol = ColumnVector.fromStrings(new String[]{"https", "https"})) {
+        AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
+      }
+    }
+    
+    // Test that non-ANSI mode works as expected
+    try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData);
+         ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, false)) {
+      // Should work fine, just return nulls for invalid URLs
+      try (ColumnVector expectedProtocol = ColumnVector.fromStrings(new String[]{"https", null, "https", null})) {
+        AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
+      }
+    }
+    
+    // Test ANSI mode behavior - should throw exception on invalid URLs
+    try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData)) {
+      
+      // Non-ANSI mode should work without exception, returning nulls for invalid URLs
+      try (ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, false);
+           ColumnVector expectedProtocol = ColumnVector.fromStrings(new String[]{"https", null, "https", null})) {
+        AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
+      }
+      
+      // ANSI mode should throw exception when encountering invalid URLs
+      try {
+        try (ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, true)) {
+          fail("Expected exception for invalid URLs in ANSI mode");
+        }
+      } catch (Exception e) {
+        // Expected - ANSI mode should throw exception on invalid URLs
+        // Just verify that we got an exception (which is the expected behavior in ANSI mode)
+        assertNotNull(e, "Expected an exception to be thrown in ANSI mode for invalid URLs");
+      }
+    }
+  }
+
+  @Test
+  void parseURIMissingQueryParamTest() {
+    // Test the specific case where query parameter is missing
+    String[] testData = {
+        "https://secure.payment.com/process?amount=100&currency=USD",  // has 'amount'
+        "http://analytics.site.com/track?event=click&user=456",        // no 'amount'
+        "ftp://backup.server.com/files/data.csv"                       // no query at all
+    };
+    
+    // Test with non-ANSI mode - should return nulls for missing params
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+         ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "amount", false)) {
+      String[] expected = {"100", null, null};
+      try (ColumnVector expectedCV = ColumnVector.fromStrings(expected)) {
+        AssertUtils.assertColumnsAreEqual(expectedCV, result);
+      }
+    }
+    
+    // Test with different missing parameter to make sure it also returns nulls
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+         ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "nonexistent", false)) {
+      String[] expected = {null, null, null};
+      try (ColumnVector expectedCV = ColumnVector.fromStrings(expected)) {
+        AssertUtils.assertColumnsAreEqual(expectedCV, result);
+      }
+    }
+    
+    // Test with ANSI mode - should ALSO return nulls for missing params, not throw exceptions
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+         ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "amount", true)) {
+      String[] expected = {"100", null, null};
+      try (ColumnVector expectedCV = ColumnVector.fromStrings(expected)) {
+        AssertUtils.assertColumnsAreEqual(expectedCV, result);
+      }
+    }
+    
+    // Test that ANSI mode still throws for truly invalid URLs
+    String[] invalidData = {"://completely-malformed"};
+    try (ColumnVector v0 = ColumnVector.fromStrings(invalidData)) {
+      try {
+        ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "param", true);
+        result.close(); // Should not reach here
+        throw new AssertionError("Expected exception for invalid URL in ANSI mode");
+      } catch (RuntimeException e) {
+        // Expected - invalid URL should throw exception in ANSI mode
+        assert e instanceof com.nvidia.spark.rapids.jni.ExceptionWithRowIndex;
+      }
+    }
+  }
+
+  @Test
+  void parseURINullInputTest() {
+    // Test that NULL inputs return NULL outputs, not exceptions, even in ANSI mode
+    String[] testData = {
+        "http://www.abc.com",
+        null
+    };
+    
+    // Test HOST parsing with NULL input - non-ANSI mode
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+         ColumnVector result = ParseURI.parseURIHost(v0, false)) {
+      String[] expected = {"www.abc.com", null};
+      try (ColumnVector expectedCV = ColumnVector.fromStrings(expected)) {
+        AssertUtils.assertColumnsAreEqual(expectedCV, result);
+      }
+    }
+    
+    // Test HOST parsing with NULL input - ANSI mode (should not throw!)
+    try (ColumnVector v0 = ColumnVector.fromStrings(testData);
+         ColumnVector result = ParseURI.parseURIHost(v0, true)) {
+      String[] expected = {"www.abc.com", null};
+      try (ColumnVector expectedCV = ColumnVector.fromStrings(expected)) {
+        AssertUtils.assertColumnsAreEqual(expectedCV, result);
+      }
     }
   }
 
