@@ -204,16 +204,13 @@ public class ParseURITest {
       }
     }
     
-    // Test that non-ANSI mode works as expected
     try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData);
          ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, false)) {
-      // Should work fine, just return nulls for invalid URLs
       try (ColumnVector expectedProtocol = ColumnVector.fromStrings(new String[]{"https", null, "https", null})) {
         AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
       }
     }
     
-    // Test ANSI mode behavior - should throw exception on invalid URLs
     try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData)) {
       
       // Non-ANSI mode should work without exception, returning nulls for invalid URLs
@@ -228,8 +225,6 @@ public class ParseURITest {
           fail("Expected exception for invalid URLs in ANSI mode");
         }
       } catch (Exception e) {
-        // Expected - ANSI mode should throw exception on invalid URLs
-        // Just verify that we got an exception (which is the expected behavior in ANSI mode)
         assertNotNull(e, "Expected an exception to be thrown in ANSI mode for invalid URLs");
       }
     }
@@ -276,10 +271,9 @@ public class ParseURITest {
     try (ColumnVector v0 = ColumnVector.fromStrings(invalidData)) {
       try {
         ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "param", true);
-        result.close(); // Should not reach here
+        result.close();
         throw new AssertionError("Expected exception for invalid URL in ANSI mode");
       } catch (RuntimeException e) {
-        // Expected - invalid URL should throw exception in ANSI mode
         assert e instanceof com.nvidia.spark.rapids.jni.ExceptionWithRowIndex;
       }
     }
@@ -287,7 +281,7 @@ public class ParseURITest {
 
   @Test
   void parseURINullInputTest() {
-    // Test that NULL inputs return NULL outputs, not exceptions, even in ANSI mode
+    // Test that NULL inputs return NULL outputs, not exceptions
     String[] testData = {
         "http://www.abc.com",
         null
@@ -302,7 +296,7 @@ public class ParseURITest {
       }
     }
     
-    // Test HOST parsing with NULL input - ANSI mode (should not throw!)
+    // Test HOST parsing with NULL input - ANSI mode
     try (ColumnVector v0 = ColumnVector.fromStrings(testData);
          ColumnVector result = ParseURI.parseURIHost(v0, true)) {
       String[] expected = {"www.abc.com", null};
