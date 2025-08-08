@@ -522,8 +522,8 @@ struct ParseURIAnsiTests : public cudf::test::BaseFixture {};
 TEST_F(ParseURIAnsiTests, BasicAnsiMode)
 {
   // Test valid URLs
-  cudf::test::strings_column_wrapper const valid_col({
-    "https://www.nvidia.com/path", "ftp://example.com"});
+  cudf::test::strings_column_wrapper const valid_col(
+    {"https://www.nvidia.com/path", "ftp://example.com"});
 
   // ANSI mode with valid URLs should work normally
   auto const result_valid =
@@ -537,8 +537,8 @@ TEST_F(ParseURIAnsiTests, BasicAnsiMode)
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_valid, result_non_ansi->view());
   
   // Test invalid URLs
-  cudf::test::strings_column_wrapper const invalid_col({
-    "https://www.nvidia.com/path", "://completely-malformed"});
+  cudf::test::strings_column_wrapper const invalid_col(
+    {"https://www.nvidia.com/path", "://completely-malformed"});
 
   // ANSI mode with invalid URLs should throw exception
   EXPECT_THROW(
@@ -577,7 +577,7 @@ TEST_F(ParseURIAnsiTests, MissingQueryParameterAnsiMode)
   }
 
   {
-    auto results = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(input), 
+    auto results = spark_rapids_jni::parse_uri_to_query(cudf::strings_column_view(input),
                                                         std::string("nonexistent"));
     cudf::test::strings_column_wrapper expected({"", "", ""}, {0, 0, 0});
     CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, *results);

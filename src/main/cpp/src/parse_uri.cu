@@ -1091,7 +1091,8 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
     return detail::parse_uri_ansi(
       input, detail::URI_chunks::QUERY, strings_column_view(*col), ansi_mode, stream, mr);
   } else {
-    return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
+    return detail::parse_uri(
+      input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
   }
 }
 
