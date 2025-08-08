@@ -36,11 +36,7 @@ public class ParseURI {
    */
   public static ColumnVector parseURIProtocol(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    if (failOnError) {
-      return new ColumnVector(parseProtocol(uriColumn.getNativeView(), true));
-    } else {
-      return new ColumnVector(parseProtocol(uriColumn.getNativeView(), false));
-    }
+    return new ColumnVector(parseProtocol(uriColumn.getNativeView(), failOnError));
   }
 
   /**
@@ -52,11 +48,7 @@ public class ParseURI {
    */
   public static ColumnVector parseURIHost(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    if (failOnError) {
-      return new ColumnVector(parseHost(uriColumn.getNativeView(), true));
-    } else {
-      return new ColumnVector(parseHost(uriColumn.getNativeView(), false));
-    }
+    return new ColumnVector(parseHost(uriColumn.getNativeView(), failOnError));
   }
 
   /**
@@ -68,11 +60,7 @@ public class ParseURI {
    */
   public static ColumnVector parseURIQuery(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    if (failOnError) {
-      return new ColumnVector(parseQuery(uriColumn.getNativeView(), true));
-    } else {
-      return new ColumnVector(parseQuery(uriColumn.getNativeView(), false));
-    }
+    return new ColumnVector(parseQuery(uriColumn.getNativeView(), failOnError));
   }
 
   /**
@@ -85,11 +73,7 @@ public class ParseURI {
    */
   public static ColumnVector parseURIQueryWithLiteral(ColumnView uriColumn, String query, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    if (failOnError) {
-      return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query, true));
-    } else {
-      return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query, false));
-    }
+    return new ColumnVector(parseQueryWithLiteral(uriColumn.getNativeView(), query, failOnError));
   }
 
   /**
@@ -103,11 +87,7 @@ public class ParseURI {
   public static ColumnVector parseURIQueryWithColumn(ColumnView uriColumn, ColumnView queryColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
     assert queryColumn.getType().equals(DType.STRING) : "Query type must be String";
-    if (failOnError) {
-      return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), true));
-    } else {
-      return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), false));
-    }
+    return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), failOnError));
   }
 
   /**
@@ -119,11 +99,7 @@ public class ParseURI {
    */
   public static ColumnVector parseURIPath(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
-    if (failOnError) {
-      return new ColumnVector(parsePath(uriColumn.getNativeView(), true));
-    } else {
-      return new ColumnVector(parsePath(uriColumn.getNativeView(), false));
-    }
+    return new ColumnVector(parsePath(uriColumn.getNativeView(), failOnError));
   }
 
   private static native long parseProtocol(long inputColumnHandle, boolean ansiMode);
