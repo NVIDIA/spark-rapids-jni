@@ -535,7 +535,7 @@ TEST_F(ParseURIAnsiTests, BasicAnsiMode)
   auto const result_non_ansi =
     spark_rapids_jni::parse_uri_to_protocol(cudf::strings_column_view{valid_col}, false);
   CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_valid, result_non_ansi->view());
-  
+
   // Test invalid URLs
   cudf::test::strings_column_wrapper const invalid_col(
     {"https://www.nvidia.com/path", "://completely-malformed"});
