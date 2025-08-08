@@ -980,8 +980,8 @@ std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
       thrust::counting_iterator<cudf::size_type>(input.size()),
       validity_flags.begin(),
       cuda::proclaim_return_type<bool>([input = *d_strings] __device__(cudf::size_type row_idx) {
-        // Input nulls are considered "valid"
-        if (input.is_null(row_idx)) return true;
+        // Input nulls remain null
+        if (input.is_null(row_idx)) return false;
 
         auto const in_string = input.element<string_view>(row_idx);
         auto const uri =
