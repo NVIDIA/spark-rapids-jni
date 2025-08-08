@@ -986,8 +986,8 @@ std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
         if (input.is_null(row_idx)) return true;
 
         auto const in_string = input.element<string_view>(row_idx);
-        auto const uri = validate_uri(in_string.data(), in_string.size_bytes(),
-                                     cuda::std::nullopt, row_idx);
+        auto const uri =
+          validate_uri(in_string.data(), in_string.size_bytes(), cuda::std::nullopt, row_idx);
 
         return uri.valid != 0;
       }));
@@ -997,10 +997,10 @@ std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
 
     // Create validation column for throw_row_error_if_any
     auto validation_column = cudf::make_numeric_column(cudf::data_type{cudf::type_id::INT8},
-                                                      input.size(),
-                                                      std::move(validation_mask),
-                                                      null_count,
-                                                      stream, mr);
+                                                       input.size(),
+                                                       std::move(validation_mask),
+                                                       null_count,
+                                                       stream, mr);
 
     throw_row_error_if_any(input.parent(), validation_column->view(), stream);
   }
