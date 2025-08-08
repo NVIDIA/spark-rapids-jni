@@ -957,8 +957,6 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                              std::move(null_mask));
 }
 
-
-
 std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
                                        URI_chunks chunk,
                                        std::optional<strings_column_view const> query_match,
