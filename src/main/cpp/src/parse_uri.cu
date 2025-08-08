@@ -1000,7 +1000,8 @@ std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
                                                        input.size(),
                                                        std::move(validation_mask),
                                                        null_count,
-                                                       stream, mr);
+                                                       stream,
+                                                       mr);
 
     throw_row_error_if_any(input.parent(), validation_column->view(), stream);
   }
