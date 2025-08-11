@@ -36,7 +36,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     // Total data len in gpu, which accounts for 64 byte alignment
     private long totalDataLen;
     private final boolean[] hasNull;
-    private final long[] rowCount;
+    private final int[] rowCount;
     private final long[] dataLen;
 
     // Column offset in gpu device buffer, it has one field for each flattened column
@@ -50,7 +50,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         int columnCount = tables[0].getHeader().getNumColumns();
         this.hasNull = new boolean[columnCount];
         initHasNull();
-        this.rowCount = new long[columnCount];
+        this.rowCount = new int[columnCount];
         this.dataLen = new long[columnCount];
         this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
@@ -73,7 +73,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         return kudoTables;
     }
 
-    public long[] getRowCount() {
+    public int[] getRowCount() {
         return rowCount;
     }
 
@@ -228,7 +228,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void preVisitStruct(Schema structType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
 
             curColIdx++;
         }
@@ -241,7 +241,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void preVisitList(Schema listType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
 
             if (sliceInfo.getRowCount() > 0) {
                 int startOffset = table.getBuffer().getInt(bufferOffset);
@@ -265,7 +265,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void visit(Schema primitiveType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
             if (primitiveType.getType().hasOffsets()) {
                 // string type
                 if (sliceInfo.getRowCount() > 0) {

@@ -694,9 +694,9 @@ public class KudoSerializerTest extends CudfTestBase {
 
   @Test
   public void testSerializeAndDeserializeLargeTable() {
-    try(Table t1 = buildLargeTestTable()) {
-      try (Table t2 = buildLargeTestTable()) {
-        try (Table expected = Table.concatenate(t1, t2)) {
+    try(Table t1 = buildLargeTestTable();
+        Table t2 = buildLargeTestTable();
+        Table expected = Table.concatenate(t1, t2)) {
           assertTrue(expected.getDeviceMemorySize() > Integer.MAX_VALUE,
               "Expected table size should exceed Integer.MAX_VALUE");
           final int sliceSize = 50000000;
@@ -714,8 +714,6 @@ public class KudoSerializerTest extends CudfTestBase {
           }
 
           checkMergeTable(expected, tableSlices);
-        }
-      }
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

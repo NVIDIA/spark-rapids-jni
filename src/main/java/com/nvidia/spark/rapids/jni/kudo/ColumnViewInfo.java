@@ -19,7 +19,6 @@ package com.nvidia.spark.rapids.jni.kudo;
 import ai.rapids.cudf.*;
 
 import java.util.Optional;
-import java.util.OptionalLong;
 
 import static com.nvidia.spark.rapids.jni.Preconditions.ensureNonNegative;
 
