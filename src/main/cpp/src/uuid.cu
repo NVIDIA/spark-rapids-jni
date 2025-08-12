@@ -101,19 +101,23 @@ __launch_bounds__(block_size) CUDF_KERNEL void generate_uuids_kernel(
   curandState localState = state[start_idx];
 
   for (cudf::thread_index_type row_idx = start_idx; row_idx < row_count; row_idx += stride) {
-    auto const idx                       = static_cast<cudf::size_type>(row_idx);
-    double d1                            = curand_uniform_double(&localState);
-    double d2                            = curand_uniform_double(&localState);
-    constexpr uint64_t max_unsigned_long = std::numeric_limits<uint64_t>::max();
-    uint64_t const most                  = static_cast<uint64_t>(d1 * max_unsigned_long);
-    uint64_t const least                 = static_cast<uint64_t>(d2 * max_unsigned_long);
-    char* uuid_ptr                       = uuid_chars + idx * CHAR_COUNT_PER_UUID;
+    auto const idx = static_cast<cudf::size_type>(row_idx);
+    uint64_t i1    = curand(&localState);
+    uint64_t i2    = curand(&localState);
+    uint64_t i3    = curand(&localState);
+    uint64_t i4    = curand(&localState);
+
+    uint64_t const most  = i1 << 32 | i2;
+    uint64_t const least = i3 << 32 | i4;
+    char* uuid_ptr       = uuid_chars + idx * CHAR_COUNT_PER_UUID;
 
     // set the version bits to 4 (UUID version 4): Truly Random or Pseudo-Random
     auto most_sig_bits = (most & 0xFFFFFFFFFFFF0FFFL) | 0x0000000000004000L;
 
     // set the variant bits to 2
     auto least_sig_bits = (least | 0x8000000000000000L) & 0xBFFFFFFFFFFFFFFFL;
+
+    // convert the most and least significant bits to a string format
     convert_uuid_to_chars(most_sig_bits, least_sig_bits, uuid_ptr);
   }
 
