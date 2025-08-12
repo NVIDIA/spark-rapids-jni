@@ -22,13 +22,15 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.HashSet;
 import java.util.UUID;
 
 public class MiscTest {
 
   @Test
-  void testUUIDInvalidInput() {
+  void testUuidInvalidInput() {
     // row count must be positive
     assertThrows(CudfException.class, () -> {
       Misc.randomUUIDs(0);
@@ -40,28 +42,49 @@ public class MiscTest {
     });
   }
 
+  /**
+   * @brief Run two rounds with the same row count, MUST generate different UUIDs.
+   */
   @Test
-  void testUUID() {
+  void testUuid() {
+    List<Integer> rowCounts = Arrays.asList(1, 2, 3, 5, 17, 33, 65, 129, 515, 1025);
+    for (Integer rowCount : rowCounts) {
+      try (
+          ColumnVector round1 = Misc.randomUUIDs(rowCount);
+          ColumnVector round2 = Misc.randomUUIDs(rowCount);
+          HostColumnVector h1 = round1.copyToHost();
+          HostColumnVector h2 = round2.copyToHost()) {
+        HashSet<String> set = new HashSet<>();
+        for (int i = 0; i < rowCount; i++) {
+          String uuidStr1 = h1.getJavaString(i);
+          String uuidStr2 = h2.getJavaString(i);
+          UUID uuid1 = UUID.fromString(uuidStr1);
+          UUID uuid2 = UUID.fromString(uuidStr2);
+          assertEquals(uuid1.version(), 4);
+          assertEquals(uuid2.version(), 4);
+          assertEquals(uuid1.variant(), 2);
+          assertEquals(uuid2.variant(), 2);
+          set.add(uuidStr1);
+          set.add(uuidStr2);
+        }
+        // The UUIDs in two rounds must be different.
+        assertEquals(set.size(), rowCount * 2);
+      }
+    }
+  }
+
+  @Test
+  void testUuidSameSeed() {
     int rowCount = 128;
+    long seed = 1123L;
     try (
-        ColumnVector round1 = Misc.randomUUIDs(rowCount);
-        ColumnVector round2 = Misc.randomUUIDs(rowCount);
+        ColumnVector round1 = Misc.randomUUIDsWithSeed(rowCount, seed);
+        ColumnVector round2 = Misc.randomUUIDsWithSeed(rowCount, seed);
         HostColumnVector h1 = round1.copyToHost();
         HostColumnVector h2 = round2.copyToHost()) {
-      HashSet<String> set = new HashSet<>();
       for (int i = 0; i < rowCount; i++) {
-        String uuidStr1 = h1.getJavaString(i);
-        String uuidStr2 = h2.getJavaString(i);
-        UUID uuid1 = UUID.fromString(uuidStr1);
-        UUID uuid2 = UUID.fromString(uuidStr2);
-        assertEquals(uuid1.version(), 4);
-        assertEquals(uuid2.version(), 4);
-        assertEquals(uuid1.variant(), 2);
-        assertEquals(uuid2.variant(), 2);
-        set.add(uuidStr1);
-        set.add(uuidStr2);
+        assertEquals(h1.getJavaString(i), h2.getJavaString(i));
       }
-      assertEquals(set.size(), rowCount * 2);
     }
   }
 }

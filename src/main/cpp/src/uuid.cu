@@ -19,6 +19,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.hpp>
 #include <cudf/detail/utilities/grid_1d.cuh>
+#include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/device_uvector.hpp>
@@ -49,14 +50,10 @@ __launch_bounds__(block_size) CUDF_KERNEL
 
 __device__ void byte_to_hex(uint8_t byte, char* hex)
 {
-  hex[0] = [&] {
-    if (byte < 16) { return '0'; }
-    uint8_t const nibble = byte / 16;
-
-    byte = byte - (nibble * 16);
-    return static_cast<char>(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
-  }();
-  hex[1] = byte < 10 ? '0' + byte : 'a' + (byte - 10);
+  uint8_t const nibble = byte >> 4;
+  hex[0]               = static_cast<char>(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
+  byte                 = (byte & 0x0F);
+  hex[1]               = byte < 10 ? '0' + byte : 'a' + (byte - 10);
 }
 
 /**
@@ -102,14 +99,15 @@ __launch_bounds__(block_size) CUDF_KERNEL void generate_uuids_kernel(
 
   for (cudf::thread_index_type row_idx = start_idx; row_idx < row_count; row_idx += stride) {
     auto const idx = static_cast<cudf::size_type>(row_idx);
-    uint64_t i1    = curand(&localState);
-    uint64_t i2    = curand(&localState);
-    uint64_t i3    = curand(&localState);
-    uint64_t i4    = curand(&localState);
+
+    // curand gets 32-bits random number, cast to 64-bits
+    uint64_t i1 = static_cast<uint64_t>(curand(&localState));
+    uint64_t i2 = static_cast<uint64_t>(curand(&localState));
+    uint64_t i3 = static_cast<uint64_t>(curand(&localState));
+    uint64_t i4 = static_cast<uint64_t>(curand(&localState));
 
     uint64_t const most  = i1 << 32 | i2;
     uint64_t const least = i3 << 32 | i4;
-    char* uuid_ptr       = uuid_chars + idx * CHAR_COUNT_PER_UUID;
 
     // set the version bits to 4 (UUID version 4): Truly Random or Pseudo-Random
     auto most_sig_bits = (most & 0xFFFFFFFFFFFF0FFFL) | 0x0000000000004000L;
@@ -118,6 +116,7 @@ __launch_bounds__(block_size) CUDF_KERNEL void generate_uuids_kernel(
     auto least_sig_bits = (least | 0x8000000000000000L) & 0xBFFFFFFFFFFFFFFFL;
 
     // convert the most and least significant bits to a string format
+    char* uuid_ptr = uuid_chars + idx * CHAR_COUNT_PER_UUID;
     convert_uuid_to_chars(most_sig_bits, least_sig_bits, uuid_ptr);
   }
 
@@ -145,14 +144,13 @@ std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
   auto num_states = num_sms * num_blocks_per_sm * block_size;
 
   // Ensure num_states does not exceed row_count
-  if (num_states > row_count) { num_states = row_count; }
+  if (num_states > row_count) { num_states = cudf::util::round_up_unsafe(row_count, block_size); }
 
   // initialize curand states
   rmm::device_uvector<curandState> states(
     num_states, stream, cudf::get_current_device_resource_ref());
   init_curand_kernel<block_size>
-    <<<(num_states - 1) / block_size + 1, block_size, 0, stream.value()>>>(
-      states.data(), num_states, seed);
+    <<<num_states / block_size, block_size, 0, stream.value()>>>(states.data(), num_states, seed);
 
   // generate offsets for the UUIDs
   rmm::device_uvector<cudf::size_type> offsets(row_count + 1, stream, mr);
@@ -162,9 +160,8 @@ std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
   // generate chars for the UUIDs
   auto const num_chars = row_count * CHAR_COUNT_PER_UUID;
   rmm::device_uvector<char> chars(num_chars, stream, mr);
-  generate_uuids_kernel<block_size>
-    <<<(num_states - 1) / block_size + 1, block_size, 0, stream.value()>>>(
-      row_count, chars.data(), states.data(), num_states);
+  generate_uuids_kernel<block_size><<<num_states / block_size, block_size, 0, stream.value()>>>(
+    row_count, chars.data(), states.data(), num_states);
 
   return cudf::make_strings_column(
     row_count,

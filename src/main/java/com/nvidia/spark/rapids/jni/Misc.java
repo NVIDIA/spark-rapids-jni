@@ -68,5 +68,12 @@ class Misc {
     return new ColumnVector(randomUUIDs(rowCount, seed));
   }
 
+  /**
+   * Only for test purpose, please do not use it in production.
+   */
+  static ColumnVector randomUUIDsWithSeed(int rowCount, long seed) {
+    return new ColumnVector(randomUUIDs(rowCount, seed));
+  }
+
   private static native long randomUUIDs(int rowCount, long seed);
 }
