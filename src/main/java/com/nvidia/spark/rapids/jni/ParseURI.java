@@ -31,12 +31,36 @@ public class ParseURI {
    * Parse protocol for each URI from the incoming column.
    *
    * @param uriColumn The input strings column in which each row contains a URI.
+   * @return A string column with protocol data extracted.
+   * @deprecated Use {@link #parseURIProtocol(ColumnView, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIProtocol(ColumnView uriColumn) {
+    return parseURIProtocol(uriColumn, false);
+  }
+
+  /**
+   * Parse protocol for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
    * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with protocol data extracted.
    */
   public static ColumnVector parseURIProtocol(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
     return new ColumnVector(parseProtocol(uriColumn.getNativeView(), failOnError));
+  }
+
+  /**
+   * Parse host for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @return A string column with host data extracted.
+   * @deprecated Use {@link #parseURIHost(ColumnView, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIHost(ColumnView uriColumn) {
+    return parseURIHost(uriColumn, false);
   }
 
   /**
@@ -55,12 +79,37 @@ public class ParseURI {
    * Parse query for each URI from the incoming column.
    *
    * @param uriColumn The input strings column in which each row contains a URI.
+   * @return A string column with query data extracted.
+   * @deprecated Use {@link #parseURIQuery(ColumnView, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIQuery(ColumnView uriColumn) {
+    return parseURIQuery(uriColumn, false);
+  }
+
+  /**
+   * Parse query for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
    * @param failOnError If true, throw exception on invalid URLs.
    * @return A string column with query data extracted.
    */
   public static ColumnVector parseURIQuery(ColumnView uriColumn, boolean failOnError) {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
     return new ColumnVector(parseQuery(uriColumn.getNativeView(), failOnError));
+  }
+
+  /**
+   * Parse query and return a specific parameter for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param query The parameter to extract from the query.
+   * @return A string column with query data extracted.
+   * @deprecated Use {@link #parseURIQueryWithLiteral(ColumnView, String, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIQueryWithLiteral(ColumnView uriColumn, String query) {
+    return parseURIQueryWithLiteral(uriColumn, query, false);
   }
 
   /**
@@ -81,6 +130,19 @@ public class ParseURI {
    *
    * @param uriColumn The input strings column in which each row contains a URI.
    * @param queryColumn The parameter to extract from the query.
+   * @return A string column with query data extracted.
+   * @deprecated Use {@link #parseURIQueryWithColumn(ColumnView, ColumnView, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIQueryWithColumn(ColumnView uriColumn, ColumnView queryColumn) {
+    return parseURIQueryWithColumn(uriColumn, queryColumn, false);
+  }
+
+  /**
+   * Parse query and return a specific parameter for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param queryColumn The parameter to extract from the query.
    * @param failOnError If true, use ANSI-aware parsing.
    * @return A string column with query data extracted.
    */
@@ -88,6 +150,18 @@ public class ParseURI {
     assert uriColumn.getType().equals(DType.STRING) : "Input type must be String";
     assert queryColumn.getType().equals(DType.STRING) : "Query type must be String";
     return new ColumnVector(parseQueryWithColumn(uriColumn.getNativeView(), queryColumn.getNativeView(), failOnError));
+  }
+
+  /**
+   * Parse path for each URI from the incoming column.
+   *
+   * @param uriColumn The input strings column in which each row contains a URI.
+   * @return A string column with the URI path extracted.
+   * @deprecated Use {@link #parseURIPath(ColumnView, boolean)} instead.
+   */
+  @Deprecated
+  public static ColumnVector parseURIPath(ColumnView uriColumn) {
+    return parseURIPath(uriColumn, false);
   }
 
   /**
