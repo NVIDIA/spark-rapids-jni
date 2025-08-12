@@ -25,10 +25,8 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
-#include <cuda_runtime.h>
 #include <thrust/sequence.h>
 
-#include <curand.h>
 #include <curand_kernel.h>
 
 #include <limits>
@@ -129,7 +127,7 @@ std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
                                              rmm::device_async_resource_ref mr)
 
 {
-  // Check if row_count is non-negative and does not exceed the maximum limit for a column.
+  // Check if row_count is positive and does not exceed the maximum limit for a column.
   CUDF_EXPECTS(row_count > 0, "Row count must be positive.");
   CUDF_EXPECTS(row_count <= std::numeric_limits<cudf::size_type>::max() / CHAR_COUNT_PER_UUID,
                "Row count exceeds the maximum limit for UUID generation.");
