@@ -30,7 +30,7 @@ public class ParseURI {
   /**
    * Parse protocol for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param URIColumn The input strings column in which each row contains a URI.
    * @return A string column with protocol data extracted.
    * @deprecated Use {@link #parseURIProtocol(ColumnView, boolean)} instead.
    */
@@ -54,7 +54,7 @@ public class ParseURI {
   /**
    * Parse host for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param URIColumn The input strings column in which each row contains a URI.
    * @return A string column with host data extracted.
    * @deprecated Use {@link #parseURIHost(ColumnView, boolean)} instead.
    */
@@ -78,7 +78,7 @@ public class ParseURI {
   /**
    * Parse query for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param URIColumn The input strings column in which each row contains a URI.
    * @return A string column with query data extracted.
    * @deprecated Use {@link #parseURIQuery(ColumnView, boolean)} instead.
    */
@@ -102,8 +102,8 @@ public class ParseURI {
   /**
    * Parse query and return a specific parameter for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
-   * @param query The parameter to extract from the query.
+   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param String The parameter to extract from the query.
    * @return A string column with query data extracted.
    * @deprecated Use {@link #parseURIQueryWithLiteral(ColumnView, String, boolean)} instead.
    */
@@ -128,8 +128,8 @@ public class ParseURI {
   /**
    * Parse query and return a specific parameter for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
-   * @param queryColumn The parameter to extract from the query.
+   * @param URIColumn The input strings column in which each row contains a URI.
+   * @param String The parameter to extract from the query.
    * @return A string column with query data extracted.
    * @deprecated Use {@link #parseURIQueryWithColumn(ColumnView, ColumnView, boolean)} instead.
    */
@@ -155,7 +155,7 @@ public class ParseURI {
   /**
    * Parse path for each URI from the incoming column.
    *
-   * @param uriColumn The input strings column in which each row contains a URI.
+   * @param URIColumn The input strings column in which each row contains a URI.
    * @return A string column with the URI path extracted.
    * @deprecated Use {@link #parseURIPath(ColumnView, boolean)} instead.
    */
