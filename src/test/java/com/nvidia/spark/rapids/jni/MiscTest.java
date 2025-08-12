@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.HashSet;
@@ -79,12 +81,9 @@ public class MiscTest {
     long seed = 1123L;
     try (
         ColumnVector round1 = Misc.randomUUIDsWithSeed(rowCount, seed);
-        ColumnVector round2 = Misc.randomUUIDsWithSeed(rowCount, seed);
-        HostColumnVector h1 = round1.copyToHost();
-        HostColumnVector h2 = round2.copyToHost()) {
-      for (int i = 0; i < rowCount; i++) {
-        assertEquals(h1.getJavaString(i), h2.getJavaString(i));
-      }
+        ColumnVector round2 = Misc.randomUUIDsWithSeed(rowCount, seed)) {
+      // Same seed should generate the same UUIDs.
+      assertColumnsAreEqual(round1, round2);
     }
   }
 }
