@@ -1,0 +1,185 @@
+/*
+ * Copyright (c) 2025, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "uuid.hpp"
+
+#include <cudf/column/column_factories.hpp>
+#include <cudf/detail/utilities/cuda.hpp>
+#include <cudf/detail/utilities/grid_1d.cuh>
+#include <cudf/types.hpp>
+
+#include <rmm/device_uvector.hpp>
+#include <rmm/exec_policy.hpp>
+
+#include <cuda_runtime.h>
+#include <thrust/sequence.h>
+
+#include <curand.h>
+#include <curand_kernel.h>
+
+#include <limits>
+
+namespace spark_rapids_jni {
+
+namespace {
+
+// 36 chars per UUID, e.g.: 123e4567-e89b-12d3-a456-426614174000
+constexpr cudf::size_type CHAR_COUNT_PER_UUID = 36;
+
+template <int block_size>
+__launch_bounds__(block_size) CUDF_KERNEL
+  void init_curand_kernel(curandState* state, int const nstates, long seed)
+{
+  int ithread = cudf::detail::grid_1d::global_thread_id();
+  if (ithread < nstates) { curand_init(seed, ithread, 0, state + ithread); }
+}
+
+__device__ void byte_to_hex(uint8_t byte, char* hex)
+{
+  hex[0] = [&] {
+    if (byte < 16) { return '0'; }
+    uint8_t const nibble = byte / 16;
+
+    byte = byte - (nibble * 16);
+    return static_cast<char>(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
+  }();
+  hex[1] = byte < 10 ? '0' + byte : 'a' + (byte - 10);
+}
+
+/**
+ * @brief Converts the most and least significant bits of a UUID into a string format.
+ * E.g.: 123e4567-e89b-12d3-a456-426614174000
+ */
+__device__ void convert_uuid_to_chars(uint64_t most_sig_bits,
+                                      uint64_t least_sig_bits,
+                                      char* uuid_ptr)
+{
+  uint64_t tmp = most_sig_bits;
+  int idx;
+  for (int i = 0; i < 16; i++) {
+    if (i == 4 || i == 6 || i == 8 || i == 10) {
+      *uuid_ptr = '-';
+      uuid_ptr++;
+    }
+
+    if (i >= 8) {
+      tmp = least_sig_bits;
+      idx = i - 8;
+    } else {
+      idx = i;
+    }
+
+    int shift    = (7 - idx) * 8;
+    uint8_t byte = static_cast<uint8_t>((tmp >> shift) & 0xFF);
+    byte_to_hex(byte, uuid_ptr);
+    uuid_ptr += 2;
+  }
+}
+
+template <int block_size>
+__launch_bounds__(block_size) CUDF_KERNEL void generate_uuids_kernel(
+  cudf::size_type const row_count, char* uuid_chars, curandState* state, int const num_states)
+{
+  auto const start_idx = cudf::detail::grid_1d::global_thread_id();
+  auto const stride    = cudf::detail::grid_1d::grid_stride();
+
+  assert(start_idx < num_states);
+
+  curandState localState = state[start_idx];
+
+  for (cudf::thread_index_type row_idx = start_idx; row_idx < row_count; row_idx += stride) {
+    auto const idx                       = static_cast<cudf::size_type>(row_idx);
+    double d1                            = curand_uniform_double(&localState);
+    double d2                            = curand_uniform_double(&localState);
+    constexpr uint64_t max_unsigned_long = std::numeric_limits<uint64_t>::max();
+    uint64_t const most                  = static_cast<uint64_t>(d1 * max_unsigned_long);
+    uint64_t const least                 = static_cast<uint64_t>(d2 * max_unsigned_long);
+    char* uuid_ptr                       = uuid_chars + idx * CHAR_COUNT_PER_UUID;
+
+    // set the version bits to 4 (UUID version 4): Truly Random or Pseudo-Random
+    auto most_sig_bits = (most & 0xFFFFFFFFFFFF0FFFL) | 0x0000000000004000L;
+
+    // set the variant bits to 2
+    auto least_sig_bits = (least | 0x8000000000000000L) & 0xBFFFFFFFFFFFFFFFL;
+    convert_uuid_to_chars(most_sig_bits, least_sig_bits, uuid_ptr);
+  }
+
+  state[start_idx] = localState;
+}
+
+std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
+                                             long seed,
+                                             rmm::cuda_stream_view stream,
+                                             rmm::device_async_resource_ref mr)
+
+{
+  // Check if row_count is non-negative and does not exceed the maximum limit for a column.
+  CUDF_EXPECTS(row_count > 0, "Row count must be positive.");
+  CUDF_EXPECTS(row_count <= std::numeric_limits<cudf::size_type>::max() / CHAR_COUNT_PER_UUID,
+               "Row count exceeds the maximum limit for UUID generation.");
+
+  constexpr int block_size = 128;
+  auto const num_sms       = cudf::detail::num_multiprocessors();
+  int num_blocks_per_sm    = -1;
+
+  // Calculate the maximum number of blocks per multiprocessor
+  CUDF_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+    &num_blocks_per_sm, generate_uuids_kernel<block_size>, block_size, 0));
+  auto num_states = num_sms * num_blocks_per_sm * block_size;
+
+  // Ensure num_states does not exceed row_count
+  if (num_states > row_count) { num_states = row_count; }
+
+  // initialize curand states
+  rmm::device_uvector<curandState> states(
+    num_states, stream, cudf::get_current_device_resource_ref());
+  init_curand_kernel<block_size>
+    <<<(num_states - 1) / block_size + 1, block_size, 0, stream.value()>>>(
+      states.data(), num_states, seed);
+
+  // generate offsets for the UUIDs
+  rmm::device_uvector<cudf::size_type> offsets(row_count + 1, stream, mr);
+  thrust::sequence(
+    rmm::exec_policy_nosync(stream), offsets.begin(), offsets.end(), 0, CHAR_COUNT_PER_UUID);
+
+  // generate chars for the UUIDs
+  auto const num_chars = row_count * CHAR_COUNT_PER_UUID;
+  rmm::device_uvector<char> chars(num_chars, stream, mr);
+  generate_uuids_kernel<block_size>
+    <<<(num_states - 1) / block_size + 1, block_size, 0, stream.value()>>>(
+      row_count, chars.data(), states.data(), num_states);
+
+  return cudf::make_strings_column(
+    row_count,
+    std::make_unique<cudf::column>(std::move(offsets), rmm::device_buffer{}, 0),
+    chars.release(),
+    0,                    // null count
+    rmm::device_buffer{}  // all UUIDs are non-null
+  );
+}
+
+}  // namespace
+
+std::unique_ptr<cudf::column> random_uuids(int row_count,
+                                           long seed,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::device_async_resource_ref mr)
+
+{
+  return generate_uuids(row_count, seed, stream, mr);
+}
+
+}  // namespace spark_rapids_jni

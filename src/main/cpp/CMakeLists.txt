@@ -210,6 +210,7 @@ add_library(
   src/SparkResourceAdaptorJni.cpp
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
+  src/MiscJni.cpp
   src/ZOrderJni.cpp
   src/aggregation64_utils.cu
   src/bloom_filter.cu
@@ -246,6 +247,7 @@ add_library(
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
+  src/uuid.cu
   src/xxhash64.cu
   src/zorder.cu
 )
