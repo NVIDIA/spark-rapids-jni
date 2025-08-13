@@ -123,6 +123,11 @@ if(NOT TARGET spdlog::spdlog_header_only)
   include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
 endif()
 
+# CRoaring
+message(STATUS "Fetch package croaring from source.")
+include(${CMAKE_SOURCE_DIR}/cmake/get_croaring.cmake)
+
+
 # JNI
 find_package(JNI REQUIRED)
 if(JNI_FOUND)
