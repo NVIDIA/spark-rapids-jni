@@ -20,8 +20,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import ai.rapids.cudf.AssertUtils;
 import ai.rapids.cudf.ColumnVector;
@@ -204,7 +203,6 @@ public class ParseURITest {
       }
     }
     
-    
     try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData)) {
       
       // Non-ANSI mode should work without exception, returning nulls for invalid URLs
@@ -214,13 +212,11 @@ public class ParseURITest {
       }
       
       // ANSI mode should throw exception when encountering invalid URLs
-      try {
+      assertThrows(com.nvidia.spark.rapids.jni.ExceptionWithRowIndex.class, () -> {
         try (ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, true)) {
-          fail("Expected exception for invalid URLs in ANSI mode");
+          // Should not reach here
         }
-      } catch (Exception e) {
-        assertNotNull(e, "Expected an exception to be thrown in ANSI mode for invalid URLs");
-      }
+      }, "Expected ExceptionWithRowIndex for invalid URLs in ANSI mode");
     }
   }
 
@@ -263,13 +259,11 @@ public class ParseURITest {
     // Test that ANSI mode still throws for truly invalid URLs
     String[] invalidData = {"://completely-malformed"};
     try (ColumnVector v0 = ColumnVector.fromStrings(invalidData)) {
-      try {
-        ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "param", true);
-        result.close();
-        throw new AssertionError("Expected exception for invalid URL in ANSI mode");
-      } catch (RuntimeException e) {
-        assert e instanceof com.nvidia.spark.rapids.jni.ExceptionWithRowIndex;
-      }
+      assertThrows(com.nvidia.spark.rapids.jni.ExceptionWithRowIndex.class, () -> {
+        try (ColumnVector result = ParseURI.parseURIQueryWithLiteral(v0, "param", true)) {
+          // Should not reach here
+        }
+      }, "Expected ExceptionWithRowIndex for invalid URL in ANSI mode");
     }
   }
 
