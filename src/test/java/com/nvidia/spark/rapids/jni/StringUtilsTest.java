@@ -29,18 +29,18 @@ import java.util.List;
 import java.util.HashSet;
 import java.util.UUID;
 
-public class MiscTest {
+public class StringUtilsTest {
 
   @Test
   void testUuidInvalidInput() {
     // row count must be positive
     assertThrows(CudfException.class, () -> {
-      Misc.randomUUIDs(0);
+      StringUtils.randomUUIDs(0);
     });
 
     // row count must be positive
     assertThrows(CudfException.class, () -> {
-      Misc.randomUUIDs(-1);
+      StringUtils.randomUUIDs(-1);
     });
   }
 
@@ -52,8 +52,8 @@ public class MiscTest {
     List<Integer> rowCounts = Arrays.asList(1, 2, 3, 5, 17, 33, 65, 129, 515, 1025);
     for (Integer rowCount : rowCounts) {
       try (
-          ColumnVector round1 = Misc.randomUUIDs(rowCount);
-          ColumnVector round2 = Misc.randomUUIDs(rowCount);
+          ColumnVector round1 = StringUtils.randomUUIDs(rowCount);
+          ColumnVector round2 = StringUtils.randomUUIDs(rowCount);
           HostColumnVector h1 = round1.copyToHost();
           HostColumnVector h2 = round2.copyToHost()) {
         HashSet<String> set = new HashSet<>();
@@ -80,8 +80,8 @@ public class MiscTest {
     int rowCount = 128;
     long seed = 1123L;
     try (
-        ColumnVector round1 = Misc.randomUUIDsWithSeed(rowCount, seed);
-        ColumnVector round2 = Misc.randomUUIDsWithSeed(rowCount, seed)) {
+        ColumnVector round1 = StringUtils.randomUUIDsWithSeed(rowCount, seed);
+        ColumnVector round2 = StringUtils.randomUUIDsWithSeed(rowCount, seed)) {
       // Same seed should generate the same UUIDs.
       assertColumnsAreEqual(round1, round2);
     }

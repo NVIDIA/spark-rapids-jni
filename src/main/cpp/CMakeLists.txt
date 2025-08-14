@@ -208,9 +208,9 @@ add_library(
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/StringUtilsJni.cpp
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
-  src/MiscJni.cpp
   src/ZOrderJni.cpp
   src/aggregation64_utils.cu
   src/bloom_filter.cu

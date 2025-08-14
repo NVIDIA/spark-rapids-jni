@@ -21,7 +21,7 @@ import java.lang.management.ManagementFactory;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-class Misc {
+class StringUtils {
 
   // Stores the sequence ID of calling generate UUIDs.
   private static AtomicLong sequence = new AtomicLong(0);
@@ -30,7 +30,7 @@ class Misc {
    * Generate a seed for UUID generation.
    * The seed is generated based on the current time in nanoseconds, the process
    * name, the GPU UUID, and a sequence ID that increments with each call to
-   * this method. This method ensures(do best effort) that the seed is unique
+   * this method. This method ensures (do best effort) that the seed is unique
    * across different runs, including different Spark jobs, different executions
    * of the same job, set backward of the clock, etc.
    *

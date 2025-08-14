@@ -19,10 +19,10 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Misc_randomUUIDs(JNIEnv* env,
-                                                                          jclass,
-                                                                          jint row_count,
-                                                                          jlong seed)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs(JNIEnv* env,
+                                                                                 jclass,
+                                                                                 jint row_count,
+                                                                                 jlong seed)
 {
   try {
     cudf::jni::auto_set_device(env);
