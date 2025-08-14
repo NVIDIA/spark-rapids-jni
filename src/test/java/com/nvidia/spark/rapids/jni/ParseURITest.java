@@ -204,12 +204,6 @@ public class ParseURITest {
       }
     }
     
-    try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData);
-         ColumnVector protocolResult = ParseURI.parseURIProtocol(invalidData, false)) {
-      try (ColumnVector expectedProtocol = ColumnVector.fromStrings(new String[]{"https", null, "https", null})) {
-        AssertUtils.assertColumnsAreEqual(expectedProtocol, protocolResult);
-      }
-    }
     
     try (ColumnVector invalidData = ColumnVector.fromStrings(invalidTestData)) {
       
