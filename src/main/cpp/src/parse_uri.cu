@@ -1042,8 +1042,8 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
   auto d_scalar = make_string_scalar(query_match, stream);
   auto col      = make_column_from_scalar(*d_scalar, 1);
 
-  auto output = detail::parse_uri(
-    input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
+  auto output =
+    detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
   if (ansi_mode) { detail::validate_output(input, *output, stream, mr); }
   return output;
 }
