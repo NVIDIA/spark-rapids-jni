@@ -975,7 +975,7 @@ std::unique_ptr<column> parse_uri_ansi(strings_column_view const& input,
     auto validity_flags = rmm::device_uvector<bool>(input.size(), stream);
 
     thrust::transform(
-      rmm::exec_policy(stream),
+      rmm::exec_policy_nosync(stream),
       thrust::counting_iterator<cudf::size_type>(0),
       thrust::counting_iterator<cudf::size_type>(input.size()),
       validity_flags.begin(),
