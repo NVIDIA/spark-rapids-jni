@@ -954,8 +954,7 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                              std::move(null_mask));
 }
 
-void validate_input_uris(strings_column_view const& input,
-                         rmm::cuda_stream_view stream)
+void validate_input_uris(strings_column_view const& input, rmm::cuda_stream_view stream)
 {
   if (input.size() == 0) { return; }
 
@@ -980,8 +979,12 @@ void validate_input_uris(strings_column_view const& input,
       return uri.valid != 0;
     }));
 
-  auto [validation_mask, null_count] = cudf::detail::valid_if(
-    validity_flags.begin(), validity_flags.end(), cuda::std::identity{}, stream, rmm::mr::get_current_device_resource_ref());
+  auto [validation_mask, null_count] =
+    cudf::detail::valid_if(validity_flags.begin(),
+                           validity_flags.end(),
+                           cuda::std::identity{},
+                           stream,
+                           rmm::mr::get_current_device_resource_ref());
 
   // Create validation column for throw_row_error_if_any
   auto validation_column = std::make_unique<column>(
