@@ -69,8 +69,8 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e38b993f4cb3207745735c51d4f61cdaa735b7ac",
-      "git_url" : "https://github.com/rapidsai/jitify.git",
+      "git_tag" : "70783a3ad7b0cad2992a26a1ebf8fbe3d6b44e25",
+      "git_url" : "https://github.com/NVIDIA/jitify.git",
       "version" : "2.0.0"
     },
     "kvikio" : 
