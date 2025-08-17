@@ -1035,12 +1035,12 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
                                                  rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
 
   // build string_column_view from incoming query_match string
   auto d_scalar = make_string_scalar(query_match, stream);
   auto col      = make_column_from_scalar(*d_scalar, 1);
 
-  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::QUERY, strings_column_view(*col), stream, mr);
 }
 
