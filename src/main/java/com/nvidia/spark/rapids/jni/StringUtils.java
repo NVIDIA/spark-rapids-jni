@@ -22,7 +22,7 @@ import java.lang.management.ManagementFactory;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-class StringUtils {
+public class StringUtils {
 
   // Stores the sequence ID of calling generate UUIDs.
   private static AtomicLong sequence = new AtomicLong(0);

@@ -134,7 +134,8 @@ std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
   // Check if row_count is positive and does not exceed the maximum limit for a column.
   CUDF_EXPECTS(row_count > 0, "Row count must be positive.");
   CUDF_EXPECTS(row_count <= std::numeric_limits<cudf::size_type>::max() / CHAR_COUNT_PER_UUID,
-               "Row count exceeds the maximum limit for UUID generation.");
+               "Row count exceeds the maximum limit for UUID generation.",
+               std::overflow_error);
 
   constexpr int block_size = 128;
   auto const num_sms       = cudf::detail::num_multiprocessors();
