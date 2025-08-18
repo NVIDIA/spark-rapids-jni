@@ -17,6 +17,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.Cuda;
 import java.lang.management.ManagementFactory;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
