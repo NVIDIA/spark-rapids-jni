@@ -42,6 +42,13 @@ public class StringUtilsTest {
     assertThrows(CudfException.class, () -> {
       StringUtils.randomUUIDs(-1);
     });
+
+    // throws ColumnsizeOverflowException
+    // 36 is the number of chars in a UUID
+    int numRows = (Integer.MAX_VALUE / 36) + 1;
+    assertThrows(CudfColumnSizeOverflowException.class, () -> {
+      StringUtils.randomUUIDs(numRows);
+    });
   }
 
   /**
