@@ -169,14 +169,15 @@ set (GENERATED_PARQUET_INCLUDE
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDFJNI_BUILD_DIR}/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDFJNI_BUILD_DIR}/_deps/thrift-build/"
+  "${CUDFJNI_BUILD_DIR}/_deps/thrift-src/lib/cpp/src/"
 )
 
 # ##################################################################################################
