@@ -55,7 +55,11 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -DBUILD_PROFILER=${BUILD_PROFILER} -Dcuda.version=$CUDA_VER \
+  -DBUILD_TESTS=ON \
+  -DBUILD_BENCHMARKS=ON \
+  -DBUILD_FAULTINJ=${BUILD_FAULTINJ} \
+  -DBUILD_PROFILER=${BUILD_PROFILER} \
+  -Dcuda.version=$CUDA_VER \
   -DUSE_SANITIZER=${USE_SANITIZER}
 
 build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
