@@ -121,8 +121,6 @@ __launch_bounds__(block_size) CUDF_KERNEL void generate_uuids_kernel(
     char* uuid_ptr = uuid_chars + idx * CHAR_COUNT_PER_UUID;
     convert_uuid_to_chars(most_sig_bits, least_sig_bits, uuid_ptr);
   }
-
-  state[start_idx] = local_state;
 }
 
 std::unique_ptr<cudf::column> generate_uuids(cudf::size_type row_count,
