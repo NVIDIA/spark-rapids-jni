@@ -1,4 +1,6 @@
-# Copyright (c) 2023-2025, NVIDIA CORPORATION.
+#!/bin/bash
+#
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,24 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-# A workflow to check clang format
-name: clang format check
-
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-jobs:
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: NVIDIA/spark-rapids-common/checkout@main
-      with:
-        submodules: true
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-    - uses: pre-commit/action@v3.0.0
-      with:
-        extra_args: clang-format --all-files
+set -ex
+export sclCMD=${sclCMD:-"scl enable gcc-toolset-14"}

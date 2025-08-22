@@ -74,6 +74,9 @@ ConfigureTest(CAST_STRING
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
 
+ConfigureTest(EXCEPTION_WITH_ROW_INDEX
+    exception_with_row_index.cpp)
+
 ConfigureTest(FORMAT_FLOAT
     format_float.cpp)
 
@@ -107,6 +110,9 @@ ConfigureTest(PARSE_URI
 ConfigureTest(LIST_SLICE
     list_slice.cpp)
 
+ConfigureTest(MAP_ZIP_WITH
+    map_zip_with_utils.cpp)
+
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
@@ -118,3 +124,6 @@ ConfigureTest(HLLPP
 
 ConfigureTest(CONV
     number_converter.cpp)
+
+ConfigureTest(MULTIPLY
+    multiply.cpp)

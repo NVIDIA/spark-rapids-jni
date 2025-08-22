@@ -18,7 +18,8 @@
 # NOTE:
 #     this script is for jenkins only, and should not be used for local development
 #     run with ci/Dockerfile in jenkins:
-#         scl enable gcc-toolset-11 ci/submodule-sync.sh
+#         source build/env.sh
+#         ${sclCMD} ci/submodule-sync.sh
 
 set -ex
 

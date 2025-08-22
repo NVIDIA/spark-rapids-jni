@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,54 +16,61 @@
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
+#include "exception_with_row_index.hpp"
 #include "parse_uri.hpp"
 
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseProtocol(JNIEnv* env,
                                                                                 jclass,
-                                                                                jlong input_column)
+                                                                                jlong input_column,
+                                                                                jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_protocol(*input).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_protocol(*input, static_cast<bool>(ansi_mode)).release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseHost(JNIEnv* env,
                                                                             jclass,
-                                                                            jlong input_column)
+                                                                            jlong input_column,
+                                                                            jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_host(*input).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_host(*input, static_cast<bool>(ansi_mode)).release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQuery(JNIEnv* env,
                                                                              jclass,
-                                                                             jlong input_column)
+                                                                             jlong input_column,
+                                                                             jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_query(*input).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_query(*input, static_cast<bool>(ansi_mode)).release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWithLiteral(
-  JNIEnv* env, jclass, jlong input_column, jstring query)
+  JNIEnv* env, jclass, jlong input_column, jstring query, jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, query, "query is null", 0);
@@ -73,13 +80,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     cudf::jni::native_jstring native_query(env, query);
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::parse_uri_to_query(*input, native_query.get()).release());
+      spark_rapids_jni::parse_uri_to_query(
+        *input, std::string(native_query.get()), static_cast<bool>(ansi_mode))
+        .release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWithColumn(
-  JNIEnv* env, jclass, jlong input_column, jlong query_column)
+  JNIEnv* env, jclass, jlong input_column, jlong query_column, jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, query_column, "query column is null", 0);
@@ -88,22 +97,25 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     auto const query = reinterpret_cast<cudf::column_view const*>(query_column);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_query(*input, *query).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_query(*input, *query, static_cast<bool>(ansi_mode)).release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parsePath(JNIEnv* env,
                                                                             jclass,
-                                                                            jlong input_column)
+                                                                            jlong input_column,
+                                                                            jboolean ansi_mode)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::parse_uri_to_path(*input).release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::parse_uri_to_path(*input, static_cast<bool>(ansi_mode)).release());
   }
-  CATCH_STD(env, 0);
+  CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 }

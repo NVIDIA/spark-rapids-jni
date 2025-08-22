@@ -44,7 +44,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.08.00
+  VERSION 25.10.00
   LANGUAGES CXX CUDA
 )
 
@@ -184,6 +184,8 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  src/Aggregation64Utils.cpp
+  src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
@@ -197,6 +199,8 @@ add_library(
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
+  src/MapZipWithUtilsJNI.cpp
+  src/map_zip_with_utils.cu
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
@@ -204,9 +208,11 @@ add_library(
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/StringUtilsJni.cpp
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/aggregation64_utils.cu
   src/bloom_filter.cu
   src/case_when.cu
   src/cast_decimal_to_string.cu
@@ -218,6 +224,7 @@ add_library(
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
+  src/exception_with_row_index_utilities.cu
   src/format_float.cu
   src/from_json_to_raw_map.cu
   src/from_json_to_structs.cu
@@ -229,6 +236,7 @@ add_library(
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/multiply.cu
   src/murmur_hash.cu
   src/number_converter.cu
   src/parse_uri.cu
@@ -239,6 +247,7 @@ add_library(
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
+  src/uuid.cu
   src/xxhash64.cu
   src/zorder.cu
 )

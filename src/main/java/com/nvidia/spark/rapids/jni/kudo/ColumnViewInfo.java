@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@ class ColumnViewInfo {
   private final DType dtype;
   private final ColumnOffsetInfo offsetInfo;
   private final int nullCount;
+  // Though `ColumnView` accepts `long` for row count, it will cast it to `int` internally, so we
+  // only use `int` here.
   private final int rowCount;
 
   public ColumnViewInfo(DType dtype, ColumnOffsetInfo offsetInfo,
@@ -42,12 +44,12 @@ class ColumnViewInfo {
     long baseAddress = buffer.getAddress();
 
     if (dtype.isNestedType()) {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress),
           childrenView);
     } else {
-      return new ColumnView(dtype, rowCount, Optional.of((long)nullCount),
+      return new ColumnView(dtype, rowCount, Optional.of((long) nullCount),
           offsetInfo.getDataBuffer(baseAddress),
           offsetInfo.getValidityBuffer(baseAddress),
           offsetInfo.getOffsetBuffer(baseAddress));

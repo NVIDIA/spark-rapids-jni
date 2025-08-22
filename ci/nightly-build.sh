@@ -28,6 +28,7 @@ PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 USE_GDS=${USE_GDS:-ON}
 USE_SANITIZER=${USE_SANITIZER:-ON}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
+BUILD_PROFILER=${BUILD_PROFILER:-ON}
 ARM64=${ARM64:-false}
 artifact_suffix="${CUDA_VER}"
 
@@ -36,8 +37,17 @@ if [ "${ARM64}" == "true" ]; then
   profiles="${profiles},arm64"
   USE_GDS="OFF"
   USE_SANITIZER="ON"
+  # libcupti_static.a linked by cufaultinj and the profiler, does not exist in the arm64 CUDA toolkit
   BUILD_FAULTINJ="OFF"
+  BUILD_PROFILER="OFF"
   artifact_suffix="${artifact_suffix}-arm64"
+fi
+
+# disable the profiler and cufaultinj, since there are issues linking
+# against libcupti_static.a in CUDA 13
+if [ "${CUDA_VER}" == "cuda13" ]; then
+  BUILD_FAULTINJ="OFF"
+  BUILD_PROFILER="OFF"
 fi
 
 ${MVN} clean package ${MVN_MIRROR}  \
@@ -45,7 +55,11 @@ ${MVN} clean package ${MVN_MIRROR}  \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
   -DUSE_GDS=${USE_GDS} -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON -DBUILD_FAULTINJ=${BUILD_FAULTINJ} -Dcuda.version=$CUDA_VER \
+  -DBUILD_TESTS=ON \
+  -DBUILD_BENCHMARKS=ON \
+  -DBUILD_FAULTINJ=${BUILD_FAULTINJ} \
+  -DBUILD_PROFILER=${BUILD_PROFILER} \
+  -Dcuda.version=$CUDA_VER \
   -DUSE_SANITIZER=${USE_SANITIZER}
 
 build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)

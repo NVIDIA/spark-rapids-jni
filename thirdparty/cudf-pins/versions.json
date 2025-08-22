@@ -5,9 +5,9 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "dc1db8aefcfe52c66c26c6038fef58da37a46ae9",
+      "git_tag" : "9c40ed11560fa8ffd21abe4cdc8dc3ce875e48e3",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
-      "version" : "3.0.0"
+      "version" : "3.0.2"
     },
     "GTest" : 
     {
@@ -37,7 +37,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6d0c28e855545a7b89df1c4276b2e7fef351682c",
+      "git_tag" : "8a28cb049249c59ff1c029aee2579a2c4c28e794",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -69,17 +69,18 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e38b993f4cb3207745735c51d4f61cdaa735b7ac",
-      "git_url" : "https://github.com/rapidsai/jitify.git",
+      "git_tag" : "70783a3ad7b0cad2992a26a1ebf8fbe3d6b44e25",
+      "git_url" : "https://github.com/NVIDIA/jitify.git",
       "version" : "2.0.0"
     },
     "kvikio" : 
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "83a25ec05d75b11e0f04a37cf25639b425d61cb0",
+      "git_tag" : "c7740795e5904289b721a7ad5d536a9a59654e19",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
-      "version" : "25.08"
+      "source_subdir" : "cpp",
+      "version" : "25.10"
     },
     "nanoarrow" : 
     {
@@ -103,9 +104,10 @@
       "proprietary_binary_cuda_version_mapping" : 
       {
         "11" : "11",
-        "12" : "12"
+        "12" : "12",
+        "13" : "13"
       },
-      "version" : "4.2.0.11"
+      "version" : "5.0.0.6"
     },
     "nvtx3" : 
     {
@@ -113,6 +115,7 @@
       "git_shallow" : false,
       "git_tag" : "69c9949150ac1c310758a304082228a36d5e4758",
       "git_url" : "https://github.com/NVIDIA/NVTX.git",
+      "source_subdir" : "c",
       "version" : "3.2.0"
     },
     "rapids_logger" : 
@@ -127,9 +130,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "b4c3a1bef2817213ea37b802d5ca89bdb60e9187",
+      "git_tag" : "6fc6831e947a5112c267fbea3b28fe93ab69f6c9",
       "git_url" : "https://github.com/rapidsai/rmm.git",
-      "version" : "25.08"
+      "source_subdir" : "cpp",
+      "version" : "25.10"
     },
     "spdlog" : 
     {
@@ -145,6 +149,7 @@
       "git_shallow" : false,
       "git_tag" : "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
       "git_url" : "https://github.com/facebook/zstd.git",
+      "source_subdir" : "build/cmake",
       "version" : "1.5.7"
     }
   }

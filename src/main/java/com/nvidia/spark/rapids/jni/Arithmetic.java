@@ -1,0 +1,109 @@
+/*
+ * Copyright (c) 2025, NVIDIA CORPORATION.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.nvidia.spark.rapids.jni;
+
+import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.Scalar;
+
+public class Arithmetic {
+
+  /**
+   * Computes multiplication on two ColumnVectors.
+   * If the types of the two vectors do not match, an IllegalArgumentException is
+   * thrown. If the row counts of the two inputs do not match, an
+   * IllegalArgumentException is thrown. If there is any overflow
+   * in ANSI mode, an ExceptionWithRowIndex is thrown.
+   * Only supports Spark data types: byte, short, integer, long, float32 and float64.
+   * 
+   * E.g.:
+   * Integer.MAX_VALUE * 2 = -2 in regular mode, the result is wrong(overflow occurs).
+   * Integer.MAX_VALUE * 2 = null in try mode
+   * Integer.MAX_VALUE * 2 = throws exception in ansi mode
+   * 
+   * @param left       left input
+   * @param right      right input
+   * @param isAnsiMode is ANSI mode enabled
+   * @param isTryMode  if true, set null when overflow occurs
+   * @return a new ColumnVector containing the result of multiplying
+   *
+   * @throws ExceptionWithRowIndex if has any overflow in ANSI mode
+   */
+  public static ColumnVector multiply(ColumnVector left, ColumnVector right, boolean isAnsiMode,
+      boolean isTryMode) {
+    return new ColumnVector(multiply(
+        left.getNativeView(), true, right.getNativeView(), true, isAnsiMode,
+        isTryMode));
+  }
+
+  /**
+   * Computes multiplication on two ColumnVectors.
+   * If the types of the two vectors do not match, an IllegalArgumentException is
+   * thrown. If the row counts of the two inputs do not match, an
+   * IllegalArgumentException is thrown. If there is any overflow
+   * in ANSI mode, an ExceptionWithRowIndex is thrown.
+   * Only supports Spark data types: byte, short, integer, long, float32 and float64.
+   * 
+   * E.g.:
+   * Integer.MAX_VALUE * 2 = -2 in regular mode, the result is wrong(overflow occurs).
+   * Integer.MAX_VALUE * 2 = null in try mode
+   * Integer.MAX_VALUE * 2 = throws exception in ansi mode
+   * 
+   * @param left       left input
+   * @param right      right input
+   * @param isAnsiMode is ANSI mode enabled
+   * @param isTryMode  if true, set null when overflow occurs
+   * @return a new ColumnVector containing the result of multiplying
+   *
+   * @throws ExceptionWithRowIndex if has any overflow in ANSI mode
+   */
+  public static ColumnVector multiply(ColumnVector left, Scalar right, boolean isAnsiMode,
+      boolean isTryMode) {
+    return new ColumnVector(multiply(
+        left.getNativeView(), true, right.getScalarHandle(), false, isAnsiMode,
+        isTryMode));
+  }
+
+  /**
+   * Computes multiplication on two ColumnVectors.
+   * If the types of the two vectors do not match, an IllegalArgumentException is
+   * thrown. If the row counts of the two inputs do not match, an
+   * IllegalArgumentException is thrown. If there is any overflow
+   * in ANSI mode, an ExceptionWithRowIndex is thrown.
+   * Only supports Spark data types: byte, short, integer, long, float32 and float64.
+   * 
+   * E.g.:
+   * Integer.MAX_VALUE * 2 = -2 in regular mode, the result is wrong(overflow occurs).
+   * Integer.MAX_VALUE * 2 = null in try mode
+   * Integer.MAX_VALUE * 2 = throws exception in ansi mode
+   * 
+   * @param left       left input
+   * @param right      right input
+   * @param isAnsiMode is ANSI mode enabled
+   * @param isTryMode  if true, set null when overflow occurs
+   * @return a new ColumnVector containing the result of multiplying
+   *
+   * @throws ExceptionWithRowIndex if has any overflow in ANSI mode
+   */
+  public static ColumnVector multiply(Scalar left, ColumnVector right, boolean isAnsiMode,
+      boolean isTryMode) {
+    return new ColumnVector(multiply(
+        left.getScalarHandle(), false, right.getNativeView(), true, isAnsiMode,
+        isTryMode));
+  }
+
+  private static native long multiply(long leftHandle, boolean isLeftCv, long rightHandle,
+      boolean isRightCv, boolean isAnsiMode, boolean isTryMode);
+}
