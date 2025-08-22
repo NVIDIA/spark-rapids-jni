@@ -36,19 +36,21 @@ mvn clean package -DBUILD_PROFILER=OFF
 
 ## Usage
 
-1. NvtxwEvents.h, NvtxwEvents.cpp are copied from Nsight Systems source code. They need to be kept in sync between this project and Nsight Systems.
+1. Files mirrored from Nsight Systems that must be kept in sync: `NvtxwEvents.h`, `NvtxwEvents.cpp`, `nvtxw3.h`, `nvtxw3.cpp`. Project integration files (owned here) are `nvtxw_events.h` and `initialize_nvtxw.cpp`.
 
-2. Need to set the `NVTXW_BACKEND` environment variable pointing to the `libNvtxwBackend.so` library in the host machine running Nsight Systems. For example:
-``(one more `)
-> export NVTXW_BACKEND=/opt/nvidia/nsight-systems/2024.6.0/host-linux-x64/libNvtxwBackend.so
-``(one more `)
+2. Provide the NVTXW backend library path either via CLI or environment variable (CLI takes precedence over env):
+   - CLI: `--nvtxw-backend=/path/to/libNvtxwBackend.so`
+   - Env: set `NVTXW_BACKEND` to the same path. For example:
+```bash
+export NVTXW_BACKEND=/opt/nvidia/nsight-systems/2024.6.0/host-linux-x64/libNvtxwBackend.so
+```
 
 3. Run like this:
-``(one more `)
-> ./target/jni/cmake-build/profiler/spark_rapids_profile_converter  -w -o <output_file>.nsys-rep <input_file>.bin
-``(one more `)
-The output will looks similar to this:
-``(one more`)
+```bash
+./target/jni/cmake-build/profiler/spark_rapids_profile_converter -w -o <output_file>.nsys-rep <input_file>.bin
+```
+The output will look similar to this:
+```text
       Backend implementation loaded!  Applying config string...
       Loader config key/value pairs not provided
       Creating report: "file3021460.nsys-rep"
@@ -61,6 +63,6 @@ The output will looks similar to this:
       3946 events imported
       - Destroyed session: file3021460
       Backend implementation prepared for unload.
-``(one more`)
+```
    
 4. Load into Nsight Systems UI: `nsys-ui <output_file>.nsys-rep`.
