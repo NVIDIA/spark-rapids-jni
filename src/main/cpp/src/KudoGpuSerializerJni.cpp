@@ -62,7 +62,7 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT jlongArray JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNative(
   JNIEnv* env,
   jclass,
@@ -110,24 +110,22 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
                                         cudf::get_default_stream(),
                                         cudf::get_current_device_resource());
 
-    // Return native handles to cudf::column_view objects
-    auto num_columns = single_alloc.column_views.size();
-    auto buffer_size = single_alloc.single_buffer.size();
+    // Create buffer metadata
+    jlong buffer_size = static_cast<jlong>(single_alloc.single_buffer.size());
+    jlong buffer_handle = cudf::jni::release_as_jlong(
+      std::make_unique<rmm::device_buffer>(std::move(single_alloc.single_buffer)));
 
-    // Create array for: buffer handle + buffer size + column view handles
-    cudf::jni::native_jlongArray result(env, num_columns + 2);
-
-    // First element is the single buffer handle
-    result[0] = cudf::jni::release_as_jlong(std::make_unique<rmm::device_buffer>(std::move(single_alloc.single_buffer)));
-    // Second element is the buffer size
-    result[1] = static_cast<jlong>(buffer_size);
-
-    // Remaining elements are column view handles
-    for (size_t i = 0; i < num_columns; i++) {
-      result[i + 2] = cudf::jni::ptr_as_jlong(single_alloc.column_views[i].release());
+    // Create column handles array
+    cudf::jni::native_jlongArray column_handles(env, single_alloc.column_views.size());
+    for (size_t i = 0; i < single_alloc.column_views.size(); ++i) {
+      column_handles[i] = cudf::jni::ptr_as_jlong(single_alloc.column_views[i].release());
     }
 
-    return result.get_jArray();
+    // Create and return Java AssembleResult object
+    jclass result_class = env->FindClass("com/nvidia/spark/rapids/jni/kudo/KudoGpuSerializer$AssembleResult");
+    jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JJ[J)V");
+
+    return env->NewObject(result_class, constructor, buffer_handle, buffer_size, column_handles.get_jArray());
   }
   CATCH_STD(env, NULL);
 }
