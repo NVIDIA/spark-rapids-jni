@@ -677,61 +677,6 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
   return result;
 }
 
-
-
-// The size that shuffle_assemble uses internally as the GPU unit of work.
-// For the validity and offset copy steps, the work is broken up into
-// (bytes / desired_assemble_batch_size) kernel blocks
-constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
-
-/**
- * @brief Return the number of batches the specified number of bytes should be split into.
- */
-constexpr size_t size_to_batch_count(size_t bytes)
-{
-  return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
-}
-
-/**
- * @brief Information on a copy batch.
- */
-struct assemble_batch {
-  __device__ assemble_batch(uint8_t const* _src,
-                            uint8_t* _dst,
-                            size_t _size,
-                            buffer_type _btype,
-                            int _value_shift,
-                            int _src_bit_shift,
-                            int _dst_bit_shift,
-                            size_type _validity_row_count,
-                            size_type* _valid_count)
-    : src(_src),
-      dst(_dst),
-      size(_size),
-      btype(_btype),
-      value_shift(_value_shift),
-      src_bit_shift(_src_bit_shift),
-      dst_bit_shift(_dst_bit_shift),
-      validity_row_count(_validity_row_count),
-      valid_count(_valid_count)
-  {
-  }
-
-  uint8_t const* src;
-  uint8_t* dst;
-  size_t size;                   // bytes
-  buffer_type btype;
-  int value_shift;               // amount to shift values down by (for offset buffers)
-  int src_bit_shift;             // source bit (right) shift. easy way to think about this is
-                                 // 'the number of rows at the beginning of the buffer to ignore'.
-                                 // we need to ignore them because the split-copy happens at
-                                 // byte boundaries, not bit/row boundaries. so we may have
-                                 // irrelevant rows at the very beginning.
-  int dst_bit_shift;             // dest bit (left) shift
-  size_type validity_row_count;  // only valid for validity buffers
-  size_type* valid_count;        // (output) validity count for this block of work
-};
-
 /**
  * @brief Functor to calculate buffer sizes for the single allocation approach.
  */
@@ -818,6 +763,59 @@ struct single_allocation_size_functor {
   {
     CUDF_FAIL("Unsupported type in single_allocation_size_functor");
   }
+};
+
+// The size that shuffle_assemble uses internally as the GPU unit of work.
+// For the validity and offset copy steps, the work is broken up into
+// (bytes / desired_assemble_batch_size) kernel blocks
+constexpr std::size_t desired_assemble_batch_size = 1 * 1024 * 1024;
+
+/**
+ * @brief Return the number of batches the specified number of bytes should be split into.
+ */
+constexpr size_t size_to_batch_count(size_t bytes)
+{
+  return util::round_up_unsafe(bytes, desired_assemble_batch_size) / desired_assemble_batch_size;
+}
+
+/**
+ * @brief Information on a copy batch.
+ */
+struct assemble_batch {
+  __device__ assemble_batch(uint8_t const* _src,
+                            uint8_t* _dst,
+                            size_t _size,
+                            buffer_type _btype,
+                            int _value_shift,
+                            int _src_bit_shift,
+                            int _dst_bit_shift,
+                            size_type _validity_row_count,
+                            size_type* _valid_count)
+    : src(_src),
+      dst(_dst),
+      size(_size),
+      btype(_btype),
+      value_shift(_value_shift),
+      src_bit_shift(_src_bit_shift),
+      dst_bit_shift(_dst_bit_shift),
+      validity_row_count(_validity_row_count),
+      valid_count(_valid_count)
+  {
+  }
+
+  uint8_t const* src;
+  uint8_t* dst;
+  size_t size;                   // bytes
+  buffer_type btype;
+  int value_shift;               // amount to shift values down by (for offset buffers)
+  int src_bit_shift;             // source bit (right) shift. easy way to think about this is
+                                 // 'the number of rows at the beginning of the buffer to ignore'.
+                                 // we need to ignore them because the split-copy happens at
+                                 // byte boundaries, not bit/row boundaries. so we may have
+                                 // irrelevant rows at the very beginning.
+  int dst_bit_shift;             // dest bit (left) shift
+  size_type validity_row_count;  // only valid for validity buffers
+  size_type* valid_count;        // (output) validity count for this block of work
 };
 
 /**
