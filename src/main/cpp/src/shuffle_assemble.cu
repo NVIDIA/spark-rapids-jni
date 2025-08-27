@@ -1563,6 +1563,185 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
  */
 namespace {
 
+/**
+ * @brief Functor that generates column_view objects from buffer slices, handling nested types
+ */
+struct assemble_column_view_functor {
+  cudf::host_span<shuffle_split_col_data const> column_meta;
+  cudf::host_span<assemble_column_info const> assemble_data;
+  shuffle_assemble_result const& assemble_result;
+  rmm::cuda_stream_view stream;
+  rmm::device_async_resource_ref mr;
+
+  template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    auto const& col = assemble_data[col_index];
+    auto const& meta_col = column_meta[col_index];
+
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t data_buffer_idx = col_index * 3 + 2;
+
+    // Get buffer slices
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& data_slice = assemble_result.buffer_slices[data_buffer_idx];
+
+    // Create cudf::data_type with proper scale for fixed-point types
+    cudf::type_id type = static_cast<cudf::type_id>(col.type);
+    int32_t scale = spark_rapids_jni::is_fixed_point(cudf::data_type{col.type}) ? meta_col.scale() : 0;
+    cudf::data_type dtype{type, scale};
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      dtype,
+      static_cast<cudf::size_type>(col.num_rows),
+      data_slice.size > 0 ? static_cast<void const*>(data_slice.data) : nullptr,
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count
+    );
+
+    return {col_index + 1, std::move(column_view)};
+  }
+
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices (only validity for structs)
+    size_t validity_buffer_idx = col_index * 3;
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+
+    // Build children recursively
+    std::vector<cudf::column_view> children;
+    children.reserve(col.num_children);
+    auto next = col_index + 1;
+    for (cudf::size_type i = 0; i < col.num_children; i++) {
+      auto [next_idx, child_view] = cudf::type_dispatcher(
+        cudf::data_type{assemble_data[next].type},
+        assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+        next
+      );
+      children.push_back(*child_view);  // Copy the column_view (not owning)
+      next = next_idx;
+    }
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::STRUCT},
+      static_cast<cudf::size_type>(col.num_rows),
+      nullptr,  // structs have no data buffer
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,  // offset
+      children  // pass children to constructor
+    );
+
+    return {next, std::move(column_view)};
+  }
+
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t offsets_buffer_idx = col_index * 3 + 1;
+    size_t data_buffer_idx = col_index * 3 + 2;
+
+    // Get buffer slices
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice = assemble_result.buffer_slices[offsets_buffer_idx];
+    auto const& data_slice = assemble_result.buffer_slices[data_buffer_idx];
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    // For strings: chars data goes in parent's data buffer, offsets as single child column
+    std::vector<cudf::column_view> children;
+    if (col.num_rows > 0) {
+      // Only offsets child column (chars data goes in parent's data buffer)
+      children.emplace_back(
+        cudf::data_type{cudf::type_id::INT32},
+        static_cast<cudf::size_type>(col.num_rows + 1),
+        static_cast<void const*>(offsets_slice.data),
+        nullptr,  // offsets never have nulls
+        0
+      );
+    }
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::STRING},
+      static_cast<cudf::size_type>(col.num_rows),
+      static_cast<void const*>(data_slice.data),  // chars data in parent's buffer
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,  // offset
+      children
+    );
+
+    return {col_index + 1, std::move(column_view)};
+  }
+
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t offsets_buffer_idx = col_index * 3 + 1;
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice = assemble_result.buffer_slices[offsets_buffer_idx];
+
+    // Build the child column recursively
+    std::vector<cudf::column_view> children;
+    auto next = col_index + 1;
+    auto [next_idx, child_view] = cudf::type_dispatcher(
+      cudf::data_type{assemble_data[next].type},
+      assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+      next
+    );
+    children.push_back(*child_view);
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    // Create offsets child column
+    if (col.num_rows > 0) {
+      children.insert(children.begin(), cudf::column_view(
+        cudf::data_type{cudf::type_id::INT32},
+        static_cast<cudf::size_type>(col.num_rows + 1),
+        static_cast<void const*>(offsets_slice.data),
+        nullptr,  // offsets never have nulls
+        0
+      ));
+    }
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::LIST},
+      static_cast<cudf::size_type>(col.num_rows),
+      nullptr,  // lists have no data buffer at top level
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,  // offset
+      children
+    );
+
+    return {next_idx, std::move(column_view)};
+  }
+
+  template <typename T,
+            CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view> and
+                           !std::is_same_v<T, cudf::string_view> and !std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    CUDF_FAIL("Unsupported type in assemble_column_view_functor");
+  }
+};
+
 // assemble all the column_views and populate the final shuffle assemble result
 void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
                 cudf::host_span<assemble_column_info const> assemble_data,
@@ -1574,38 +1753,15 @@ void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
   std::vector<std::unique_ptr<cudf::column_view>> column_views;
   column_views.reserve(assemble_data.size());
 
-  for (size_t col_idx = 0; col_idx < assemble_data.size(); col_idx++) {
-    auto const& col = assemble_data[col_idx];
-    auto const& meta_col = column_meta[col_idx];
-
-    // Calculate buffer slice indices (validity, offsets, data)
-    size_t validity_buffer_idx = col_idx * 3;      // validity
-    size_t offsets_buffer_idx = col_idx * 3 + 1;   // offsets
-    size_t data_buffer_idx = col_idx * 3 + 2;      // data
-
-    // Get pointers to our buffer slices from assemble_result.buffer_slices
-    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
-    auto const& offsets_slice = assemble_result.buffer_slices[offsets_buffer_idx];
-    auto const& data_slice = assemble_result.buffer_slices[data_buffer_idx];
-
-    // Create cudf::data_type with proper scale for fixed-point types
-    cudf::type_id type = static_cast<cudf::type_id>(col.type);
-    int32_t scale = spark_rapids_jni::is_fixed_point(cudf::data_type{col.type}) ? meta_col.scale() : 0;
-    cudf::data_type dtype{type, scale};
-
-    // Calculate null count
-    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
-
-    // Create the column_view pointing to our buffer slices
-    auto column_view = std::make_unique<cudf::column_view>(
-      dtype,
-      static_cast<cudf::size_type>(col.num_rows),
-      data_slice.size > 0 ? static_cast<void const*>(data_slice.data) : nullptr,
-      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
-      null_count
+  size_t col_index = 0;
+  while (col_index < assemble_data.size()) {
+    auto [next_idx, column_view] = cudf::type_dispatcher(
+      cudf::data_type{assemble_data[col_index].type},
+      assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+      col_index
     );
-
     column_views.push_back(std::move(column_view));
+    col_index = next_idx;
   }
 
   // update the result with our column_views
