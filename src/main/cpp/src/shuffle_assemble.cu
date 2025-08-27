@@ -1557,14 +1557,60 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
 }  // namespace
 
 /*
- * Code block for assembling the final cudf output table
+ * Code block for assembling the final single allocation result
  * Key function: build_table
  *
  */
 namespace {
 
-// NOTE: assemble_column_functor removed - we bypass cudf::column creation entirely
-// and return raw buffer slices + metadata directly to Java for zero-copy optimization
+// assemble all the column_views and populate the final single allocation result
+void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
+                cudf::host_span<assemble_column_info const> assemble_data,
+                single_allocation_buffers& single_alloc_result,
+                rmm::cuda_stream_view stream,
+                rmm::device_async_resource_ref mr)
+{
+  // create native cudf::column_view objects pointing to slices in the single allocation
+  std::vector<std::unique_ptr<cudf::column_view>> column_views;
+  column_views.reserve(assemble_data.size());
+
+  for (size_t col_idx = 0; col_idx < assemble_data.size(); col_idx++) {
+    auto const& col = assemble_data[col_idx];
+    auto const& meta_col = column_meta[col_idx];
+
+    // Calculate buffer slice indices (validity, offsets, data)
+    size_t validity_buffer_idx = col_idx * 3;      // validity
+    size_t offsets_buffer_idx = col_idx * 3 + 1;   // offsets
+    size_t data_buffer_idx = col_idx * 3 + 2;      // data
+
+    // Get pointers to our buffer slices from single_alloc_result.buffer_slices
+    auto const& validity_slice = single_alloc_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice = single_alloc_result.buffer_slices[offsets_buffer_idx];
+    auto const& data_slice = single_alloc_result.buffer_slices[data_buffer_idx];
+
+    // Create cudf::data_type with proper scale for fixed-point types
+    cudf::type_id type = static_cast<cudf::type_id>(col.type);
+    int32_t scale = spark_rapids_jni::is_fixed_point(cudf::data_type{col.type}) ? meta_col.scale() : 0;
+    cudf::data_type dtype{type, scale};
+
+    // Calculate null count
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    // Create the column_view pointing to our buffer slices
+    auto column_view = std::make_unique<cudf::column_view>(
+      dtype,
+      static_cast<cudf::size_type>(col.num_rows),
+      data_slice.size > 0 ? static_cast<void const*>(data_slice.data) : nullptr,
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count
+    );
+
+    column_views.push_back(std::move(column_view));
+  }
+
+  // update the result with our column_views
+  single_alloc_result.column_views = std::move(column_views);
+}
 
 }  // namespace
 
@@ -1631,48 +1677,8 @@ single_allocation_buffers shuffle_assemble(shuffle_split_metadata const& metadat
   // there's a decent chunk of time spend on the cpu in build_table that could be overlapped
   // with the the gpu work being done in assemble_copy.
 
-  // create native cudf::column_view objects pointing to slices in the single allocation
-  std::vector<std::unique_ptr<cudf::column_view>> column_views;
-  column_views.reserve(h_column_info.size());
-
-  for (size_t col_idx = 0; col_idx < h_column_info.size(); col_idx++) {
-    auto const& col = h_column_info[col_idx];
-    auto const& meta_col = metadata.col_info[col_idx];
-
-    // Calculate buffer slice indices (validity, offsets, data)
-    size_t validity_buffer_idx = col_idx * 3;      // validity
-    size_t offsets_buffer_idx = col_idx * 3 + 1;   // offsets
-    size_t data_buffer_idx = col_idx * 3 + 2;      // data
-
-    // Get pointers to our buffer slices from single_alloc_result.buffer_slices
-    auto const& validity_slice = single_alloc_result.buffer_slices[validity_buffer_idx];
-    auto const& offsets_slice = single_alloc_result.buffer_slices[offsets_buffer_idx];
-    auto const& data_slice = single_alloc_result.buffer_slices[data_buffer_idx];
-
-    // Create cudf::data_type with proper scale for fixed-point types
-    cudf::type_id type = static_cast<cudf::type_id>(col.type);
-    int32_t scale = spark_rapids_jni::is_fixed_point(cudf::data_type{col.type}) ? meta_col.scale() : 0;
-    cudf::data_type dtype{type, scale};
-
-    // Calculate null count
-    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
-
-    // Create the column_view pointing to our buffer slices
-    auto column_view = std::make_unique<cudf::column_view>(
-      dtype,
-      static_cast<cudf::size_type>(col.num_rows),
-      data_slice.size > 0 ? static_cast<void const*>(data_slice.data) : nullptr,
-      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
-      null_count
-    );
-
-    column_views.push_back(std::move(column_view));
-  }
-
-  // update the result with our column_views
-  single_alloc_result.column_views = std::move(column_views);
-
-  // return the single allocation buffers directly (no table creation needed!)
+  // build the final single allocation result while the gpu is performing the copy
+  build_table(metadata.col_info, h_column_info, single_alloc_result, stream, mr);
   return std::move(single_alloc_result);
 }
 
