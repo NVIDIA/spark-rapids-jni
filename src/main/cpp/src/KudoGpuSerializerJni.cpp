@@ -103,22 +103,22 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
       meta.col_info.emplace_back(tid, param);
     }
 
-    // Get single allocation buffers from shuffle_assemble
-    auto single_alloc = shuffle_assemble(meta,
+    // Get shuffle assemble result from shuffle_assemble
+    auto assemble_result = shuffle_assemble(meta,
                                         partitions,
                                         offsets,
                                         cudf::get_default_stream(),
                                         cudf::get_current_device_resource());
 
     // Create buffer metadata
-    jlong buffer_size = static_cast<jlong>(single_alloc.single_buffer.size());
+    jlong buffer_size = static_cast<jlong>(assemble_result.shared_buffer.size());
     jlong buffer_handle = cudf::jni::release_as_jlong(
-      std::make_unique<rmm::device_buffer>(std::move(single_alloc.single_buffer)));
+      std::make_unique<rmm::device_buffer>(std::move(assemble_result.shared_buffer)));
 
     // Create column handles array
-    cudf::jni::native_jlongArray column_handles(env, single_alloc.column_views.size());
-    for (size_t i = 0; i < single_alloc.column_views.size(); ++i) {
-      column_handles[i] = cudf::jni::ptr_as_jlong(single_alloc.column_views[i].release());
+    cudf::jni::native_jlongArray column_handles(env, assemble_result.column_views.size());
+    for (size_t i = 0; i < assemble_result.column_views.size(); ++i) {
+      column_handles[i] = cudf::jni::ptr_as_jlong(assemble_result.column_views[i].release());
     }
 
     // Create and return Java AssembleResult object

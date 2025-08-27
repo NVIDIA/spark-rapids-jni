@@ -678,9 +678,9 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
 }
 
 /**
- * @brief Functor to calculate buffer sizes for the single allocation approach.
+ * @brief Functor to calculate buffer sizes for the shared buffer approach.
  */
-struct single_allocation_size_functor {
+struct shared_buffer_size_functor {
   template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
   void operator()(assemble_column_info const& col,
                   size_t& validity_size,
@@ -761,7 +761,7 @@ struct single_allocation_size_functor {
                   size_t& offsets_size,
                   size_t& data_size)
   {
-    CUDF_FAIL("Unsupported type in single_allocation_size_functor");
+    CUDF_FAIL("Unsupported type in shared_buffer_size_functor");
   }
 };
 
@@ -819,9 +819,9 @@ struct assemble_batch {
 };
 
 /**
- * @brief Generate the SINGLE ALLOCATION with buffer slices and copy batches.
+ * @brief Generate the shared buffer allocation with buffer slices and copy batches.
  *
- * This is the key optimization: instead of O(n) allocations, we do ONE allocation
+ * This is the key optimization: instead of O(n) allocations, we do one allocation
  * and create slices/views into it.
  *
  * @param column_info Per-column information
@@ -833,9 +833,9 @@ struct assemble_batch {
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr User provided resource used for allocating the returned device memory
  *
- * @return Single allocation with buffer slices and copy batches
+ * @return Shuffle assemble result with buffer slices and copy batches
  */
-std::pair<single_allocation_buffers, rmm::device_uvector<assemble_batch>>
+std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>>
 assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
                        cudf::host_span<assemble_column_info const> h_column_info,
                        cudf::device_span<assemble_column_info const> const& column_instance_info,
@@ -856,15 +856,15 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
   size_t const num_src_buffers       = num_dst_buffers * num_partitions;
   size_t const buffers_per_partition = num_dst_buffers;
 
-  // *** THE SINGLE ALLOCATION OPTIMIZATION ***
-  // Calculate total memory needed for ALL buffers combined
+  // *** The shared buffer optimization ***
+  // Calculate total memory needed for all buffers combined
   std::vector<size_t> validity_sizes(num_columns);
   std::vector<size_t> offsets_sizes(num_columns);
   std::vector<size_t> data_sizes(num_columns);
 
   for (size_t idx = 0; idx < num_columns; idx++) {
     cudf::type_dispatcher(cudf::data_type{h_column_info[idx].type},
-                          single_allocation_size_functor{},
+                          shared_buffer_size_functor{},
                           h_column_info[idx],
                           validity_sizes[idx],
                           offsets_sizes[idx],
@@ -889,11 +889,11 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
     total_size += data_sizes[col];
   }
 
-  // THE SINGLE ALLOCATION! This is the core of the optimization
-  rmm::device_buffer single_buffer(total_size, stream, mr);
-  uint8_t* base_ptr = static_cast<uint8_t*>(single_buffer.data());
+  // The shared buffer allocation! This is the core of the optimization
+  rmm::device_buffer shared_buffer(total_size, stream, mr);
+  uint8_t* base_ptr = static_cast<uint8_t*>(shared_buffer.data());
 
-  // Create buffer slices that point into the single allocation
+  // Create buffer slices that point into the shared buffer allocation
   std::vector<buffer_slice> buffer_slices(num_dst_buffers);
 
   for (size_t i = 0; i < num_dst_buffers; i++) {
@@ -1258,8 +1258,8 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
     stream,
     mr);
 
-  // Return single allocation with slices and copy batches (column_views will be populated later)
-  single_allocation_buffers result_buffers(std::move(single_buffer), std::move(buffer_slices));
+  // Return shuffle assemble result with slices and copy batches (column_views will be populated later)
+  shuffle_assemble_result result_buffers(std::move(shared_buffer), std::move(buffer_slices));
   return {std::move(result_buffers), std::move(copy_batches)};
 }
 
@@ -1557,20 +1557,20 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
 }  // namespace
 
 /*
- * Code block for assembling the final single allocation result
+ * Code block for assembling the final shuffle assemble result
  * Key function: build_table
  *
  */
 namespace {
 
-// assemble all the column_views and populate the final single allocation result
+// assemble all the column_views and populate the final shuffle assemble result
 void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
                 cudf::host_span<assemble_column_info const> assemble_data,
-                single_allocation_buffers& single_alloc_result,
+                shuffle_assemble_result& assemble_result,
                 rmm::cuda_stream_view stream,
                 rmm::device_async_resource_ref mr)
 {
-  // create native cudf::column_view objects pointing to slices in the single allocation
+  // create native cudf::column_view objects pointing to slices in the shared buffer
   std::vector<std::unique_ptr<cudf::column_view>> column_views;
   column_views.reserve(assemble_data.size());
 
@@ -1583,10 +1583,10 @@ void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
     size_t offsets_buffer_idx = col_idx * 3 + 1;   // offsets
     size_t data_buffer_idx = col_idx * 3 + 2;      // data
 
-    // Get pointers to our buffer slices from single_alloc_result.buffer_slices
-    auto const& validity_slice = single_alloc_result.buffer_slices[validity_buffer_idx];
-    auto const& offsets_slice = single_alloc_result.buffer_slices[offsets_buffer_idx];
-    auto const& data_slice = single_alloc_result.buffer_slices[data_buffer_idx];
+    // Get pointers to our buffer slices from assemble_result.buffer_slices
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice = assemble_result.buffer_slices[offsets_buffer_idx];
+    auto const& data_slice = assemble_result.buffer_slices[data_buffer_idx];
 
     // Create cudf::data_type with proper scale for fixed-point types
     cudf::type_id type = static_cast<cudf::type_id>(col.type);
@@ -1609,7 +1609,7 @@ void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
   }
 
   // update the result with our column_views
-  single_alloc_result.column_views = std::move(column_views);
+  assemble_result.column_views = std::move(column_views);
 }
 
 }  // namespace
@@ -1617,7 +1617,7 @@ void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
 /**
  * @copydoc spark_rapids_jni::shuffle_assemble
  */
-single_allocation_buffers shuffle_assemble(shuffle_split_metadata const& metadata,
+shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
                                            cudf::device_span<uint8_t const> partitions,
                                            cudf::device_span<size_t const> _partition_offsets,
                                            rmm::cuda_stream_view stream,
@@ -1644,9 +1644,9 @@ single_allocation_buffers shuffle_assemble(shuffle_split_metadata const& metadat
                                                size_t{0},
                                                thrust::maximum<size_t>{});
 
-  // if the input is empty, return empty single allocation buffers
+  // if the input is empty, return empty shuffle assemble result
   if (num_partitions == 0) {
-    return single_allocation_buffers(rmm::device_buffer(0, stream, mr), {});
+    return shuffle_assemble_result(rmm::device_buffer(0, stream, mr), {});
   }
 
   cudf::device_span<size_t const> partition_offsets{_partition_offsets.data(), num_partitions + 1};
@@ -1657,8 +1657,8 @@ single_allocation_buffers shuffle_assemble(shuffle_split_metadata const& metadat
     assemble_build_column_info(metadata, partitions, partition_offsets, stream, temp_mr);
   auto h_column_info = cudf::detail::make_std_vector(column_info, stream);
 
-  // generate the SINGLE ALLOCATION with buffer slices and copy batches
-  auto [single_alloc_result, batches] = assemble_build_buffers(column_info,
+  // generate the shared buffer allocation with buffer slices and copy batches
+  auto [assemble_result, batches] = assemble_build_buffers(column_info,
                                                                h_column_info,
                                                                column_instance_info,
                                                                partitions,
@@ -1677,9 +1677,9 @@ single_allocation_buffers shuffle_assemble(shuffle_split_metadata const& metadat
   // there's a decent chunk of time spend on the cpu in build_table that could be overlapped
   // with the the gpu work being done in assemble_copy.
 
-  // build the final single allocation result while the gpu is performing the copy
-  build_table(metadata.col_info, h_column_info, single_alloc_result, stream, mr);
-  return std::move(single_alloc_result);
+  // build the final shuffle assemble result while the gpu is performing the copy
+  build_table(metadata.col_info, h_column_info, assemble_result, stream, mr);
+  return std::move(assemble_result);
 }
 
 }  // namespace spark_rapids_jni
