@@ -76,11 +76,7 @@ public class StringUtils {
    * the section 4.4 of [RFC4122](https://datatracker.ietf.org/doc/html/rfc4122),
    * The variant in UUID is 2 and the version in UUID is 4. This implementation
    * generates UUIDs in the same format, but does not generate the same UUIDs as
-   * Spark. This function is indeterministic, meaning that it will generate
-   * different UUIDs each time it is called, even with the same row count.
-   * The UUIDs are generated using a seed based on the current time, process name,
-   * GPU UUID and running sequence index, ensuring uniqueness across different
-   * runs.
+   * Spark.
    *
    * E.g.: "123e4567-e89b-12d3-a456-426614174000"
    *
