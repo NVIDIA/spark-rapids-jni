@@ -223,13 +223,15 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         script {
                             unstash "source_tree"
                             container('gpu') {
-                                timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
+                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
-                                    } finally {
+                                    } catch (e) {
+                                        common.printJVMCoreDumps(this)
                                         common.syncDir(this, "${CUSTOM_WORKSPACE}-cu12", "${PVC_WORKSPACE}-cu12", false, ['.m2/'])
+                                        throw e
                                     }
                                 }
                             }
@@ -254,13 +256,15 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         script {
                             unstash "source_tree"
                             container('gpu') {
-                                timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
+                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
                                     common.resolveIncompatibleDriverIssue(this)
                                     try {
                                         sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
                                         sh 'bash ci/fuzz-test.sh'
-                                    } finally {
+                                    } catch (e) {
+                                        common.printJVMCoreDumps(this)
                                         common.syncDir(this, "${CUSTOM_WORKSPACE}-cu13", "${PVC_WORKSPACE}-cu13", false, ['.m2/'])
+                                        throw e
                                     }
                                 }
                             }
