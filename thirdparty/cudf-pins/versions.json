@@ -69,7 +69,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "70783a3ad7b0cad2992a26a1ebf8fbe3d6b44e25",
+      "git_tag" : "35a5b2d772691b7d1a3e739308f90d84c2c3d7ec",
       "git_url" : "https://github.com/NVIDIA/jitify.git",
       "version" : "2.0.0"
     },
@@ -77,7 +77,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c7740795e5904289b721a7ad5d536a9a59654e19",
+      "git_tag" : "6efd22dc6ae3389caea7d3e736c7f954b9db0619",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
       "version" : "25.10"
@@ -130,7 +130,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "6fc6831e947a5112c267fbea3b28fe93ab69f6c9",
+      "git_tag" : "7cef2f5f30e962e9f3b27a3a3f2753a40277c093",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "25.10"
