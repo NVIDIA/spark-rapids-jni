@@ -70,9 +70,25 @@ public class StringUtils {
   }
 
   /**
-   * Only for test purpose, please do not use it in production.
+   * Generate a column of UUIDs (String type) with `rowCount` rows.
+   * The same `seed` will generate the same sequence of UUIDs.
+   * Spark uses `Truly Random or Pseudo-Random` UUID type which is described in
+   * the section 4.4 of [RFC4122](https://datatracker.ietf.org/doc/html/rfc4122),
+   * The variant in UUID is 2 and the version in UUID is 4. This implementation
+   * generates UUIDs in the same format, but does not generate the same UUIDs as
+   * Spark. This function is indeterministic, meaning that it will generate
+   * different UUIDs each time it is called, even with the same row count.
+   * The UUIDs are generated using a seed based on the current time, process name,
+   * GPU UUID and running sequence index, ensuring uniqueness across different
+   * runs.
+   *
+   * E.g.: "123e4567-e89b-12d3-a456-426614174000"
+   *
+   * @param rowCount Number of UUIDs to generate
+   * @param seed Seed for UUID generation
+   * @return ColumnVector containing UUIDs
    */
-  static ColumnVector randomUUIDsWithSeed(int rowCount, long seed) {
+  public static ColumnVector randomUUIDsWithSeed(int rowCount, long seed) {
     return new ColumnVector(randomUUIDs(rowCount, seed));
   }
 
