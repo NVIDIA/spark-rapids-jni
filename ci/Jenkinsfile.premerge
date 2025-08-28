@@ -214,7 +214,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         kubernetes {
                             label "cu12-${BUILD_TAG}"
                             cloud "${common.CLOUD_NAME}"
-                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU12}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '8', '32Gi')
+                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU12}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '38Gi')
                             customWorkspace "${CUSTOM_WORKSPACE}-cu12"
                         }
                     }
@@ -245,7 +245,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         kubernetes {
                             label "cu13-${BUILD_TAG}"
                             cloud "${common.CLOUD_NAME}"
-                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '8', '32Gi')
+                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '38Gi', '580.65.06')
                             customWorkspace "${CUSTOM_WORKSPACE}-cu13"
                         }
                     }
