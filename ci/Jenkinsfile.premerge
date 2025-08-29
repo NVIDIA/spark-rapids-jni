@@ -30,10 +30,12 @@ import ipp.blossom.*
 
 def githubHelper // blossom github helper
 def TEMP_IMAGE_BUILD = true
-def IMAGE_PREMERGE = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
-def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE)
+def IMAGE_PREMERGE_CU12 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda12.9.1-blossom"
+def IMAGE_PREMERGE_CU13 = "${common.ARTIFACTORY_NAME}/sw-spark-docker/plugin-jni:rockylinux8-cuda13.0.0-blossom"
+def cpuImage = pod.getCPUYAML(IMAGE_PREMERGE_CU12)
 def PREMERGE_DOCKERFILE = 'ci/Dockerfile'
-def PREMERGE_TAG
+def PREMERGE_TAG_CU12
+def PREMERGE_TAG_CU13
 def skipped = false
 def major_ver // major version extracted from project version
 def minor_ver // minor version extracted from project version
@@ -72,7 +74,6 @@ pipeline {
         MVN_MIRROR = '-s ci/settings.xml -P mirror-apache-to-urm'
         ARTIFACTORY_NAME = "${common.ARTIFACTORY_NAME}"
         PVC = credentials("pvc")
-        CUDA_CLASSIFIER = 'cuda12'
         CUSTOM_WORKSPACE = "/home/jenkins/agent/workspace/${BUILD_TAG}"
         PVC_MOUNT_PATH = "/pvc"
         PVC_WORKSPACE = "/pvc/workspace/${BUILD_TAG}"
@@ -115,7 +116,7 @@ pipeline {
 
             agent {
                 kubernetes {
-                    label "premerge-docker-${BUILD_TAG}"
+                    label "docker-${BUILD_TAG}"
                     cloud "${common.CLOUD_NAME}"
                     yaml pod.getDockerBuildYAML()
                     workspaceVolume persistentVolumeClaimWorkspaceVolume(claimName: "${PVC}", readOnly: false)
@@ -153,10 +154,16 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                         }
 
                         if (TEMP_IMAGE_BUILD) {
-                            PREMERGE_TAG = "rockylinux8-blossom-dev-${BUILD_TAG}"
-                            IMAGE_PREMERGE = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG}"
-                            docker.build(IMAGE_PREMERGE, "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE .")
-                            uploadDocker(IMAGE_PREMERGE)
+                            PREMERGE_TAG_CU12 = "rockylinux8-blossom-dev-${BUILD_TAG}-cu12"
+                            PREMERGE_TAG_CU13 = "rockylinux8-blossom-dev-${BUILD_TAG}-cu13"
+                            IMAGE_PREMERGE_CU12 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU12}"
+                            IMAGE_PREMERGE_CU13 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU13}"
+                            docker.build(IMAGE_PREMERGE_CU12,
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 .")
+                            uploadDocker(IMAGE_PREMERGE_CU12)
+                            docker.build(IMAGE_PREMERGE_CU13,
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.0.0 .")
+                            uploadDocker(IMAGE_PREMERGE_CU13)
                         }
                     }
                 }
@@ -195,31 +202,71 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                     !skipped
                 }
             }
-            options {
-                // We have to use params to pass the resource label in options block,
-                // this is a limitation of declarative pipeline. And we need to lock resource before agent start
-                lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
-            }
-            agent {
-                kubernetes {
-                    label "premerge-ci-1-${BUILD_TAG}"
-                    cloud "${common.CLOUD_NAME}"
-                    yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '8', '32Gi')
-                    customWorkspace "${CUSTOM_WORKSPACE}"
-                }
-            }
+            failFast false
+            parallel {
+                stage ('cuda12') {
+                    options {
+                        // We have to use params to pass the resource label in options block,
+                        // this is a limitation of declarative pipeline. And we need to lock resource before agent start
+                        lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
+                    }
+                    agent {
+                        kubernetes {
+                            label "cu12-${BUILD_TAG}"
+                            cloud "${common.CLOUD_NAME}"
+                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU12}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '38Gi')
+                            customWorkspace "${CUSTOM_WORKSPACE}-cu12"
+                        }
+                    }
 
-            steps {
-                script {
-                    unstash "source_tree"
-                    container('gpu') {
-                        timeout(time: 3, unit: 'HOURS') { // step only timeout for test run
-                            common.resolveIncompatibleDriverIssue(this)
-                            try {
-                                sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
-                                sh 'bash ci/fuzz-test.sh'
-                            } finally {
-                                common.syncDir(this, "${CUSTOM_WORKSPACE}", "${PVC_WORKSPACE}", false, ['.m2/'])
+                    steps {
+                        script {
+                            unstash "source_tree"
+                            container('gpu') {
+                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
+                                    common.resolveIncompatibleDriverIssue(this)
+                                    try {
+                                        sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
+                                        sh 'bash ci/fuzz-test.sh'
+                                    } catch (e) {
+                                        common.printJVMCoreDumps(this)
+                                        common.syncDir(this, "${CUSTOM_WORKSPACE}-cu12", "${PVC_WORKSPACE}-cu12", false, ['.m2/'])
+                                        throw e
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage ('cuda13') {
+                    options {
+                        lock(label: "${params.GPU_POOL}", quantity: 1, variable: 'GPU_RESOURCE')
+                    }
+                    agent {
+                        kubernetes {
+                            label "cu13-${BUILD_TAG}"
+                            cloud "${common.CLOUD_NAME}"
+                            yaml pod.getGPUYAMLwithVolume("${IMAGE_PREMERGE_CU13}", "${env.GPU_RESOURCE}", "${PVC}", "${PVC_MOUNT_PATH}", '10', '38Gi', '580.65.06')
+                            customWorkspace "${CUSTOM_WORKSPACE}-cu13"
+                        }
+                    }
+
+                    steps {
+                        script {
+                            unstash "source_tree"
+                            container('gpu') {
+                                timeout(time: 4, unit: 'HOURS') { // step only timeout for test run
+                                    common.resolveIncompatibleDriverIssue(this)
+                                    try {
+                                        sh 'source build/env.sh && ${sclCMD} "ci/premerge-build.sh"'
+                                        sh 'bash ci/fuzz-test.sh'
+                                    } catch (e) {
+                                        common.printJVMCoreDumps(this)
+                                        common.syncDir(this, "${CUSTOM_WORKSPACE}-cu13", "${PVC_WORKSPACE}-cu13", false, ['.m2/'])
+                                        throw e
+                                    }
+                                }
                             }
                         }
                     }
@@ -249,7 +296,8 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
 
                 if (TEMP_IMAGE_BUILD) {
                     container('cpu') {
-                        deleteDockerTempTag("${PREMERGE_TAG}") // clean premerge temp image
+                        deleteDockerTempTag("${PREMERGE_TAG_CU12}") // clean premerge temp image
+                        deleteDockerTempTag("${PREMERGE_TAG_CU13}") // clean premerge temp image
                     }
                 }
             }
