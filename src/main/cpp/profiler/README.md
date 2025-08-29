@@ -36,7 +36,7 @@ mvn clean package -DBUILD_PROFILER=OFF
 
 ## Usage
 
-1. Files mirrored from Nsight Systems that must be kept in sync: `NvtxwEvents.h`, `NvtxwEvents.cpp`, `nvtxw3.h`, `nvtxw3.cpp`. Project integration files (owned here) are `nvtxw_events.h` and `initialize_nvtxw.cpp`.
+1. Files mirrored from Nsight Systems that must be kept in sync: `NvtxwEvents.h`, `NvtxwEvents.cpp`, `nvtxw3.h`, `nvtxw3.cpp`. Project integration files (owned here) are `init_nvtxw.h` and `init_nvtxw.cpp`.
 
 2. Provide the NVTXW backend library path either via CLI or environment variable (CLI takes precedence over env):
    - CLI: `--nvtxw-backend=/path/to/libNvtxwBackend.so`

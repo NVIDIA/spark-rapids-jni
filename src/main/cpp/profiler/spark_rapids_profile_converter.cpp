@@ -721,7 +721,7 @@ void convert_to_nvtxt(std::ifstream& in, std::ostream& out, program_options cons
   }
 }
 
-#include "nvtxw_events.h"
+#include "init_nvtxw.h"
 
 int convert_to_nvtxw(std::ifstream& in,
                      nvtxwInterfaceCore_t*& nvtxwInterface,
@@ -881,8 +881,8 @@ int convert_to_nvtxw(std::ifstream& in,
                   nvtxStream = domainStreamIt->second;
                 } else {
                   // create a new stream for this domain
-                  bool valid =
-                    createNvtxwStream(nvtxwInterface, session, domainStr, domainStr, nvtxStream);
+                  bool valid = spark_rapids_jni::profiler::createNvtxwStream(
+                    nvtxwInterface, session, domainStr, domainStr, nvtxStream);
                   if (valid) {
                     domainToStreamMap[domainStr] = nvtxStream;
                   } else {
@@ -1152,13 +1152,14 @@ int main(int argc, char* argv[])
         nvtxwInterfaceCore_t* nvtxwInterface = nullptr;
         nvtxwSessionHandle_t session;
         nvtxwStreamHandle_t stream;
-        auto const error_code = initialize_nvtxw(in,
-                                                 opts.output_path.value().string(),
-                                                 nvtxw_module_handle,
-                                                 nvtxwInterface,
-                                                 session,
-                                                 stream,
-                                                 opts.nvtxw_backend);
+        auto const error_code =
+          spark_rapids_jni::profiler::initialize_nvtxw(in,
+                                                       opts.output_path.value().string(),
+                                                       nvtxw_module_handle,
+                                                       nvtxwInterface,
+                                                       session,
+                                                       stream,
+                                                       opts.nvtxw_backend);
         if (error_code == 0) {
           int convert_error_code = convert_to_nvtxw(in, nvtxwInterface, session, stream, opts);
           if (convert_error_code != 0) {

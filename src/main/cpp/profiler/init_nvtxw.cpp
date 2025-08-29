@@ -1,6 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ * Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +17,7 @@
  * See LICENSE.txt for license information.
  */
 
-#include "nvtxw_events.h"
+#include "init_nvtxw.h"
 
 #include <cxxabi.h>
 
@@ -33,6 +32,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+namespace spark_rapids_jni::profiler {
 
 bool createNvtxwStream(const nvtxwInterfaceCore_t* nvtxwInterface,
                        const nvtxwSessionHandle_t& session,
@@ -188,3 +189,5 @@ int initialize_nvtxw(std::ifstream& in,
   }
   return errorCode;
 }
+
+}  // namespace spark_rapids_jni::profiler
