@@ -204,6 +204,7 @@ add_library(
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
+  src/NVMLMonitorJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
@@ -304,6 +305,7 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
+    nvidia-ml
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
