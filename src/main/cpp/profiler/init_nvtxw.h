@@ -28,11 +28,11 @@
 
 namespace spark_rapids_jni::profiler {
 
-bool createNvtxwStream(const nvtxwInterfaceCore_t* nvtxwInterface,
-                       const nvtxwSessionHandle_t& session,
-                       const std::string& name,
-                       const std::string& domain,
-                       nvtxwStreamHandle_t& stream);
+bool create_nvtxw_stream(const nvtxwInterfaceCore_t* nvtxwInterface,
+                         const nvtxwSessionHandle_t& session,
+                         const std::string& name,
+                         const std::string& domain,
+                         nvtxwStreamHandle_t& stream);
 
 int initialize_nvtxw(std::ifstream& in,
                      const std::string& outPath,

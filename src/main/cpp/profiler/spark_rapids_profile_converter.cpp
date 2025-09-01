@@ -881,12 +881,13 @@ int convert_to_nvtxw(std::ifstream& in,
                   nvtxStream = domainStreamIt->second;
                 } else {
                   // create a new stream for this domain
-                  bool valid = spark_rapids_jni::profiler::createNvtxwStream(
+                  bool valid = spark_rapids_jni::profiler::create_nvtxw_stream(
                     nvtxwInterface, session, domainStr, domainStr, nvtxStream);
                   if (valid) {
                     domainToStreamMap[domainStr] = nvtxStream;
                   } else {
-                    fprintf(stderr, "createNvtxwStream failed for domain %s\n", domainStr.c_str());
+                    fprintf(
+                      stderr, "create_nvtxw_stream failed for domain %s\n", domainStr.c_str());
                     nvtxStream = stream;
                     error_code |= 1;
                   }
