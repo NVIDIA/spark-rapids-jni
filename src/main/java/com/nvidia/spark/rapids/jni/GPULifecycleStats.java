@@ -150,71 +150,42 @@ public class GPULifecycleStats {
             return String.format("No samples collected for GPU_%d (%s)", deviceIndex, gpuName);
         }
         
+        GPUInfo latest = samples.get(samples.size() - 1);
         StringBuilder sb = new StringBuilder();
         
         // Header
-        String separator60 = "============================================================";
-        sb.append(separator60).append("\n");
-        sb.append(String.format("GPU_%d Lifecycle Statistics: %s\n", deviceIndex, gpuName));
-        sb.append(separator60).append("\n");
+        sb.append(String.format(">>> GPU_%d Detailed Statistics: %s\n", deviceIndex, gpuName));
         
-        // Basic info
-        sb.append(String.format("Monitoring Duration: %.2f seconds\n", getMonitoringDurationSeconds()));
-        sb.append(String.format("Total Samples: %d (avg %.1f samples/sec)\n", 
-                  getSampleCount(), getAverageSamplingRate()));
-        
-        // Hardware info (from latest sample)
-        GPUInfo latest = samples.get(samples.size() - 1);
-        sb.append(String.format("Hardware: %d SMs, %s\n", 
+        // Basic monitoring info
+        sb.append(String.format("Duration: %.2fs, Samples: %d (%.1f/s), Hardware: %d SMs, %s\n", 
+                  getMonitoringDurationSeconds(), getSampleCount(), getAverageSamplingRate(),
                   latest.streamingMultiprocessors, latest.getPCIeDescription()));
-        sb.append("\n");
         
-        // Utilization statistics (with NVML API annotations)
-        sb.append("Utilization Statistics [nvmlDeviceGetUtilizationRates]:\n");
-        sb.append(String.format("  GPU Utilization:    %s%% [nvmlUtilization_t.gpu]\n", gpuUtilizationStats.toString()));
-        sb.append(String.format("  Memory Utilization: %s%% [nvmlUtilization_t.memory]\n", memoryUtilizationStats.toString()));
-        sb.append("\n");
+        // Utilization stats
+        sb.append(String.format("Utilization - GPU: %s%%, Memory: %s%%\n", 
+                  gpuUtilizationStats.toString(), memoryUtilizationStats.toString()));
         
-        // Memory statistics
-        sb.append("Memory Statistics [nvmlDeviceGetMemoryInfo]:\n");
-        sb.append(String.format("  Memory Used (MB):   %s [nvmlMemory_t.used]\n", memoryUsedStats.toString()));
-        sb.append(String.format("  Memory Free (MB):   %s [nvmlMemory_t.free]\n", memoryFreeStats.toString()));
-        sb.append(String.format("  Total Memory:       %d MB [nvmlMemory_t.total]\n", latest.memoryTotalMB));
-        sb.append("\n");
+        // Memory stats
+        sb.append(String.format("Memory - Used: %s MB, Free: %s MB, Total: %d MB\n", 
+                  memoryUsedStats.toString(), memoryFreeStats.toString(), latest.memoryTotalMB));
         
-        // Temperature statistics
-        sb.append("Temperature Statistics [nvmlDeviceGetTemperature]:\n");
-        sb.append(String.format("  GPU Temperature:    %s°C [NVML_TEMPERATURE_GPU]\n", temperatureGpuStats.toString()));
-        sb.append(String.format("  Memory Temperature: %s°C [fallback to GPU temp]\n", temperatureMemoryStats.toString()));
-        sb.append("\n");
+        // Temperature and power
+        sb.append(String.format("Thermal/Power - Temp: %s°C, Power: %s W (limit: %d W)\n", 
+                  temperatureGpuStats.toString(), powerUsageStats.toString(), latest.powerLimitW));
         
-        // Power statistics
-        sb.append("Power Statistics [nvmlDeviceGetPowerUsage/nvmlDeviceGetPowerManagementLimit]:\n");
-        sb.append(String.format("  Power Usage (W):    %s [nvmlDeviceGetPowerUsage]\n", powerUsageStats.toString()));
-        sb.append(String.format("  Power Limit:        %d W [nvmlDeviceGetPowerManagementLimit]\n", latest.powerLimitW));
-        sb.append("\n");
+        // Clock frequencies
+        sb.append(String.format("Clocks - Graphics: %s MHz, Memory: %s MHz, SM: %s MHz\n", 
+                  graphicsClockStats.toString(), memoryClockStats.toString(), smClockStats.toString()));
         
-        // Clock statistics
-        sb.append("Clock Statistics [nvmlDeviceGetClockInfo]:\n");
-        sb.append(String.format("  Graphics Clock:     %s MHz [NVML_CLOCK_GRAPHICS]\n", graphicsClockStats.toString()));
-        sb.append(String.format("  Memory Clock:       %s MHz [NVML_CLOCK_MEM]\n", memoryClockStats.toString()));
-        sb.append(String.format("  SM Clock:           %s MHz [NVML_CLOCK_SM]\n", smClockStats.toString()));
-        sb.append("\n");
+        // Other stats
+        sb.append(String.format("Other - Fan: %s%%, Performance State: %s (avg P%d)", 
+                  fanSpeedStats.toString(), performanceStateStats.toString(), 
+                  performanceStateStats.getAverage()));
         
-        // Other statistics
-        sb.append("Other Statistics:\n");
-        sb.append(String.format("  SM Count:           %d [nvmlDeviceGetNumGpuCores]\n", latest.streamingMultiprocessors));
-        sb.append(String.format("  Fan Speed:          %s%% [nvmlDeviceGetFanSpeed]\n", fanSpeedStats.toString()));
-        sb.append(String.format("  Performance State:  %s (avg P%d) [nvmlDeviceGetPerformanceState]\n", 
-                  performanceStateStats.toString(), performanceStateStats.getAverage()));
-        sb.append("\n");
-        
-        // Error statistics
+        // ECC errors if any
         if (maxEccSingleBitErrors > 0 || maxEccDoubleBitErrors > 0) {
-            sb.append("ECC Error Statistics:\n");
-            sb.append(String.format("  Single-bit Errors:  %d (max during monitoring)\n", maxEccSingleBitErrors));
-            sb.append(String.format("  Double-bit Errors:  %d (max during monitoring)\n", maxEccDoubleBitErrors));
-            sb.append("\n");
+            sb.append(String.format("\nECC Errors - Single-bit: %d, Double-bit: %d", 
+                      maxEccSingleBitErrors, maxEccDoubleBitErrors));
         }
         
         return sb.toString();

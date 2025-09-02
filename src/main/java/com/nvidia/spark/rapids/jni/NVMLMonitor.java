@@ -301,21 +301,23 @@ public class NVMLMonitor {
             return;
         }
         
-        String separator80 = "================================================================================";
-        logger.info("\n" + separator80);
-        logger.info(lifecycleName + " - LIFECYCLE REPORT");
-        logger.info(separator80);
+        StringBuilder report = new StringBuilder();
         
-        // Summary for all GPUs
-        logger.info("\nSUMMARY:");
+        // Header with summary in same line
+        List<String> summaries = new ArrayList<>();
         for (GPULifecycleStats stats : lifecycleStats.values()) {
-            logger.info("  " + stats.getSummary());
+            summaries.add(stats.getSummary());
         }
+        report.append(lifecycleName).append(" - LIFECYCLE REPORT: ")
+              .append(String.join(" | ", summaries)).append("\n");
         
         // Detailed report for each GPU
         for (GPULifecycleStats stats : lifecycleStats.values()) {
-            logger.info("\n" + stats.generateReport());
+            report.append("\n").append(stats.generateReport());
         }
+        
+        // Output the entire report as one log message to avoid multiple logger prefixes
+        logger.info(report.toString());
     }
     
 
