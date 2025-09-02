@@ -209,6 +209,7 @@ add_library(
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/StringUtilsJni.cpp
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
@@ -247,6 +248,7 @@ add_library(
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
+  src/uuid.cu
   src/xxhash64.cu
   src/zorder.cu
 )

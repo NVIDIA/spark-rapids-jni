@@ -30,6 +30,7 @@ export CMAKE_GENERATOR=${CMAKE_GENERATOR:-"Ninja"}
 export CUDA_VERSION=${CUDA_VERSION:-12.9.1}
 CUDA_CLASSIFIER=cuda${CUDA_VERSION%%.*}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
+BUILD_PROFILER=${BUILD_PROFILER:-ON}
 
 if (( $# == 0 )); then
   echo "Usage: $0 <Maven build arguments>"
@@ -39,12 +40,22 @@ fi
 # Set env for arm64 build, The possible values of 'uname -m' : [x86_64/i386/aarch64/mips/...]
 if [ "$(uname -m)" == "aarch64" ]; then
   USE_GDS="OFF" # The GDS cuFiles RDMA libraries are not included in the arm64 CUDA toolkit.
-  BUILD_FAULTINJ="OFF" # libcupti_static.a linked by cufaultinj, does not exist in the arm64 CUDA toolkit.
+  # libcupti_static.a linked by cufaultinj and the profiler, does not exist in the arm64 CUDA toolkit.
+  BUILD_FAULTINJ="OFF"
+  BUILD_PROFILER="OFF"
+fi
+
+# disable the profiler and cufaultinj, since there are issues linking
+# against libcupti_static.a in CUDA 13
+if [ "$CUDA_CLASSIFIER" == "cuda13" ]; then
+  BUILD_FAULTINJ="OFF"
+  BUILD_PROFILER="OFF"
 fi
 
 $SCRIPTDIR/run-in-docker mvn \
     -Dmaven.repo.local=$LOCAL_MAVEN_REPO \
     -DUSE_GDS=$USE_GDS \
     -DBUILD_FAULTINJ=${BUILD_FAULTINJ} \
+    -DBUILD_PROFILER=${BUILD_PROFILER} \
     -Dcuda.version=$CUDA_CLASSIFIER \
     "$@"
