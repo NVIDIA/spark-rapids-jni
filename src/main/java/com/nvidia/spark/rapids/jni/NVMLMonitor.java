@@ -315,6 +315,8 @@ public class NVMLMonitor {
         for (GPULifecycleStats stats : lifecycleStats.values()) {
             report.append("\n").append(stats.generateReport());
         }
+
+        report.append("\n");
         
         // Output the entire report as one log message to avoid multiple logger prefixes
         logger.info(report.toString());
