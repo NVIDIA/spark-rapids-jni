@@ -69,7 +69,6 @@ public class NVMLMonitor {
         }
         
         try {
-            RmmSpark.getCurrentThreadId();
             if (nvmlInit()) {
                 nvmlInitialized = true;
                 nativeLibraryLoaded = true;
@@ -321,9 +320,7 @@ public class NVMLMonitor {
         // Output the entire report as one log message to avoid multiple logger prefixes
         logger.info(report.toString());
     }
-    
 
-    
     /**
      * Get monitoring duration in seconds
      */
