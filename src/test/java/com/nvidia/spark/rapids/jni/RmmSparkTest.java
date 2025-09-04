@@ -37,6 +37,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,6 +45,11 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 public class RmmSparkTest {
   private final static long ALIGNMENT = 256;
+  private static final AtomicLong TID = new AtomicLong(1);
+
+  private long getNextTid() {
+    return TID.getAndIncrement();
+  }
 
   @BeforeEach
   public void setup() {
@@ -67,7 +73,7 @@ public class RmmSparkTest {
     private final String name;
     private final boolean isForPool;
     private long threadId = -1;
-    private long taskId = 100;
+    private long taskId = -1;
 
     public TaskThread(String name, long taskId) {
       this(name, false);
@@ -84,6 +90,14 @@ public class RmmSparkTest {
       return threadId;
     }
 
+    public long getTaskId() {
+      return taskId;
+    }
+
+    public boolean isThreadForPool() {
+      return isForPool;
+    }
+
     private LinkedBlockingQueue<TaskThreadOp> queue = new LinkedBlockingQueue<>();
 
     public void initialize() throws ExecutionException, InterruptedException, TimeoutException {
@@ -94,6 +108,8 @@ public class RmmSparkTest {
         public Void doIt() {
           if (!isForPool) {
             RmmSpark.currentThreadIsDedicatedToTask(taskId);
+            // Make sure the order they are initialized corresponds to the priority
+            TaskPriority.getTaskPriority(taskId);
           }
           return null;
         }
@@ -137,6 +153,12 @@ public class RmmSparkTest {
 
       @Override
       public Void doIt() {
+        if (!wrapped.isThreadForPool()) {
+          long tid = wrapped.getTaskId();
+          RmmSpark.removeAllCurrentThreadAssociation();
+          RmmSpark.taskDone(tid);
+          TaskPriority.taskDone(tid);
+        }
         return null;
       }
 
@@ -287,6 +309,7 @@ public class RmmSparkTest {
           if (op != null) {
             System.err.println("GOT '" + op + "' ON " + name);
             if (op instanceof TaskThreadDoneOp) {
+              op.doIt();
               return;
             }
             op.doIt();
@@ -313,7 +336,7 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskid = getNextTid();
     Thread t = Thread.currentThread();
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
@@ -371,6 +394,7 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
       RmmSpark.taskDone(taskid);
+      TaskPriority.taskDone(taskid);
     }
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
   }
@@ -381,7 +405,7 @@ public class RmmSparkTest {
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     LimitingOffHeapAllocForTests.setLimit(512 * 1024 * 1024);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskid = 0; // This is arbitrary
+    long taskid = getNextTid();
     Thread t = Thread.currentThread();
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
     assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
@@ -436,6 +460,7 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
       RmmSpark.taskDone(taskid);
+      TaskPriority.taskDone(taskid);
     }
     assertEquals(RmmSparkThreadState.UNKNOWN, RmmSpark.getStateOf(threadId));
   }
@@ -445,7 +470,7 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 512 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = 100;
-    long taskId = 1;
+    long taskId = getNextTid();
     long[] taskIds = new long[] {taskId};
     Thread t = Thread.currentThread();
     try {
@@ -460,6 +485,7 @@ public class RmmSparkTest {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
     } finally {
       RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
   }
 
@@ -469,8 +495,8 @@ public class RmmSparkTest {
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadIdOne = 200;
     long threadIdTwo = 300;
-    long taskId = 2;
-    long otherTaskId = 3;
+    long taskId = getNextTid();
+    long otherTaskId = getNextTid();
     long[] taskIds = new long[] {taskId, otherTaskId};
     Thread t = Thread.currentThread();
     try {
@@ -489,6 +515,8 @@ public class RmmSparkTest {
     } finally {
       RmmSpark.taskDone(taskId);
       RmmSpark.taskDone(otherTaskId);
+      TaskPriority.taskDone(taskId);
+      TaskPriority.taskDone(otherTaskId);
     }
   }
 
@@ -657,11 +685,11 @@ public class RmmSparkTest {
     // We are not going to use the GPU here, but this sets it all up for us.
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     // We are just going to pretend that we are doing an allocations
-    long taskId = 0;
+    long taskId = getNextTid();
     long threadId = RmmSpark.getCurrentThreadId();
     RmmSpark.currentThreadIsDedicatedToTask(taskId);
-    assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     try {
+      assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       boolean wasRecursive = RmmSpark.preCpuAlloc(100, false);
       assertEquals(RmmSparkThreadState.THREAD_ALLOC, RmmSpark.getStateOf(threadId));
       long address;
@@ -674,6 +702,8 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
   }
 
@@ -682,7 +712,7 @@ public class RmmSparkTest {
     // We are not going to use the GPU here, but this sets it all up for us.
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     // We are just going to pretend that we are doing an allocations
-    long taskId = 0;
+    long taskId = getNextTid();
     long threadId = RmmSpark.getCurrentThreadId();
     RmmSpark.currentThreadIsDedicatedToTask(taskId);
     assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
@@ -694,6 +724,8 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
     } finally {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
   }
 
@@ -701,8 +733,8 @@ public class RmmSparkTest {
   public void testBasicBlocking() throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
-    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", getNextTid());
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
     taskOne.initialize();
     taskTwo.initialize();
     try {
@@ -734,8 +766,8 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
-    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", getNextTid());
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
     taskOne.initialize();
     taskTwo.initialize();
     try {
@@ -768,10 +800,10 @@ public class RmmSparkTest {
     final long MB = 1024 * 1024;
     setupRmmForTestingWithLimits(10 * MB);
     LimitingOffHeapAllocForTests.setLimit(10 * MB);
-    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
-    TaskThread taskThree = new TaskThread("TEST THREAD THREE", 3);
-    TaskThread taskFour = new TaskThread("TEST THREAD FOUR", 4);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", getNextTid());
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
+    TaskThread taskThree = new TaskThread("TEST THREAD THREE", getNextTid());
+    TaskThread taskFour = new TaskThread("TEST THREAD FOUR", getNextTid());
     taskOne.initialize();
     taskTwo.initialize();
     taskThree.initialize();
@@ -827,13 +859,13 @@ public class RmmSparkTest {
       }
     } finally {
       taskOne.done();
-      assertEquals(FIVE_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(1));
+      assertEquals(FIVE_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskOne.getTaskId()));
       taskTwo.done();
-      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(2));
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskTwo.getTaskId()));
       taskThree.done();
-      assertEquals(SIX_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(3));
+      assertEquals(SIX_MB, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskThree.getTaskId()));
       taskFour.done();
-      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(4));
+      assertEquals(0, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskFour.getTaskId()));
     }
   }
 
@@ -842,8 +874,8 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     TaskThread shuffleOne = new TaskThread("TEST THREAD SHUFFLE", true);
-    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", getNextTid());
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
 
     shuffleOne.initialize();
     taskOne.initialize();
@@ -907,8 +939,8 @@ public class RmmSparkTest {
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
     TaskThread shuffleOne = new TaskThread("TEST THREAD SHUFFLE", true);
-    TaskThread taskOne = new TaskThread("TEST THREAD ONE", 1);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
+    TaskThread taskOne = new TaskThread("TEST THREAD ONE", getNextTid());
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
 
     shuffleOne.initialize();
     taskOne.initialize();
@@ -929,7 +961,8 @@ public class RmmSparkTest {
         try (AllocOnAnotherThread secondOne = new CpuAllocOnAnotherThread(taskTwo, 6 * 1024 * 1024)) {
           taskTwo.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
           // Make sure that shuffle has higher priority than tasks...
-          try (AllocOnAnotherThread thirdOne = new CpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024, 2)) {
+          try (AllocOnAnotherThread thirdOne = new CpuAllocOnAnotherThread(shuffleOne, 6 * 1024 * 1024,
+              taskTwo.getTaskId())) {
             shuffleOne.pollForState(RmmSparkThreadState.THREAD_BLOCKED, 1000, TimeUnit.MILLISECONDS);
             // But taskOne is not blocked, so there will be no retry until it is blocked, or else
             // it is making progress
@@ -969,12 +1002,11 @@ public class RmmSparkTest {
   public void testBasicBUFN() throws ExecutionException, InterruptedException, TimeoutException {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
-    // A task id of 3 is higher than a task id of 2, so it should be a lower
-    // priority and become BUFN ahead of taskTwo.
-    TaskThread taskThree = new TaskThread("TEST THREAD ONE", 3);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
-    taskThree.initialize();
+    // Task priority is assigned in FIFO order, we want task 2 to have the highest priority
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
     taskTwo.initialize();
+    TaskThread taskThree = new TaskThread("TEST THREAD ONE", getNextTid());
+    taskThree.initialize();
     try {
       long tThreeId = taskThree.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tThreeId));
@@ -1033,12 +1065,11 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     LimitingOffHeapAllocForTests.setLimit(10 * 1024 * 1024);
-    // A task id of 3 is higher than a task id of 2, so it should be a lower
-    // priority and become BUFN ahead of taskTwo.
-    TaskThread taskThree = new TaskThread("TEST THREAD ONE", 3);
-    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", 2);
-    taskThree.initialize();
+    // Task priority is assigned in FIFO order, we want task 2 to have the highest priority
+    TaskThread taskTwo = new TaskThread("TEST THREAD TWO", getNextTid());
     taskTwo.initialize();
+    TaskThread taskThree = new TaskThread("TEST THREAD ONE", getNextTid());
+    taskThree.initialize();
     try {
       long tThreeId = taskThree.getThreadId();
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(tThreeId));
@@ -1098,7 +1129,7 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
 
-    TaskThread taskOne = new TaskThread("TEST THREAD ZERO", 0);
+    TaskThread taskOne = new TaskThread("TEST THREAD ZERO", getNextTid());
     taskOne.initialize();
     try {
       long threadId = taskOne.getThreadId();
@@ -1133,7 +1164,7 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskId = 0; // This is arbitrary
+    long taskId = getNextTid();
     Thread t = Thread.currentThread();
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
@@ -1165,6 +1196,8 @@ public class RmmSparkTest {
       Rmm.alloc(100).close();
     } finally {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
   }
 
@@ -1173,7 +1206,7 @@ public class RmmSparkTest {
     Rmm.initialize(RmmAllocationMode.CUDA_DEFAULT, null, 10 * 1024 * 1024);
     RmmSpark.setEventHandler(new BaseRmmEventHandler(), "stderr");
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskId = 0; // This is arbitrary
+    long taskId = getNextTid();
     Thread t = Thread.currentThread();
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     try {
@@ -1193,6 +1226,8 @@ public class RmmSparkTest {
       Rmm.alloc(100).close();
     } finally {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
   }
 
@@ -1201,7 +1236,7 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskId = 0; // This is arbitrary
+    long taskId = getNextTid();
     long numRetries = 0;
     Thread t = Thread.currentThread();
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
@@ -1228,6 +1263,8 @@ public class RmmSparkTest {
       assertEquals(500, numRetries);
     } finally {
       RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+      RmmSpark.taskDone(taskId);
+      TaskPriority.taskDone(taskId);
     }
     long endTime = System.nanoTime();
     System.err.println("Took " + (endTime - startTime) + "ns to retry 500 times...");
@@ -1251,7 +1288,7 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskId = 0; // This is arbitrary
+    long taskId = getNextTid();
     Thread t = Thread.currentThread();
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
@@ -1260,6 +1297,8 @@ public class RmmSparkTest {
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+        RmmSpark.taskDone(taskId);
+        TaskPriority.taskDone(taskId);
       }
     });
     // We retry the failed allocation for the last thread before going into
@@ -1274,7 +1313,7 @@ public class RmmSparkTest {
     // 10 MiB
     setupRmmForTestingWithLimits(10 * 1024 * 1024, rmmEventHandler);
     long threadId = RmmSpark.getCurrentThreadId();
-    long taskId = 0; // This is arbitrary
+    long taskId = getNextTid();
     Thread t = Thread.currentThread();
     RmmSpark.startDedicatedTaskThread(threadId, taskId, t);
     assertThrows(GpuOOM.class, () -> {
@@ -1283,6 +1322,8 @@ public class RmmSparkTest {
         fail("overallocation should have failed");
       } finally {
         RmmSpark.removeDedicatedThreadAssociation(threadId, taskId);
+        RmmSpark.taskDone(taskId);
+        TaskPriority.taskDone(taskId);
       }
     });
     assertEquals(0, rmmEventHandler.getAllocationCount());
