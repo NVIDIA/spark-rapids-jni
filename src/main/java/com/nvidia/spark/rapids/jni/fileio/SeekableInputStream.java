@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * An {@code Inputstream}` that offers random access interface. 
+ * An {@code Inputstream} that offers random access interface.
  *
  */
 public abstract class SeekableInputStream extends InputStream {
