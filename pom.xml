@@ -95,8 +95,7 @@
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
-    <hadoop.client.version>3.3.1</hadoop.client.version>
-    <hadoop.version>3.4.0</hadoop.version>
+    <hadoop.version>3.3.1</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${project.build.directory}/libcudf/cmake-build/</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
@@ -122,12 +121,12 @@
   </properties>
 
   <dependencies>
-      <dependency>
-          <groupId>org.apache.hadoop</groupId>
-          <artifactId>hadoop-client-api</artifactId>
-          <version>${hadoop.client.version}</version>
-          <scope>provided</scope>
-      </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-api</artifactId>
+      <version>${hadoop.version}</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-vector</artifactId>
