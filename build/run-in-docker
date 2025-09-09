@@ -72,7 +72,7 @@ if (( $# == 0 )); then
   DOCKER_OPTS="${DOCKER_OPTS} -it"
   RUN_CMD="/bin/bash"
 else
-  RUN_CMD="${@@Q}"
+  RUN_CMD=("$@")
 fi
 
 MNT_ARGS=()
@@ -89,7 +89,7 @@ if [[ "$HOST_CUDA_PATH" != "" ]]; then
   RO_DST+=("/usr/local/cuda")
 fi
 for (( i=0; i<${#RO_SRC[@]}; i++)); do
-  MNT_ARGS+=(--mount type=bind,src=${RO_SRC[$i]},dst=${RO_DST[$i]},ro)
+  MNT_ARGS+=(--mount "type=bind,src=${RO_SRC[$i]},dst=${RO_DST[$i]},ro")
 done
 
 RW_SRC=(
@@ -99,11 +99,11 @@ RW_SRC=(
   "$LOCAL_MAVEN_REPO"
 )
 for (( i=0; i<${#RW_SRC[@]}; i++)); do
-  MNT_ARGS+=(--mount type=bind,src=${RW_SRC[$i]},dst=${RW_SRC[$i]})
+  MNT_ARGS+=(--mount "type=bind,src=${RW_SRC[$i]},dst=${RW_SRC[$i]}")
 done
 
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
-  ${MNT_ARGS[@]} \
+  "${MNT_ARGS[@]}" \
   --workdir "$WORKDIR" \
   -e CCACHE_DIR="$LOCAL_CCACHE_DIR" \
   -e CMAKE_C_COMPILER_LAUNCHER="ccache" \

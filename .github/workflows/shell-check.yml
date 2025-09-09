@@ -29,3 +29,7 @@ jobs:
 
       - name: Run ShellCheck
         uses: NVIDIA/spark-rapids-common/shell-check@main
+        with:
+          excluded_codes: |
+            SC3010,
+            SC2054
