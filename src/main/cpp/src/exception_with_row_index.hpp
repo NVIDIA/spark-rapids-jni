@@ -53,7 +53,7 @@ class exception_with_row_index : public std::runtime_error {
 // This macro is used in JNI functions to throw an ExceptionWithRowIndex if error occurs
 // ExceptionWithRowIndex contains the row number that caused the exception
 #define CATCH_EXCEPTION_WITH_ROW_INDEX(env, ret_val)                                        \
-  JNI_CATCH_FIRST(env, ret_val)                                                             \
+  JNI_CATCH_BEGIN(env, ret_val)                                                             \
   catch (spark_rapids_jni::exception_with_row_index const& e)                               \
   {                                                                                         \
     if (env->ExceptionOccurred()) { return ret_val; }                                       \
