@@ -724,7 +724,8 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
                                                              jboolean ignore_case)
 {
   CUDF_FUNC_RANGE();
-  try {
+  JNI_TRY
+  {
     auto meta    = std::make_unique<parquet::format::FileMetaData>();
     uint32_t len = static_cast<uint32_t>(buffer_length);
     // We don't support encrypted parquet...
@@ -771,25 +772,27 @@ Java_com_nvidia_spark_rapids_jni_ParquetFooter_readAndFilter(JNIEnv* env,
 
     return cudf::jni::release_as_jlong(meta);
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_close(JNIEnv* env,
                                                                             jclass,
                                                                             jlong handle)
 {
-  try {
+  JNI_TRY
+  {
     parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     delete ptr;
   }
-  CATCH_STD(env, );
+  JNI_CATCH(env, );
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRows(JNIEnv* env,
                                                                                   jclass,
                                                                                   jlong handle)
 {
-  try {
+  JNI_TRY
+  {
     parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     long ret                           = 0;
     for (auto it = ptr->row_groups.begin(); it != ptr->row_groups.end(); ++it) {
@@ -797,14 +800,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumRow
     }
     return ret;
   }
-  CATCH_STD(env, -1);
+  JNI_CATCH(env, -1);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumColumns(JNIEnv* env,
                                                                                      jclass,
                                                                                      jlong handle)
 {
-  try {
+  JNI_TRY
+  {
     parquet::format::FileMetaData* ptr = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     int ret                            = 0;
     if (ptr->schema.size() > 0) {
@@ -812,14 +816,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_getNumCol
     }
     return ret;
   }
-  CATCH_STD(env, -1);
+  JNI_CATCH(env, -1);
 }
 
 JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_serializeThriftFile(
   JNIEnv* env, jclass, jlong handle, jobject host_memory_allocator)
 {
   CUDF_FUNC_RANGE();
-  try {
+  JNI_TRY
+  {
     parquet::format::FileMetaData* meta = reinterpret_cast<parquet::format::FileMetaData*>(handle);
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> transportOut(
       new apache::thrift::transport::TMemoryBuffer());
@@ -850,6 +855,6 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_ParquetFooter_seriali
     after[7]       = '1';
     return ret;
   }
-  CATCH_STD(env, nullptr);
+  JNI_CATCH(env, nullptr);
 }
 }

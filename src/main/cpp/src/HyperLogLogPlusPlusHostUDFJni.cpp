@@ -26,7 +26,8 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(J
                                                                                jint agg_type,
                                                                                int precision)
 {
-  try {
+  JNI_TRY
+  {
     auto udf_ptr = [&] {
       // The value of agg_type must be sync with
       // `HyperLogLogPlusPlusHostUDF.java#AggregationType`.
@@ -42,7 +43,7 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_createHLLPPHostUDF(J
 
     return reinterpret_cast<jlong>(udf_ptr);
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -50,13 +51,14 @@ Java_com_nvidia_spark_rapids_jni_HyperLogLogPlusPlusHostUDF_estimateDistinctValu
   JNIEnv* env, jclass, jlong sketches, jint precision)
 {
   JNI_NULL_CHECK(env, sketches, "Sketch column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const sketch_view = reinterpret_cast<cudf::column_view const*>(sketches);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::estimate_from_hll_sketches(*sketch_view, precision).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

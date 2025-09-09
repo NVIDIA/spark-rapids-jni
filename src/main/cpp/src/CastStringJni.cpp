@@ -54,7 +54,7 @@ constexpr char const* JNI_CAST_ERROR_CLASS = "com/nvidia/spark/rapids/jni/CastEx
     }                                                                                     \
     return ret_val;                                                                       \
   }                                                                                       \
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 
 extern "C" {
 
@@ -63,7 +63,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toInteger(
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
@@ -84,7 +85,8 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_toDecimal(JNIEnv* env,
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
@@ -99,7 +101,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toFloat(
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::strings_column_view scv{*reinterpret_cast<cudf::column_view const*>(input_column)};
@@ -115,7 +118,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloat(J
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
@@ -130,7 +134,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromFloatWi
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
@@ -146,7 +151,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromDecimal
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
@@ -161,7 +167,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromLongToB
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const& cv = *reinterpret_cast<cudf::column_view const*>(input_column);
@@ -176,7 +183,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_toIntegersW
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
-  try {
+  JNI_TRY
+  {
     if (base != 10 && base != 16) {
       auto const error_msg = "Bases supported 10, 16; Actual: " + std::to_string(base);
       throw spark_rapids_jni::cast_error(0, error_msg);
@@ -246,7 +254,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_fromInteger
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   using namespace cudf;
-  try {
+  JNI_TRY
+  {
     jni::auto_set_device(env);
     auto input_view{*reinterpret_cast<column_view const*>(input_column)};
     auto result = [&] {
@@ -290,7 +299,8 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
   JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
   JNI_NULL_CHECK(env, transitions_table, "transitions table is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const input_view =
@@ -308,20 +318,21 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
                                                 *transitions,
                                                 spark_system));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CastStrings_parseDateStringsToDate(
   JNIEnv* env, jclass, jlong input_column)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const input_view =
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
     return cudf::jni::release_as_jlong(spark_rapids_jni::parse_strings_to_date(input_view));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

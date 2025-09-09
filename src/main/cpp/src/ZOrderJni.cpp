@@ -25,14 +25,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ZOrder_interleaveBits(
 {
   JNI_NULL_CHECK(env, input_columns, "input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::jni::native_jpointerArray<cudf::column_view> n_input_columns(env, input_columns);
     cudf::table_view tbl(n_input_columns.get_dereferenced());
 
     return cudf::jni::ptr_as_jlong(spark_rapids_jni::interleave_bits(tbl).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ZOrder_hilbertIndex(
@@ -40,13 +41,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ZOrder_hilbertIndex(
 {
   JNI_NULL_CHECK(env, input_columns, "input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::jni::native_jpointerArray<cudf::column_view> n_input_columns(env, input_columns);
     cudf::table_view tbl(n_input_columns.get_dereferenced());
 
     return cudf::jni::ptr_as_jlong(spark_rapids_jni::hilbert_index(num_bits, tbl).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }
