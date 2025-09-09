@@ -36,7 +36,8 @@
 constexpr char const* JNI_CAST_ERROR_CLASS = "com/nvidia/spark/rapids/jni/CastException";
 
 #define CATCH_CAST_EXCEPTION(env, ret_val)                                                \
-  catch (const spark_rapids_jni::cast_error& e)                                           \
+  JNI_CATCH_FIRST(env, ret_val)                                                           \
+  catch (spark_rapids_jni::cast_error const& e)                                           \
   {                                                                                       \
     if (env->ExceptionOccurred()) { return ret_val; }                                     \
     jclass ex_class = env->FindClass(JNI_CAST_ERROR_CLASS);                               \
@@ -54,7 +55,8 @@ constexpr char const* JNI_CAST_ERROR_CLASS = "com/nvidia/spark/rapids/jni/CastEx
     }                                                                                     \
     return ret_val;                                                                       \
   }                                                                                       \
-  JNI_CATCH(env, 0);
+  CATCH_SPECIAL_EXCEPTION(env, ret_val)                                                   \
+  CATCH_STD_EXCEPTION(env, ret_val)
 
 extern "C" {
 

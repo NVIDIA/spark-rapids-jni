@@ -33,7 +33,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
   JNI_NULL_CHECK(env, left, "left input is null", 0);
   JNI_NULL_CHECK(env, right, "right input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     if (is_left_cv && is_right_cv) {

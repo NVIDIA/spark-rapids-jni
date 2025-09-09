@@ -2252,7 +2252,7 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_for
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
     mr->force_retry_oom(thread_id, num_ooms, oom_filter, skip_count);
   }
-  JNI_CATCH(env, )
+  JNI_CATCH(env, );
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_forceSplitAndRetryOOM(
