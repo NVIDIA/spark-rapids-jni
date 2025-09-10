@@ -72,7 +72,8 @@ if (( $# == 0 )); then
   DOCKER_OPTS="${DOCKER_OPTS} -it"
   RUN_CMD="/bin/bash"
 else
-  RUN_CMD=("$@")
+  # Store all arguments in a string, properly handling spaces and special characters
+  RUN_CMD="$*"
 fi
 
 MNT_ARGS=()
