@@ -96,7 +96,7 @@
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
     <guava.version>14.0.1</guava.version>
-    <hadoop.version>3.3.1</hadoop.version>
+    <hadoop.version>3.4.0</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${project.build.directory}/libcudf/cmake-build/</libcudf.build.path>
     <libcudf.build.configure>false</libcudf.build.configure>
