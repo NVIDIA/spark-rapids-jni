@@ -2029,7 +2029,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         gpu_memory_allocated_bytes -= num_bytes;
       }
     } else {
-      log_status("DEALLOC", tid, -2, thread_state::UNKNOWN);
+      log_status("DEALLOC", tid, -2, thread_state::UNKNOWN, fmt::format("is_for_cpu: {}", is_for_cpu));
     }
 
     for (auto& [thread_id, t_state] : threads) {
