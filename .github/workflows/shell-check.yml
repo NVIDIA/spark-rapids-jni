@@ -31,11 +31,11 @@ jobs:
       - name: Run ShellCheck
         uses: NVIDIA/spark-rapids-common/shell-check@main
         with:
-          # code explanation:
-          # SC3010: In POSIX sh, [[ ]] is undefined.
-          # SC2054: Use spaces, not commas, to separate array elements.
-          # SC2124: Assigning an array to a string! Assign as array, or use * instead of @ to concatenate.
           excluded_codes:
             SC3010,
             SC2054,
             SC2124
+          # code explanation:
+          # SC3010: In POSIX sh, [[ ]] is undefined.
+          # SC2054: Use spaces, not commas, to separate array elements.
+          # SC2124: Assigning an array to a string! Assign as array, or use * instead of @ to concatenate.
