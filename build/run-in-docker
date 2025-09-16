@@ -16,92 +16,173 @@
 # limitations under the License.
 #
 
-# Run a command in a Docker container with devtoolset
+# =============================================================================
+# 脚本功能：在Docker容器中运行命令，支持开发和生产环境
+# 
+# 主要用途：
+# 1. 构建并运行包含CUDA和开发工具的Docker容器
+# 2. 支持本地开发和生产环境的不同配置
+# 3. 提供统一的构建和运行环境，确保跨平台一致性
+# 4. 支持GPU加速和缓存优化
+# =============================================================================
 
+# 启用严格模式：遇到任何错误立即退出
 set -e
 
+# 加载构建环境配置
 source build/env.sh
 
-# Set this environment variable to ON to build the docker image for local development,
-# with gcc-toolset enabled by default.
-# This is necessary especially if the docker container is used for local development with an IDE.
+# =============================================================================
+# 环境变量配置
+# =============================================================================
+
+# 开发模式标志：设置为ON时启用开发工具集，用于本地开发环境
+# 这对于在IDE中使用Docker容器进行本地开发特别必要
 JNI_DOCKER_DEV_BUILD=${JNI_DOCKER_DEV_BUILD:-OFF}
 
+# 获取Git仓库根目录的绝对路径
 REPODIR_REL=$(git rev-parse --show-toplevel)
 REPODIR=$(realpath "$REPODIR_REL")
+
+# 获取Git公共目录的绝对路径（用于挂载到容器中）
 GIT_COMMON_DIR_REL=$(git rev-parse --git-common-dir)
 GIT_COMMON_DIR=$(realpath "$GIT_COMMON_DIR_REL")
+
+# 设置工作目录，默认为仓库根目录
 WORKDIR=${WORKDIR:-$REPODIR}
+
+# 设置时区，默认为UTC
 TZ=${TZ:-UTC}
 
+# CUDA版本配置，默认为12.9.1
 CUDA_VERSION=${CUDA_VERSION:-12.9.1}
+
+# Docker命令，默认为docker（也可以是podman等）
 DOCKER_CMD=${DOCKER_CMD:-docker}
+
+# Docker构建额外参数初始化
 DOCKER_BUILD_EXTRA_ARGS=${DOCKER_BUILD_EXTRA_ARGS:-""}
+
+# 根据系统架构设置平台特定的构建参数
 if [ "$(uname -m)" == "aarch64" ]; then
+    # ARM64架构（如Apple Silicon Mac）
     DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/arm64 --build-arg CMAKE_ARCH=aarch64 $DOCKER_BUILD_EXTRA_ARGS"
 else
+    # x86_64架构（Intel/AMD）
     DOCKER_BUILD_EXTRA_ARGS="--build-arg TARGETPLATFORM=linux/amd64 --build-arg CMAKE_ARCH=x86_64 $DOCKER_BUILD_EXTRA_ARGS"
 fi
-DOCKER_RUN_EXTRA_ARGS=${DOCKER_RUN_EXTRA_ARGS:-""}
-LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}
-LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}
 
+# Docker运行额外参数
+DOCKER_RUN_EXTRA_ARGS=${DOCKER_RUN_EXTRA_ARGS:-""}
+
+# 本地缓存目录配置
+LOCAL_CCACHE_DIR=${LOCAL_CCACHE_DIR:-"$HOME/.ccache"}  # C/C++编译缓存
+LOCAL_MAVEN_REPO=${LOCAL_MAVEN_REPO:-"$HOME/.m2/repository"}  # Maven依赖缓存
+
+# =============================================================================
+# Docker镜像配置和构建
+# =============================================================================
+
+# 根据开发模式选择不同的Docker镜像标签
 if [ "$JNI_DOCKER_DEV_BUILD" == "ON" ]; then
   echo "Building docker image for local development, gcc-toolset is enabled by default..."
+  # 开发镜像：包含完整的开发工具集，用于本地开发
   JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-devel-rockylinux8"
 else
   echo "Building docker image for production, gcc-toolset is NOT enabled by default..."
+  # 生产镜像：精简版本，不包含开发工具，用于生产环境
   JNI_DOCKER_IMAGE="spark-rapids-jni-build:${CUDA_VERSION}-rockylinux8"
 fi
 
-# ensure directories exist
+# 确保必要的本地目录存在，用于Docker挂载
 mkdir -p "$LOCAL_CCACHE_DIR" "$LOCAL_MAVEN_REPO"
 
+# 构建Docker镜像
+# -f: 指定Dockerfile路径
+# --build-arg: 传递构建参数给Dockerfile
+# -t: 为镜像打标签
 $DOCKER_CMD build $DOCKER_BUILD_EXTRA_ARGS -f $REPODIR/ci/Dockerfile \
   --build-arg CUDA_VERSION=$CUDA_VERSION \
   --build-arg DEV_BUILD=$JNI_DOCKER_DEV_BUILD \
   -t $JNI_DOCKER_IMAGE \
   $REPODIR/build
 
+# =============================================================================
+# Docker运行配置
+# =============================================================================
+
+# 配置GPU支持（仅在使用docker命令时）
 if [[ "$DOCKER_CMD" == "docker" ]]; then
+  # 默认启用所有GPU，可通过DOCKER_GPU_OPTS环境变量覆盖
   DOCKER_GPU_OPTS=${DOCKER_GPU_OPTS:-"--gpus all"}
 fi
 
+# 根据参数决定运行模式
 if (( $# == 0 )); then
-  # no arguments gets an interactive shell
-  DOCKER_OPTS="${DOCKER_OPTS} -it"
+  # 无参数时：启动交互式shell
+  DOCKER_OPTS="${DOCKER_OPTS} -it"  # -i: 交互式, -t: 分配伪终端
   RUN_CMD="/bin/bash"
 else
-  RUN_CMD="${@@Q}"
+  # 有参数时：执行指定的命令
+  RUN_CMD="${@@Q}"  # 使用@@Q安全地引用所有参数
 fi
 
+# 初始化挂载参数数组
 MNT_ARGS=()
 
+# =============================================================================
+# 只读文件系统挂载配置
+# =============================================================================
+
+# 定义需要只读挂载的系统文件
 RO_SRC=(
-  "/etc/group"
-  "/etc/passwd"
-  "/etc/shadow"
-  "/etc/sudoers.d"
+  "/etc/group"      # 用户组信息
+  "/etc/passwd"     # 用户账户信息
+  "/etc/shadow"     # 用户密码信息
+  "/etc/sudoers.d"  # sudo配置目录
 )
-RO_DST=("${RO_SRC[@]}")
+RO_DST=("${RO_SRC[@]}")  # 目标路径与源路径相同
+
+# 如果主机有CUDA路径，也将其只读挂载到容器中
 if [[ "$HOST_CUDA_PATH" != "" ]]; then
   RO_SRC+=("$HOST_CUDA_PATH")
   RO_DST+=("/usr/local/cuda")
 fi
+
+# 构建只读挂载参数
 for (( i=0; i<${#RO_SRC[@]}; i++)); do
   MNT_ARGS+=(--mount "type=bind,src=${RO_SRC[$i]},dst=${RO_DST[$i]},ro")
 done
 
+# =============================================================================
+# 读写文件系统挂载配置
+# =============================================================================
+
+# 定义需要读写挂载的目录
 RW_SRC=(
-  "$GIT_COMMON_DIR"
-  "$WORKDIR"
-  "$LOCAL_CCACHE_DIR"
-  "$LOCAL_MAVEN_REPO"
+  "$GIT_COMMON_DIR"     # Git公共目录，用于版本控制
+  "$WORKDIR"            # 工作目录，项目源码
+  "$LOCAL_CCACHE_DIR"   # C/C++编译缓存目录
+  "$LOCAL_MAVEN_REPO"   # Maven依赖缓存目录
 )
+
+# 构建读写挂载参数
 for (( i=0; i<${#RW_SRC[@]}; i++)); do
   MNT_ARGS+=(--mount "type=bind,src=${RW_SRC[$i]},dst=${RW_SRC[$i]}")
 done
 
+# =============================================================================
+# 执行Docker容器运行命令
+# =============================================================================
+
+# 运行Docker容器，包含以下配置：
+# - GPU支持：$DOCKER_GPU_OPTS
+# - 额外运行参数：$DOCKER_RUN_EXTRA_ARGS
+# - 用户权限：-u $(id -u):$(id -g) 使用当前用户ID和组ID
+# - 自动清理：--rm 容器退出后自动删除
+# - 文件系统挂载：${MNT_ARGS[@]} 包含所有只读和读写挂载
+# - 工作目录：--workdir "$WORKDIR"
+# - 环境变量：设置缓存、编译器、时区等环境变量
 $DOCKER_CMD run $DOCKER_GPU_OPTS $DOCKER_RUN_EXTRA_ARGS -u $(id -u):$(id -g) --rm \
   "${MNT_ARGS[@]}" \
   --workdir "$WORKDIR" \
