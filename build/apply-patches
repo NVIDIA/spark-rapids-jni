@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ fi
 
 CHANGED_FILES=$(git status --porcelain --untracked-files=no)
 
-if [ \( -s "$FULLY_PATCHED_FILE" \) -a  \( -n "$CHANGED_FILES" \) ] ; then 
+if [ -s "$FULLY_PATCHED_FILE" ] && [ -n "$CHANGED_FILES" ] ; then 
   if git apply -R --check "$FULLY_PATCHED_FILE" ; then
     echo "Patches appear to have been applied already"
     exit 0
@@ -60,7 +60,7 @@ fi
 
 if [ -n "$CHANGED_FILES" ] ; then
   echo "Error: CUDF repository has uncommitted changes. No patches will be applied. Please clean the repository so we can try and add the needed patches"
-  echo "$CHANGED_FILE"
+  echo "$CHANGED_FILES"
   exit 1
 fi
 
