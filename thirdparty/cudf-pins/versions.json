@@ -135,6 +135,14 @@
       "source_subdir" : "cpp",
       "version" : "25.10"
     },
+    "roaring" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "1a2c980f90e533ce79c7610bd2eae5df5a177aff",
+      "git_url" : "https://github.com/RoaringBitmap/CRoaring.git",
+      "version" : "4.3.11"
+    },
     "spdlog" : 
     {
       "always_download" : true,
