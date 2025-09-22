@@ -204,7 +204,7 @@ add_library(
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
-  src/NVMLMonitorJni.cpp
+  src/NVMLJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
