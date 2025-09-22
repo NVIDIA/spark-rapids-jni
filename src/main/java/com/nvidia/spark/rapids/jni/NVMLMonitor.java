@@ -19,14 +19,18 @@ public class NVMLMonitor {
     }
 
     private static final Logger logger = LoggerFactory.getLogger(NVMLMonitor.class);
-    
+
     // Native method declarations
     public static native boolean nvmlInit();
     public static native void nvmlShutdown();
     public static native int nvmlGetDeviceCount();
     public static native GPUInfo nvmlGetGPUInfo(int deviceIndex);
     public static native GPUInfo[] nvmlGetAllGPUInfo();
-    
+
+    // CUDA device ID support - new native methods
+    public static native GPUInfo nvmlGetGPUInfoByCudaDevice(int cudaDeviceId);
+    public static native boolean nvmlIsCudaDeviceValid(int cudaDeviceId);
+
     // Instance variables
     private static boolean nvmlInitialized = false;
     private static boolean nativeLibraryLoaded = false;
@@ -34,13 +38,13 @@ public class NVMLMonitor {
     private Thread monitoringThread;
     private final int intervalMs;
     private final boolean verbose;
-    
+
     // Lifecycle statistics for each GPU
     private final java.util.Map<Integer, GPULifecycleStats> lifecycleStats = new ConcurrentHashMap<>();
-    
+
     // Callback for real-time monitoring
     private volatile MonitoringCallback callback;
-    
+
     /**
      * Callback interface for real-time GPU monitoring events
      */
@@ -50,16 +54,16 @@ public class NVMLMonitor {
         void onMonitoringStopped();
         void onError(String error);
     }
-    
+
     public NVMLMonitor(int intervalMs, boolean verbose) {
         this.intervalMs = intervalMs;
         this.verbose = verbose;
     }
-    
+
     public NVMLMonitor() {
         this(1000, false); // Default: 1 second interval, not verbose
     }
-    
+
     /**
      * Initialize NVML library
      */
@@ -67,7 +71,7 @@ public class NVMLMonitor {
         if (nvmlInitialized) {
             return true;
         }
-        
+
         try {
             if (nvmlInit()) {
                 nvmlInitialized = true;
@@ -83,7 +87,7 @@ public class NVMLMonitor {
             return false;
         }
     }
-    
+
     /**
      * Shutdown NVML library
      */
@@ -97,14 +101,14 @@ public class NVMLMonitor {
             }
         }
     }
-    
+
     /**
      * Check if NVML is available and initialized
      */
     public static boolean isAvailable() {
         return nvmlInitialized && nativeLibraryLoaded;
     }
-    
+
     /**
      * Get number of GPU devices
      */
@@ -112,7 +116,7 @@ public class NVMLMonitor {
         if (!isAvailable()) {
             return 0;
         }
-        
+
         try {
             return nvmlGetDeviceCount();
         } catch (Exception e) {
@@ -120,7 +124,7 @@ public class NVMLMonitor {
             return 0;
         }
     }
-    
+
     /**
      * Get current GPU information for all devices
      */
@@ -128,7 +132,7 @@ public class NVMLMonitor {
         if (!isAvailable()) {
             return new GPUInfo[0];
         }
-        
+
         try {
             return nvmlGetAllGPUInfo();
         } catch (Exception e) {
@@ -136,15 +140,15 @@ public class NVMLMonitor {
             return new GPUInfo[0];
         }
     }
-    
+
     /**
-     * Get GPU information for specific device
+     * Get GPU information for specific device using NVML device index
      */
     public static GPUInfo getGPUInfo(int deviceIndex) {
         if (!isAvailable()) {
             return null;
         }
-        
+
         try {
             return nvmlGetGPUInfo(deviceIndex);
         } catch (Exception e) {
@@ -152,14 +156,46 @@ public class NVMLMonitor {
             return null;
         }
     }
-    
+
+    /**
+     * Get GPU information for specific device using CUDA device ID
+     */
+    public static GPUInfo getGPUInfoByCudaDevice(int cudaDeviceId) {
+        if (!isAvailable()) {
+            return null;
+        }
+
+        try {
+            return nvmlGetGPUInfoByCudaDevice(cudaDeviceId);
+        } catch (Exception e) {
+            logger.error("Error getting GPU info for CUDA device " + cudaDeviceId + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Check if a CUDA device ID is valid and accessible
+     */
+    public static boolean isCudaDeviceValid(int cudaDeviceId) {
+        if (!isAvailable()) {
+            return false;
+        }
+
+        try {
+            return nvmlIsCudaDeviceValid(cudaDeviceId);
+        } catch (Exception e) {
+            logger.error("Error checking CUDA device validity for device " + cudaDeviceId + ": " + e.getMessage());
+            return false;
+        }
+    }
+
     /**
      * Set callback for real-time monitoring events
      */
     public void setCallback(MonitoringCallback callback) {
         this.callback = callback;
     }
-    
+
     /**
      * Start continuous GPU monitoring
      */
@@ -167,33 +203,33 @@ public class NVMLMonitor {
         if (monitoring.get()) {
             return; // Already monitoring
         }
-        
+
         if (!isAvailable()) {
             logger.error("NVML not available, cannot start monitoring");
             return;
         }
-        
+
         // Initialize lifecycle stats for all GPUs
         GPUInfo[] initialInfo = getCurrentGPUInfo();
         for (GPUInfo info : initialInfo) {
-            lifecycleStats.put(info.deviceIndex, 
+            lifecycleStats.put(info.deviceIndex,
                               new GPULifecycleStats(info.name, info.deviceIndex));
         }
-        
+
         monitoring.set(true);
         monitoringThread = new Thread(this::monitoringLoop, "NVMLMonitor");
         monitoringThread.setDaemon(true);
         monitoringThread.start();
-        
+
         if (verbose) {
             logger.info("Started NVML GPU monitoring (interval: " + intervalMs + "ms)");
         }
-        
+
         if (callback != null) {
             callback.onMonitoringStarted();
         }
     }
-    
+
     /**
      * Stop continuous GPU monitoring
      */
@@ -201,7 +237,7 @@ public class NVMLMonitor {
         if (!monitoring.get()) {
             return; // Not monitoring
         }
-        
+
         monitoring.set(false);
         if (monitoringThread != null) {
             try {
@@ -210,11 +246,11 @@ public class NVMLMonitor {
                 Thread.currentThread().interrupt();
             }
         }
-        
+
         if (verbose) {
             logger.info("Stopped NVML GPU monitoring");
         }
-        
+
         if (callback != null) {
             callback.onMonitoringStopped();
         }
@@ -227,10 +263,10 @@ public class NVMLMonitor {
         while (monitoring.get()) {
             try {
                 GPUInfo[] gpuInfos = getCurrentGPUInfo();
-                
+
                 if (gpuInfos != null && gpuInfos.length > 0) {
                     long timestamp = System.currentTimeMillis();
-                    
+
                     // Update lifecycle statistics
                     for (GPUInfo info : gpuInfos) {
                         GPULifecycleStats stats = lifecycleStats.get(info.deviceIndex);
@@ -238,7 +274,7 @@ public class NVMLMonitor {
                             stats.addSample(info);
                         }
                     }
-                    
+
                     // Verbose output
                     if (verbose) {
                         logger.info("=== GPU Status Update ===");
@@ -247,15 +283,15 @@ public class NVMLMonitor {
                         }
                         logger.info("");
                     }
-                    
+
                     // Callback notification
                     if (callback != null) {
                         callback.onGPUUpdate(gpuInfos, timestamp);
                     }
                 }
-                
+
                 Thread.sleep(intervalMs);
-                
+
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -268,28 +304,28 @@ public class NVMLMonitor {
             }
         }
     }
-    
+
     /**
      * Get lifecycle statistics for all GPUs
      */
     public Map<Integer, GPULifecycleStats> getLifecycleStats() {
         return new HashMap<>(lifecycleStats);
     }
-    
+
     /**
      * Get lifecycle statistics for specific GPU
      */
     public GPULifecycleStats getLifecycleStats(int deviceIndex) {
         return lifecycleStats.get(deviceIndex);
     }
-    
+
     /**
      * Print comprehensive lifecycle statistics report
      */
     public void printLifecycleReport() {
         printLifecycleReport("NVML GPU MONITORING");
     }
-    
+
     /**
      * Print comprehensive lifecycle statistics report with custom lifecycle name
      * @param lifecycleName the name of the lifecycle to display in the report
@@ -299,9 +335,9 @@ public class NVMLMonitor {
             logger.info("No lifecycle statistics available for: " + lifecycleName);
             return;
         }
-        
+
         StringBuilder report = new StringBuilder();
-        
+
         // Header with summary in same line
         List<String> summaries = new ArrayList<>();
         for (GPULifecycleStats stats : lifecycleStats.values()) {
@@ -309,14 +345,14 @@ public class NVMLMonitor {
         }
         report.append(lifecycleName).append(" - LIFECYCLE REPORT: ")
               .append(String.join(" | ", summaries)).append("\n");
-        
+
         // Detailed report for each GPU
         for (GPULifecycleStats stats : lifecycleStats.values()) {
             report.append("\n").append(stats.generateReport());
         }
 
         report.append("\n");
-        
+
         // Output the entire report as one log message to avoid multiple logger prefixes
         logger.info(report.toString());
     }
@@ -328,7 +364,7 @@ public class NVMLMonitor {
         if (lifecycleStats.isEmpty()) {
             return 0.0;
         }
-        
+
         return lifecycleStats.values().iterator().next().getMonitoringDurationSeconds();
     }
 }
