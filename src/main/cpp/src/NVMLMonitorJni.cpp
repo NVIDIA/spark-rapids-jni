@@ -35,10 +35,276 @@ static nvmlReturn_t getNvmlDeviceFromCudaDevice(int cudaDeviceId, nvmlDevice_t* 
     return nerr;
 }
 
-// Helper function to populate GPUInfo object from NVML device handle
-static jobject populateGPUInfoFromDevice(JNIEnv *env, nvmlDevice_t device, jint deviceIndex) {
-    nvmlReturn_t result;
+// Helper functions for individual NVML API groups
 
+static jobject populateDeviceInfo(JNIEnv *env, nvmlDevice_t device, jint deviceIndex) {
+    jclass deviceInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUDeviceInfo");
+    if (deviceInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(deviceInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject deviceInfo = env->NewObject(deviceInfoClass, constructor);
+    if (deviceInfo == NULL) return NULL;
+
+    jfieldID deviceIndexField = env->GetFieldID(deviceInfoClass, "deviceIndex", "I");
+    jfieldID nameField = env->GetFieldID(deviceInfoClass, "name", "Ljava/lang/String;");
+    jfieldID brandField = env->GetFieldID(deviceInfoClass, "brand", "Ljava/lang/String;");
+
+    env->SetIntField(deviceInfo, deviceIndexField, deviceIndex);
+
+    char name[NVML_DEVICE_NAME_BUFFER_SIZE];
+    nvmlReturn_t result = nvmlDeviceGetName(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
+    if (result == NVML_SUCCESS) {
+        jstring jname = env->NewStringUTF(name);
+        env->SetObjectField(deviceInfo, nameField, jname);
+        env->DeleteLocalRef(jname);
+    }
+
+    nvmlBrandType_t brandType;
+    result = nvmlDeviceGetBrand(device, &brandType);
+    if (result == NVML_SUCCESS) {
+        char brand[50];
+        snprintf(brand, sizeof(brand), "Brand_%d", (int)brandType);
+        jstring jbrand = env->NewStringUTF(brand);
+        env->SetObjectField(deviceInfo, brandField, jbrand);
+        env->DeleteLocalRef(jbrand);
+    }
+
+    return deviceInfo;
+}
+
+static jobject populateUtilizationInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass utilizationInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUUtilizationInfo");
+    if (utilizationInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(utilizationInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject utilizationInfo = env->NewObject(utilizationInfoClass, constructor);
+    if (utilizationInfo == NULL) return NULL;
+
+    jfieldID gpuUtilField = env->GetFieldID(utilizationInfoClass, "gpuUtilization", "I");
+    jfieldID memUtilField = env->GetFieldID(utilizationInfoClass, "memoryUtilization", "I");
+
+    nvmlUtilization_t utilization;
+    nvmlReturn_t result = nvmlDeviceGetUtilizationRates(device, &utilization);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(utilizationInfo, gpuUtilField, (jint)utilization.gpu);
+        env->SetIntField(utilizationInfo, memUtilField, (jint)utilization.memory);
+    }
+
+    return utilizationInfo;
+}
+
+static jobject populateMemoryInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass memoryInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUMemoryInfo");
+    if (memoryInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(memoryInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject memoryInfo = env->NewObject(memoryInfoClass, constructor);
+    if (memoryInfo == NULL) return NULL;
+
+    jfieldID memUsedField = env->GetFieldID(memoryInfoClass, "memoryUsedMB", "J");
+    jfieldID memTotalField = env->GetFieldID(memoryInfoClass, "memoryTotalMB", "J");
+    jfieldID memFreeField = env->GetFieldID(memoryInfoClass, "memoryFreeMB", "J");
+
+    nvmlMemory_t memory;
+    nvmlReturn_t result = nvmlDeviceGetMemoryInfo(device, &memory);
+    if (result == NVML_SUCCESS) {
+        env->SetLongField(memoryInfo, memUsedField, (jlong)(memory.used / (1024 * 1024)));
+        env->SetLongField(memoryInfo, memTotalField, (jlong)(memory.total / (1024 * 1024)));
+        env->SetLongField(memoryInfo, memFreeField, (jlong)(memory.free / (1024 * 1024)));
+    }
+
+    return memoryInfo;
+}
+
+static jobject populateTemperatureInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass temperatureInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUTemperatureInfo");
+    if (temperatureInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(temperatureInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject temperatureInfo = env->NewObject(temperatureInfoClass, constructor);
+    if (temperatureInfo == NULL) return NULL;
+
+    jfieldID tempGpuField = env->GetFieldID(temperatureInfoClass, "temperatureGpu", "I");
+    jfieldID tempMemoryField = env->GetFieldID(temperatureInfoClass, "temperatureMemory", "I");
+
+    unsigned int temp;
+    nvmlReturn_t result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(temperatureInfo, tempGpuField, (jint)temp);
+    }
+
+    // Use GPU temperature as fallback for memory temperature
+    result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(temperatureInfo, tempMemoryField, (jint)temp);
+    }
+
+    return temperatureInfo;
+}
+
+static jobject populatePowerInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass powerInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUPowerInfo");
+    if (powerInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(powerInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject powerInfo = env->NewObject(powerInfoClass, constructor);
+    if (powerInfo == NULL) return NULL;
+
+    jfieldID powerUsageField = env->GetFieldID(powerInfoClass, "powerUsageW", "I");
+    jfieldID powerLimitField = env->GetFieldID(powerInfoClass, "powerLimitW", "I");
+    jfieldID powerDefaultLimitField = env->GetFieldID(powerInfoClass, "powerDefaultLimitW", "I");
+
+    unsigned int power;
+    nvmlReturn_t result = nvmlDeviceGetPowerUsage(device, &power);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(powerInfo, powerUsageField, (jint)(power / 1000)); // mW to W
+    }
+
+    result = nvmlDeviceGetPowerManagementLimit(device, &power);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(powerInfo, powerLimitField, (jint)(power / 1000)); // mW to W
+        // Use current limit as default limit fallback
+        env->SetIntField(powerInfo, powerDefaultLimitField, (jint)(power / 1000)); // mW to W
+    }
+
+    return powerInfo;
+}
+
+static jobject populateClockInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass clockInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUClockInfo");
+    if (clockInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(clockInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject clockInfo = env->NewObject(clockInfoClass, constructor);
+    if (clockInfo == NULL) return NULL;
+
+    jfieldID graphicsClockField = env->GetFieldID(clockInfoClass, "graphicsClockMHz", "I");
+    jfieldID memoryClockField = env->GetFieldID(clockInfoClass, "memoryClockMHz", "I");
+    jfieldID smClockField = env->GetFieldID(clockInfoClass, "smClockMHz", "I");
+
+    unsigned int clock;
+    nvmlReturn_t result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_GRAPHICS, &clock);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(clockInfo, graphicsClockField, (jint)clock);
+    }
+
+    result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_MEM, &clock);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(clockInfo, memoryClockField, (jint)clock);
+    }
+
+    result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_SM, &clock);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(clockInfo, smClockField, (jint)clock);
+    }
+
+    return clockInfo;
+}
+
+static jobject populateHardwareInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass hardwareInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUHardwareInfo");
+    if (hardwareInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(hardwareInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject hardwareInfo = env->NewObject(hardwareInfoClass, constructor);
+    if (hardwareInfo == NULL) return NULL;
+
+    jfieldID smCountField = env->GetFieldID(hardwareInfoClass, "streamingMultiprocessors", "I");
+    jfieldID performanceStateField = env->GetFieldID(hardwareInfoClass, "performanceState", "I");
+    jfieldID fanSpeedField = env->GetFieldID(hardwareInfoClass, "fanSpeedPercent", "I");
+
+    unsigned int smCount = 0;
+    nvmlReturn_t result = nvmlDeviceGetNumGpuCores(device, &smCount);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(hardwareInfo, smCountField, (jint)smCount);
+    }
+
+    nvmlPstates_t pState;
+    result = nvmlDeviceGetPerformanceState(device, &pState);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(hardwareInfo, performanceStateField, (jint)pState);
+    }
+
+    unsigned int fanSpeed;
+    result = nvmlDeviceGetFanSpeed(device, &fanSpeed);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(hardwareInfo, fanSpeedField, (jint)fanSpeed);
+    }
+
+    return hardwareInfo;
+}
+
+static jobject populatePCIeInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass pcieInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUPCIeInfo");
+    if (pcieInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(pcieInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject pcieInfo = env->NewObject(pcieInfoClass, constructor);
+    if (pcieInfo == NULL) return NULL;
+
+    jfieldID pcieLinkGenField = env->GetFieldID(pcieInfoClass, "pcieLinkGeneration", "I");
+    jfieldID pcieLinkWidthField = env->GetFieldID(pcieInfoClass, "pcieLinkWidth", "I");
+
+    unsigned int linkGen;
+    nvmlReturn_t result = nvmlDeviceGetCurrPcieLinkGeneration(device, &linkGen);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(pcieInfo, pcieLinkGenField, (jint)linkGen);
+    }
+
+    unsigned int linkWidth;
+    result = nvmlDeviceGetCurrPcieLinkWidth(device, &linkWidth);
+    if (result == NVML_SUCCESS) {
+        env->SetIntField(pcieInfo, pcieLinkWidthField, (jint)linkWidth);
+    }
+
+    return pcieInfo;
+}
+
+static jobject populateECCInfo(JNIEnv *env, nvmlDevice_t device) {
+    jclass eccInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUECCInfo");
+    if (eccInfoClass == NULL) return NULL;
+
+    jmethodID constructor = env->GetMethodID(eccInfoClass, "<init>", "()V");
+    if (constructor == NULL) return NULL;
+
+    jobject eccInfo = env->NewObject(eccInfoClass, constructor);
+    if (eccInfo == NULL) return NULL;
+
+    jfieldID eccSingleBitField = env->GetFieldID(eccInfoClass, "eccSingleBitErrors", "J");
+    jfieldID eccDoubleBitField = env->GetFieldID(eccInfoClass, "eccDoubleBitErrors", "J");
+
+    unsigned long long eccCount;
+    nvmlReturn_t result = nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+    if (result == NVML_SUCCESS) {
+        env->SetLongField(eccInfo, eccSingleBitField, (jlong)eccCount);
+    }
+
+    result = nvmlDeviceGetTotalEccErrors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+    if (result == NVML_SUCCESS) {
+        env->SetLongField(eccInfo, eccDoubleBitField, (jlong)eccCount);
+    }
+
+    return eccInfo;
+}
+
+// Helper function to populate GPUInfo object from NVML device handle using individual helpers
+static jobject populateGPUInfoFromDevice(JNIEnv *env, nvmlDevice_t device, jint deviceIndex) {
     // Get Java GPUInfo class and constructor
     jclass gpuInfoClass = env->FindClass("com/nvidia/spark/rapids/jni/GPUInfo");
     if (gpuInfoClass == NULL) {
@@ -56,181 +322,37 @@ static jobject populateGPUInfoFromDevice(JNIEnv *env, nvmlDevice_t device, jint 
         return NULL;
     }
 
-    // Get field IDs
-    jfieldID deviceIndexField = env->GetFieldID(gpuInfoClass, "deviceIndex", "I");
-    jfieldID nameField = env->GetFieldID(gpuInfoClass, "name", "Ljava/lang/String;");
-    jfieldID brandField = env->GetFieldID(gpuInfoClass, "brand", "Ljava/lang/String;");
+    // Populate nested info objects using individual helpers
+    jobject deviceInfo = populateDeviceInfo(env, device, deviceIndex);
+    jobject utilizationInfo = populateUtilizationInfo(env, device);
+    jobject memoryInfo = populateMemoryInfo(env, device);
+    jobject temperatureInfo = populateTemperatureInfo(env, device);
+    jobject powerInfo = populatePowerInfo(env, device);
+    jobject clockInfo = populateClockInfo(env, device);
+    jobject hardwareInfo = populateHardwareInfo(env, device);
+    jobject pcieInfo = populatePCIeInfo(env, device);
+    jobject eccInfo = populateECCInfo(env, device);
 
-    // Utilization fields
-    jfieldID gpuUtilField = env->GetFieldID(gpuInfoClass, "gpuUtilization", "I");
-    jfieldID memUtilField = env->GetFieldID(gpuInfoClass, "memoryUtilization", "I");
+    // Set nested info objects in GPUInfo
+    jfieldID deviceInfoField = env->GetFieldID(gpuInfoClass, "deviceInfo", "Lcom/nvidia/spark/rapids/jni/GPUDeviceInfo;");
+    jfieldID utilizationInfoField = env->GetFieldID(gpuInfoClass, "utilizationInfo", "Lcom/nvidia/spark/rapids/jni/GPUUtilizationInfo;");
+    jfieldID memoryInfoField = env->GetFieldID(gpuInfoClass, "memoryInfo", "Lcom/nvidia/spark/rapids/jni/GPUMemoryInfo;");
+    jfieldID temperatureInfoField = env->GetFieldID(gpuInfoClass, "temperatureInfo", "Lcom/nvidia/spark/rapids/jni/GPUTemperatureInfo;");
+    jfieldID powerInfoField = env->GetFieldID(gpuInfoClass, "powerInfo", "Lcom/nvidia/spark/rapids/jni/GPUPowerInfo;");
+    jfieldID clockInfoField = env->GetFieldID(gpuInfoClass, "clockInfo", "Lcom/nvidia/spark/rapids/jni/GPUClockInfo;");
+    jfieldID hardwareInfoField = env->GetFieldID(gpuInfoClass, "hardwareInfo", "Lcom/nvidia/spark/rapids/jni/GPUHardwareInfo;");
+    jfieldID pcieInfoField = env->GetFieldID(gpuInfoClass, "pcieInfo", "Lcom/nvidia/spark/rapids/jni/GPUPCIeInfo;");
+    jfieldID eccInfoField = env->GetFieldID(gpuInfoClass, "eccInfo", "Lcom/nvidia/spark/rapids/jni/GPUECCInfo;");
 
-    // Memory fields
-    jfieldID memUsedField = env->GetFieldID(gpuInfoClass, "memoryUsedMB", "J");
-    jfieldID memTotalField = env->GetFieldID(gpuInfoClass, "memoryTotalMB", "J");
-    jfieldID memFreeField = env->GetFieldID(gpuInfoClass, "memoryFreeMB", "J");
-
-    // Temperature fields
-    jfieldID tempGpuField = env->GetFieldID(gpuInfoClass, "temperatureGpu", "I");
-    jfieldID tempMemoryField = env->GetFieldID(gpuInfoClass, "temperatureMemory", "I");
-
-    // Power fields
-    jfieldID powerUsageField = env->GetFieldID(gpuInfoClass, "powerUsageW", "I");
-    jfieldID powerLimitField = env->GetFieldID(gpuInfoClass, "powerLimitW", "I");
-    jfieldID powerDefaultLimitField = env->GetFieldID(gpuInfoClass, "powerDefaultLimitW", "I");
-
-    // Clock fields
-    jfieldID graphicsClockField = env->GetFieldID(gpuInfoClass, "graphicsClockMHz", "I");
-    jfieldID memoryClockField = env->GetFieldID(gpuInfoClass, "memoryClockMHz", "I");
-    jfieldID smClockField = env->GetFieldID(gpuInfoClass, "smClockMHz", "I");
-
-    // Advanced fields
-    jfieldID smCountField = env->GetFieldID(gpuInfoClass, "streamingMultiprocessors", "I");
-    jfieldID performanceStateField = env->GetFieldID(gpuInfoClass, "performanceState", "I");
-    jfieldID fanSpeedField = env->GetFieldID(gpuInfoClass, "fanSpeedPercent", "I");
-
-    // PCIe fields
-    jfieldID pcieLinkGenField = env->GetFieldID(gpuInfoClass, "pcieLinkGeneration", "I");
-    jfieldID pcieLinkWidthField = env->GetFieldID(gpuInfoClass, "pcieLinkWidth", "I");
-
-    // Error fields
-    jfieldID eccSingleBitField = env->GetFieldID(gpuInfoClass, "eccSingleBitErrors", "J");
-    jfieldID eccDoubleBitField = env->GetFieldID(gpuInfoClass, "eccDoubleBitErrors", "J");
-
-    // Set device index
-    env->SetIntField(gpuInfo, deviceIndexField, deviceIndex);
-
-    // Get device name
-    char name[NVML_DEVICE_NAME_BUFFER_SIZE];
-    result = nvmlDeviceGetName(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
-    if (result == NVML_SUCCESS) {
-        jstring jname = env->NewStringUTF(name);
-        env->SetObjectField(gpuInfo, nameField, jname);
-        env->DeleteLocalRef(jname);
-    }
-
-    // Get brand type (simplified)
-    nvmlBrandType_t brandType;
-    result = nvmlDeviceGetBrand(device, &brandType);
-    if (result == NVML_SUCCESS) {
-        char brand[50];
-        snprintf(brand, sizeof(brand), "Brand_%d", (int)brandType);
-        jstring jbrand = env->NewStringUTF(brand);
-        env->SetObjectField(gpuInfo, brandField, jbrand);
-        env->DeleteLocalRef(jbrand);
-    }
-
-    // Get utilization rates
-    nvmlUtilization_t utilization;
-    result = nvmlDeviceGetUtilizationRates(device, &utilization);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, gpuUtilField, (jint)utilization.gpu);
-        env->SetIntField(gpuInfo, memUtilField, (jint)utilization.memory);
-    }
-
-    // Get memory info
-    nvmlMemory_t memory;
-    result = nvmlDeviceGetMemoryInfo(device, &memory);
-    if (result == NVML_SUCCESS) {
-        env->SetLongField(gpuInfo, memUsedField, (jlong)(memory.used / (1024 * 1024)));
-        env->SetLongField(gpuInfo, memTotalField, (jlong)(memory.total / (1024 * 1024)));
-        env->SetLongField(gpuInfo, memFreeField, (jlong)(memory.free / (1024 * 1024)));
-    }
-
-    // Get GPU temperature
-    unsigned int temp;
-    result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, tempGpuField, (jint)temp);
-    }
-
-    // Get memory temperature (use GPU temperature as fallback since memory temp may not be available)
-    result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, tempMemoryField, (jint)temp);
-    }
-
-    // Get power usage
-    unsigned int power;
-    result = nvmlDeviceGetPowerUsage(device, &power);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, powerUsageField, (jint)(power / 1000)); // mW to W
-    }
-
-    // Get power management limit
-    result = nvmlDeviceGetPowerManagementLimit(device, &power);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, powerLimitField, (jint)(power / 1000)); // mW to W
-    }
-
-    // Get default power management limit (use current limit as fallback)
-    result = nvmlDeviceGetPowerManagementLimit(device, &power);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, powerDefaultLimitField, (jint)(power / 1000)); // mW to W
-    }
-
-    // Get clock speeds
-    unsigned int clock;
-    result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_GRAPHICS, &clock);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, graphicsClockField, (jint)clock);
-    }
-
-    result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_MEM, &clock);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, memoryClockField, (jint)clock);
-    }
-
-    result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_SM, &clock);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, smClockField, (jint)clock);
-    }
-
-    // Get SM count (GPU cores/multiprocessors)
-    unsigned int smCount = 0;
-    result = nvmlDeviceGetNumGpuCores(device, &smCount);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, smCountField, (jint)smCount);
-    }
-
-    // Get performance state
-    nvmlPstates_t pState;
-    result = nvmlDeviceGetPerformanceState(device, &pState);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, performanceStateField, (jint)pState);
-    }
-
-    // Get fan speed
-    unsigned int fanSpeed;
-    result = nvmlDeviceGetFanSpeed(device, &fanSpeed);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, fanSpeedField, (jint)fanSpeed);
-    }
-
-    // Get PCIe link info
-    unsigned int linkGen;
-    result = nvmlDeviceGetCurrPcieLinkGeneration(device, &linkGen);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, pcieLinkGenField, (jint)linkGen);
-    }
-
-    unsigned int linkWidth;
-    result = nvmlDeviceGetCurrPcieLinkWidth(device, &linkWidth);
-    if (result == NVML_SUCCESS) {
-        env->SetIntField(gpuInfo, pcieLinkWidthField, (jint)linkWidth);
-    }
-
-    // Get ECC errors (if supported)
-    unsigned long long eccCount;
-    result = nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
-    if (result == NVML_SUCCESS) {
-        env->SetLongField(gpuInfo, eccSingleBitField, (jlong)eccCount);
-    }
-
-    result = nvmlDeviceGetTotalEccErrors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
-    if (result == NVML_SUCCESS) {
-        env->SetLongField(gpuInfo, eccDoubleBitField, (jlong)eccCount);
-    }
+    if (deviceInfo != NULL) env->SetObjectField(gpuInfo, deviceInfoField, deviceInfo);
+    if (utilizationInfo != NULL) env->SetObjectField(gpuInfo, utilizationInfoField, utilizationInfo);
+    if (memoryInfo != NULL) env->SetObjectField(gpuInfo, memoryInfoField, memoryInfo);
+    if (temperatureInfo != NULL) env->SetObjectField(gpuInfo, temperatureInfoField, temperatureInfo);
+    if (powerInfo != NULL) env->SetObjectField(gpuInfo, powerInfoField, powerInfo);
+    if (clockInfo != NULL) env->SetObjectField(gpuInfo, clockInfoField, clockInfo);
+    if (hardwareInfo != NULL) env->SetObjectField(gpuInfo, hardwareInfoField, hardwareInfo);
+    if (pcieInfo != NULL) env->SetObjectField(gpuInfo, pcieInfoField, pcieInfo);
+    if (eccInfo != NULL) env->SetObjectField(gpuInfo, eccInfoField, eccInfo);
 
     return gpuInfo;
 }
@@ -326,6 +448,134 @@ JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlIsCu
     nvmlDevice_t device;
     nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
     return (result == NVML_SUCCESS) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Individual info JNI functions using NVML device index
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetDeviceInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateDeviceInfo(env, device, deviceIndex);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetUtilizationInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateUtilizationInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetMemoryInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateMemoryInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetTemperatureInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateTemperatureInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetPowerInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populatePowerInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetClockInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateClockInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetHardwareInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateHardwareInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetPCIeInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populatePCIeInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetECCInfo(JNIEnv *env, jclass cls, jint deviceIndex) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateECCInfo(env, device);
+}
+
+// Individual info JNI functions using CUDA device ID
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetDeviceInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateDeviceInfo(env, device, cudaDeviceId);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetUtilizationInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateUtilizationInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetMemoryInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateMemoryInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetTemperatureInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateTemperatureInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetPowerInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populatePowerInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetClockInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateClockInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetHardwareInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateHardwareInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetPCIeInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populatePCIeInfo(env, device);
+}
+
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVMLMonitor_nvmlGetECCInfoByCudaDevice(JNIEnv *env, jclass cls, jint cudaDeviceId) {
+    nvmlDevice_t device;
+    nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
+    if (result != NVML_SUCCESS) return NULL;
+    return populateECCInfo(env, device);
 }
 
 } // extern "C"

@@ -18,177 +18,196 @@ package com.nvidia.spark.rapids.jni;
 /**
  * Comprehensive GPU information collected via NVML
  * Contains all major GPU metrics for detailed monitoring and analysis
+ *
+ * This class provides fine-grained access via nested info objects,
+ * with each object corresponding to a specific NVML API call group.
  */
 public class GPUInfo {
-    
-    // Basic device info
-    public int deviceIndex;
-    public String name;
-    public String brand;
-    
-    // Utilization metrics
-    public int gpuUtilization;          // GPU utilization percentage (0-100)
-    public int memoryUtilization;       // Memory utilization percentage (0-100)
-    
-    // Memory metrics
-    public long memoryUsedMB;           // Used memory in MB
-    public long memoryTotalMB;          // Total memory in MB  
-    public long memoryFreeMB;           // Free memory in MB
-    
-    // Temperature metrics
-    public int temperatureGpu;          // GPU temperature in Celsius
-    public int temperatureMemory;       // Memory temperature in Celsius
-    
-    // Power metrics
-    public int powerUsageW;             // Current power usage in Watts
-    public int powerLimitW;             // Current power limit in Watts
-    public int powerDefaultLimitW;      // Default power limit in Watts
-    
-    // Clock speeds
-    public int graphicsClockMHz;        // Graphics clock in MHz
-    public int memoryClockMHz;          // Memory clock in MHz
-    public int smClockMHz;              // SM clock in MHz
-    
-    // Hardware info
-    public int streamingMultiprocessors; // Number of SMs
-    public int performanceState;        // Performance state (P-state)
-    public int fanSpeedPercent;         // Fan speed percentage
-    
-    // PCIe info
-    public int pcieLinkGeneration;      // PCIe generation (1, 2, 3, 4, etc.)
-    public int pcieLinkWidth;           // PCIe width (x1, x4, x8, x16)
-    
-    // Error counters
-    public long eccSingleBitErrors;     // Single bit ECC errors
-    public long eccDoubleBitErrors;     // Double bit ECC errors
-    
+
+    // Nested info objects for fine-grained API access
+    public GPUDeviceInfo deviceInfo;
+    public GPUUtilizationInfo utilizationInfo;
+    public GPUMemoryInfo memoryInfo;
+    public GPUTemperatureInfo temperatureInfo;
+    public GPUPowerInfo powerInfo;
+    public GPUClockInfo clockInfo;
+    public GPUHardwareInfo hardwareInfo;
+    public GPUPCIeInfo pcieInfo;
+    public GPUECCInfo eccInfo;
+
     // Timestamp when this info was collected
     public long timestampMs;
-    
+
     public GPUInfo() {
         this.timestampMs = System.currentTimeMillis();
+        // Initialize nested objects
+        this.deviceInfo = new GPUDeviceInfo();
+        this.utilizationInfo = new GPUUtilizationInfo();
+        this.memoryInfo = new GPUMemoryInfo();
+        this.temperatureInfo = new GPUTemperatureInfo();
+        this.powerInfo = new GPUPowerInfo();
+        this.clockInfo = new GPUClockInfo();
+        this.hardwareInfo = new GPUHardwareInfo();
+        this.pcieInfo = new GPUPCIeInfo();
+        this.eccInfo = new GPUECCInfo();
     }
-    
+
+    /**
+     * Constructor that takes nested info objects
+     */
+    public GPUInfo(GPUDeviceInfo deviceInfo, GPUUtilizationInfo utilizationInfo,
+                   GPUMemoryInfo memoryInfo, GPUTemperatureInfo temperatureInfo,
+                   GPUPowerInfo powerInfo, GPUClockInfo clockInfo,
+                   GPUHardwareInfo hardwareInfo, GPUPCIeInfo pcieInfo, GPUECCInfo eccInfo) {
+        this.timestampMs = System.currentTimeMillis();
+
+        this.deviceInfo = deviceInfo;
+        this.utilizationInfo = utilizationInfo;
+        this.memoryInfo = memoryInfo;
+        this.temperatureInfo = temperatureInfo;
+        this.powerInfo = powerInfo;
+        this.clockInfo = clockInfo;
+        this.hardwareInfo = hardwareInfo;
+        this.pcieInfo = pcieInfo;
+        this.eccInfo = eccInfo;
+    }
+
     /**
      * Copy constructor for creating snapshots
      */
     public GPUInfo(GPUInfo other) {
-        this.deviceIndex = other.deviceIndex;
-        this.name = other.name;
-        this.brand = other.brand;
-        this.gpuUtilization = other.gpuUtilization;
-        this.memoryUtilization = other.memoryUtilization;
-        this.memoryUsedMB = other.memoryUsedMB;
-        this.memoryTotalMB = other.memoryTotalMB;
-        this.memoryFreeMB = other.memoryFreeMB;
-        this.temperatureGpu = other.temperatureGpu;
-        this.temperatureMemory = other.temperatureMemory;
-        this.powerUsageW = other.powerUsageW;
-        this.powerLimitW = other.powerLimitW;
-        this.powerDefaultLimitW = other.powerDefaultLimitW;
-        this.graphicsClockMHz = other.graphicsClockMHz;
-        this.memoryClockMHz = other.memoryClockMHz;
-        this.smClockMHz = other.smClockMHz;
-        this.streamingMultiprocessors = other.streamingMultiprocessors;
-        this.performanceState = other.performanceState;
-        this.fanSpeedPercent = other.fanSpeedPercent;
-        this.pcieLinkGeneration = other.pcieLinkGeneration;
-        this.pcieLinkWidth = other.pcieLinkWidth;
-        this.eccSingleBitErrors = other.eccSingleBitErrors;
-        this.eccDoubleBitErrors = other.eccDoubleBitErrors;
         this.timestampMs = System.currentTimeMillis();
+
+        // Delegate to nested objects' copy constructors
+        this.deviceInfo = (other.deviceInfo != null) ? new GPUDeviceInfo(other.deviceInfo) : null;
+        this.utilizationInfo = (other.utilizationInfo != null) ? new GPUUtilizationInfo(other.utilizationInfo) : null;
+        this.memoryInfo = (other.memoryInfo != null) ? new GPUMemoryInfo(other.memoryInfo) : null;
+        this.temperatureInfo = (other.temperatureInfo != null) ? new GPUTemperatureInfo(other.temperatureInfo) : null;
+        this.powerInfo = (other.powerInfo != null) ? new GPUPowerInfo(other.powerInfo) : null;
+        this.clockInfo = (other.clockInfo != null) ? new GPUClockInfo(other.clockInfo) : null;
+        this.hardwareInfo = (other.hardwareInfo != null) ? new GPUHardwareInfo(other.hardwareInfo) : null;
+        this.pcieInfo = (other.pcieInfo != null) ? new GPUPCIeInfo(other.pcieInfo) : null;
+        this.eccInfo = (other.eccInfo != null) ? new GPUECCInfo(other.eccInfo) : null;
     }
-    
-    /**
-     * Get memory utilization as percentage based on used/total
-     */
-    public double getMemoryUtilizationPercent() {
-        if (memoryTotalMB == 0) return 0.0;
-        return (double) memoryUsedMB / memoryTotalMB * 100.0;
-    }
-    
-    /**
-     * Get PCIe generation description
-     */
-    public String getPCIeDescription() {
-        return "PCIe Gen" + pcieLinkGeneration + " x" + pcieLinkWidth;
-    }
-    
-    /**
-     * Get performance state description
-     */
-    public String getPerformanceStateDescription() {
-        switch (performanceState) {
-            case 0: return "P0 (Maximum Performance)";
-            case 1: return "P1 (High Performance)";
-            case 2: return "P2 (Moderate Performance)";
-            case 3: return "P3 (Battery Optimized)";
-            case 8: return "P8 (Minimum Performance)";
-            case 12: return "P12 (Lowest Performance)";
-            default: return "P" + performanceState;
-        }
-    }
-    
-    /**
-     * Check if ECC is supported and has errors
-     */
-    public boolean hasECCErrors() {
-        return eccSingleBitErrors > 0 || eccDoubleBitErrors > 0;
-    }
-    
-    /**
-     * Get total ECC errors
-     */
-    public long getTotalECCErrors() {
-        return eccSingleBitErrors + eccDoubleBitErrors;
-    }
-    
+
+
     /**
      * Format basic GPU info for display
      */
     @Override
     public String toString() {
-        return String.format("GPU_%d (%s): Util: %d%%, Mem: %d%% (%dMB/%dMB), " +
-                           "Temp: %d°C, Power: %dW/%dW, Clocks: %d/%d MHz",
-                           deviceIndex, name, gpuUtilization, memoryUtilization,
-                           memoryUsedMB, memoryTotalMB, temperatureGpu, powerUsageW, powerLimitW,
-                           graphicsClockMHz, memoryClockMHz);
+        StringBuilder sb = new StringBuilder();
+
+        if (deviceInfo != null) {
+            sb.append(deviceInfo.toString());
+        } else {
+            sb.append("GPU_Unknown");
+        }
+
+        if (utilizationInfo != null) {
+            sb.append(": ").append(utilizationInfo.toString());
+        }
+
+        if (memoryInfo != null) {
+            sb.append(", ").append(memoryInfo.toString());
+        }
+
+        if (temperatureInfo != null) {
+            sb.append(", ").append(temperatureInfo.toString());
+        }
+
+        if (powerInfo != null) {
+            sb.append(", ").append(powerInfo.toString());
+        }
+
+        if (clockInfo != null) {
+            sb.append(", ").append(clockInfo.toString());
+        }
+
+        return sb.toString();
     }
-    
+
     /**
      * Get detailed multi-line format with NVML API annotations
      */
     public String toDetailedString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("GPU_%d: %s (%s)\n", deviceIndex, 
-                  name, // nvmlDeviceGetName()
-                  brand)); // nvmlDeviceGetBrand()
-        sb.append(String.format("  Utilization: GPU %d%% [nvmlDeviceGetUtilizationRates().gpu], Memory %d%% [nvmlDeviceGetUtilizationRates().memory]\n", 
-                  gpuUtilization, memoryUtilization));
-        sb.append(String.format("  Memory: %d/%d MB (%.1f%% used) [nvmlDeviceGetMemoryInfo()]\n", 
-                  memoryUsedMB, memoryTotalMB, getMemoryUtilizationPercent()));
-        sb.append(String.format("  Temperature: GPU %d°C [nvmlDeviceGetTemperature(NVML_TEMPERATURE_GPU)], Memory %d°C [fallback]\n", 
-                  temperatureGpu, temperatureMemory));
-        sb.append(String.format("  Power: %d/%d W [nvmlDeviceGetPowerUsage/nvmlDeviceGetPowerManagementLimit] (default: %d W)\n", 
-                  powerUsageW, powerLimitW, powerDefaultLimitW));
-        sb.append(String.format("  Clocks: Graphics %d MHz [nvmlDeviceGetClockInfo(NVML_CLOCK_GRAPHICS)], Memory %d MHz [NVML_CLOCK_MEM], SM %d MHz [NVML_CLOCK_SM]\n", 
-                  graphicsClockMHz, memoryClockMHz, smClockMHz));
-        sb.append(String.format("  Hardware: %d SMs [nvmlDeviceGetNumGpuCores], %s [nvmlDeviceGetCurrPcieLinkGeneration/Width], Fan %d%% [nvmlDeviceGetFanSpeed]\n", 
-                  streamingMultiprocessors, getPCIeDescription(), fanSpeedPercent));
-        sb.append(String.format("  State: %s [nvmlDeviceGetPerformanceState]\n", getPerformanceStateDescription()));
-        if (hasECCErrors()) {
-            sb.append(String.format("  ECC Errors: %d single-bit, %d double-bit [nvmlDeviceGetTotalEccErrors]\n", 
-                      eccSingleBitErrors, eccDoubleBitErrors));
+
+        if (deviceInfo != null) {
+            sb.append(deviceInfo.toString()).append("\n");
+        } else {
+            sb.append("GPU_Unknown: N/A\n");
         }
+
+        if (utilizationInfo != null) {
+            sb.append("  Utilization: ").append(utilizationInfo.toString()).append(" [nvmlDeviceGetUtilizationRates()]\n");
+        }
+
+        if (memoryInfo != null) {
+            sb.append("  Memory: ").append(memoryInfo.toString()).append(" [nvmlDeviceGetMemoryInfo()]\n");
+        }
+
+        if (temperatureInfo != null) {
+            sb.append("  Temperature: ").append(temperatureInfo.toString()).append(" [nvmlDeviceGetTemperature()]\n");
+        }
+
+        if (powerInfo != null) {
+            sb.append("  Power: ").append(powerInfo.toString()).append(" [nvmlDeviceGetPowerUsage/Limit]\n");
+        }
+
+        if (clockInfo != null) {
+            sb.append("  Clocks: ").append(clockInfo.toString()).append(" [nvmlDeviceGetClockInfo()]\n");
+        }
+
+        if (hardwareInfo != null) {
+            sb.append("  Hardware: ").append(hardwareInfo.toString()).append(" [nvmlDeviceGetNumGpuCores/PerformanceState/FanSpeed]\n");
+        }
+
+        if (pcieInfo != null) {
+            sb.append("  PCIe: ").append(pcieInfo.toString()).append(" [nvmlDeviceGetCurrPcieLinkGeneration/Width]\n");
+        }
+
+        if (eccInfo != null) {
+            sb.append("  ECC: ").append(eccInfo.toString()).append(" [nvmlDeviceGetTotalEccErrors]\n");
+        }
+
         return sb.toString();
     }
-    
+
     /**
      * Get compact single-line format for logs
      */
     public String toCompactString() {
-        return String.format("GPU_%d: %d%%/%d%% %dMB %d°C %dW %dMHz",
-                           deviceIndex, gpuUtilization, memoryUtilization, 
-                           memoryUsedMB, temperatureGpu, powerUsageW, graphicsClockMHz);
+        StringBuilder sb = new StringBuilder();
+
+        if (deviceInfo != null) {
+            sb.append("GPU_").append(deviceInfo.deviceIndex);
+        } else {
+            sb.append("GPU_Unknown");
+        }
+
+        sb.append(":");
+
+        if (utilizationInfo != null) {
+            sb.append(" ").append(utilizationInfo.gpuUtilization).append("%/").append(utilizationInfo.memoryUtilization).append("%");
+        }
+
+        if (memoryInfo != null) {
+            sb.append(" ").append(memoryInfo.memoryUsedMB).append("MB");
+        }
+
+        if (temperatureInfo != null) {
+            sb.append(" ").append(temperatureInfo.temperatureGpu).append("°C");
+        }
+
+        if (powerInfo != null) {
+            sb.append(" ").append(powerInfo.powerUsageW).append("W");
+        }
+
+        if (clockInfo != null) {
+            sb.append(" ").append(clockInfo.graphicsClockMHz).append("MHz");
+        }
+
+        return sb.toString();
     }
 }

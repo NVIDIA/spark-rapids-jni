@@ -23,48 +23,48 @@ import java.util.List;
  * Tracks min, max, average, and other aggregate statistics for each GPU metric.
  */
 public class GPULifecycleStats {
-    
+
     private final String gpuName;
     private final int deviceIndex;
     private final List<GPUInfo> samples;
     private final long startTimeMs;
     private long lastUpdateTimeMs;
-    
+
     // Utilization stats
     private IntegerStats gpuUtilizationStats;
     private IntegerStats memoryUtilizationStats;
-    
+
     // Memory stats (in MB)
     private LongStats memoryUsedStats;
     private LongStats memoryFreeStats;
-    
+
     // Temperature stats
     private IntegerStats temperatureGpuStats;
     private IntegerStats temperatureMemoryStats;
-    
+
     // Power stats
     private IntegerStats powerUsageStats;
-    
+
     // Clock stats
     private IntegerStats graphicsClockStats;
     private IntegerStats memoryClockStats;
     private IntegerStats smClockStats;
-    
+
     // Other stats
     private IntegerStats fanSpeedStats;
     private IntegerStats performanceStateStats;
-    
+
     // Error counters (cumulative)
     private long maxEccSingleBitErrors;
     private long maxEccDoubleBitErrors;
-    
+
     public GPULifecycleStats(String gpuName, int deviceIndex) {
         this.gpuName = gpuName;
         this.deviceIndex = deviceIndex;
         this.samples = new ArrayList<>();
         this.startTimeMs = System.currentTimeMillis();
         this.lastUpdateTimeMs = startTimeMs;
-        
+
         // Initialize stats objects
         this.gpuUtilizationStats = new IntegerStats();
         this.memoryUtilizationStats = new IntegerStats();
@@ -78,62 +78,81 @@ public class GPULifecycleStats {
         this.smClockStats = new IntegerStats();
         this.fanSpeedStats = new IntegerStats();
         this.performanceStateStats = new IntegerStats();
-        
+
         this.maxEccSingleBitErrors = 0;
         this.maxEccDoubleBitErrors = 0;
     }
-    
+
     /**
      * Add a new GPU info sample to the lifecycle statistics
      */
     public synchronized void addSample(GPUInfo info) {
-        if (info.deviceIndex != this.deviceIndex) {
-            return; // Wrong GPU
+        if (info.deviceInfo == null || info.deviceInfo.deviceIndex != this.deviceIndex) {
+            return; // Wrong GPU or missing device info
         }
-        
+
         samples.add(new GPUInfo(info)); // Store a copy
         lastUpdateTimeMs = System.currentTimeMillis();
-        
+
         // Update all statistics
-        gpuUtilizationStats.addValue(info.gpuUtilization);
-        memoryUtilizationStats.addValue(info.memoryUtilization);
-        memoryUsedStats.addValue(info.memoryUsedMB);
-        memoryFreeStats.addValue(info.memoryFreeMB);
-        temperatureGpuStats.addValue(info.temperatureGpu);
-        temperatureMemoryStats.addValue(info.temperatureMemory);
-        powerUsageStats.addValue(info.powerUsageW);
-        graphicsClockStats.addValue(info.graphicsClockMHz);
-        memoryClockStats.addValue(info.memoryClockMHz);
-        smClockStats.addValue(info.smClockMHz);
-        fanSpeedStats.addValue(info.fanSpeedPercent);
-        performanceStateStats.addValue(info.performanceState);
-        
+        if (info.utilizationInfo != null) {
+            gpuUtilizationStats.addValue(info.utilizationInfo.gpuUtilization);
+            memoryUtilizationStats.addValue(info.utilizationInfo.memoryUtilization);
+        }
+
+        if (info.memoryInfo != null) {
+            memoryUsedStats.addValue(info.memoryInfo.memoryUsedMB);
+            memoryFreeStats.addValue(info.memoryInfo.memoryFreeMB);
+        }
+
+        if (info.temperatureInfo != null) {
+            temperatureGpuStats.addValue(info.temperatureInfo.temperatureGpu);
+            temperatureMemoryStats.addValue(info.temperatureInfo.temperatureMemory);
+        }
+
+        if (info.powerInfo != null) {
+            powerUsageStats.addValue(info.powerInfo.powerUsageW);
+        }
+
+        if (info.clockInfo != null) {
+            graphicsClockStats.addValue(info.clockInfo.graphicsClockMHz);
+            memoryClockStats.addValue(info.clockInfo.memoryClockMHz);
+            smClockStats.addValue(info.clockInfo.smClockMHz);
+        }
+
+        if (info.hardwareInfo != null) {
+            fanSpeedStats.addValue(info.hardwareInfo.fanSpeedPercent);
+            performanceStateStats.addValue(info.hardwareInfo.performanceState);
+        }
+
         // Update error counters (they are cumulative)
-        maxEccSingleBitErrors = Math.max(maxEccSingleBitErrors, info.eccSingleBitErrors);
-        maxEccDoubleBitErrors = Math.max(maxEccDoubleBitErrors, info.eccDoubleBitErrors);
+        if (info.eccInfo != null) {
+            maxEccSingleBitErrors = Math.max(maxEccSingleBitErrors, info.eccInfo.eccSingleBitErrors);
+            maxEccDoubleBitErrors = Math.max(maxEccDoubleBitErrors, info.eccInfo.eccDoubleBitErrors);
+        }
     }
-    
+
     /**
      * Get the number of samples collected
      */
     public int getSampleCount() {
         return samples.size();
     }
-    
+
     /**
      * Get the total monitoring duration in milliseconds
      */
     public long getMonitoringDurationMs() {
         return lastUpdateTimeMs - startTimeMs;
     }
-    
+
     /**
      * Get the total monitoring duration in seconds
      */
     public double getMonitoringDurationSeconds() {
         return getMonitoringDurationMs() / 1000.0;
     }
-    
+
     /**
      * Get average sampling rate (samples per second)
      */
@@ -141,7 +160,7 @@ public class GPULifecycleStats {
         double durationSec = getMonitoringDurationSeconds();
         return durationSec > 0 ? getSampleCount() / durationSec : 0.0;
     }
-    
+
     /**
      * Generate comprehensive lifecycle statistics report
      */
@@ -149,48 +168,52 @@ public class GPULifecycleStats {
         if (samples.isEmpty()) {
             return String.format("No samples collected for GPU_%d (%s)", deviceIndex, gpuName);
         }
-        
+
         GPUInfo latest = samples.get(samples.size() - 1);
         StringBuilder sb = new StringBuilder();
-        
+
         // Header
         sb.append(String.format(">>> GPU_%d Detailed Statistics: %s\n", deviceIndex, gpuName));
-        
+
         // Basic monitoring info
-        sb.append(String.format("Duration: %.2fs, Samples: %d (%.1f/s), Hardware: %d SMs, %s\n", 
+        int sms = (latest.hardwareInfo != null) ? latest.hardwareInfo.streamingMultiprocessors : 0;
+        String pcieDesc = (latest.pcieInfo != null) ? latest.pcieInfo.getDescription() : "Unknown PCIe";
+        sb.append(String.format("Duration: %.2fs, Samples: %d (%.1f/s), Hardware: %d SMs, %s\n",
                   getMonitoringDurationSeconds(), getSampleCount(), getAverageSamplingRate(),
-                  latest.streamingMultiprocessors, latest.getPCIeDescription()));
-        
+                  sms, pcieDesc));
+
         // Utilization stats
-        sb.append(String.format("Utilization - GPU: %s%%, Memory: %s%%\n", 
+        sb.append(String.format("Utilization - GPU: %s%%, Memory: %s%%\n",
                   gpuUtilizationStats.toString(), memoryUtilizationStats.toString()));
-        
+
         // Memory stats
-        sb.append(String.format("Memory - Used: %s MB, Free: %s MB, Total: %d MB\n", 
-                  memoryUsedStats.toString(), memoryFreeStats.toString(), latest.memoryTotalMB));
-        
+        long totalMem = (latest.memoryInfo != null) ? latest.memoryInfo.memoryTotalMB : 0;
+        sb.append(String.format("Memory - Used: %s MB, Free: %s MB, Total: %d MB\n",
+                  memoryUsedStats.toString(), memoryFreeStats.toString(), totalMem));
+
         // Temperature and power
-        sb.append(String.format("Thermal/Power - Temp: %s°C, Power: %s W (limit: %d W)\n", 
-                  temperatureGpuStats.toString(), powerUsageStats.toString(), latest.powerLimitW));
-        
+        int powerLimit = (latest.powerInfo != null) ? latest.powerInfo.powerLimitW : 0;
+        sb.append(String.format("Thermal/Power - Temp: %s°C, Power: %s W (limit: %d W)\n",
+                  temperatureGpuStats.toString(), powerUsageStats.toString(), powerLimit));
+
         // Clock frequencies
-        sb.append(String.format("Clocks - Graphics: %s MHz, Memory: %s MHz, SM: %s MHz\n", 
+        sb.append(String.format("Clocks - Graphics: %s MHz, Memory: %s MHz, SM: %s MHz\n",
                   graphicsClockStats.toString(), memoryClockStats.toString(), smClockStats.toString()));
-        
+
         // Other stats
-        sb.append(String.format("Other - Fan: %s%%, Performance State: %s (avg P%d)", 
-                  fanSpeedStats.toString(), performanceStateStats.toString(), 
+        sb.append(String.format("Other - Fan: %s%%, Performance State: %s (avg P%d)",
+                  fanSpeedStats.toString(), performanceStateStats.toString(),
                   performanceStateStats.getAverage()));
-        
+
         // ECC errors if any
         if (maxEccSingleBitErrors > 0 || maxEccDoubleBitErrors > 0) {
-            sb.append(String.format("\nECC Errors - Single-bit: %d, Double-bit: %d", 
+            sb.append(String.format("\nECC Errors - Single-bit: %d, Double-bit: %d",
                       maxEccSingleBitErrors, maxEccDoubleBitErrors));
         }
-        
+
         return sb.toString();
     }
-    
+
     /**
      * Get compact summary for quick overview
      */
@@ -198,13 +221,13 @@ public class GPULifecycleStats {
         if (samples.isEmpty()) {
             return String.format("GPU_%d: No data", deviceIndex);
         }
-        
+
         return String.format("GPU_%d (%s): %.1fs, %d samples, GPU %d%% (avg), Mem %d%% (avg), %d°C (avg), %dW (avg)",
                            deviceIndex, gpuName, getMonitoringDurationSeconds(), getSampleCount(),
                            gpuUtilizationStats.getAverage(), memoryUtilizationStats.getAverage(),
                            temperatureGpuStats.getAverage(), powerUsageStats.getAverage());
     }
-    
+
     // Getters for individual stats
     public IntegerStats getGpuUtilizationStats() { return gpuUtilizationStats; }
     public IntegerStats getMemoryUtilizationStats() { return memoryUtilizationStats; }
@@ -212,7 +235,7 @@ public class GPULifecycleStats {
     public IntegerStats getTemperatureGpuStats() { return temperatureGpuStats; }
     public IntegerStats getPowerUsageStats() { return powerUsageStats; }
     public IntegerStats getGraphicsClockStats() { return graphicsClockStats; }
-    
+
     /**
      * Helper class for integer statistics
      */
@@ -221,47 +244,47 @@ public class GPULifecycleStats {
         private int max = Integer.MIN_VALUE;
         private long sum = 0;
         private int count = 0;
-        
+
         public void addValue(int value) {
             min = Math.min(min, value);
             max = Math.max(max, value);
             sum += value;
             count++;
         }
-        
+
         public int getMin() { return count > 0 ? min : 0; }
         public int getMax() { return count > 0 ? max : 0; }
         public int getAverage() { return count > 0 ? (int)(sum / count) : 0; }
         public int getCount() { return count; }
-        
+
         @Override
         public String toString() {
             if (count == 0) return "No data";
             return String.format("Min: %3d, Max: %3d, Avg: %3d", getMin(), getMax(), getAverage());
         }
     }
-    
+
     /**
-     * Helper class for long statistics  
+     * Helper class for long statistics
      */
     public static class LongStats {
         private long min = Long.MAX_VALUE;
         private long max = Long.MIN_VALUE;
         private long sum = 0;
         private int count = 0;
-        
+
         public void addValue(long value) {
             min = Math.min(min, value);
             max = Math.max(max, value);
             sum += value;
             count++;
         }
-        
+
         public long getMin() { return count > 0 ? min : 0; }
         public long getMax() { return count > 0 ? max : 0; }
         public long getAverage() { return count > 0 ? sum / count : 0; }
         public int getCount() { return count; }
-        
+
         @Override
         public String toString() {
             if (count == 0) return "No data";
