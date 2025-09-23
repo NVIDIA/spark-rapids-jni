@@ -119,4 +119,28 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
+/**
+ * @brief Convert input column timestamps in UTC to specified timezone
+ *
+ * The transition rules are in enclosed in a table, and the index corresponding to the
+ * specific timezone is given.
+ *
+ * This method is the inverse of convert_timestamp_to_utc.
+ *
+ * @param input the date represented in milliseconds since January 1, 1970 00:00:00 GMT
+ * @param tz_info_table the table of all timezones info
+ * @param raw_offset the raw offset corresponding to the specific timezone
+ * @param raw_offset_diff the raw offset diff corresponding to the specific
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned timestamp column's memory
+ */
+std::unique_ptr<cudf::column> convert_between_timezones(
+  cudf::column_view const& input,
+  cudf::table_view const& writer_tz_info_table,
+  cudf::size_type writer_raw_offset,
+  cudf::table_view const& reader_tz_info_table,
+  cudf::size_type reader_raw_offset,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+
 }  // namespace spark_rapids_jni

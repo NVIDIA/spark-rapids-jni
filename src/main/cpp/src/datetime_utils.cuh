@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cudf/column/column_device_view.cuh>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/types.hpp>
@@ -244,6 +245,142 @@ __device__ static timestamp_type convert_timestamp(
   auto const utc_offset  = cuda::std::chrono::duration_cast<duration_type>(
     cudf::duration_s{static_cast<int64_t>(utc_offsets.element<int32_t>(list_offset))});
   return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
+}
+
+__device__ static int get_transition_index(int64_t const* begin,
+                                           int64_t const* end,
+                                           int64_t seconds)
+{
+  int low  = 0;
+  int high = end - begin - 1;
+
+  while (low <= high) {
+    int mid     = (low + high) / 2;
+    int64_t val = begin[mid];
+    long midVal = val >> 20;  // sign retained
+    if (midVal < seconds) {
+      low = mid + 1;
+    } else if (midVal > seconds) {
+      high = mid - 1;
+    } else {
+      return mid;
+    }
+  }
+
+  // if beyond the transitions, returns that index.
+  if (low >= (end - begin)) { return low; }
+  return low - 1;
+}
+
+/**
+ * @brief Find the relative offset when moving between timezones at a particular point in time.
+ * This is for ORC timezone support.
+ * This function implements `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`
+ * Refer to link: https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
+ * java/org/apache/orc/impl/SerializationUtils.java#L1440
+ * The timezone info is in the `transitions` column and `is_DSTs` column.
+ * The timezone info is from Java's `sun.util.calendar.ZoneInfo`.
+ * @param ts the input timestamp in UTC timezone to get the offset for.
+ * @param is_writer_tz_transition_empty true if writer timezone transition column is empty
+ * @param writer_tz_transitions_if_non_empty the writer timezone transition column if not empty
+ * @param writer_tz_is_DSTs_if_non_empty the writer timezone is_DST column if not empty
+ * @param is_reader_tz_transition_empty true if reader timezone transition column is empty
+ * @param reader_tz_transitions_if_non_empty the reader timezone transition column if not empty
+ * @param reader_tz_is_DSTs_if_non_empty the reader timezone is_DST column if not empty
+ * @return the offset in microseconds between the two timezones at the specified timestamp
+ */
+__device__ static cudf::timestamp_us convert_timestamp_between_timezones(
+  cudf::timestamp_us ts,
+  cudf::column_device_view const& writer_transitions,
+  cudf::size_type writer_raw_offset,
+  cudf::column_device_view const& reader_transitions,
+  cudf::size_type reader_raw_offset)
+{
+  constexpr int32_t OFFSET_SHIFT = 20;
+
+  printf("my-debug,kernel: input ts %ld\n", ts.time_since_epoch().count());
+
+  int64_t const epoch_seconds = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_s>(ts.time_since_epoch()).count());
+
+  printf("my-debug,kernel: epoch_seconds %ld\n", epoch_seconds);
+
+  int64_t const* writer_trans_begin = writer_transitions.data<int64_t>();
+  int64_t const* writer_trans_end   = writer_trans_begin + writer_transitions.size();
+
+  int64_t const* reader_trans_begin = reader_transitions.data<int64_t>();
+  int64_t const* reader_trans_end   = reader_trans_begin + reader_transitions.size();
+
+  int64_t const* p = writer_trans_begin;
+  while (p < writer_trans_end) {
+    int64_t tran         = *p;
+    int64_t tran_seconds = tran >> OFFSET_SHIFT;
+    int32_t tran_offset  = static_cast<int32_t>(tran & ((1L << OFFSET_SHIFT) - 1));
+    printf("my-debug,kernel: writer transition %ld, seconds %ld, offset %d\n",
+           tran,
+           tran_seconds,
+           tran_offset);
+    p++;
+  }
+
+  int const writer_index =
+    get_transition_index(writer_trans_begin, writer_trans_end, epoch_seconds);
+
+  printf("my-debug,kernel: writer_index %d\n", writer_index);
+
+  int64_t writer_offset = [&] {
+    if (writer_index >= 0 && writer_index < writer_transitions.size()) {
+      auto tran = writer_transitions.element<int64_t>(writer_index);
+      return (tran >> OFFSET_SHIFT);
+    } else {
+      return static_cast<int64_t>(writer_raw_offset);
+    }
+  }();
+
+  printf("my-debug,kernel: writer offset %ld\n", writer_offset);
+
+  int const reader_index =
+    get_transition_index(reader_trans_begin, reader_trans_end, epoch_seconds);
+  int64_t reader_offset = [&] {
+    if (reader_index >= 0 && reader_index < reader_transitions.size()) {
+      auto tran = reader_transitions.element<int64_t>(reader_index);
+      return (tran >> OFFSET_SHIFT);
+    } else {
+      return static_cast<int64_t>(reader_raw_offset);
+    }
+  }();
+
+  printf("my-debug,kernel: reader offset %ld\n", reader_offset);
+  //
+  int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
+  int const reader_adjusted_index =
+    get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);
+  int64_t reader_adjusted_offset = [&] {
+    if (reader_adjusted_index >= 0 && reader_adjusted_index < reader_transitions.size()) {
+      auto tran = reader_transitions.element<int64_t>(reader_adjusted_index);
+      return (tran >> OFFSET_SHIFT);
+    } else {
+      return static_cast<int64_t>(reader_raw_offset);
+    }
+  }();
+
+  printf("my-debug,kernel: adjusted_seconds %ld\n", adjusted_seconds);
+
+  printf("my-debug,kernel: reader_adjusted_offset %ld\n", reader_adjusted_offset);
+
+  int64_t final_offset_seconds = writer_offset - reader_adjusted_offset;
+
+  printf("my-debug,kernel: final diff %ld\n", final_offset_seconds);
+
+  int64_t const epoch_us = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
+
+  printf("my-debug,kernel: epoch_us %ld\n", epoch_us);
+
+  int64_t final_result = epoch_us + final_offset_seconds * 1'000'000L;
+
+  printf("my-debug,kernel: final_result %ld\n", final_result);
+  return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
 }  // namespace spark_rapids_jni

@@ -25,6 +25,7 @@ import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.util.calendar.ZoneInfo;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -35,6 +36,80 @@ import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
 import java.util.*;
 import java.util.concurrent.Executors;
+
+/**
+ * Used to save timezone info from `java.util.TimeZone`
+ * `util.TimeZone` is abstract class, the actual class is
+ * `sun.util.calendar.ZoneInfo`
+ * The timezone info is from `sun.util.calendar.ZoneInfo`
+ */
+class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
+  // from `sun.util.calendar.ZoneInfo`
+  private static final long OFFSET_MASK = 0x0fL;
+
+  // from `sun.util.calendar.ZoneInfo`
+  private static final int TRANSITION_NSHIFT = 12;
+
+  private static final int OFFSET_SHIFT = 20;
+
+  // The most significant 44-bit field represents transition time
+  // in seconds from Gregorian January 1 1970, 00:00:00 GMT;
+  // The least significant 20-bit field is offset in seconds from UTC.
+  long[] transitions;
+
+  // raw offset in `sun.util.calendar.ZoneInfo`, but in seconds
+  int rawOffset;
+
+  /**
+   * Constructor for TimeZone info from `sun.util.calendar.ZoneInfo`.
+   * Convert `ZoneInfo.transitions` from milliseconds to seconds.
+   * Extract isDST from `ZoneInfo.transitions`.
+   * The inputs are from `sun.util.calendar.ZoneInfo` via reflection.
+   * 
+   * @param transitions   transitions in milliseconds from
+   *                      `sun.util.calendar.ZoneInfo`
+   * @param offsets     offsets in `sun.util.calendar.ZoneInfo` in milliseconds
+   * @param rawOffset   raw offset in `sun.util.calendar.ZoneInfo` in milliseconds
+   */
+  TimeZoneInfoInJavaUtilPackage(long[] transitions, int[] offsets, int rawOffset) {
+    if (transitions != null) {
+      if (transitions.length == 0) {
+        throw new IllegalArgumentException("transitions should not be empty");
+      }
+      this.transitions = new long[transitions.length];
+      for (int i = 0; i < transitions.length; i++) {
+        long transitionMs = (transitions[i] >> TRANSITION_NSHIFT);
+        if (transitionMs % 1000 != 0) {
+          throw new IllegalArgumentException("transitions should be in seconds");
+        }
+        long offsetMs = offsets[(int) (transitions[i] & OFFSET_MASK)];
+        if (offsetMs % 1000 != 0) {
+          throw new IllegalArgumentException("offsets should be in seconds");
+        }
+        if (offsetMs < -18L * 3600L * 1000L || offsetMs > 18L * 3600L * 1000L) {
+          throw new IllegalArgumentException("offsets should be in range [-18h, +18h]");
+        }
+        this.transitions[i] = ((transitionMs / 1000L) << OFFSET_SHIFT) & (offsetMs / 1000L);
+      }
+    } else {
+      // if transitions is null, it means fixed offset timezone, in order to handle
+      // uniformly,
+      // here set transitions to a long array with one element Long.MAX_VALUE.
+      this.transitions = new long[1];
+      // 0xFFFFFL is 20 bits of 1, means offset is 1048575 seconds
+      this.transitions[0] = Long.MAX_VALUE & (~0xFFFFFL);
+    }
+    if (rawOffset % 1000 != 0) {
+      throw new IllegalArgumentException("rawOffset should be in seconds, but find milliseconds");
+    }
+    this.rawOffset = rawOffset / 1000;
+  }
+
+  @Override
+  public void close() throws Exception {
+    transitions = null;
+  }
+}
 
 /**
  * Gpu timezone utility.
@@ -73,6 +148,9 @@ public class GpuTimeZoneDB {
   private static long maxTimestamp;
   private static int lastCachedYear;
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
+
+  // // Cache the timezone info for 6 timezones.
+  // private static final java.util.Map<String, TimeZoneInfoInJavaUtilPackage> utilTZToInfo = new LinkedHashMap()<>();
 
   /**
    * This should be called on startup of an executor.
@@ -647,6 +725,113 @@ public class GpuTimeZoneDB {
     return !zoneId.getRules().getTransitionRules().isEmpty();
   }
 
+  /**
+   * Read from `sun.util.calendar.ZoneInfo` via reflection to get timezone info.
+   * 
+   * @param tzId timezone id
+   * @return timezone info
+   */
+  private static TimeZoneInfoInJavaUtilPackage getInfoForUtilTZ(String tzId) {
+    
+    // ZoneId zoneId = ZoneId.of(tzId, ZoneId.SHORT_IDS);
+    // List<ZoneOffsetTransition> trans = zoneId.getRules().getTransitions();
+
+    TimeZone tz = TimeZone.getTimeZone(tzId);
+    if (!(tz instanceof ZoneInfo)) {
+      throw new UnsupportedOperationException("Unsupported timezone: " + tzId);
+    }
+    ZoneInfo zoneInfo = (ZoneInfo) tz;
+
+    // The constructor of TimeZoneInfoInJavaUtilPackage will extract isDST info
+    // from transitions, and convert transitions from milliseconds to seconds.
+    return new TimeZoneInfoInJavaUtilPackage(
+        (long[]) FieldUtils.readField(zoneInfo, "transitions"),
+        (int[]) FieldUtils.readField(zoneInfo, "offsets"),
+        (int) FieldUtils.readField(zoneInfo, "rawOffset"));
+  }
+
+  private static ColumnVector getTransitionsForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
+    try (HostColumnVector hcv = HostColumnVector.fromLongs(info.transitions)) {
+      return hcv.copyToDevice();
+    }
+  }
+
+  /**
+   * Get timezone info from `java.util.TimeZone`.
+   * Do not need to cache the timezone info, because the info for a specific
+   * timezone is not big.
+   * 
+   * @param info timezone info in CPU
+   * @return a table on GPU containing timezone info from `java.util.TimeZone`
+   */
+  private static Table getTableForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
+    try (ColumnVector trans = getTransitionsForUtilTZ(info)) {
+      return new Table(trans);
+    } catch (Exception e) {
+      throw new IllegalStateException("get timezone info from java.util.TimeZone failed!", e);
+    }
+  }
+
+  /**
+   * Is Daylight Saving Time for the given timezone id
+   */
+  private static boolean isDaylightSavingTime(String timezoneId) {
+    ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
+    return !zoneId.getRules().getTransitionRules().isEmpty();
+  }
+
+  /**
+   * Convert timestamps between writer/reader timezones for ORC reading.
+   * Similar to `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`.
+   * `SerializationUtils.convertBetweenTimezones` gets offset between timezones.
+   * This function does the same thing and then apply the offset to get the
+   * final timestamps.
+   * For more details, refer to link:
+   * https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
+   * java/org/apache/orc/impl/SerializationUtils.java#L1440
+   * 
+   * @param input          input timestamp column in microseconds
+   * @param writerTimezone writer timezone, it's from ORC stripe metadata.
+   * @param readerTimezone reader timezone, it's from current JVM default
+   *                       timezone.
+   * @return timestamp column in microseconds after converting between timezones
+   */
+  public static ColumnVector convertBetweenTimezones(
+      ColumnVector input,
+      String writerTimezone,
+      String readerTimezone) {
+    // Does not support DST timezone, just throw exception.
+    if (isDaylightSavingTime(writerTimezone) ||
+        isDaylightSavingTime(readerTimezone)) {
+      throw new UnsupportedOperationException("Daylight Saving Time is not supported now.");
+    }
+
+    // get timezone info from `java.util.TimeZone`
+    try (TimeZoneInfoInJavaUtilPackage writerTzInfo = getInfoForUtilTZ(writerTimezone);
+        TimeZoneInfoInJavaUtilPackage readerTzInfo = getInfoForUtilTZ(readerTimezone);
+        Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
+        Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
+
+          // convert between timezones
+          return new ColumnVector(convertBetweenTimezones(
+          input.getNativeView(),
+          writerTzInfoTable.getNativeView(),
+          writerTzInfo.rawOffset,
+          readerTzInfoTable.getNativeView(),
+          readerTzInfo.rawOffset));
+    } catch (Exception e) {
+      throw new IllegalStateException("convert between timezones failed!", e);
+    }
+  }
+
+  private static void checkTimeZone(String timezone) {
+    TimeZone tz = TimeZone.getTimeZone(timezone);
+    if (tz.useDaylightTime())
+      if (!(tz.getDSTSavings() == 3600 && tz.getRawOffset() == 0)) {
+        throw new IllegalStateException("Unsupported timezone: " + timezone);
+      }
+  }
+
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
@@ -655,4 +840,10 @@ public class GpuTimeZoneDB {
       long input_seconds, long input_microseconds, long invalid, long tzType,
       long tzOffset, long transitions, long tzIndex);
 
+  private static native long convertBetweenTimezones(
+      long input,
+      long writerTzInfoTable,
+      int writerTzRawOffset,
+      long readerTzInfoTable,
+      int readerTzRawOffset);
 }
