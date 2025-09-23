@@ -1412,6 +1412,8 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     remaining_rows -= rows_in_batch;
   } while (remaining_words > 0);
 
+  __syncthreads();
+
   // final trailing bits, if any
   if (threadIdx.x == 0 && dst_word_index == last_word_index) {
     valid_count += store_word(dst_word_index, prev_word[0]);
