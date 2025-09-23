@@ -180,8 +180,8 @@ public class GPUInfo {
     public String toCompactString() {
         StringBuilder sb = new StringBuilder();
 
-        if (deviceInfo != null) {
-            sb.append("GPU_").append(deviceInfo.deviceIndex);
+        if (deviceInfo != null && deviceInfo.name != null) {
+            sb.append(deviceInfo.name);
         } else {
             sb.append("GPU_Unknown");
         }

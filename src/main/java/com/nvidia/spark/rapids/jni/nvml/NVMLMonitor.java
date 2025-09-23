@@ -91,11 +91,11 @@ public class NVMLMonitor {
         }
 
         // Initialize lifecycle stats for all GPUs
-        GPUInfo[] initialInfo = NVML.getCurrentGPUInfo();
-        for (GPUInfo info : initialInfo) {
+        GPUInfo[] initialInfo = NVML.getAllGPUInfo();
+        for (int i = 0; i < initialInfo.length; i++) {
+            GPUInfo info = initialInfo[i];
             if (info.deviceInfo != null) {
-                lifecycleStats.put(info.deviceInfo.deviceIndex,
-                                  new GPULifecycleStats(info.deviceInfo.name, info.deviceInfo.deviceIndex));
+                lifecycleStats.put(i, new GPULifecycleStats(info.deviceInfo.name));
             }
         }
 
@@ -152,15 +152,16 @@ public class NVMLMonitor {
     private void monitoringLoop() {
         while (monitoring.get()) {
             try {
-                GPUInfo[] gpuInfos = NVML.getCurrentGPUInfo();
+                GPUInfo[] gpuInfos = NVML.getAllGPUInfo();
 
                 if (gpuInfos != null && gpuInfos.length > 0) {
                     long timestamp = System.currentTimeMillis();
 
                     // Update lifecycle statistics
-                    for (GPUInfo info : gpuInfos) {
+                    for (int i = 0; i < gpuInfos.length; i++) {
+                        GPUInfo info = gpuInfos[i];
                         if (info.deviceInfo != null) {
-                            GPULifecycleStats stats = lifecycleStats.get(info.deviceInfo.deviceIndex);
+                            GPULifecycleStats stats = lifecycleStats.get(i);
                             if (stats != null) {
                                 stats.addSample(info);
                             }
@@ -205,10 +206,10 @@ public class NVMLMonitor {
     }
 
     /**
-     * Get lifecycle statistics for specific GPU
+     * Get lifecycle statistics for specific GPU by array index
      */
-    public GPULifecycleStats getLifecycleStats(int deviceIndex) {
-        return lifecycleStats.get(deviceIndex);
+    public GPULifecycleStats getLifecycleStats(int arrayIndex) {
+        return lifecycleStats.get(arrayIndex);
     }
 
     /**

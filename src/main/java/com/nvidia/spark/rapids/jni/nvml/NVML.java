@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni.nvml;
 
+import ai.rapids.cudf.Cuda;
 import ai.rapids.cudf.NativeDepsLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,38 +32,27 @@ public class NVML {
 
     private static final Logger logger = LoggerFactory.getLogger(NVML.class);
 
-    // Native method declarations
-    public static native boolean nvmlInit();
-    public static native void nvmlShutdown();
-    public static native int nvmlGetDeviceCount();
-    public static native GPUInfo nvmlGetGPUInfo(int deviceIndex);
-    public static native GPUInfo[] nvmlGetAllGPUInfo();
+    private static native boolean nvmlInit();
+    private static native void nvmlShutdown();
 
-    // CUDA device ID support - new native methods
-    public static native GPUInfo nvmlGetGPUInfoByCudaDevice(int cudaDeviceId);
-    public static native boolean nvmlIsCudaDeviceValid(int cudaDeviceId);
+    private static native int nvmlGetDeviceCount();
+    
+    private static native long nvmlGetDeviceHandleFromCudaDevice(int cudaDeviceId);
+    
+    // Coarse-grained native methods
+    private static native GPUInfo nvmlGetGPUInfo(long deviceHandle);
+    private static native GPUInfo[] nvmlGetAllGPUInfo();
 
-    // Fine-grained native methods for individual info groups
-    public static native GPUDeviceInfo nvmlGetDeviceInfo(int deviceIndex);
-    public static native GPUUtilizationInfo nvmlGetUtilizationInfo(int deviceIndex);
-    public static native GPUMemoryInfo nvmlGetMemoryInfo(int deviceIndex);
-    public static native GPUTemperatureInfo nvmlGetTemperatureInfo(int deviceIndex);
-    public static native GPUPowerInfo nvmlGetPowerInfo(int deviceIndex);
-    public static native GPUClockInfo nvmlGetClockInfo(int deviceIndex);
-    public static native GPUHardwareInfo nvmlGetHardwareInfo(int deviceIndex);
-    public static native GPUPCIeInfo nvmlGetPCIeInfo(int deviceIndex);
-    public static native GPUECCInfo nvmlGetECCInfo(int deviceIndex);
-
-    // Fine-grained native methods using CUDA device IDs
-    public static native GPUDeviceInfo nvmlGetDeviceInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUUtilizationInfo nvmlGetUtilizationInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUMemoryInfo nvmlGetMemoryInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUTemperatureInfo nvmlGetTemperatureInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUPowerInfo nvmlGetPowerInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUClockInfo nvmlGetClockInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUHardwareInfo nvmlGetHardwareInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUPCIeInfo nvmlGetPCIeInfoByCudaDevice(int cudaDeviceId);
-    public static native GPUECCInfo nvmlGetECCInfoByCudaDevice(int cudaDeviceId);
+    // Fine-grained native methods
+    private static native GPUDeviceInfo nvmlGetDeviceInfo(long deviceHandle);
+    private static native GPUUtilizationInfo nvmlGetUtilizationInfo(long deviceHandle);
+    private static native GPUMemoryInfo nvmlGetMemoryInfo(long deviceHandle);
+    private static native GPUTemperatureInfo nvmlGetTemperatureInfo(long deviceHandle);
+    private static native GPUPowerInfo nvmlGetPowerInfo(long deviceHandle);
+    private static native GPUClockInfo nvmlGetClockInfo(long deviceHandle);
+    private static native GPUHardwareInfo nvmlGetHardwareInfo(long deviceHandle);
+    private static native GPUPCIeInfo nvmlGetPCIeInfo(long deviceHandle);
+    private static native GPUECCInfo nvmlGetECCInfo(long deviceHandle);
 
     // Initialization state
     private static boolean nvmlInitialized = false;
@@ -130,9 +120,38 @@ public class NVML {
     }
 
     /**
-     * Get current GPU information for all devices
+     * Get NVML device handle for specified CUDA device
      */
-    public static GPUInfo[] getCurrentGPUInfo() {
+    public static long getDeviceHandle(int cudaDevice) {
+        if (!isAvailable()) {
+            return 0;
+        }
+
+        try {
+            return nvmlGetDeviceHandleFromCudaDevice(cudaDevice);
+        } catch (Exception e) {
+            logger.error("Error getting device handle for CUDA device {}: {}", cudaDevice, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get NVML device handle for current CUDA device  
+     */
+    public static long getDeviceHandle() {
+        try {
+            int cudaDevice = Cuda.getDevice();
+            return getDeviceHandle(cudaDevice);
+        } catch (Exception e) {
+            logger.error("Error getting current CUDA device: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get GPU information for all devices
+     */
+    public static GPUInfo[] getAllGPUInfo() {
         if (!isAvailable()) {
             return new GPUInfo[0];
         }
@@ -140,344 +159,283 @@ public class NVML {
         try {
             return nvmlGetAllGPUInfo();
         } catch (Exception e) {
-            logger.error("Error getting GPU info: " + e.getMessage());
+            logger.error("Error getting GPU info for all devices: " + e.getMessage());
             return new GPUInfo[0];
         }
     }
 
     /**
-     * Get GPU information for specific device using NVML device index
+     * Get GPU information using device handle
      */
-    public static GPUInfo getGPUInfo(int deviceIndex) {
+    public static GPUInfo getGPUInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetGPUInfo(deviceIndex);
+            return nvmlGetGPUInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting GPU info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting GPU info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get GPU information for specific device using CUDA device ID
+     * Get GPU information for current CUDA device
      */
-    public static GPUInfo getGPUInfoByCudaDevice(int cudaDeviceId) {
+    public static GPUInfo getGPUInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+
+        return getGPUInfo(handle);
+    }
+
+    /**
+     * Get device info using device handle
+     */
+    public static GPUDeviceInfo getDeviceInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetGPUInfoByCudaDevice(cudaDeviceId);
+            return nvmlGetDeviceInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting GPU info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
+            logger.error("Error getting device info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Check if a CUDA device ID is valid
+     * Get device info for current CUDA device
      */
-    public static boolean isCudaDeviceValid(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return false;
+    public static GPUDeviceInfo getDeviceInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
         }
 
-        try {
-            return nvmlIsCudaDeviceValid(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error checking CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return false;
-        }
+        return getDeviceInfo(handle);
     }
 
     /**
-     * Get device info for specific device using NVML device index
+     * Get utilization info using device handle
      */
-    public static GPUDeviceInfo getDeviceInfo(int deviceIndex) {
+    public static GPUUtilizationInfo getUtilizationInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetDeviceInfo(deviceIndex);
+            return nvmlGetUtilizationInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting device info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting utilization info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get utilization info for specific device using NVML device index
+     * Get utilization info for current CUDA device
      */
-    public static GPUUtilizationInfo getUtilizationInfo(int deviceIndex) {
+    public static GPUUtilizationInfo getUtilizationInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+
+        return getUtilizationInfo(handle);
+    }
+
+    /**
+     * Get memory info using device handle
+     */
+    public static GPUMemoryInfo getMemoryInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetUtilizationInfo(deviceIndex);
+            return nvmlGetMemoryInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting utilization info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting memory info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get memory info for specific device using NVML device index
+     * Get memory info for current CUDA device
      */
-    public static GPUMemoryInfo getMemoryInfo(int deviceIndex) {
+    public static GPUMemoryInfo getMemoryInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+
+        return getMemoryInfo(handle);
+    }
+
+    /**
+     * Get temperature info using device handle
+     */
+    public static GPUTemperatureInfo getTemperatureInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetMemoryInfo(deviceIndex);
+            return nvmlGetTemperatureInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting memory info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting temperature info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get temperature info for specific device using NVML device index
+     * Get temperature info for current CUDA device
      */
-    public static GPUTemperatureInfo getTemperatureInfo(int deviceIndex) {
+    public static GPUTemperatureInfo getTemperatureInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+
+        return getTemperatureInfo(handle);
+    }
+
+    /**
+     * Get power info using device handle
+     */
+    public static GPUPowerInfo getPowerInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetTemperatureInfo(deviceIndex);
+            return nvmlGetPowerInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting temperature info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting power info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get power info for specific device using NVML device index
+     * Get power info for current CUDA device
      */
-    public static GPUPowerInfo getPowerInfo(int deviceIndex) {
+    public static GPUPowerInfo getPowerInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+        return getPowerInfo(handle);
+    }
+
+    /**
+     * Get clock info using device handle
+     */
+    public static GPUClockInfo getClockInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetPowerInfo(deviceIndex);
+            return nvmlGetClockInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting power info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting clock info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get clock info for specific device using NVML device index
+     * Get clock info for current CUDA device
      */
-    public static GPUClockInfo getClockInfo(int deviceIndex) {
+    public static GPUClockInfo getClockInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+        return getClockInfo(handle);
+    }
+
+    /**
+     * Get hardware info using device handle
+     */
+    public static GPUHardwareInfo getHardwareInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetClockInfo(deviceIndex);
+            return nvmlGetHardwareInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting clock info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting hardware info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get hardware info for specific device using NVML device index
+     * Get hardware info for current CUDA device
      */
-    public static GPUHardwareInfo getHardwareInfo(int deviceIndex) {
+    public static GPUHardwareInfo getHardwareInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+        return getHardwareInfo(handle);
+    }
+
+    /**
+     * Get PCIe info using device handle
+     */
+    public static GPUPCIeInfo getPCIeInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetHardwareInfo(deviceIndex);
+            return nvmlGetPCIeInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting hardware info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting PCIe info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get PCIe info for specific device using NVML device index
+     * Get PCIe info for current CUDA device
      */
-    public static GPUPCIeInfo getPCIeInfo(int deviceIndex) {
+    public static GPUPCIeInfo getPCIeInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
+            return null;
+        }
+        return getPCIeInfo(handle);
+    }
+
+    /**
+     * Get ECC info using device handle
+     */
+    public static GPUECCInfo getECCInfo(long deviceHandle) {
         if (!isAvailable()) {
             return null;
         }
 
         try {
-            return nvmlGetPCIeInfo(deviceIndex);
+            return nvmlGetECCInfo(deviceHandle);
         } catch (Exception e) {
-            logger.error("Error getting PCIe info for device {}: {}", deviceIndex, e.getMessage());
+            logger.error("Error getting ECC info for device handle {}: {}", deviceHandle, e.getMessage());
             return null;
         }
     }
 
     /**
-     * Get ECC info for specific device using NVML device index
+     * Get ECC info for current CUDA device
      */
-    public static GPUECCInfo getECCInfo(int deviceIndex) {
-        if (!isAvailable()) {
+    public static GPUECCInfo getECCInfo() {
+        long handle = getDeviceHandle();
+        if (handle == 0) {
             return null;
         }
-
-        try {
-            return nvmlGetECCInfo(deviceIndex);
-        } catch (Exception e) {
-            logger.error("Error getting ECC info for device {}: {}", deviceIndex, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get device info for specific device using CUDA device ID
-     */
-    public static GPUDeviceInfo getDeviceInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetDeviceInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting device info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get utilization info for specific device using CUDA device ID
-     */
-    public static GPUUtilizationInfo getUtilizationInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetUtilizationInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting utilization info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get memory info for specific device using CUDA device ID
-     */
-    public static GPUMemoryInfo getMemoryInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetMemoryInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting memory info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get temperature info for specific device using CUDA device ID
-     */
-    public static GPUTemperatureInfo getTemperatureInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetTemperatureInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting temperature info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get power info for specific device using CUDA device ID
-     */
-    public static GPUPowerInfo getPowerInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetPowerInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting power info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get clock info for specific device using CUDA device ID
-     */
-    public static GPUClockInfo getClockInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetClockInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting clock info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get hardware info for specific device using CUDA device ID
-     */
-    public static GPUHardwareInfo getHardwareInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetHardwareInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting hardware info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get PCIe info for specific device using CUDA device ID
-     */
-    public static GPUPCIeInfo getPCIeInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetPCIeInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting PCIe info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Get ECC info for specific device using CUDA device ID
-     */
-    public static GPUECCInfo getECCInfoByCudaDevice(int cudaDeviceId) {
-        if (!isAvailable()) {
-            return null;
-        }
-
-        try {
-            return nvmlGetECCInfoByCudaDevice(cudaDeviceId);
-        } catch (Exception e) {
-            logger.error("Error getting ECC info for CUDA device {}: {}", cudaDeviceId, e.getMessage());
-            return null;
-        }
+        return getECCInfo(handle);
     }
 }

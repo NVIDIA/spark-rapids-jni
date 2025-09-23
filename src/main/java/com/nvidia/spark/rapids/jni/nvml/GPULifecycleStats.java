@@ -25,7 +25,6 @@ import java.util.List;
 public class GPULifecycleStats {
 
     private final String gpuName;
-    private final int deviceIndex;
     private final List<GPUInfo> samples;
     private final long startTimeMs;
     private long lastUpdateTimeMs;
@@ -58,9 +57,8 @@ public class GPULifecycleStats {
     private long maxEccSingleBitErrors;
     private long maxEccDoubleBitErrors;
 
-    public GPULifecycleStats(String gpuName, int deviceIndex) {
+    public GPULifecycleStats(String gpuName) {
         this.gpuName = gpuName;
-        this.deviceIndex = deviceIndex;
         this.samples = new ArrayList<>();
         this.startTimeMs = System.currentTimeMillis();
         this.lastUpdateTimeMs = startTimeMs;
@@ -87,8 +85,8 @@ public class GPULifecycleStats {
      * Add a new GPU info sample to the lifecycle statistics
      */
     public synchronized void addSample(GPUInfo info) {
-        if (info.deviceInfo == null || info.deviceInfo.deviceIndex != this.deviceIndex) {
-            return; // Wrong GPU or missing device info
+        if (info.deviceInfo == null) {
+            return; // Missing device info
         }
 
         samples.add(new GPUInfo(info)); // Store a copy
@@ -166,14 +164,14 @@ public class GPULifecycleStats {
      */
     public String generateReport() {
         if (samples.isEmpty()) {
-            return String.format("No samples collected for GPU_%d (%s)", deviceIndex, gpuName);
+            return String.format("No samples collected for %s", gpuName);
         }
 
         GPUInfo latest = samples.get(samples.size() - 1);
         StringBuilder sb = new StringBuilder();
 
         // Header
-        sb.append(String.format(">>> GPU_%d Detailed Statistics: %s\n", deviceIndex, gpuName));
+        sb.append(String.format(">>> GPU Detailed Statistics: %s\n", gpuName));
 
         // Basic monitoring info
         int sms = (latest.hardwareInfo != null) ? latest.hardwareInfo.streamingMultiprocessors : 0;
@@ -219,11 +217,11 @@ public class GPULifecycleStats {
      */
     public String getSummary() {
         if (samples.isEmpty()) {
-            return String.format("GPU_%d: No data", deviceIndex);
+            return String.format("%s: No data", gpuName);
         }
 
-        return String.format("GPU_%d (%s): %.1fs, %d samples, GPU %d%% (avg), Mem %d%% (avg), %d°C (avg), %dW (avg)",
-                           deviceIndex, gpuName, getMonitoringDurationSeconds(), getSampleCount(),
+        return String.format("%s: %.1fs, %d samples, GPU %d%% (avg), Mem %d%% (avg), %d°C (avg), %dW (avg)",
+                           gpuName, getMonitoringDurationSeconds(), getSampleCount(),
                            gpuUtilizationStats.getAverage(), memoryUtilizationStats.getAverage(),
                            temperatureGpuStats.getAverage(), powerUsageStats.getAverage());
     }

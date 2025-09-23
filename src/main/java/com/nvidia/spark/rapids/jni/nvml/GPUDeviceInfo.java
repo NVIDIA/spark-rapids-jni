@@ -19,26 +19,23 @@ package com.nvidia.spark.rapids.jni.nvml;
  * Basic GPU device information from nvmlDeviceGetName() and nvmlDeviceGetBrand()
  */
 public class GPUDeviceInfo {
-    public int deviceIndex;
     public String name;
     public String brand;
 
     public GPUDeviceInfo() {}
 
-    public GPUDeviceInfo(int deviceIndex, String name, String brand) {
-        this.deviceIndex = deviceIndex;
+    public GPUDeviceInfo(String name, String brand) {
         this.name = name;
         this.brand = brand;
     }
 
     public GPUDeviceInfo(GPUDeviceInfo other) {
-        this.deviceIndex = other.deviceIndex;
         this.name = other.name;
         this.brand = other.brand;
     }
 
     @Override
     public String toString() {
-        return String.format("GPU_%d: %s (%s)", deviceIndex, name, brand);
+        return String.format("%s (%s)", name, brand);
     }
 }
