@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.nvidia.spark.rapids.jni;
+package com.nvidia.spark.rapids.jni.nvml;
 
 import java.util.ArrayList;
 import java.util.HashMap;

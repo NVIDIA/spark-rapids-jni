@@ -352,19 +352,21 @@ static jobject populateGPUInfoFromDevice(JNIEnv* env, nvmlDevice_t device, jint 
 
 extern "C" {
 
-JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlInit(JNIEnv* env, jclass cls)
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlInit(JNIEnv* env,
+                                                                               jclass cls)
 {
   nvmlReturn_t result = nvmlInit();
   return (result == NVML_SUCCESS) ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlShutdown(JNIEnv* env, jclass cls)
+JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlShutdown(JNIEnv* env,
+                                                                               jclass cls)
 {
   nvmlShutdown();
 }
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceCount(JNIEnv* env,
-                                                                                jclass cls)
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceCount(JNIEnv* env,
+                                                                                     jclass cls)
 {
   unsigned int deviceCount = 0;
   nvmlReturn_t result      = nvmlDeviceGetCount(&deviceCount);
@@ -374,9 +376,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceCount(
   return (jint)deviceCount;
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetGPUInfo(JNIEnv* env,
-                                                                               jclass cls,
-                                                                               jint deviceIndex)
+JNIEXPORT jobject JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetGPUInfo(JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result;
@@ -389,8 +390,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetGPUInfo(J
   return populateGPUInfoFromDevice(env, device, deviceIndex);
 }
 
-JNIEXPORT jobjectArray JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetAllGPUInfo(JNIEnv* env,
-                                                                                       jclass cls)
+JNIEXPORT jobjectArray JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetAllGPUInfo(JNIEnv* env, jclass cls)
 {
   // Get device count
   unsigned int deviceCount = 0;
@@ -412,7 +413,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetAllG
 
   // Fill array with GPU info
   for (unsigned int i = 0; i < deviceCount; i++) {
-    jobject gpuInfo = Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetGPUInfo(env, cls, (jint)i);
+    jobject gpuInfo = Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetGPUInfo(env, cls, (jint)i);
     if (gpuInfo != NULL) {
       env->SetObjectArrayElement(gpuInfoArray, (jsize)i, gpuInfo);
       env->DeleteLocalRef(gpuInfo);
@@ -422,7 +423,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetAllG
   return gpuInfoArray;
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetGPUInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetGPUInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -437,7 +438,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetGPUInfoBy
   return populateGPUInfoFromDevice(env, device, cudaDeviceId);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlIsCudaDeviceValid(
+JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlIsCudaDeviceValid(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -446,9 +447,8 @@ JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlIsCudaDevic
 }
 
 // Individual info JNI functions using NVML device index
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceInfo(JNIEnv* env,
-                                                                                  jclass cls,
-                                                                                  jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -456,7 +456,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceInf
   return populateDeviceInfo(env, device, deviceIndex);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetUtilizationInfo(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetUtilizationInfo(
   JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
@@ -465,9 +465,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetUtilizati
   return populateUtilizationInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetMemoryInfo(JNIEnv* env,
-                                                                                  jclass cls,
-                                                                                  jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetMemoryInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -475,7 +474,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetMemoryInf
   return populateMemoryInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetTemperatureInfo(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetTemperatureInfo(
   JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
@@ -484,9 +483,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetTemperatu
   return populateTemperatureInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPowerInfo(JNIEnv* env,
-                                                                                 jclass cls,
-                                                                                 jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetPowerInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -494,9 +492,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPowerInfo
   return populatePowerInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetClockInfo(JNIEnv* env,
-                                                                                 jclass cls,
-                                                                                 jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetClockInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -504,8 +501,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetClockInfo
   return populateClockInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL
-Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetHardwareInfo(JNIEnv* env, jclass cls, jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetHardwareInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -513,9 +510,8 @@ Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetHardwareInfo(JNIEnv* env, jclass cl
   return populateHardwareInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPCIeInfo(JNIEnv* env,
-                                                                                jclass cls,
-                                                                                jint deviceIndex)
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetPCIeInfo(
+  JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -523,9 +519,8 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPCIeInfo(
   return populatePCIeInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetECCInfo(JNIEnv* env,
-                                                                               jclass cls,
-                                                                               jint deviceIndex)
+JNIEXPORT jobject JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetECCInfo(JNIEnv* env, jclass cls, jint deviceIndex)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = nvmlDeviceGetHandleByIndex((unsigned int)deviceIndex, &device);
@@ -534,7 +529,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetECCInfo(J
 }
 
 // Individual info JNI functions using CUDA device ID
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -543,8 +538,10 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetDeviceInf
   return populateDeviceInfo(env, device, cudaDeviceId);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetUtilizationInfoByCudaDevice(
-  JNIEnv* env, jclass cls, jint cudaDeviceId)
+JNIEXPORT jobject JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetUtilizationInfoByCudaDevice(JNIEnv* env,
+                                                                              jclass cls,
+                                                                              jint cudaDeviceId)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
@@ -552,7 +549,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetUtilizati
   return populateUtilizationInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetMemoryInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetMemoryInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -561,8 +558,10 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetMemoryInf
   return populateMemoryInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetTemperatureInfoByCudaDevice(
-  JNIEnv* env, jclass cls, jint cudaDeviceId)
+JNIEXPORT jobject JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetTemperatureInfoByCudaDevice(JNIEnv* env,
+                                                                              jclass cls,
+                                                                              jint cudaDeviceId)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
@@ -570,7 +569,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetTemperatu
   return populateTemperatureInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPowerInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetPowerInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -579,7 +578,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPowerInfo
   return populatePowerInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetClockInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetClockInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -588,8 +587,10 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetClockInfo
   return populateClockInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetHardwareInfoByCudaDevice(
-  JNIEnv* env, jclass cls, jint cudaDeviceId)
+JNIEXPORT jobject JNICALL
+Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetHardwareInfoByCudaDevice(JNIEnv* env,
+                                                                           jclass cls,
+                                                                           jint cudaDeviceId)
 {
   nvmlDevice_t device;
   nvmlReturn_t result = getNvmlDeviceFromCudaDevice((int)cudaDeviceId, &device);
@@ -597,7 +598,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetHardwareI
   return populateHardwareInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPCIeInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetPCIeInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;
@@ -606,7 +607,7 @@ JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetPCIeInfoB
   return populatePCIeInfo(env, device);
 }
 
-JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_NVML_nvmlGetECCInfoByCudaDevice(
+JNIEXPORT jobject JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetECCInfoByCudaDevice(
   JNIEnv* env, jclass cls, jint cudaDeviceId)
 {
   nvmlDevice_t device;

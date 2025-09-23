@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.nvidia.spark.rapids.jni;
+package com.nvidia.spark.rapids.jni.nvml;
 
 /**
  * GPU clock information from nvmlDeviceGetClockInfo() calls
