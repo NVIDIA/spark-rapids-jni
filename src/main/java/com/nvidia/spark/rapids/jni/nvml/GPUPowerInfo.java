@@ -21,20 +21,17 @@ package com.nvidia.spark.rapids.jni.nvml;
 public class GPUPowerInfo {
     public int powerUsageW;             // Current power usage in Watts
     public int powerLimitW;             // Current power limit in Watts
-    public int powerDefaultLimitW;      // Default power limit in Watts
 
     public GPUPowerInfo() {}
 
-    public GPUPowerInfo(int powerUsageW, int powerLimitW, int powerDefaultLimitW) {
+    public GPUPowerInfo(int powerUsageW, int powerLimitW) {
         this.powerUsageW = powerUsageW;
         this.powerLimitW = powerLimitW;
-        this.powerDefaultLimitW = powerDefaultLimitW;
     }
 
     public GPUPowerInfo(GPUPowerInfo other) {
         this.powerUsageW = other.powerUsageW;
         this.powerLimitW = other.powerLimitW;
-        this.powerDefaultLimitW = other.powerDefaultLimitW;
     }
 
     /**

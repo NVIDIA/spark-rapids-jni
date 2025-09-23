@@ -20,22 +20,19 @@ package com.nvidia.spark.rapids.jni.nvml;
  */
 public class GPUTemperatureInfo {
     public int temperatureGpu;          // GPU temperature in Celsius
-    public int temperatureMemory;       // Memory temperature in Celsius
 
     public GPUTemperatureInfo() {}
 
-    public GPUTemperatureInfo(int temperatureGpu, int temperatureMemory) {
+    public GPUTemperatureInfo(int temperatureGpu) {
         this.temperatureGpu = temperatureGpu;
-        this.temperatureMemory = temperatureMemory;
     }
 
     public GPUTemperatureInfo(GPUTemperatureInfo other) {
         this.temperatureGpu = other.temperatureGpu;
-        this.temperatureMemory = other.temperatureMemory;
     }
 
     @Override
     public String toString() {
-        return String.format("GPU: %d°C, Memory: %d°C", temperatureGpu, temperatureMemory);
+        return String.format("GPU: %d°C", temperatureGpu);
     }
 }

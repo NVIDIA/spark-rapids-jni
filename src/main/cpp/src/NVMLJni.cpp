@@ -125,16 +125,11 @@ static jobject populateTemperatureInfo(JNIEnv* env, nvmlDevice_t device)
   jobject temperatureInfo = env->NewObject(temperatureInfoClass, constructor);
   if (temperatureInfo == NULL) return NULL;
 
-  jfieldID tempGpuField    = env->GetFieldID(temperatureInfoClass, "temperatureGpu", "I");
-  jfieldID tempMemoryField = env->GetFieldID(temperatureInfoClass, "temperatureMemory", "I");
+  jfieldID tempGpuField = env->GetFieldID(temperatureInfoClass, "temperatureGpu", "I");
 
   unsigned int temp;
   nvmlReturn_t result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
   if (result == NVML_SUCCESS) { env->SetIntField(temperatureInfo, tempGpuField, (jint)temp); }
-
-  // Use GPU temperature as fallback for memory temperature
-  result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
-  if (result == NVML_SUCCESS) { env->SetIntField(temperatureInfo, tempMemoryField, (jint)temp); }
 
   return temperatureInfo;
 }
@@ -150,9 +145,8 @@ static jobject populatePowerInfo(JNIEnv* env, nvmlDevice_t device)
   jobject powerInfo = env->NewObject(powerInfoClass, constructor);
   if (powerInfo == NULL) return NULL;
 
-  jfieldID powerUsageField        = env->GetFieldID(powerInfoClass, "powerUsageW", "I");
-  jfieldID powerLimitField        = env->GetFieldID(powerInfoClass, "powerLimitW", "I");
-  jfieldID powerDefaultLimitField = env->GetFieldID(powerInfoClass, "powerDefaultLimitW", "I");
+  jfieldID powerUsageField = env->GetFieldID(powerInfoClass, "powerUsageW", "I");
+  jfieldID powerLimitField = env->GetFieldID(powerInfoClass, "powerLimitW", "I");
 
   unsigned int power;
   nvmlReturn_t result = nvmlDeviceGetPowerUsage(device, &power);
@@ -163,8 +157,6 @@ static jobject populatePowerInfo(JNIEnv* env, nvmlDevice_t device)
   result = nvmlDeviceGetPowerManagementLimit(device, &power);
   if (result == NVML_SUCCESS) {
     env->SetIntField(powerInfo, powerLimitField, (jint)(power / 1000));  // mW to W
-    // Use current limit as default limit fallback
-    env->SetIntField(powerInfo, powerDefaultLimitField, (jint)(power / 1000));  // mW to W
   }
 
   return powerInfo;

@@ -39,7 +39,6 @@ public class GPULifecycleStats {
 
     // Temperature stats
     private IntegerStats temperatureGpuStats;
-    private IntegerStats temperatureMemoryStats;
 
     // Power stats
     private IntegerStats powerUsageStats;
@@ -69,7 +68,6 @@ public class GPULifecycleStats {
         this.memoryUsedStats = new LongStats();
         this.memoryFreeStats = new LongStats();
         this.temperatureGpuStats = new IntegerStats();
-        this.temperatureMemoryStats = new IntegerStats();
         this.powerUsageStats = new IntegerStats();
         this.graphicsClockStats = new IntegerStats();
         this.memoryClockStats = new IntegerStats();
@@ -105,7 +103,6 @@ public class GPULifecycleStats {
 
         if (info.temperatureInfo != null) {
             temperatureGpuStats.addValue(info.temperatureInfo.temperatureGpu);
-            temperatureMemoryStats.addValue(info.temperatureInfo.temperatureMemory);
         }
 
         if (info.powerInfo != null) {
