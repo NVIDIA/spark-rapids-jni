@@ -104,14 +104,11 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
     }
 
     // Get shuffle assemble result from shuffle_assemble
-    auto assemble_result = shuffle_assemble(meta,
-                                        partitions,
-                                        offsets,
-                                        cudf::get_default_stream(),
-                                        cudf::get_current_device_resource());
+    auto assemble_result = shuffle_assemble(
+      meta, partitions, offsets, cudf::get_default_stream(), cudf::get_current_device_resource());
 
     // Create buffer metadata
-    jlong buffer_size = static_cast<jlong>(assemble_result.shared_buffer.size());
+    jlong buffer_size   = static_cast<jlong>(assemble_result.shared_buffer.size());
     jlong buffer_handle = cudf::jni::release_as_jlong(
       std::make_unique<rmm::device_buffer>(std::move(assemble_result.shared_buffer)));
 
@@ -122,10 +119,12 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
     }
 
     // Create and return Java AssembleResult object
-    jclass result_class = env->FindClass("com/nvidia/spark/rapids/jni/kudo/KudoGpuSerializer$AssembleResult");
+    jclass result_class =
+      env->FindClass("com/nvidia/spark/rapids/jni/kudo/KudoGpuSerializer$AssembleResult");
     jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JJ[J)V");
 
-    return env->NewObject(result_class, constructor, buffer_handle, buffer_size, column_handles.get_jArray());
+    return env->NewObject(
+      result_class, constructor, buffer_handle, buffer_size, column_handles.get_jArray());
   }
   CATCH_STD(env, NULL);
 }

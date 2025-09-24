@@ -153,28 +153,30 @@ struct buffer_slice {
  */
 struct column_metadata {
   cudf::type_id type;
-  int32_t scale;                // for decimal types
+  int32_t scale;  // for decimal types
   cudf::size_type num_rows;
   cudf::size_type null_count;
   bool has_validity;
-  size_t data_buffer_idx;       // index into buffer_slices array
-  size_t validity_buffer_idx;   // index into buffer_slices array
-  size_t offsets_buffer_idx;    // index into buffer_slices array (for string/list types)
+  size_t data_buffer_idx;      // index into buffer_slices array
+  size_t validity_buffer_idx;  // index into buffer_slices array
+  size_t offsets_buffer_idx;   // index into buffer_slices array (for string/list types)
 };
 
 /**
- * @brief Shuffle assemble result with shared buffer slices and native column_view handles for zero-copy column reconstruction
+ * @brief Shuffle assemble result with shared buffer slices and native column_view handles for
+ * zero-copy column reconstruction
  */
 struct shuffle_assemble_result {
-  rmm::device_buffer shared_buffer;                   // the shared buffer allocation
-  std::vector<buffer_slice> buffer_slices;           // slices into the shared buffer (needed for cudf::column_view creation)
-  std::vector<std::unique_ptr<cudf::column_view>> column_views;  // non-owning column_view objects pointing to slices in shared_buffer
+  rmm::device_buffer shared_buffer;  // the shared buffer allocation
+  std::vector<buffer_slice>
+    buffer_slices;  // slices into the shared buffer (needed for cudf::column_view creation)
+  std::vector<std::unique_ptr<cudf::column_view>>
+    column_views;   // non-owning column_view objects pointing to slices in shared_buffer
 
-  shuffle_assemble_result(rmm::device_buffer&& buf,
-                         std::vector<buffer_slice>&& slices)
-    : shared_buffer(std::move(buf)),
-      buffer_slices(std::move(slices)),
-      column_views{} {}
+  shuffle_assemble_result(rmm::device_buffer&& buf, std::vector<buffer_slice>&& slices)
+    : shared_buffer(std::move(buf)), buffer_slices(std::move(slices)), column_views{}
+  {
+  }
 };
 
 /**
@@ -190,9 +192,9 @@ struct shuffle_assemble_result {
  * @return Shuffle assemble result with shared buffer slices for each column's data
  */
 shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
-                                           cudf::device_span<uint8_t const> partitions,
-                                           cudf::device_span<size_t const> partition_offsets,
-                                           rmm::cuda_stream_view stream,
-                                           rmm::device_async_resource_ref mr);
+                                         cudf::device_span<uint8_t const> partitions,
+                                         cudf::device_span<size_t const> partition_offsets,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr);
 
 }  // namespace spark_rapids_jni
