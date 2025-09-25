@@ -26,12 +26,6 @@ import java.io.OutputStream;
  */
 public interface RapidsOutputFile {
   /**
-   * @return true if the file already exists, false otherwise
-   * @throws IOException if an I/O error occurs while checking the file existence
-   */
-  boolean exists() throws IOException;
-
-  /**
    * Create the file and return a {@link RapidsOutputStream} for writing.
    * @param overwrite Whether an existing file should be overwritten.
    * @return a {@link RapidsOutputStream} to write to the file
