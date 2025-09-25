@@ -32,4 +32,4 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceInteg
   CATCH_STD(env, 0);
 }
 
-}
+}  // extern "C"
