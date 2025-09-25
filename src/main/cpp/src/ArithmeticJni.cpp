@@ -61,11 +61,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
   CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(JNIEnv* env,
-                                                                          jclass,
-                                                                          jlong input_ptr,
-                                                                          jint decimal_places,
-                                                                          jint rounding_method)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(
+  JNIEnv* env, jclass, jlong input_ptr, jint decimal_places, jint rounding_method)
 {
   JNI_NULL_CHECK(env, input_ptr, "input is null", 0);
   try {
@@ -76,5 +73,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(JNIEnv
   }
   CATCH_STD(env, 0);
 }
-
 }
