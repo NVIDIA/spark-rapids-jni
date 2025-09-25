@@ -122,7 +122,6 @@ std::unique_ptr<cudf::column> long_to_binary_string(cudf::column_view const& inp
 
   // Now build the chars column
   rmm::device_uvector<char> chars(bytes, stream, mr);
-  cudf::experimental::prefetch::detail::prefetch("gather", chars, stream);
   char* d_chars = chars.data();
 
   // Fill in the chars data

@@ -43,11 +43,11 @@ function(ConfigureTest CMAKE_TEST_NAME)
         ${CMAKE_TEST_NAME}
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/gtests>"
                    INSTALL_RPATH "\$ORIGIN/../../../lib"
-                   CXX_STANDARD 17
+                   CXX_STANDARD 20
                    CXX_STANDARD_REQUIRED ON
                    # For std:: support of __int128_t. Can be removed once using cuda::std
                    CXX_EXTENSIONS ON
-                   CUDA_STANDARD 17
+                   CUDA_STANDARD 20
                    CUDA_STANDARD_REQUIRED ON
     )
     target_compile_definitions(
@@ -73,6 +73,9 @@ ConfigureTest(CAST_STRING
 
 ConfigureTest(CAST_DECIMAL_TO_STRING
     cast_decimal_to_string.cpp)
+
+ConfigureTest(EXCEPTION_WITH_ROW_INDEX
+    exception_with_row_index.cpp)
 
 ConfigureTest(FORMAT_FLOAT
     format_float.cpp)
@@ -107,6 +110,9 @@ ConfigureTest(PARSE_URI
 ConfigureTest(LIST_SLICE
     list_slice.cpp)
 
+ConfigureTest(MAP_ZIP_WITH
+    map_zip_with_utils.cpp)
+
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 
@@ -118,3 +124,6 @@ ConfigureTest(HLLPP
 
 ConfigureTest(CONV
     number_converter.cpp)
+
+ConfigureTest(MULTIPLY
+    multiply.cpp)

@@ -21,7 +21,7 @@
 
   <groupId>com.nvidia</groupId>
   <artifactId>spark-rapids-jni</artifactId>
-  <version>25.08.0-SNAPSHOT</version>
+  <version>25.10.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>RAPIDS Accelerator JNI for Apache Spark</name>
   <description>
@@ -95,6 +95,7 @@
     <jni.classifier>${cuda.version}</jni.classifier>
     <cudf.path>${project.basedir}/thirdparty/cudf</cudf.path>
     <cudf.pin.path>${project.basedir}/thirdparty/cudf-pins/</cudf.pin.path>
+    <guava.version>14.0.1</guava.version>
     <hadoop.version>3.4.0</hadoop.version>
     <junit.version>5.8.1</junit.version>
     <libcudf.build.path>${project.build.directory}/libcudf/cmake-build/</libcudf.build.path>
@@ -107,7 +108,7 @@
     <maven.compiler.target>1.8</maven.compiler.target>
     <mockito.version>2.25.0</mockito.version>
     <native.build.path>${project.build.directory}/jni/cmake-build</native.build.path>
-    <parquet.version>1.10.0</parquet.version>
+    <parquet.version>1.15.2</parquet.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
     <submodule.check.skip>false</submodule.check.skip>
@@ -122,26 +123,28 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-api</artifactId>
+      <version>${hadoop.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-client-runtime</artifactId>
+      <version>${hadoop.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>${guava.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.apache.arrow</groupId>
       <artifactId>arrow-vector</artifactId>
       <version>${arrow.version}</version>
       <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-common</artifactId>
-      <version>${hadoop.version}</version>
-      <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-reload4j</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-log4j12</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.parquet</groupId>

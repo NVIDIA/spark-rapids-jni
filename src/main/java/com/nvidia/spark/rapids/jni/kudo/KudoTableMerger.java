@@ -107,10 +107,10 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   @Override
   public void preVisitStruct(Schema structType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     colViewInfoList[curColIdx] = new ColumnViewInfo(structType.getType(),
-        offsetInfo, nullCount, totalRowCount);
+        offsetInfo, toIntExact(nullCount), totalRowCount);
 
 
     for (int i=0; i<kudoTables.length; i++) {
@@ -130,12 +130,12 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   @Override
   public void preVisitList(Schema listType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     deserializeOffsetBuffer(offsetInfo);
 
     colViewInfoList[curColIdx] = new ColumnViewInfo(listType.getType(),
-        offsetInfo, nullCount, totalRowCount);
+        offsetInfo, toIntExact(nullCount), totalRowCount);
 
     for (int i=0; i<kudoTables.length; i++) {
       KudoTableHeader header = kudoTables[i].getHeader();
@@ -161,7 +161,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
   @Override
   public void visit(Schema primitiveType) {
     ColumnOffsetInfo offsetInfo = getCurColumnOffsets();
-    int nullCount = deserializeValidityBuffer(offsetInfo);
+    long nullCount = deserializeValidityBuffer(offsetInfo);
     int totalRowCount = rowCounts[curColIdx];
     if (primitiveType.getType().hasOffsets()) {
       deserializeOffsetBuffer(offsetInfo);
@@ -171,7 +171,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     }
 
     colViewInfoList[curColIdx] = new ColumnViewInfo(primitiveType.getType(),
-        offsetInfo, nullCount, totalRowCount);
+        offsetInfo, toIntExact(nullCount), totalRowCount);
 
     if (primitiveType.getType().hasOffsets()) {
       for (int i=0; i<kudoTables.length; i++) {
@@ -200,9 +200,9 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     curColIdx++;
   }
 
-  private int deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
+  private long deserializeValidityBuffer(ColumnOffsetInfo curColOffset) {
     if (curColOffset.getValidity() != INVALID_OFFSET) {
-      int offset = toIntExact(curColOffset.getValidity());
+      long offset = curColOffset.getValidity();
 
       ValidityBufferMerger merger = new ValidityBufferMerger(buffer, offset, inputBuf, outputBuf);
       for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
@@ -285,7 +285,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
           }
 
           sliceInfoBuf[tableIdx] = new SliceInfo(firstOffset, lastOffset - firstOffset);
-          accumulatedDataLen += (lastOffset - firstOffset);
+          long newAccumulatedDataLen = accumulatedDataLen + (long)(lastOffset - firstOffset);
+          accumulatedDataLen = toIntExact(newAccumulatedDataLen);
         } else {
           sliceInfoBuf[tableIdx] = EMPTY_SLICE;
         }
@@ -307,7 +308,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
           SliceInfo sliceInfo = sliceInfoOf(tableIdx);
           if (sliceInfo.getRowCount() > 0) {
-            int thisDataLen = toIntExact(elementSize * sliceInfo.getRowCount());
+            long thisDataLen = (long) elementSize * sliceInfo.getRowCount();
             copyDataBuffer(buffer, start, tableIdx, thisDataLen);
             start += thisDataLen;
           }
@@ -338,7 +339,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
     return kudoTables[tableIdx].getBuffer().getInt(startOffset + rowIdx * Integer.BYTES);
   }
 
-  private void copyDataBuffer(HostMemoryBuffer dst, long dstOffset, int tableIdx, int dataLen) {
+  private void copyDataBuffer(HostMemoryBuffer dst, long dstOffset, int tableIdx, long dataLen) {
     long startOffset = dataOffsets[tableIdx];
     dst.copyFromHostBuffer(dstOffset, kudoTables[tableIdx].getBuffer(), startOffset, dataLen);
   }
@@ -361,25 +362,25 @@ class KudoTableMerger implements SimpleSchemaVisitor {
    */
   static class ValidityBufferMerger {
     private final HostMemoryBuffer dest;
-    private final int destOffset;
+    private final long destOffset;
     private final int[] inputBuf;
     private final int[] outputBuf;
 
-    private int totalNullCount = 0;
-    private int totalRowCount = 0;
+    private long totalNullCount = 0;
+    private long totalRowCount = 0;
 
-    ValidityBufferMerger(HostMemoryBuffer dest, int destOffset, int[] inputBuf, int[] outputBuf) {
+    ValidityBufferMerger(HostMemoryBuffer dest, long destOffset, int[] inputBuf, int[] outputBuf) {
       this.dest = dest;
       this.destOffset = destOffset;
       this.inputBuf = inputBuf;
       this.outputBuf = outputBuf;
     }
 
-    int getTotalNullCount() {
+    long getTotalNullCount() {
       return totalNullCount;
     }
 
-    int getTotalRowCount() {
+    long getTotalRowCount() {
       return totalRowCount;
     }
 
@@ -410,7 +411,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         return 0;
       }
 
-      int curDestBitIdx = totalRowCount % 32;
+      int curDestBitIdx = toIntExact(totalRowCount % 32);
       int curSrcBitIdx = sliceInfo.getValidityBufferInfo().getBeginBit();
       int nullCount;
 
@@ -442,8 +443,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       if (numRows <= 0) {
         return;
       }
-      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
-      int curDestBitIdx = totalRowCount % 32;
+      long curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = toIntExact(totalRowCount % 32);
 
       // First output
       int firstOutput = dest.getInt(curDestIntIdx);
@@ -473,8 +474,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       int nullCount = 0;
       int leftRowCount = sliceInfo.getRowCount();
 
-      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
-      int curDestBitIdx = totalRowCount % 32;
+      long curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = toIntExact(totalRowCount % 32);
 
       int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
       int curSrcIntIdx = srcOffset;
@@ -547,8 +548,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       int leftRowCount = sliceInfo.getRowCount();
       int nullCount = 0;
 
-      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
-      int curDestBitIdx = totalRowCount % 32;
+      long curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = toIntExact(totalRowCount % 32);
 
       int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
       int curSrcIntIdx = srcOffset;
@@ -644,8 +645,8 @@ class KudoTableMerger implements SimpleSchemaVisitor {
       int leftRowCount = sliceInfo.getRowCount();
       int nullCount = 0;
 
-      int curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
-      int curDestBitIdx = totalRowCount % 32;
+      long curDestIntIdx = destOffset + (totalRowCount / 32) * 4;
+      int curDestBitIdx = toIntExact(totalRowCount % 32);
 
       int srcIntBufLen = (sliceInfo.getValidityBufferInfo().getBufferLength() + 3) / 4;
       int curSrcIntIdx = srcOffset;

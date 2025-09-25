@@ -24,6 +24,7 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/hashing/detail/hash_functions.cuh>
 #include <cudf/lists/lists_column_view.hpp>
@@ -1411,6 +1412,8 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     remaining_rows -= rows_in_batch;
   } while (remaining_words > 0);
 
+  __syncthreads();
+
   // final trailing bits, if any
   if (threadIdx.x == 0 && dst_word_index == last_word_index) {
     valid_count += store_word(dst_word_index, prev_word[0]);
@@ -1496,7 +1499,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
           return batches[i].btype == buffer_type::DATA ? batches[i].size : 0;
         }));
 
-    size_t temp_storage_bytes;
+    size_t temp_storage_bytes{0};
     cub::DeviceMemcpy::Batched(
       nullptr, temp_storage_bytes, input_iter, output_iter, size_iter, batches.size(), stream);
     rmm::device_buffer temp_storage(

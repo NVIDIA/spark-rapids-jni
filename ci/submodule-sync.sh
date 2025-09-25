@@ -17,7 +17,9 @@
 
 # NOTE:
 #     this script is for jenkins only, and should not be used for local development
-#     run with ci/Dockerfile in jenkins: `ci/submodule-sync.sh`
+#     run with ci/Dockerfile in jenkins:
+#         source build/env.sh
+#         ${sclCMD} ci/submodule-sync.sh
 
 set -ex
 

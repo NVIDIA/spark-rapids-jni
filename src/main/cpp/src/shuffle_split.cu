@@ -24,6 +24,8 @@
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/detail/utilities/grid_1d.cuh>
+#include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/hashing/detail/hash_functions.cuh>
 #include <cudf/lists/lists_column_view.hpp>
