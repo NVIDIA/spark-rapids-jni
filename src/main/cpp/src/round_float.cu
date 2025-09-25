@@ -16,8 +16,6 @@
 
 #include "round_float.hpp"
 
-#include <cuda/std/type_traits>
-
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/detail/null_mask.hpp>
@@ -30,13 +28,13 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
 
+#include <cuda/std/type_traits>
 #include <thrust/transform.h>
 
 #include <cmath>
 #include <type_traits>
 
 namespace spark_rapids_jni {
-
 
 inline float __device__ generic_round(float f) { return roundf(f); }
 inline double __device__ generic_round(double d) { return ::round(d); }
@@ -47,14 +45,10 @@ inline double __device__ generic_round_half_even(double d) { return rint(d); }
 inline __device__ float generic_modf(float a, float* b) { return modff(a, b); }
 inline __device__ double generic_modf(double a, double* b) { return modf(a, b); }
 
-
 template <typename T>
 struct half_up_zero {
   T n;  // unused in the decimal_places = 0 case
-  __device__ T operator()(T e)
-  {
-    return generic_round(e);
-  }
+  __device__ T operator()(T e) { return generic_round(e); }
 };
 
 template <typename T>
@@ -71,19 +65,13 @@ struct half_up_positive {
 template <typename T>
 struct half_up_negative {
   T n;
-  __device__ T operator()(T e)
-  {
-    return generic_round(e / n) * n;
-  }
+  __device__ T operator()(T e) { return generic_round(e / n) * n; }
 };
 
 template <typename T>
 struct half_even_zero {
   T n;  // unused in the decimal_places = 0 case
-  __device__ T operator()(T e)
-  {
-    return generic_round_half_even(e);
-  }
+  __device__ T operator()(T e) { return generic_round_half_even(e); }
 };
 
 template <typename T>
@@ -100,10 +88,7 @@ struct half_even_positive {
 template <typename T>
 struct half_even_negative {
   T n;
-  __device__ T operator()(T e)
-  {
-    return generic_round_half_even(e / n) * n;
-  }
+  __device__ T operator()(T e) { return generic_round_half_even(e / n) * n; }
 };
 
 template <typename T, template <typename> typename RoundFunctor>
@@ -111,7 +96,7 @@ std::unique_ptr<cudf::column> round_with(cudf::column_view const& input,
                                          int32_t decimal_places,
                                          rmm::cuda_stream_view stream,
                                          rmm::device_async_resource_ref mr)
-    requires(std::is_floating_point_v<T>)
+  requires(std::is_floating_point_v<T>)
 {
   using Functor = RoundFunctor<T>;
 
@@ -140,7 +125,7 @@ struct round_type_dispatcher {
   {
     CUDF_FAIL("Type not supported for spark_rapids_jni::round");
   }
-  
+
   template <typename T>
   std::unique_ptr<cudf::column> operator()(cudf::column_view const& input,
                                            int32_t decimal_places,
@@ -175,15 +160,13 @@ std::unique_ptr<cudf::column> round(cudf::column_view const& input,
   CUDF_EXPECTS(cudf::is_numeric(input.type()) || cudf::is_fixed_point(input.type()),
                "Only integral/floating point/fixed point currently supported.");
 
-  if(!cudf::is_floating_point(input.type())) {
+  if (!cudf::is_floating_point(input.type())) {
     return cudf::round_decimal(input, decimal_places, method, stream, mr);
   }
-  if (input.is_empty()) {
-    return cudf::empty_like(input);
-  }
+  if (input.is_empty()) { return cudf::empty_like(input); }
 
   return cudf::type_dispatcher(
     input.type(), round_type_dispatcher{}, input, decimal_places, method, stream, mr);
 }
 
-} // namespace spark_rapids_jni
+}  // namespace spark_rapids_jni
