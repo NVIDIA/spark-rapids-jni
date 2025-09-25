@@ -17,7 +17,8 @@
 
 extern "C" {
 
-JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceIntegrated(JNIEnv* env, jclass)
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceIntegrated(JNIEnv* env,
+                                                                                      jclass)
 {
   try {
     int device{};
