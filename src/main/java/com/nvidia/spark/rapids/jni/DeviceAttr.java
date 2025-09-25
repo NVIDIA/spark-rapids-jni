@@ -7,9 +7,9 @@ public class DeviceAttr {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  public static long isIntegratedGPU() {
+  public static int isIntegratedGPU() {
     return isDeviceIntegrated();
   }
 
-  private static native long isDeviceIntegrated();
+  private static native int isDeviceIntegrated();
 }
