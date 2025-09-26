@@ -40,7 +40,10 @@ public interface RapidsFileIO extends Serializable {
    * @return a new {@link RapidsOutputFile} for the given path
    * @throws IOException If the underlying file system throws IOException
    */
-  RapidsOutputFile newOutputFile(String path) throws IOException;
+  default RapidsOutputFile newOutputFile(String path) throws IOException {
+    // To void breaking downstream, we provide a default implementation that throws
+    throw new UnsupportedOperationException("Output file not supported");
+  }
 
 
   /**
