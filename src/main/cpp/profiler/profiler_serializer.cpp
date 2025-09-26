@@ -367,7 +367,9 @@ void profiler_serializer::process_api_activity(CUpti_ActivityAPI const* r)
 
 void profiler_serializer::process_device_activity(CUpti_ActivityDevice4 const* r)
 {
-  auto name = fbb_.CreateSharedString(r->name);
+  auto has_name = r->name != nullptr;
+  flatbuffers::Offset<flatbuffers::String> name;
+  if (has_name) { name = fbb_.CreateSharedString(r->name); }
   DeviceActivityBuilder dab(fbb_);
   dab.add_global_memory_bandwidth(r->globalMemoryBandwidth);
   dab.add_global_memory_size(r->globalMemorySize);
@@ -411,7 +413,9 @@ void profiler_serializer::process_kernel(CUpti_ActivityKernel8 const* r)
     // Ignore records with invalid timestamps
     return;
   }
-  auto name = fbb_.CreateSharedString(r->name);
+  auto has_name = r->name != nullptr;
+  flatbuffers::Offset<flatbuffers::String> name;
+  if (has_name) { name = fbb_.CreateSharedString(r->name); }
   KernelActivityBuilder kab(fbb_);
   kab.add_requested(r->cacheConfig.config.requested);
   kab.add_executed(r->cacheConfig.config.executed);
