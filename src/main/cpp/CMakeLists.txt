@@ -192,6 +192,7 @@ add_library(
   src/CastStringJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
+  src/DeviceAttrJni.cpp
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
