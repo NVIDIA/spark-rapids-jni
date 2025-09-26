@@ -19,11 +19,11 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/row_operator/row_operators.cuh>
 #include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/gather.hpp>
 #include <cudf/lists/set_operations.hpp>
 #include <cudf/reduction.hpp>
-#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_view.hpp>
 #include <cudf/unary.hpp>
 #include <cudf/utilities/span.hpp>
@@ -265,10 +265,10 @@ std::unique_ptr<column> indices_of(
   auto const values_tview = cudf::table_view{{all_values}};
   auto const has_nulls    = has_nested_nulls(values_tview) || has_nested_nulls(keys_tview);
   auto const comparator =
-    cudf::experimental::row::equality::two_table_comparator(values_tview, keys_tview, stream);
+    cudf::detail::row::equality::two_table_comparator(values_tview, keys_tview, stream);
   auto const d_comp    = comparator.equal_to<false>(cudf::nullate::DYNAMIC{has_nulls});
-  using lhs_index_type = cudf::experimental::row::lhs_index_type;
-  using rhs_index_type = cudf::experimental::row::rhs_index_type;
+  using lhs_index_type = cudf::detail::row::lhs_index_type;
+  using rhs_index_type = cudf::detail::row::rhs_index_type;
 
   // Perform the actual key-value comparisons
   // For each comparison: if key == value, return the value index; otherwise return Out of Bounds
