@@ -471,7 +471,7 @@ void profiler_serializer::process_marker_activity(CUpti_ActivityMarker2 const* r
   }
   auto object_id  = add_object_id(fbb_, r->objectKind, r->objectId);
   auto has_name   = r->name != nullptr;
-  auto has_domain = r->name != nullptr;
+  auto has_domain = r->domain != nullptr;
   flatbuffers::Offset<flatbuffers::String> name;
   flatbuffers::Offset<flatbuffers::String> domain;
   if (has_name) { name = fbb_.CreateSharedString(r->name); }
