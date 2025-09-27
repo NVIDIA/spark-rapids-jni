@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -367,7 +367,9 @@ void profiler_serializer::process_api_activity(CUpti_ActivityAPI const* r)
 
 void profiler_serializer::process_device_activity(CUpti_ActivityDevice4 const* r)
 {
-  auto name = fbb_.CreateSharedString(r->name);
+  auto has_name = r->name != nullptr;
+  flatbuffers::Offset<flatbuffers::String> name;
+  if (has_name) { name = fbb_.CreateSharedString(r->name); }
   DeviceActivityBuilder dab(fbb_);
   dab.add_global_memory_bandwidth(r->globalMemoryBandwidth);
   dab.add_global_memory_size(r->globalMemorySize);
@@ -411,7 +413,9 @@ void profiler_serializer::process_kernel(CUpti_ActivityKernel8 const* r)
     // Ignore records with invalid timestamps
     return;
   }
-  auto name = fbb_.CreateSharedString(r->name);
+  auto has_name = r->name != nullptr;
+  flatbuffers::Offset<flatbuffers::String> name;
+  if (has_name) { name = fbb_.CreateSharedString(r->name); }
   KernelActivityBuilder kab(fbb_);
   kab.add_requested(r->cacheConfig.config.requested);
   kab.add_executed(r->cacheConfig.config.executed);
@@ -467,7 +471,7 @@ void profiler_serializer::process_marker_activity(CUpti_ActivityMarker2 const* r
   }
   auto object_id  = add_object_id(fbb_, r->objectKind, r->objectId);
   auto has_name   = r->name != nullptr;
-  auto has_domain = r->name != nullptr;
+  auto has_domain = r->domain != nullptr;
   flatbuffers::Offset<flatbuffers::String> name;
   flatbuffers::Offset<flatbuffers::String> domain;
   if (has_name) { name = fbb_.CreateSharedString(r->name); }
