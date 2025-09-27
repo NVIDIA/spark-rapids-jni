@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@
 #include "murmur_hash.cuh"
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/row_operator/row_operators.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -62,8 +62,8 @@ namespace {
  */
 template <template <typename> class hash_function, typename Nullate>
 class murmur_device_row_hasher {
-  friend class cudf::experimental::row::hash::row_hasher;  ///< Allow row_hasher to access private
-                                                           ///< members.
+  friend class cudf::detail::row::hash::row_hasher;  ///< Allow row_hasher to access private
+                                                     ///< members.
 
  public:
   /**
@@ -104,7 +104,7 @@ class murmur_device_row_hasher {
     {
     }
 
-    using hash_functor = cudf::experimental::row::hash::element_hasher<hash_fn, Nullate>;
+    using hash_functor = cudf::detail::row::hash::element_hasher<hash_fn, Nullate>;
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ murmur_hash_value_type operator()(cudf::column_device_view const& col,
@@ -136,7 +136,7 @@ class murmur_device_row_hasher {
         _seed,
         [curr_col, nulls = this->_check_nulls] __device__(auto hash, auto element_index) {
           auto const hasher = hash_functor{nulls, hash, hash};
-          return cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+          return cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
             curr_col.type(), hasher, curr_col, element_index);
         });
     }
@@ -203,7 +203,7 @@ std::unique_ptr<cudf::column> murmur_hash3_32(cudf::table_view const& input,
   check_hash_compatibility(input);
 
   bool const nullable   = has_nested_nulls(input);
-  auto const row_hasher = cudf::experimental::row::hash::row_hasher(input, stream);
+  auto const row_hasher = cudf::detail::row::hash::row_hasher(input, stream);
   auto output_view      = output->mutable_view();
 
   // Compute the hash value for each row
