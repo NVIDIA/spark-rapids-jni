@@ -47,7 +47,10 @@ import static org.junit.jupiter.api.Assertions.*;
 public class KudoSerializerTest extends CudfTestBase {
   private static final Logger log = LoggerFactory.getLogger(KudoSerializerTest.class);
 
+  static final long RMM_POOL_SIZE_LARGE = 10L * 1024 * 1024 * 1024;
+
   public KudoSerializerTest() {
+    super(RmmAllocationMode.POOL, RMM_POOL_SIZE_LARGE);
   }
 
   @Test
@@ -813,7 +816,7 @@ public class KudoSerializerTest extends CudfTestBase {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
 
-    final int nonNullCount = Integer.MAX_VALUE / 128 - 21; // to avoid OOM
+    final int nonNullCount = Integer.MAX_VALUE / 512 - 21; // to avoid OOM
     final int nullCount = 11; // to add nulls
     final int totalCount = nonNullCount + nullCount;
 
