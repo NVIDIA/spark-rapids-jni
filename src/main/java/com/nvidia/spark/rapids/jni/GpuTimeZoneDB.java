@@ -45,16 +45,18 @@ import java.util.concurrent.Executors;
  */
 class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
   // from `sun.util.calendar.ZoneInfo`
-  private static final long OFFSET_MASK = 0x0fL;
+  private static final long OFFSET_MASK_IN_ZONE_INFO = 0x0FL;
 
   // from `sun.util.calendar.ZoneInfo`
-  private static final int TRANSITION_NSHIFT = 12;
+  private static final int TRANSITION_NSHIFT_IN_ZONE_INFO = 12;
 
+  // Uses 20 bits to store offset in seconds
   private static final int OFFSET_SHIFT = 20;
 
-  // The most significant 44-bit field represents transition time
-  // in seconds from Gregorian January 1 1970, 00:00:00 GMT;
-  // The least significant 20-bit field is offset in seconds from UTC.
+  // Offset bit mask: 20 one bits
+  private static final long OFFSET_MASK = 0xFFFFFL;
+
+  // Transition time in milliseconds from Gregorian January 1 1970, 00:00:00 GMT;
   long[] transitions;
 
   // raw offset in `sun.util.calendar.ZoneInfo`, but in seconds
@@ -66,38 +68,33 @@ class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
    * Extract isDST from `ZoneInfo.transitions`.
    * The inputs are from `sun.util.calendar.ZoneInfo` via reflection.
    * 
-   * @param transitions   transitions in milliseconds from
-   *                      `sun.util.calendar.ZoneInfo`
+   * @param transitions transitions in milliseconds from
+   *                    `sun.util.calendar.ZoneInfo`
    * @param offsets     offsets in `sun.util.calendar.ZoneInfo` in milliseconds
    * @param rawOffset   raw offset in `sun.util.calendar.ZoneInfo` in milliseconds
    */
   TimeZoneInfoInJavaUtilPackage(long[] transitions, int[] offsets, int rawOffset) {
     if (transitions != null) {
-      if (transitions.length == 0) {
-        throw new IllegalArgumentException("transitions should not be empty");
-      }
       this.transitions = new long[transitions.length];
       for (int i = 0; i < transitions.length; i++) {
-        long transitionMs = (transitions[i] >> TRANSITION_NSHIFT);
+        long transitionMs = (transitions[i] >> TRANSITION_NSHIFT_IN_ZONE_INFO);
         if (transitionMs % 1000 != 0) {
           throw new IllegalArgumentException("transitions should be in seconds");
         }
-        long offsetMs = offsets[(int) (transitions[i] & OFFSET_MASK)];
+        long offsetMs = offsets[(int) (transitions[i] & OFFSET_MASK_IN_ZONE_INFO)];
         if (offsetMs % 1000 != 0) {
           throw new IllegalArgumentException("offsets should be in seconds");
         }
-        if (offsetMs < -18L * 3600L * 1000L || offsetMs > 18L * 3600L * 1000L) {
+        long offsetSeconds = offsetMs / 1000L;
+        if (offsetSeconds < -18L * 3600L || offsetSeconds > 18L * 3600L) {
           throw new IllegalArgumentException("offsets should be in range [-18h, +18h]");
         }
-        this.transitions[i] = ((transitionMs / 1000L) << OFFSET_SHIFT) & (offsetMs / 1000L);
+
+        // store transition in seconds and offset in seconds in one long
+        // the most least significant 16 bits are for offset in seconds
+        this.transitions[i] = ((transitionMs / 1000L) << OFFSET_SHIFT)
+            | (OFFSET_MASK & offsetSeconds);
       }
-    } else {
-      // if transitions is null, it means fixed offset timezone, in order to handle
-      // uniformly,
-      // here set transitions to a long array with one element Long.MAX_VALUE.
-      this.transitions = new long[1];
-      // 0xFFFFFL is 20 bits of 1, means offset is 1048575 seconds
-      this.transitions[0] = Long.MAX_VALUE & (~0xFFFFFL);
     }
     if (rawOffset % 1000 != 0) {
       throw new IllegalArgumentException("rawOffset should be in seconds, but find milliseconds");
@@ -765,6 +762,10 @@ public class GpuTimeZoneDB {
    * @return a table on GPU containing timezone info from `java.util.TimeZone`
    */
   private static Table getTableForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
+    if (info.transitions == null) {
+      // fixed offset timezone
+      return null;
+    }
     try (ColumnVector trans = getTransitionsForUtilTZ(info)) {
       return new Table(trans);
     } catch (Exception e) {
@@ -812,12 +813,12 @@ public class GpuTimeZoneDB {
         Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
         Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
 
-          // convert between timezones
-          return new ColumnVector(convertBetweenTimezones(
+      // convert between timezones
+      return new ColumnVector(convertBetweenTimezones(
           input.getNativeView(),
-          writerTzInfoTable.getNativeView(),
+          writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0,
           writerTzInfo.rawOffset,
-          readerTzInfoTable.getNativeView(),
+          readerTzInfoTable != null ? readerTzInfoTable.getNativeView() : 0,
           readerTzInfo.rawOffset));
     } catch (Exception e) {
       throw new IllegalStateException("convert between timezones failed!", e);

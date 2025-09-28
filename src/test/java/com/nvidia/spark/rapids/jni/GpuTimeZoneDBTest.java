@@ -54,12 +54,6 @@ public class GpuTimeZoneDBTest {
       long adjustedReader = readerTz.getOffset(adjustedMillis);
       long finalDiffs = writerOffset - adjustedReader;
       results[i] = (millis + finalDiffs) * microsPerMillis + (microseconds[i] % microsPerMillis);
-
-      System.out.println(String.format("my-debug,java: input %s, millis %d, writer offset %s, reader offset %s, "
-              + "adjusted millis %s, adjusted reader offset %s, final diffs %s, result %s",
-          microseconds[i], millis, writerOffset, readerOffset,
-          adjustedMillis, adjustedReader, finalDiffs,
-          results[i]));
     }
     return ColumnVector.timestampMicroSecondsFromLongs(results);
   }
@@ -74,19 +68,7 @@ public class GpuTimeZoneDBTest {
 
     // use today as the random seed so we get different values each day
     Random rng = new Random(LocalDate.now().toEpochDay());
-
-    // TODO
-    // long seed = System.currentTimeMillis();
-    // System.out.println("my-debug: Random seed: " + seed);
-    // Random rng = new Random(seed);
-
-    // test all combinations of timezones
-    // String[] tzIds = TimeZone.getAvailableIDs();
-
-    String[] tzIds = new String[] {
-        "Africa/Abidjan",
-        "Africa/Addis_Ababa"
-    };
+    String[] tzIds = TimeZone.getAvailableIDs();
 
     for (String writerTz : tzIds) {
       if (GpuTimeZoneDB.isDST(writerTz)) {
@@ -94,34 +76,25 @@ public class GpuTimeZoneDBTest {
         continue;
       }
       for (String readerTz : tzIds) {
-        if ("Africa/Abidjan".equals(writerTz) && "Africa/Addis_Ababa".equals(readerTz)) {
-          if (GpuTimeZoneDB.isDST(readerTz)) {
-            // currently do not support DST conversions
-            continue;
-          }
-          long[] microseconds = new long[1]; // TODO
-          for (int i = 0; i < microseconds.length; ++i) {
-            // range is years from 0001 to 9999
-            microseconds[i] = -1386908671641328L;
-            // microseconds[i] = min + (long) (rng.nextDouble() * (max - min));
-          }
+        if (GpuTimeZoneDB.isDST(readerTz)) {
+          // currently do not support DST conversions
+          continue;
+        }
+        long[] microseconds = new long[1024]; // TODO
+        for (int i = 0; i < microseconds.length; ++i) {
+          // range is years from 0001 to 9999
+          microseconds[i] = min + (long) (rng.nextDouble() * (max - min));
+        }
 
-          // System.out.println("my-debug: row 31 is " + microseconds[31] + ", writerTz " + writerTz + ", readerTz " + readerTz);
+        // System.out.println("my-debug: row 31 is " + microseconds[31] + ", writerTz "
+        // + writerTz + ", readerTz " + readerTz);
 
-          try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(microseconds);
-              // Convert on CPU
-              ColumnVector expected = convertBetweenTimezonesOnCPU(microseconds, writerTz, readerTz);
-              // Convert on GPU
-              ColumnVector actual = GpuTimeZoneDB.convertBetweenTimezones(input, writerTz, readerTz)) {
-
-            try {    
-            assertColumnsAreEqual(expected, actual);
-            } catch (AssertionError ex) {
-              System.out.println(String.format("my-debug: AssertionError, writerTz %s, readerTz %s",
-                  writerTz, readerTz));
-              throw ex;
-            }
-          }
+        try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(microseconds);
+            // Convert on CPU
+            ColumnVector expected = convertBetweenTimezonesOnCPU(microseconds, writerTz, readerTz);
+            // Convert on GPU
+            ColumnVector actual = GpuTimeZoneDB.convertBetweenTimezones(input, writerTz, readerTz)) {
+          assertColumnsAreEqual(expected, actual);
         }
       }
     }

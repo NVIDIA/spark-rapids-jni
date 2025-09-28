@@ -104,21 +104,17 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertBetweenTimezones(JNIEnv* e
                                                                        jint reader_tz_raw_offset)
 {
   // checks
-  JNI_NULL_CHECK(env, input_handle, "column is null", 0);
-  JNI_NULL_CHECK(env, writer_tz_info_table, "column is null", 0);
-  JNI_NULL_CHECK(env, reader_tz_info_table, "column is null", 0);
+  JNI_NULL_CHECK(env, input_handle, "input column is null", 0);
 
   try {
     cudf::jni::auto_set_device(env);
     auto const input              = reinterpret_cast<cudf::column_view const*>(input_handle);
     auto const writer_tz_info_tab = reinterpret_cast<cudf::table_view const*>(writer_tz_info_table);
     auto const reader_tz_info_tab = reinterpret_cast<cudf::table_view const*>(reader_tz_info_table);
-    return cudf::jni::ptr_as_jlong(spark_rapids_jni::convert_between_timezones(*input,
-                                                                               *writer_tz_info_tab,
-                                                                               writer_tz_raw_offset,
-                                                                               *reader_tz_info_tab,
-                                                                               reader_tz_raw_offset)
-                                     .release());
+    return cudf::jni::ptr_as_jlong(
+      spark_rapids_jni::convert_between_timezones(
+        *input, writer_tz_info_tab, writer_tz_raw_offset, reader_tz_info_tab, reader_tz_raw_offset)
+        .release());
   }
   CATCH_STD(env, 0);
 }

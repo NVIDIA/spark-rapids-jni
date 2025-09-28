@@ -247,17 +247,25 @@ __device__ static timestamp_type convert_timestamp(
   return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
 }
 
+namespace {  //  anonymous namespace begin
+/**
+ * @brief Get the transition index for the given seconds using binary search.
+ * The transition array is sorted by the seconds * (2^16) + offset (in seconds).
+ */
 __device__ static int get_transition_index(int64_t const* begin,
                                            int64_t const* end,
                                            int64_t seconds)
 {
+  constexpr int OFFSET_SHIFT = 20;
+  if (begin == end) { return -1; }
+
   int low  = 0;
   int high = end - begin - 1;
 
   while (low <= high) {
     int mid     = (low + high) / 2;
     int64_t val = begin[mid];
-    long midVal = val >> 20;  // sign retained
+    long midVal = val >> OFFSET_SHIFT;  // sign retained
     if (midVal < seconds) {
       low = mid + 1;
     } else if (midVal > seconds) {
@@ -271,6 +279,30 @@ __device__ static int get_transition_index(int64_t const* begin,
   if (low >= (end - begin)) { return low; }
   return low - 1;
 }
+
+/**
+ * @brief Get the int value from the least significant `num_bits` in a int64_t value.
+ * Note: If the `num_bits` bit is 1, it returns negative value.
+ * @param holder the int64_t value holds the bits.
+ * @param num_bits the number of bits to get from the least significant bits.
+ * @return the int value from the least significant `num_bits` in a int64_t value.
+ */
+__device__ static int64_t get_value_from_lowest_bits(int64_t holder, int num_bits)
+{
+  int64_t mask      = (1L << num_bits) - 1L;
+  int64_t sign_mask = 1L << (num_bits - 1);
+
+  if ((holder & sign_mask) != 0) {
+    // the sign bit is 1, it's a negative value
+    // set all the complement bits to 1
+    return holder | (~mask);
+  }
+
+  // positive value
+  return holder & mask;
+}
+
+}  // namespace
 
 /**
  * @brief Find the relative offset when moving between timezones at a particular point in time.
@@ -291,95 +323,60 @@ __device__ static int get_transition_index(int64_t const* begin,
  */
 __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   cudf::timestamp_us ts,
-  cudf::column_device_view const& writer_transitions,
+  int64_t const* writer_trans_begin,
+  int64_t const* writer_trans_end,
   cudf::size_type writer_raw_offset,
-  cudf::column_device_view const& reader_transitions,
+  int64_t const* reader_trans_begin,
+  int64_t const* reader_trans_end,
   cudf::size_type reader_raw_offset)
 {
-  constexpr int32_t OFFSET_SHIFT = 20;
-
-  printf("my-debug,kernel: input ts %ld\n", ts.time_since_epoch().count());
+  constexpr int32_t OFFSET_BITS = 20;
 
   int64_t const epoch_seconds = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_s>(ts.time_since_epoch()).count());
 
-  printf("my-debug,kernel: epoch_seconds %ld\n", epoch_seconds);
-
-  int64_t const* writer_trans_begin = writer_transitions.data<int64_t>();
-  int64_t const* writer_trans_end   = writer_trans_begin + writer_transitions.size();
-
-  int64_t const* reader_trans_begin = reader_transitions.data<int64_t>();
-  int64_t const* reader_trans_end   = reader_trans_begin + reader_transitions.size();
-
-  int64_t const* p = writer_trans_begin;
-  while (p < writer_trans_end) {
-    int64_t tran         = *p;
-    int64_t tran_seconds = tran >> OFFSET_SHIFT;
-    int32_t tran_offset  = static_cast<int32_t>(tran & ((1L << OFFSET_SHIFT) - 1));
-    printf("my-debug,kernel: writer transition %ld, seconds %ld, offset %d\n",
-           tran,
-           tran_seconds,
-           tran_offset);
-    p++;
-  }
-
-  int const writer_index =
-    get_transition_index(writer_trans_begin, writer_trans_end, epoch_seconds);
-
-  printf("my-debug,kernel: writer_index %d\n", writer_index);
-
   int64_t writer_offset = [&] {
-    if (writer_index >= 0 && writer_index < writer_transitions.size()) {
-      auto tran = writer_transitions.element<int64_t>(writer_index);
-      return (tran >> OFFSET_SHIFT);
+    int const writer_index =
+      get_transition_index(writer_trans_begin, writer_trans_end, epoch_seconds);
+
+    if (writer_index >= 0 && writer_index < (writer_trans_end - writer_trans_begin)) {
+      return get_value_from_lowest_bits(writer_trans_begin[writer_index], OFFSET_BITS);
     } else {
       return static_cast<int64_t>(writer_raw_offset);
     }
   }();
 
-  printf("my-debug,kernel: writer offset %ld\n", writer_offset);
-
-  int const reader_index =
-    get_transition_index(reader_trans_begin, reader_trans_end, epoch_seconds);
   int64_t reader_offset = [&] {
-    if (reader_index >= 0 && reader_index < reader_transitions.size()) {
-      auto tran = reader_transitions.element<int64_t>(reader_index);
-      return (tran >> OFFSET_SHIFT);
+    int const reader_index =
+      get_transition_index(reader_trans_begin, reader_trans_end, epoch_seconds);
+    if (reader_index >= 0 && reader_index < (reader_trans_end - reader_trans_begin)) {
+      return get_value_from_lowest_bits(reader_trans_begin[reader_index], OFFSET_BITS);
     } else {
       return static_cast<int64_t>(reader_raw_offset);
     }
   }();
 
-  printf("my-debug,kernel: reader offset %ld\n", reader_offset);
-  //
-  int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
-  int const reader_adjusted_index =
-    get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);
   int64_t reader_adjusted_offset = [&] {
-    if (reader_adjusted_index >= 0 && reader_adjusted_index < reader_transitions.size()) {
-      auto tran = reader_transitions.element<int64_t>(reader_adjusted_index);
-      return (tran >> OFFSET_SHIFT);
+    int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
+
+    // printf("my-debug,kernel: adjusted_seconds %ld\n", adjusted_seconds);
+
+    int const reader_adjusted_index =
+      get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);
+
+    if (reader_adjusted_index >= 0 &&
+        reader_adjusted_index < (reader_trans_end - reader_trans_begin)) {
+      return get_value_from_lowest_bits(reader_trans_begin[reader_adjusted_index], OFFSET_BITS);
     } else {
       return static_cast<int64_t>(reader_raw_offset);
     }
   }();
 
-  printf("my-debug,kernel: adjusted_seconds %ld\n", adjusted_seconds);
-
-  printf("my-debug,kernel: reader_adjusted_offset %ld\n", reader_adjusted_offset);
-
-  int64_t final_offset_seconds = writer_offset - reader_adjusted_offset;
-
-  printf("my-debug,kernel: final diff %ld\n", final_offset_seconds);
-
+  int64_t final_offset_seconds =
+    static_cast<int64_t>(writer_offset) - static_cast<int64_t>(reader_adjusted_offset);
   int64_t const epoch_us = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
-
-  printf("my-debug,kernel: epoch_us %ld\n", epoch_us);
-
   int64_t final_result = epoch_us + final_offset_seconds * 1'000'000L;
-
-  printf("my-debug,kernel: final_result %ld\n", final_result);
   return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
