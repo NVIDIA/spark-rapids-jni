@@ -149,20 +149,6 @@ struct buffer_slice {
 };
 
 /**
- * @brief Metadata for a single column to reconstruct it from buffer slices
- */
-struct column_metadata {
-  cudf::type_id type;
-  int32_t scale;  // for decimal types
-  cudf::size_type num_rows;
-  cudf::size_type null_count;
-  bool has_validity;
-  size_t data_buffer_idx;      // index into buffer_slices array
-  size_t validity_buffer_idx;  // index into buffer_slices array
-  size_t offsets_buffer_idx;   // index into buffer_slices array (for string/list types)
-};
-
-/**
  * @brief Shuffle assemble result with shared buffer slices and native column_view handles for
  * zero-copy column reconstruction
  */
