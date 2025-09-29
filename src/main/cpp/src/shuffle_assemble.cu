@@ -1630,23 +1630,13 @@ calculate_empty_buffer_sizes(cudf::host_span<shuffle_split_col_data const> col_i
 }
 
 // initialize buffers for empty columns
-void initialize_empty_buffers(uint8_t* buffer_base,
-                              size_t total_size,
-                              std::vector<size_t> const& validity_sizes,
-                              std::vector<size_t> const& offsets_sizes,
-                              std::vector<size_t> const& data_sizes,
-                              rmm::cuda_stream_view stream)
+void initialize_empty_buffers(uint8_t* buffer_base, size_t total_size, rmm::cuda_stream_view stream)
 {
   // Initialize all buffers to 0, which is correct for:
   // - Validity: all bits 0 (but since num_rows=0, no bits matter)
   // - Offsets: 0 (correct for empty offsets)
   // - Data: 0 (empty data)
   cudaMemsetAsync(buffer_base, 0, total_size, stream);
-
-  // For validity buffers that have non-zero size, set all bits to 1 (valid)
-  // But since num_rows = 0, there are no bits to set
-  // For offsets, for string/list columns, we need [0, 0] for empty case
-  // But since offsets_sizes should be 0 for num_rows = 0, no initialization needed
 }
 
 // create buffer slices for empty columns
@@ -1658,24 +1648,22 @@ std::vector<buffer_slice> create_empty_buffer_slices(
   auto [validity_sizes, offsets_sizes, data_sizes] =
     calculate_empty_buffer_sizes(col_info, assemble_data);
 
-  std::vector<buffer_slice> buffer_slices(col_info.size() *
-                                          3);  // validity, offsets, data per column
-  size_t offset = 0;
+  size_t num_dst_buffers = col_info.size() * 3;
+  std::vector<size_t> all_sizes;
+  all_sizes.reserve(num_dst_buffers);
+  for (size_t col = 0; col < col_info.size(); col++) {
+    all_sizes.push_back(validity_sizes[col]);
+    all_sizes.push_back(offsets_sizes[col]);
+    all_sizes.push_back(data_sizes[col]);
+  }
 
-  for (size_t col_idx = 0; col_idx < col_info.size(); col_idx++) {
-    size_t validity_idx = col_idx * 3;
-    size_t offsets_idx  = col_idx * 3 + 1;
-    size_t data_idx     = col_idx * 3 + 2;
+  std::vector<size_t> buffer_offsets(num_dst_buffers);
+  std::exclusive_scan(all_sizes.begin(), all_sizes.end(), buffer_offsets.begin(), size_t{0});
 
-    buffer_slices[validity_idx] =
-      buffer_slice(buffer_base + offset, validity_sizes[col_idx], offset);
-    offset += validity_sizes[col_idx];
-
-    buffer_slices[offsets_idx] = buffer_slice(buffer_base + offset, offsets_sizes[col_idx], offset);
-    offset += offsets_sizes[col_idx];
-
-    buffer_slices[data_idx] = buffer_slice(buffer_base + offset, data_sizes[col_idx], offset);
-    offset += data_sizes[col_idx];
+  std::vector<buffer_slice> buffer_slices(num_dst_buffers);
+  for (size_t i = 0; i < num_dst_buffers; i++) {
+    buffer_slices[i] =
+      buffer_slice(buffer_base + buffer_offsets[i], all_sizes[i], buffer_offsets[i]);
   }
 
   return buffer_slices;
@@ -1925,8 +1913,7 @@ shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
     uint8_t* buffer_base = static_cast<uint8_t*>(shared_buffer.data());
 
     // Initialize buffers appropriately for empty columns
-    initialize_empty_buffers(
-      buffer_base, total_size, validity_sizes, offsets_sizes, data_sizes, stream);
+    initialize_empty_buffers(buffer_base, total_size, stream);
 
     // Create buffer slices
     std::vector<buffer_slice> buffer_slices =
