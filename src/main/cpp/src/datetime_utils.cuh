@@ -310,16 +310,19 @@ __device__ static int64_t get_value_from_lowest_bits(int64_t holder, int num_bit
  * This function implements `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`
  * Refer to link: https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
  * java/org/apache/orc/impl/SerializationUtils.java#L1440
- * The timezone info is in the `transitions` column and `is_DSTs` column.
- * The timezone info is from Java's `sun.util.calendar.ZoneInfo`.
+ * If the input `trans_begin` == `trans_begin` == 0, it means the timezone is fixed offset.
  * @param ts the input timestamp in UTC timezone to get the offset for.
- * @param is_writer_tz_transition_empty true if writer timezone transition column is empty
- * @param writer_tz_transitions_if_non_empty the writer timezone transition column if not empty
- * @param writer_tz_is_DSTs_if_non_empty the writer timezone is_DST column if not empty
- * @param is_reader_tz_transition_empty true if reader timezone transition column is empty
- * @param reader_tz_transitions_if_non_empty the reader timezone transition column if not empty
- * @param reader_tz_is_DSTs_if_non_empty the reader timezone is_DST column if not empty
- * @return the offset in microseconds between the two timezones at the specified timestamp
+ * @param writer_trans_begin The beginning of the writer timezone transition array, or 0 if using
+ * fixed offset.
+ * @param writer_trans_end The end of the writer timezone transition array, or 0 if using fixed
+ * offset.
+ * @param writer_raw_offset Writer timezone raw offset in seconds.
+ * @param reader_trans_begin The beginning of the reader timezone transition array, or 0 if using
+ * fixed offset.
+ * @param reader_trans_end The end of the reader timezone transition array, or 0 if using fixed
+ * offset.
+ * @param reader_raw_offset Reader timezone raw offset in seconds.
+ * @return the timestamp after apply the offsets between timezones.
  */
 __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   cudf::timestamp_us ts,
@@ -358,8 +361,6 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
 
   int64_t reader_adjusted_offset = [&] {
     int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
-
-    // printf("my-debug,kernel: adjusted_seconds %ld\n", adjusted_seconds);
 
     int const reader_adjusted_index =
       get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);

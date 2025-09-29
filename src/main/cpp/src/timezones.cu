@@ -245,14 +245,6 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
   return result;
 }
 
-/**
- * @brief Returns the offset in microseconds of a time zone
- * for the specified timestamp in UTC timezone.
- * Similar to Java's TimeZone.getOffset(long date)
- * @param timestamp the date represented in microseconds since January 1, 1970 00:00:00 GMT
- * @param transitions The column of transitions to figure out the correct offset.
- * @param is_DSTs The column of is_DST values for each transition.
- */
 struct convert_timezones_functor {
   // writer timezone info
   int64_t const* writer_trans_begin;
@@ -284,7 +276,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
-  // input is from Spark, so it should be TIMESTAMP_MICROSECONDS type
+  // Input is from Spark, so it should be TIMESTAMP_MICROSECONDS type
   CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
                "Input column must be of type TIMESTAMP_MICROSECONDS");
   auto results = cudf::make_timestamp_column(input.type(),
@@ -298,7 +290,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     if (writer_tz_info_table != nullptr) {
       return writer_tz_info_table->column(0).begin<int64_t>();
     } else {
-      // fixed transition, no transitions
+      // fixed transition, has no transitions
       return static_cast<int64_t const*>(0);
     }
   }();
@@ -307,7 +299,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     if (writer_tz_info_table != nullptr) {
       return writer_tz_info_table->column(0).end<int64_t>();
     } else {
-      // fixed transition, no transitions
+      // fixed transition, has no transitions
       return static_cast<int64_t const*>(0);
     }
   }();
@@ -316,7 +308,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     if (reader_tz_info_table != nullptr) {
       return reader_tz_info_table->column(0).begin<int64_t>();
     } else {
-      // fixed transition, no transitions
+      // fixed transition, has no transitions
       return static_cast<int64_t const*>(0);
     }
   }();
@@ -325,7 +317,7 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     if (reader_tz_info_table != nullptr) {
       return reader_tz_info_table->column(0).end<int64_t>();
     } else {
-      // fixed transition, no transitions
+      // fixed transition, has no transitions
       return static_cast<int64_t const*>(0);
     }
   }();

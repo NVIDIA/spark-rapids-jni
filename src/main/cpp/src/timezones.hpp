@@ -120,17 +120,23 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief Convert input column timestamps in UTC to specified timezone
+ * @brief Convert input column timestamps from specified writer timezone to specified reader
+ * timezone.
  *
- * The transition rules are in enclosed in a table, and the index corresponding to the
- * specific timezone is given.
+ * If `writer_tz_info_table` is null, it means the writer timezone is fixed offset.
+ * If `reader_tz_info_table` is null, it means the reader timezone is fixed offset.
  *
  * This method is the inverse of convert_timestamp_to_utc.
  *
- * @param input the date represented in milliseconds since January 1, 1970 00:00:00 GMT
- * @param tz_info_table the table of all timezones info
- * @param raw_offset the raw offset corresponding to the specific timezone
- * @param raw_offset_diff the raw offset diff corresponding to the specific
+ * @param input The input timestamp column in microseconds.
+ * @param writer_tz_info_table The writer timezone table which contains a transition column.
+ * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
+ * transition time in seconds and 20 bits offset in seconds.
+ * @param writer_raw_offset the raw offset in seconds.
+ * @param reader_tz_info_table the reader timezone table which contains a transition column.
+ * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
+ * transition time in seconds and 20 bits offset in seconds.
+ * @param reader_raw_offset the raw offset in seconds.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
  */

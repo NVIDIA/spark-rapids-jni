@@ -38,10 +38,7 @@ import java.util.*;
 import java.util.concurrent.Executors;
 
 /**
- * Used to save timezone info from `java.util.TimeZone`
- * `util.TimeZone` is abstract class, the actual class is
- * `sun.util.calendar.ZoneInfo`
- * The timezone info is from `sun.util.calendar.ZoneInfo`
+ * Used to save timezone info from `sun.util.calendar.ZoneInfo`
  */
 class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
   // from `sun.util.calendar.ZoneInfo`
@@ -56,16 +53,18 @@ class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
   // Offset bit mask: 20 one bits
   private static final long OFFSET_MASK = 0xFFFFFL;
 
-  // Transition time in milliseconds from Gregorian January 1 1970, 00:00:00 GMT;
+  // Transition time in seconds from Gregorian January 1 1970, 00:00:00 GMT;
+  // Each long is packed in form of:
+  // - The least significant 20 bits are for offset in seconds.
+  // - The most significant 44 bits are for transition time in seconds.
   long[] transitions;
 
-  // raw offset in `sun.util.calendar.ZoneInfo`, but in seconds
+  // from `sun.util.calendar.ZoneInfo`, but in seconds.
   int rawOffset;
 
   /**
    * Constructor for TimeZone info from `sun.util.calendar.ZoneInfo`.
-   * Convert `ZoneInfo.transitions` from milliseconds to seconds.
-   * Extract isDST from `ZoneInfo.transitions`.
+   * Extract timezone info from `ZoneInfo` and convert to seconds.
    * The inputs are from `sun.util.calendar.ZoneInfo` via reflection.
    * 
    * @param transitions transitions in milliseconds from
@@ -90,8 +89,9 @@ class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
           throw new IllegalArgumentException("offsets should be in range [-18h, +18h]");
         }
 
-        // store transition in seconds and offset in seconds in one long
-        // the most least significant 16 bits are for offset in seconds
+        // pack transition(in seconds) and offset(in seconds) into a int64 value.
+        // - The least significant 20 bits are for offset in seconds.
+        // - The most significant 44 bits are for transition time in seconds.
         this.transitions[i] = ((transitionMs / 1000L) << OFFSET_SHIFT)
             | (OFFSET_MASK & offsetSeconds);
       }
@@ -729,18 +729,14 @@ public class GpuTimeZoneDB {
    * @return timezone info
    */
   private static TimeZoneInfoInJavaUtilPackage getInfoForUtilTZ(String tzId) {
-    
-    // ZoneId zoneId = ZoneId.of(tzId, ZoneId.SHORT_IDS);
-    // List<ZoneOffsetTransition> trans = zoneId.getRules().getTransitions();
-
     TimeZone tz = TimeZone.getTimeZone(tzId);
     if (!(tz instanceof ZoneInfo)) {
       throw new UnsupportedOperationException("Unsupported timezone: " + tzId);
     }
     ZoneInfo zoneInfo = (ZoneInfo) tz;
 
-    // The constructor of TimeZoneInfoInJavaUtilPackage will extract isDST info
-    // from transitions, and convert transitions from milliseconds to seconds.
+    // The constructor of TimeZoneInfoInJavaUtilPackage will extract and repack
+    // transitions info.
     return new TimeZoneInfoInJavaUtilPackage(
         (long[]) FieldUtils.readField(zoneInfo, "transitions"),
         (int[]) FieldUtils.readField(zoneInfo, "offsets"),
@@ -755,10 +751,8 @@ public class GpuTimeZoneDB {
 
   /**
    * Get timezone info from `java.util.TimeZone`.
-   * Do not need to cache the timezone info, because the info for a specific
-   * timezone is not big.
    * 
-   * @param info timezone info in CPU
+   * @param info timezone info
    * @return a table on GPU containing timezone info from `java.util.TimeZone`
    */
   private static Table getTableForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
@@ -791,7 +785,7 @@ public class GpuTimeZoneDB {
    * https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
    * java/org/apache/orc/impl/SerializationUtils.java#L1440
    * 
-   * @param input          input timestamp column in microseconds
+   * @param input          input timestamp column in microseconds.
    * @param writerTimezone writer timezone, it's from ORC stripe metadata.
    * @param readerTimezone reader timezone, it's from current JVM default
    *                       timezone.
@@ -801,7 +795,7 @@ public class GpuTimeZoneDB {
       ColumnVector input,
       String writerTimezone,
       String readerTimezone) {
-    // Does not support DST timezone, just throw exception.
+    // Does not support DST timezone now, just throw exception.
     if (isDaylightSavingTime(writerTimezone) ||
         isDaylightSavingTime(readerTimezone)) {
       throw new UnsupportedOperationException("Daylight Saving Time is not supported now.");
@@ -816,9 +810,9 @@ public class GpuTimeZoneDB {
       // convert between timezones
       return new ColumnVector(convertBetweenTimezones(
           input.getNativeView(),
-          writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0,
+          writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0L,
           writerTzInfo.rawOffset,
-          readerTzInfoTable != null ? readerTzInfoTable.getNativeView() : 0,
+          readerTzInfoTable != null ? readerTzInfoTable.getNativeView() : 0L,
           readerTzInfo.rawOffset));
     } catch (Exception e) {
       throw new IllegalStateException("convert between timezones failed!", e);
