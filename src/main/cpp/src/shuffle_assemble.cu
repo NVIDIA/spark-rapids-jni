@@ -885,23 +885,18 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                           data_sizes[idx]);
   }
 
-  // Calculate buffer offsets and total size
-  std::vector<size_t> buffer_offsets(num_dst_buffers);
-  size_t total_size = 0;
-
+  // Calculate buffer offsets and total size using exclusive scan
+  std::vector<size_t> all_sizes;
+  all_sizes.reserve(num_dst_buffers);
   for (size_t col = 0; col < num_columns; col++) {
-    // Validity buffer
-    buffer_offsets[col * 3] = total_size;
-    total_size += validity_sizes[col];
-
-    // Offsets buffer
-    buffer_offsets[col * 3 + 1] = total_size;
-    total_size += offsets_sizes[col];
-
-    // Data buffer
-    buffer_offsets[col * 3 + 2] = total_size;
-    total_size += data_sizes[col];
+    all_sizes.push_back(validity_sizes[col]);
+    all_sizes.push_back(offsets_sizes[col]);
+    all_sizes.push_back(data_sizes[col]);
   }
+
+  std::vector<size_t> buffer_offsets(num_dst_buffers);
+  std::exclusive_scan(all_sizes.begin(), all_sizes.end(), buffer_offsets.begin(), size_t{0});
+  size_t total_size = buffer_offsets.back() + all_sizes.back();
 
   // The shared buffer allocation! This is the core of the optimization
   rmm::device_buffer shared_buffer(total_size, stream, mr);
