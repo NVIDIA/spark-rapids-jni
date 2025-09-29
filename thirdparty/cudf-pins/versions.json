@@ -17,14 +17,6 @@
       "git_url" : "https://github.com/google/googletest.git",
       "version" : "1.16.0"
     },
-    "benchmark" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "2dd015dfef425c866d9a43f2c67d8b52d709acb6",
-      "git_url" : "https://github.com/google/benchmark.git",
-      "version" : "1.8.0"
-    },
     "bs_thread_pool" : 
     {
       "always_download" : true,
@@ -57,14 +49,6 @@
       "git_url" : "https://github.com/google/flatbuffers.git",
       "version" : "24.3.25"
     },
-    "fmt" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "0c9fce2ffefecfdce794e1859584e25877b7b592",
-      "git_url" : "https://github.com/fmtlib/fmt.git",
-      "version" : "11.0.2"
-    },
     "jitify" : 
     {
       "always_download" : true,
@@ -80,7 +64,7 @@
       "git_tag" : "d8787fc1ae9db44aa233612aefa2b9111202ce73",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
-      "version" : "25.12"
+      "version" : "25.12.0"
     },
     "nanoarrow" : 
     {
@@ -89,25 +73,6 @@
       "git_tag" : "4bf5a9322626e95e3717e43de7616c0a256179eb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
       "version" : "0.7.0.dev"
-    },
-    "nvcomp" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "a6e4e64a177e07cd2e5c8c5e07bb66ffefceae84",
-      "git_url" : "https://github.com/NVIDIA/nvcomp.git",
-      "proprietary_binary" : 
-      {
-        "aarch64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-sbsa/nvcomp-linux-sbsa-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz",
-        "x86_64-linux" : "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/linux-x86_64/nvcomp-linux-x86_64-${version}_cuda${cuda-toolkit-version-mapping}-archive.tar.xz"
-      },
-      "proprietary_binary_cuda_version_mapping" : 
-      {
-        "11" : "11",
-        "12" : "12",
-        "13" : "13"
-      },
-      "version" : "5.0.0.6"
     },
     "nvtx3" : 
     {
@@ -122,7 +87,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "46070bb255482f0782ca840ae45de9354380e298",
+      "git_tag" : "309a7f968c7713cba2d75da1cd19e1212e69aad7",
       "git_url" : "https://github.com/rapidsai/rapids-logger.git",
       "version" : "0.1.0"
     },
@@ -130,10 +95,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "278d5596227df7ba91f59b056f1dfe34d6af68f7",
+      "git_tag" : "f689207f50014a597440287877c7b1e6fbf09bdf",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
-      "version" : "25.10"
+      "version" : "25.12.0"
     },
     "roaring" : 
     {
@@ -142,14 +107,6 @@
       "git_tag" : "1a2c980f90e533ce79c7610bd2eae5df5a177aff",
       "git_url" : "https://github.com/RoaringBitmap/CRoaring.git",
       "version" : "4.3.11"
-    },
-    "spdlog" : 
-    {
-      "always_download" : true,
-      "git_shallow" : false,
-      "git_tag" : "27cb4c76708608465c413f6d0e6b8d99a4d84302",
-      "git_url" : "https://github.com/gabime/spdlog.git",
-      "version" : "1.14.1"
     },
     "zstd" : 
     {
