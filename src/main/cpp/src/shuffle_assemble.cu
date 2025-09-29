@@ -23,6 +23,7 @@
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/utilities/batched_memset.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -32,6 +33,7 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -905,6 +907,9 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
   // Create buffer slices that point into the shared buffer allocation
   std::vector<buffer_slice> buffer_slices(num_dst_buffers);
 
+  // Collect validity buffers that need zero-initialization
+  std::vector<cudf::device_span<cudf::bitmask_type>> validity_spans_to_zero;
+
   for (size_t i = 0; i < num_dst_buffers; i++) {
     size_t col_idx  = i / 3;
     size_t buf_type = i % 3;  // 0=validity, 1=offsets, 2=data
@@ -914,10 +919,20 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
 
     buffer_slices[i] = buffer_slice(base_ptr + buffer_offsets[i], size, buffer_offsets[i]);
 
-    // Zero-initialize validity buffers as required
+    // Collect validity buffers that need zero-initialization
     if (buf_type == 0 && size > 0 && h_column_info[col_idx].has_validity) {
-      cudaMemsetAsync(buffer_slices[i].data, 0, size, stream.value());
+      // Convert byte size to element count for bitmask_type (uint32_t) span
+      size_t num_elements = size / sizeof(cudf::bitmask_type);
+      validity_spans_to_zero.emplace_back(
+        reinterpret_cast<cudf::bitmask_type*>(buffer_slices[i].data), num_elements);
     }
+  }
+
+  // Batch memset all validity buffers at once for better performance with many columns
+  if (!validity_spans_to_zero.empty()) {
+    cudf::host_span<cudf::device_span<cudf::bitmask_type> const> host_spans(
+      validity_spans_to_zero.data(), validity_spans_to_zero.size());
+    cudf::detail::batched_memset<cudf::bitmask_type>(host_spans, cudf::bitmask_type{0}, stream);
   }
 
   // Create device buffer of pointers to slices for copy operations
