@@ -31,9 +31,12 @@ namespace spark_rapids_jni {
 /**
  * @brief Rounds all the values in a column to the specified number of decimal places.
  *
- * `cudf::round` currently supports HALF_UP and HALF_EVEN rounding for integer, floating point and
+ * This currently supports HALF_UP and HALF_EVEN rounding for integer, floating point and
  * `decimal32` and `decimal64` numbers. For `decimal32` and `decimal64` numbers, negated
  * `numeric::scale` is equivalent to `decimal_places`.
+ *
+ * For integer and decimal types this calls cudf::round_decimal().
+ * Floating point rounding is handled here directly.
  *
  * Example:
  * ```
