@@ -765,9 +765,9 @@ struct shared_buffer_size_functor {
   size_t get_output_validity_size(assemble_column_info const& col) const
   {
     return col.has_validity
-           ? cudf::util::round_up_safe(
-               bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
-           : 0;
+             ? cudf::util::round_up_safe(bitmask_allocation_size_bytes(col.num_rows, split_align),
+                                         split_align)
+             : 0;
   }
 
   /**
@@ -775,9 +775,9 @@ struct shared_buffer_size_functor {
    */
   size_t get_output_offsets_size(assemble_column_info const& col) const
   {
-    return col.num_rows > 0 ? cudf::util::round_up_safe(
-                                sizeof(size_type) * (col.num_rows + 1), split_align)
-                            : 0;
+    return col.num_rows > 0
+             ? cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align)
+             : 0;
   }
 };
 
