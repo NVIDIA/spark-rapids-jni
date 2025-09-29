@@ -708,9 +708,7 @@ struct shared_buffer_size_functor {
     validity_size = get_output_validity_size(col);
 
     // offsets
-    offsets_size = col.num_rows > 0 ? cudf::util::round_up_safe(
-                                        sizeof(size_type) * (col.num_rows + 1), split_align)
-                                    : 0;
+    offsets_size = get_output_offsets_size(col);
 
     // no data for lists
     data_size = 0;
@@ -743,9 +741,7 @@ struct shared_buffer_size_functor {
     data_size = cudf::util::round_up_safe(static_cast<size_t>(col.num_chars), split_align);
 
     // offsets
-    offsets_size = col.num_rows > 0 ? cudf::util::round_up_safe(
-                                        sizeof(size_type) * (col.num_rows + 1), split_align)
-                                    : 0;
+    offsets_size = get_output_offsets_size(col);
   }
 
   template <typename T,
@@ -770,6 +766,16 @@ struct shared_buffer_size_functor {
            ? cudf::util::round_up_safe(
                bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
            : 0;
+  }
+
+  /**
+   * @brief Helper function to calculate offsets buffer size for a column
+   */
+  size_t get_output_offsets_size(assemble_column_info const& col) const
+  {
+    return col.num_rows > 0 ? cudf::util::round_up_safe(
+                                sizeof(size_type) * (col.num_rows + 1), split_align)
+                            : 0;
   }
 };
 
