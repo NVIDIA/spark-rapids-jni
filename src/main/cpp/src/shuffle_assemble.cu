@@ -688,10 +688,7 @@ struct shared_buffer_size_functor {
                   size_t& data_size)
   {
     // validity
-    validity_size = col.has_validity
-                      ? cudf::util::round_up_safe(
-                          bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
-                      : 0;
+    validity_size = get_output_validity_size(col);
 
     // no offsets for fixed width types
     offsets_size = 0;
@@ -708,10 +705,7 @@ struct shared_buffer_size_functor {
                   size_t& data_size)
   {
     // validity
-    validity_size = col.has_validity
-                      ? cudf::util::round_up_safe(
-                          bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
-                      : 0;
+    validity_size = get_output_validity_size(col);
 
     // offsets
     offsets_size = col.num_rows > 0 ? cudf::util::round_up_safe(
@@ -729,10 +723,7 @@ struct shared_buffer_size_functor {
                   size_t& data_size)
   {
     // validity
-    validity_size = col.has_validity
-                      ? cudf::util::round_up_safe(
-                          bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
-                      : 0;
+    validity_size = get_output_validity_size(col);
 
     // no offsets or data for structs
     offsets_size = 0;
@@ -746,10 +737,7 @@ struct shared_buffer_size_functor {
                   size_t& data_size)
   {
     // validity
-    validity_size = col.has_validity
-                      ? cudf::util::round_up_safe(
-                          bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
-                      : 0;
+    validity_size = get_output_validity_size(col);
 
     // chars
     data_size = cudf::util::round_up_safe(static_cast<size_t>(col.num_chars), split_align);
@@ -770,6 +758,18 @@ struct shared_buffer_size_functor {
                   size_t& data_size)
   {
     CUDF_FAIL("Unsupported type in shared_buffer_size_functor");
+  }
+
+ private:
+  /**
+   * @brief Helper function to calculate validity buffer size for a column
+   */
+  size_t get_output_validity_size(assemble_column_info const& col) const
+  {
+    return col.has_validity
+           ? cudf::util::round_up_safe(
+               bitmask_allocation_size_bytes(col.num_rows, split_align), split_align)
+           : 0;
   }
 };
 
