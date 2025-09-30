@@ -29,7 +29,8 @@ Java_com_nvidia_spark_rapids_jni_DecimalUtils_multiply128(JNIEnv* env,
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto view_a = reinterpret_cast<cudf::column_view const*>(j_view_a);
     auto view_b = reinterpret_cast<cudf::column_view const*>(j_view_b);
@@ -37,7 +38,7 @@ Java_com_nvidia_spark_rapids_jni_DecimalUtils_multiply128(JNIEnv* env,
     return cudf::jni::convert_table_for_return(
       env, cudf::jni::multiply_decimal128(*view_a, *view_b, scale, cast_interim_result));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_divide128(
@@ -45,7 +46,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_divid
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto view_a          = reinterpret_cast<cudf::column_view const*>(j_view_a);
     auto view_b          = reinterpret_cast<cudf::column_view const*>(j_view_b);
@@ -59,7 +61,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_divid
         env, cudf::jni::divide_decimal128(*view_a, *view_b, scale));
     }
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_remainder128(
@@ -67,7 +69,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_remai
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto view_a = reinterpret_cast<cudf::column_view const*>(j_view_a);
     auto view_b = reinterpret_cast<cudf::column_view const*>(j_view_b);
@@ -75,7 +78,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_remai
     return cudf::jni::convert_table_for_return(
       env, cudf::jni::remainder_decimal128(*view_a, *view_b, scale));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_add128(
@@ -83,7 +86,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_add12
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const view_a = reinterpret_cast<cudf::column_view const*>(j_view_a);
     auto const view_b = reinterpret_cast<cudf::column_view const*>(j_view_b);
@@ -91,7 +95,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_add12
     return cudf::jni::convert_table_for_return(env,
                                                cudf::jni::add_decimal128(*view_a, *view_b, scale));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtract128(
@@ -99,7 +103,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtr
 {
   JNI_NULL_CHECK(env, j_view_a, "column is null", 0);
   JNI_NULL_CHECK(env, j_view_b, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const view_a = reinterpret_cast<cudf::column_view const*>(j_view_a);
     auto const view_b = reinterpret_cast<cudf::column_view const*>(j_view_b);
@@ -107,14 +112,15 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_subtr
     return cudf::jni::convert_table_for_return(env,
                                                cudf::jni::sub_decimal128(*view_a, *view_b, scale));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_floatingPointToDecimal(
   JNIEnv* env, jclass, jlong j_input, jint output_type_id, jint precision, jint decimal_scale)
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(j_input);
     cudf::jni::native_jlongArray output(env, 2);
@@ -127,7 +133,7 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_DecimalUtils_float
     output[1] = static_cast<jlong>(failure_row_id);
     return output.get_jArray();
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

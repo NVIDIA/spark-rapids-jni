@@ -25,7 +25,8 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
 {
   JNI_NULL_CHECK(env, j_table_view, "table is null", NULL);
   JNI_NULL_CHECK(env, j_splits, "splits is null", NULL);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto table = reinterpret_cast<cudf::table_view const*>(j_table_view);
@@ -59,7 +60,7 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
 
     return result.get_jArray();
   }
-  CATCH_STD(env, NULL);
+  JNI_CATCH(env, NULL);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -80,7 +81,8 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
   JNI_NULL_CHECK(env, flat_type_ids, "type_ids is null", NULL);
   JNI_NULL_CHECK(env, flat_scale, "scale is null", NULL);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::device_span<uint8_t const> partitions(reinterpret_cast<uint8_t*>(part_addr), part_len);
@@ -111,6 +113,6 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
                        cudf::get_default_stream(),
                        cudf::get_current_device_resource()));
   }
-  CATCH_STD(env, NULL);
+  JNI_CATCH(env, NULL);
 }
 }

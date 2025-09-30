@@ -34,7 +34,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
   JNI_NULL_CHECK(env, left, "left input is null", 0);
   JNI_NULL_CHECK(env, right, "right input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     if (is_left_cv && is_right_cv) {
@@ -65,12 +66,13 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(
   JNIEnv* env, jclass, jlong input_ptr, jint decimal_places, jint rounding_method)
 {
   JNI_NULL_CHECK(env, input_ptr, "input is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::column_view* input     = reinterpret_cast<cudf::column_view*>(input_ptr);
     cudf::rounding_method method = static_cast<cudf::rounding_method>(rounding_method);
     return cudf::jni::release_as_jlong(spark_rapids_jni::round(*input, decimal_places, method));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

@@ -24,10 +24,11 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs
                                                                                  jint row_count,
                                                                                  jlong seed)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     return cudf::jni::release_as_jlong(spark_rapids_jni::random_uuids(row_count, seed));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

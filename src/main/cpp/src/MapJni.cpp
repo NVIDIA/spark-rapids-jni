@@ -27,13 +27,13 @@ JNIEXPORT jlong Java_com_nvidia_spark_rapids_jni_Map_sort(JNIEnv* env,
 {
   JNI_NULL_CHECK(env, map_haldle, "column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto sort_order = is_descending ? cudf::order::DESCENDING : cudf::order::ASCENDING;
     cudf::column_view const& map_view = *reinterpret_cast<cudf::column_view const*>(map_haldle);
     return cudf::jni::release_as_jlong(spark_rapids_jni::sort_map_column(map_view, sort_order));
   }
-
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

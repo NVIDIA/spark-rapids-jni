@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_RegexRewriteUtils_liter
   JNI_NULL_CHECK(env, input, "input column is null", 0);
   JNI_NULL_CHECK(env, target, "target is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view* cv = reinterpret_cast<cudf::column_view*>(input);
@@ -36,6 +37,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_RegexRewriteUtils_liter
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::literal_range_pattern(scv, *ss_scalar, d, start, end));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

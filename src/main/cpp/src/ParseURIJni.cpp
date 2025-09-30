@@ -28,7 +28,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseProtocol(
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::ptr_as_jlong(
@@ -44,7 +45,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseHost(JNIE
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::ptr_as_jlong(
@@ -60,7 +62,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQuery(JNI
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::ptr_as_jlong(
@@ -75,7 +78,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, query, "query is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     cudf::jni::native_jstring native_query(env, query);
@@ -93,7 +97,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parseQueryWith
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, query_column, "query column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     auto const query = reinterpret_cast<cudf::column_view const*>(query_column);
@@ -110,7 +115,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ParseURI_parsePath(JNIE
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input = reinterpret_cast<cudf::column_view const*>(input_column);
     return cudf::jni::ptr_as_jlong(
