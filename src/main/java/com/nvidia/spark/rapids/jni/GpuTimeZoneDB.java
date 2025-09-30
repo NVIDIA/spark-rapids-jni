@@ -818,14 +818,6 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static void checkTimeZone(String timezone) {
-    TimeZone tz = TimeZone.getTimeZone(timezone);
-    if (tz.useDaylightTime())
-      if (!(tz.getDSTSavings() == 3600 && tz.getRawOffset() == 0)) {
-        throw new IllegalStateException("Unsupported timezone: " + timezone);
-      }
-  }
-
   private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
