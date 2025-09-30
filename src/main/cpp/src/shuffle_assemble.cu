@@ -902,7 +902,11 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
   rmm::device_buffer shared_buffer(total_size, stream, mr);
   uint8_t* base_ptr = static_cast<uint8_t*>(shared_buffer.data());
 
-  // Create buffer slices that point into the shared buffer allocation
+  // Create buffer slices that point into the shared buffer allocation.
+  // Each slice represents a contiguous region of the shared buffer for one column's
+  // validity, offsets, or data buffer. Previously we allocated each buffer individually
+  // (O(n) allocations), but now we use one shared allocation with slices/views into it
+  // for better memory management and reduced allocation overhead.
   std::vector<buffer_slice> buffer_slices(num_dst_buffers);
 
   // Collect validity buffers that need zero-initialization
