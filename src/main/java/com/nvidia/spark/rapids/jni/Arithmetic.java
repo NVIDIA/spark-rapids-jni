@@ -16,6 +16,7 @@
 package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.Scalar;
 
 public class Arithmetic {
@@ -104,6 +105,58 @@ public class Arithmetic {
         isTryMode));
   }
 
+  /**
+   * Rounds all the values in a column to the specified number of decimal places.
+   *
+   * @param input         Column of values to be rounded
+   * @param decimalPlaces Number of decimal places to round to. If negative, this
+   *                      specifies the number of positions to the left of the decimal point.
+   * @param mode          Rounding method(either HALF_UP or HALF_EVEN)
+   * @return a new ColumnVector with rounded values.
+   */
+  public static ColumnVector round(ColumnView input, int decimalPlaces, RoundMode mode) {
+    return new ColumnVector(round(input.getNativeView(), decimalPlaces, mode.nativeId));
+  }
+
+  /**
+   * Rounds all the values in a column with decimal places = 0. Default number of decimal places
+   * to round to is 0.
+   *
+   * @param input Column of values to be rounded
+   * @param round Rounding method(either HALF_UP or HALF_EVEN)
+   * @return a new ColumnVector with rounded values.
+   */
+  public static ColumnVector round(ColumnView input, RoundMode round) {
+    return round(input, 0, round);
+  }
+
+  /**
+   * Rounds all the values in a column to the specified number of decimal places with HALF_UP
+   * (default) as Rounding method.
+   *
+   * @param input         Column of values to be rounded
+   * @param decimalPlaces Number of decimal places to round to. If negative, this
+   *                      specifies the number of positions to the left of the decimal point.
+   * @return a new ColumnVector with rounded values.
+   */
+  public static ColumnVector round(ColumnView input, int decimalPlaces) {
+    return round(input, decimalPlaces, RoundMode.HALF_UP);
+  }
+
+  /**
+   * Rounds all the values in a column with these default values:
+   * decimalPlaces = 0
+   * Rounding method = RoundMode.HALF_UP
+   *
+   * @param input Column of values to be rounded
+   * @return a new ColumnVector with rounded values.
+   */
+  public static ColumnVector round(ColumnView input) {
+    return round(input, 0, RoundMode.HALF_UP);
+  }
+
   private static native long multiply(long leftHandle, boolean isLeftCv, long rightHandle,
       boolean isRightCv, boolean isAnsiMode, boolean isTryMode);
+
+  private static native long round(long nativeHandle, int decimalPlaces, int roundingMethod);
 }

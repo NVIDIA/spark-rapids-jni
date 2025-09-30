@@ -18,6 +18,7 @@
 #include "exception_with_row_index.hpp"
 #include "jni_utils.hpp"
 #include "multiply.hpp"
+#include "round_float.hpp"
 
 extern "C" {
 
@@ -59,5 +60,18 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_multiply(JNI
   // throw ExceptionWithRowIndex if an exception occurs if in ansi mode
   // ExceptionWithRowIndex contains the row number that caused the exception
   CATCH_EXCEPTION_WITH_ROW_INDEX(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Arithmetic_round(
+  JNIEnv* env, jclass, jlong input_ptr, jint decimal_places, jint rounding_method)
+{
+  JNI_NULL_CHECK(env, input_ptr, "input is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::column_view* input     = reinterpret_cast<cudf::column_view*>(input_ptr);
+    cudf::rounding_method method = static_cast<cudf::rounding_method>(rounding_method);
+    return cudf::jni::release_as_jlong(spark_rapids_jni::round(*input, decimal_places, method));
+  }
+  CATCH_STD(env, 0);
 }
 }

@@ -37,7 +37,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "8a28cb049249c59ff1c029aee2579a2c4c28e794",
+      "git_tag" : "6d59add35767afaf8dbc03ee52f916b00cd0fb11",
       "git_url" : "https://github.com/NVIDIA/cuCollections.git",
       "version" : "0.0.1"
     },
@@ -77,10 +77,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "2ec42b4a565872a781765f7690b91b41535b1897",
+      "git_tag" : "d8787fc1ae9db44aa233612aefa2b9111202ce73",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
-      "version" : "25.10"
+      "version" : "25.12"
     },
     "nanoarrow" : 
     {
@@ -130,10 +130,18 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "e023f8146b261d7fbc3a6d61eff3801cba7e756a",
+      "git_tag" : "61f74c88e1c3c55be00b96ba12861e9d4cc10290",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
-      "version" : "25.10"
+      "version" : "25.12"
+    },
+    "roaring" : 
+    {
+      "always_download" : true,
+      "git_shallow" : false,
+      "git_tag" : "1a2c980f90e533ce79c7610bd2eae5df5a177aff",
+      "git_url" : "https://github.com/RoaringBitmap/CRoaring.git",
+      "version" : "4.3.11"
     },
     "spdlog" : 
     {
