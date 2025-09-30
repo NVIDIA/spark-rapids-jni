@@ -80,7 +80,8 @@ public class GpuTimeZoneDBTest {
           // currently do not support DST conversions
           continue;
         }
-        long[] microseconds = new long[1024]; // TODO
+        // Use 1024 as a reasonable batch size for testing timezone conversions.
+        long[] microseconds = new long[1024];
         for (int i = 0; i < microseconds.length; ++i) {
           // range is years from 0001 to 9999
           microseconds[i] = min + (long) (rng.nextDouble() * (max - min));
