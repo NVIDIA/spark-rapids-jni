@@ -40,6 +40,10 @@ include(rapids-export)
 include(rapids-find)
 rapids_cpm_init()
 
+# find thread_pool
+# This may just be replaced by linking to pthread, need to verify.
+include(${CUDF_DIR}/cpp/cmake/thirdparty/get_thread_pool.cmake)
+
 rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
@@ -190,6 +194,7 @@ add_library(
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
   src/CastStringJni.cpp
+  src/DataSerializationJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
   src/DeviceAttrJni.cpp
@@ -199,7 +204,6 @@ add_library(
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
   src/JSONUtilsJni.cpp
-  src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
   src/MapZipWithUtilsJNI.cpp
   src/map_zip_with_utils.cu
@@ -223,6 +227,7 @@ add_library(
   src/cast_string.cu
   src/cast_string_to_float.cu
   src/cast_string_to_datetime.cu
+  src/cookie_serializer.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
@@ -307,6 +312,7 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
+    $<BUILD_LOCAL_INTERFACE:BS::thread_pool>
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
