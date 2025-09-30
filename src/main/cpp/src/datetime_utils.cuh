@@ -250,7 +250,8 @@ __device__ static timestamp_type convert_timestamp(
 namespace {  //  anonymous namespace begins
 /**
  * @brief Get the transition index for the given seconds using binary search.
- * The transition array is sorted by the seconds * (2^16) + offset (in seconds).
+ * The transition array is sorted, each int64 value is composed of 44 bits
+ * transition time in seconds and 20 bits offset in seconds.
  */
 __device__ static int get_transition_index(int64_t const* begin,
                                            int64_t const* end,

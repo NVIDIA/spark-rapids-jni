@@ -103,7 +103,6 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertBetweenTimezones(JNIEnv* e
                                                                        jlong reader_tz_info_table,
                                                                        jint reader_tz_raw_offset)
 {
-  // checks
   JNI_NULL_CHECK(env, input_handle, "input column is null", 0);
 
   try {
