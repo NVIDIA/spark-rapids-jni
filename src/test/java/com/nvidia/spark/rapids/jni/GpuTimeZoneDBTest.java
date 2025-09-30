@@ -87,8 +87,6 @@ public class GpuTimeZoneDBTest {
           microseconds[i] = min + (long) (rng.nextDouble() * (max - min));
         }
 
-        // System.out.println("my-debug: row 31 is " + microseconds[31] + ", writerTz "
-        // + writerTz + ", readerTz " + readerTz);
 
         try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(microseconds);
             // Convert on CPU
