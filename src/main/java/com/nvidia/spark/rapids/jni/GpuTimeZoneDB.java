@@ -147,7 +147,6 @@ public class GpuTimeZoneDB {
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
 
   // // Cache the timezone info for 6 timezones.
-  // private static final java.util.Map<String, TimeZoneInfoInJavaUtilPackage> utilTZToInfo = new LinkedHashMap()<>();
 
   /**
    * This should be called on startup of an executor.
