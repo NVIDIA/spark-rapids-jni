@@ -247,7 +247,7 @@ __device__ static timestamp_type convert_timestamp(
   return to_utc ? timestamp - utc_offset : timestamp + utc_offset;
 }
 
-namespace {  //  anonymous namespace begin
+namespace {  //  anonymous namespace begins
 /**
  * @brief Get the transition index for the given seconds using binary search.
  * The transition array is sorted by the seconds * (2^16) + offset (in seconds).
