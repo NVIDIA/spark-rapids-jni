@@ -13,22 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package com.nvidia.spark.rapids.jni;
 
-#include "cudf_jni_apis.hpp"
-#include "uuid.hpp"
+import ai.rapids.cudf.NativeDepsLoader;
 
-extern "C" {
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs(JNIEnv* env,
-                                                                                 jclass,
-                                                                                 jint row_count,
-                                                                                 jlong seed)
-{
-  JNI_TRY
-  {
-    cudf::jni::auto_set_device(env);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::random_uuids(row_count, seed));
+public class DeviceAttr {
+  static {
+    NativeDepsLoader.loadNativeDeps();
   }
-  JNI_CATCH(env, 0);
-}
+
+  public static int isIntegratedGPU() {
+    return isDeviceIntegrated();
+  }
+
+  private static native int isDeviceIntegrated();
 }

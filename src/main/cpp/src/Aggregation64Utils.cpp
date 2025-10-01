@@ -24,14 +24,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Aggregation64Utils_extr
   JNIEnv* env, jclass, jlong j_column_view, jint j_out_dtype, jint j_chunk_idx)
 {
   JNI_NULL_CHECK(env, j_column_view, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto cview = reinterpret_cast<cudf::column_view const*>(j_column_view);
     auto dtype = cudf::jni::make_data_type(j_out_dtype, 0);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::extract_chunk32_from_64bit(*cview, dtype, j_chunk_idx));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -39,13 +40,14 @@ Java_com_nvidia_spark_rapids_jni_Aggregation64Utils_combineInt64SumChunks(
   JNIEnv* env, jclass, jlong j_table_view, jint j_dtype, jint j_scale)
 {
   JNI_NULL_CHECK(env, j_table_view, "table is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto tview = reinterpret_cast<cudf::table_view const*>(j_table_view);
     std::unique_ptr<cudf::table> result =
       spark_rapids_jni::assemble64_from_sum(*tview, cudf::jni::make_data_type(j_dtype, j_scale));
     return cudf::jni::convert_table_for_return(env, result);
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

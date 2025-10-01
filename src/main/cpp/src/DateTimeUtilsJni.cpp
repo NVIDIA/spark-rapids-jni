@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,13 +24,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseGre
 {
   JNI_NULL_CHECK(env, input, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(input);
     auto output         = spark_rapids_jni::rebase_gregorian_to_julian(*input_cv);
     return reinterpret_cast<jlong>(output.release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseJulianToGregorian(
@@ -38,13 +39,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_rebaseJul
 {
   JNI_NULL_CHECK(env, input, "input column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(input);
     auto output         = spark_rapids_jni::rebase_julian_to_gregorian(*input_cv);
     return reinterpret_cast<jlong>(output.release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateWithColumnFormat(
@@ -53,14 +55,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateW
   JNI_NULL_CHECK(env, datetime, "input datetime is null", 0);
   JNI_NULL_CHECK(env, format, "input format is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
     auto const format_cv   = reinterpret_cast<cudf::column_view const*>(format);
     return reinterpret_cast<jlong>(spark_rapids_jni::truncate(*datetime_cv, *format_cv).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateWithScalarFormat(
@@ -68,7 +71,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateW
 {
   JNI_NULL_CHECK(env, datetime, "input datetime is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const datetime_cv = reinterpret_cast<cudf::column_view const*>(datetime);
@@ -76,7 +80,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_truncateW
     auto const format      = std::string(format_jstr.get(), format_jstr.size_bytes());
     return reinterpret_cast<jlong>(spark_rapids_jni::truncate(*datetime_cv, format).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

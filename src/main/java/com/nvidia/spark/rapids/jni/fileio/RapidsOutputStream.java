@@ -14,21 +14,13 @@
  * limitations under the License.
  */
 
-#include "cudf_jni_apis.hpp"
-#include "uuid.hpp"
+package com.nvidia.spark.rapids.jni.fileio;
 
-extern "C" {
+import java.io.OutputStream;
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs(JNIEnv* env,
-                                                                                 jclass,
-                                                                                 jint row_count,
-                                                                                 jlong seed)
-{
-  JNI_TRY
-  {
-    cudf::jni::auto_set_device(env);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::random_uuids(row_count, seed));
-  }
-  JNI_CATCH(env, 0);
+/**
+ * A specialization of {@link OutputStream} that allows custom extensions for Rapids file IO.
+ */
+public abstract class RapidsOutputStream extends OutputStream {
 }
-}
+

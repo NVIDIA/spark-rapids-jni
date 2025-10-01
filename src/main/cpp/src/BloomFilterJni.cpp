@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,14 +25,15 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_creategpu(
   JNIEnv* env, jclass, jint numHashes, jlong bloomFilterBits)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     int bloom_filter_longs = static_cast<int>((bloomFilterBits + 63) / 64);
     auto bloom_filter      = spark_rapids_jni::bloom_filter_create(numHashes, bloom_filter_longs);
     return reinterpret_cast<jlong>(bloom_filter.release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv* env,
@@ -40,7 +41,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv* 
                                                                         jlong bloomFilter,
                                                                         jlong cv)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view const& input_column = *reinterpret_cast<cudf::column_view const*>(cv);
@@ -48,14 +50,15 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_put(JNIEnv* 
                                        input_column);
     return 0;
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_merge(JNIEnv* env,
                                                                            jclass,
                                                                            jlong bloomFilters)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view const& input_bloom_filter =
@@ -63,7 +66,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_merge(JNIEn
     auto bloom_filter = spark_rapids_jni::bloom_filter_merge(input_bloom_filter);
     return reinterpret_cast<jlong>(bloom_filter.release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probe(JNIEnv* env,
@@ -71,20 +74,22 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probe(JNIEn
                                                                            jlong bloomFilter,
                                                                            jlong cv)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view const& input_column = *reinterpret_cast<cudf::column_view const*>(cv);
     return cudf::jni::release_as_jlong(spark_rapids_jni::bloom_filter_probe(
       input_column, *(reinterpret_cast<cudf::list_scalar*>(bloomFilter))));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probebuffer(
   JNIEnv* env, jclass, jlong bloomFilter, jlong bloomFilterSize, jlong cv)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::column_view const& input_column = *reinterpret_cast<cudf::column_view const*>(cv);
@@ -92,6 +97,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_BloomFilter_probebuffer
     return cudf::jni::release_as_jlong(spark_rapids_jni::bloom_filter_probe(
       input_column, cudf::device_span<uint8_t const>{buf, static_cast<size_t>(bloomFilterSize)}));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

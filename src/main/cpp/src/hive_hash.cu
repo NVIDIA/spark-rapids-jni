@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 #include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/row_operator/row_operators.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
-#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -195,7 +195,7 @@ class hive_device_row_hasher {
    */
   class element_hasher_adapter {
    public:
-    using hash_functor_t = cudf::experimental::row::hash::element_hasher<hash_function, Nullate>;
+    using hash_functor_t = cudf::detail::row::hash::element_hasher<hash_function, Nullate>;
 
     __device__ element_hasher_adapter(Nullate check_nulls) noexcept
       : hash_functor{check_nulls, HIVE_INIT_HASH, HIVE_INIT_HASH}
@@ -390,9 +390,8 @@ class hive_device_row_hasher {
               // If the child is of primitive type, accumulate child hash into struct hash
               if (child_col.type().id() != cudf::type_id::LIST &&
                   child_col.type().id() != cudf::type_id::STRUCT) {
-                auto child_hash =
-                  cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
-                    child_col.type(), this->hash_functor, child_col, 0);
+                auto child_hash = cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
+                  child_col.type(), this->hash_functor, child_col, 0);
                 top.update_cur_hash(child_hash);
               } else {
                 col_stack[stack_size++] = col_stack_frame(child_col);
@@ -412,7 +411,7 @@ class hive_device_row_hasher {
               thrust::counting_iterator(child_col.size()),
               HIVE_INIT_HASH,
               [child_col, hasher = this->hash_functor] __device__(auto hash, auto element_index) {
-                auto cur_hash = cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+                auto cur_hash = cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
                   child_col.type(), hasher, child_col, element_index);
                 return HIVE_HASH_FACTOR * hash + cur_hash;
               });

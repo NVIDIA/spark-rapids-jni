@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_createHistogr
   JNI_NULL_CHECK(env, values_handle, "values_handle is null", 0);
   JNI_NULL_CHECK(env, frequencies_handle, "frequencies_handle is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const values      = reinterpret_cast<cudf::column_view const*>(values_handle);
@@ -34,7 +35,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_createHistogr
       spark_rapids_jni::create_histogram_if_valid(*values, *frequencies, output_as_lists)
         .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_percentileFromHistogram(
@@ -43,7 +44,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_percentileFro
   JNI_NULL_CHECK(env, input_handle, "input_handle is null", 0);
   JNI_NULL_CHECK(env, jpercentages, "jpercentages is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const input       = reinterpret_cast<cudf::column_view const*>(input_handle);
@@ -54,7 +56,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_Histogram_percentileFro
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::percentile_from_histogram(*input, percentages, output_as_lists).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

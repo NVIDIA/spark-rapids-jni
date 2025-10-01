@@ -25,7 +25,8 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
 {
   JNI_NULL_CHECK(env, j_table_view, "table is null", NULL);
   JNI_NULL_CHECK(env, j_splits, "splits is null", NULL);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto table = reinterpret_cast<cudf::table_view const*>(j_table_view);
@@ -59,10 +60,10 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
 
     return result.get_jArray();
   }
-  CATCH_STD(env, NULL);
+  JNI_CATCH(env, NULL);
 }
 
-JNIEXPORT jlongArray JNICALL
+JNIEXPORT jobject JNICALL
 Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNative(
   JNIEnv* env,
   jclass,
@@ -80,7 +81,8 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
   JNI_NULL_CHECK(env, flat_type_ids, "type_ids is null", NULL);
   JNI_NULL_CHECK(env, flat_scale, "scale is null", NULL);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     cudf::device_span<uint8_t const> partitions(reinterpret_cast<uint8_t*>(part_addr), part_len);
@@ -103,14 +105,29 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
       meta.col_info.emplace_back(tid, param);
     }
 
-    return cudf::jni::convert_table_for_return(
-      env,
-      shuffle_assemble(meta,
-                       partitions,
-                       offsets,
-                       cudf::get_default_stream(),
-                       cudf::get_current_device_resource()));
+    // Get shuffle assemble result from shuffle_assemble
+    auto assemble_result = shuffle_assemble(
+      meta, partitions, offsets, cudf::get_default_stream(), cudf::get_current_device_resource());
+
+    // Create buffer metadata
+    jlong buffer_size   = static_cast<jlong>(assemble_result.shared_buffer.size());
+    jlong buffer_handle = cudf::jni::release_as_jlong(
+      std::make_unique<rmm::device_buffer>(std::move(assemble_result.shared_buffer)));
+
+    // Create column handles array
+    cudf::jni::native_jlongArray column_handles(env, assemble_result.column_views.size());
+    for (size_t i = 0; i < assemble_result.column_views.size(); ++i) {
+      column_handles[i] = cudf::jni::ptr_as_jlong(assemble_result.column_views[i].release());
+    }
+
+    // Create and return Java AssembleResult object
+    jclass result_class =
+      env->FindClass("com/nvidia/spark/rapids/jni/kudo/KudoGpuSerializer$AssembleResult");
+    jmethodID constructor = env->GetMethodID(result_class, "<init>", "(JJ[J)V");
+
+    return env->NewObject(
+      result_class, constructor, buffer_handle, buffer_size, column_handles.get_jArray());
   }
-  CATCH_STD(env, NULL);
+  JNI_CATCH(env, NULL);
 }
 }

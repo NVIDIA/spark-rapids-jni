@@ -13,22 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "cudf_jni_apis.hpp"
-#include "uuid.hpp"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs(JNIEnv* env,
-                                                                                 jclass,
-                                                                                 jint row_count,
-                                                                                 jlong seed)
+JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceIntegrated(JNIEnv* env,
+                                                                                      jclass)
 {
   JNI_TRY
   {
-    cudf::jni::auto_set_device(env);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::random_uuids(row_count, seed));
+    int device{};
+    CUDF_CUDA_TRY(cudaGetDevice(&device));
+
+    int integrated{};
+    CUDF_CUDA_TRY(cudaDeviceGetAttribute(&integrated, cudaDevAttrIntegrated, device));
+
+    return integrated;
   }
   JNI_CATCH(env, 0);
 }
-}
+
+}  // extern "C"

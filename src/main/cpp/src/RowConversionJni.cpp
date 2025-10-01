@@ -27,7 +27,8 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRowsFixedWidthOptimized(
 {
   JNI_NULL_CHECK(env, input_table, "input table is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::table_view const* n_input_table = reinterpret_cast<cudf::table_view const*>(input_table);
     std::vector<std::unique_ptr<cudf::column>> cols =
@@ -39,7 +40,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRowsFixedWidthOptimized(
     });
     return outcol_handles.get_jArray();
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -47,7 +48,8 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRows(JNIEnv* env, jclass
 {
   JNI_NULL_CHECK(env, input_table, "input table is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::table_view const* n_input_table = reinterpret_cast<cudf::table_view const*>(input_table);
     std::vector<std::unique_ptr<cudf::column>> cols =
@@ -59,7 +61,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertToRows(JNIEnv* env, jclass
     });
     return outcol_handles.get_jArray();
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -69,7 +71,8 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, types, "types is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::lists_column_view const list_input{*reinterpret_cast<cudf::column_view*>(input_column)};
     cudf::jni::native_jintArray n_types(env, types);
@@ -88,7 +91,7 @@ Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRowsFixedWidthOptimize
       spark_rapids_jni::convert_from_rows_fixed_width_optimized(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_RowConversion_convertFromRows(
@@ -97,7 +100,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_RowConversion_conv
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
   JNI_NULL_CHECK(env, types, "types is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::lists_column_view const list_input{*reinterpret_cast<cudf::column_view*>(input_column)};
     cudf::jni::native_jintArray n_types(env, types);
@@ -116,6 +120,6 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_RowConversion_conv
       spark_rapids_jni::convert_from_rows(list_input, types_vec);
     return cudf::jni::convert_table_for_return(env, result);
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }

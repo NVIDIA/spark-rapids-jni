@@ -23,6 +23,7 @@
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/utilities/batched_memset.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
@@ -32,6 +33,7 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -678,110 +680,102 @@ rmm::device_uvector<std::invoke_result_t<GroupFunction>> transform_expand(
 }
 
 /**
- * @brief Functor that fills in buffer sizes (validity, offsets, data) per column.
- *
- * This returns the size of the buffer -without- padding. Just the size of
- * the raw bytes containing the actual data.
- *
+ * @brief Functor to calculate buffer sizes for the shared buffer approach.
  */
-struct assemble_buffer_functor {
-  rmm::cuda_stream_view stream;
-  rmm::device_async_resource_ref mr;
-
-  template <typename T, typename BufIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
+struct shared_buffer_size_functor {
+  template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
   void operator()(assemble_column_info const& col,
-                  BufIter validity_out,
-                  BufIter offsets_out,
-                  BufIter data_out)
+                  size_t& validity_size,
+                  size_t& offsets_size,
+                  size_t& data_size)
   {
     // validity
-    *validity_out =
-      col.has_validity ? alloc_validity(col.num_rows) : rmm::device_buffer(0, stream, mr);
+    validity_size = get_output_validity_size(col);
 
     // no offsets for fixed width types
+    offsets_size = 0;
 
     // data
-    auto const data_size = cudf::util::round_up_safe(
+    data_size = cudf::util::round_up_safe(
       cudf::type_dispatcher(data_type{col.type}, size_of_helper{}) * col.num_rows, split_align);
-    *data_out = rmm::device_buffer(data_size, stream, mr);
   }
 
-  template <typename T, typename BufIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
   void operator()(assemble_column_info const& col,
-                  BufIter validity_out,
-                  BufIter offsets_out,
-                  BufIter data_out)
+                  size_t& validity_size,
+                  size_t& offsets_size,
+                  size_t& data_size)
   {
     // validity
-    *validity_out =
-      col.has_validity ? alloc_validity(col.num_rows) : rmm::device_buffer(0, stream, mr);
+    validity_size = get_output_validity_size(col);
 
     // offsets
-    *offsets_out = rmm::device_buffer(offsets_size(col), stream, mr);
+    offsets_size = get_output_offsets_size(col);
 
     // no data for lists
+    data_size = 0;
   }
 
-  template <typename T, typename BufIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
   void operator()(assemble_column_info const& col,
-                  BufIter validity_out,
-                  BufIter offsets_out,
-                  BufIter data_out)
+                  size_t& validity_size,
+                  size_t& offsets_size,
+                  size_t& data_size)
   {
     // validity
-    *validity_out =
-      col.has_validity ? alloc_validity(col.num_rows) : rmm::device_buffer(0, stream, mr);
+    validity_size = get_output_validity_size(col);
 
     // no offsets or data for structs
+    offsets_size = 0;
+    data_size    = 0;
   }
 
-  template <typename T, typename BufIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
   void operator()(assemble_column_info const& col,
-                  BufIter validity_out,
-                  BufIter offsets_out,
-                  BufIter data_out)
+                  size_t& validity_size,
+                  size_t& offsets_size,
+                  size_t& data_size)
   {
     // validity
-    *validity_out =
-      col.has_validity ? alloc_validity(col.num_rows) : rmm::device_buffer(0, stream, mr);
+    validity_size = get_output_validity_size(col);
 
     // chars
-    *data_out = rmm::device_buffer(col.num_chars, stream, mr);
+    data_size = cudf::util::round_up_safe(static_cast<size_t>(col.num_chars), split_align);
 
     // offsets
-    *offsets_out = rmm::device_buffer(offsets_size(col), stream, mr);
+    offsets_size = get_output_offsets_size(col);
   }
 
   template <typename T,
-            typename BufIter,
             CUDF_ENABLE_IF(!std::is_same_v<T, cudf::struct_view> &&
                            !std::is_same_v<T, cudf::list_view> &&
                            !std::is_same_v<T, cudf::string_view> && !cudf::is_fixed_width<T>())>
   void operator()(assemble_column_info const& col,
-                  BufIter& validity_out,
-                  BufIter& offsets_out,
-                  BufIter& data_out)
+                  size_t& validity_size,
+                  size_t& offsets_size,
+                  size_t& data_size)
   {
-    CUDF_FAIL("Unsupported type in assemble_buffer_functor");
+    CUDF_FAIL("Unsupported type in shared_buffer_size_functor");
   }
 
  private:
-  size_t offsets_size(assemble_column_info const& col) const
+  /**
+   * @brief Helper function to calculate validity buffer size for a column
+   */
+  size_t get_output_validity_size(assemble_column_info const& col) const
   {
-    // if we have no rows, don't even generate the blank offset
-    return col.num_rows > 0
-             ? cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align)
+    return col.has_validity
+             ? cudf::util::round_up_safe(bitmask_allocation_size_bytes(col.num_rows, split_align),
+                                         split_align)
              : 0;
   }
 
-  rmm::device_buffer alloc_validity(size_type num_rows) const
+  /**
+   * @brief Helper function to calculate offsets buffer size for a column
+   */
+  size_t get_output_offsets_size(assemble_column_info const& col) const
   {
-    auto res = rmm::device_buffer(bitmask_allocation_size_bytes(num_rows, split_align), stream, mr);
-    // necessary because of the way the validity copy step works (use of atomicOr instead of stores
-    // for copy endpoints).
-    // TODO: think of a way to eliminate.
-    cudaMemsetAsync(res.data(), 0, res.size(), stream);
-    return res;
+    return cudf::util::round_up_safe(sizeof(size_type) * (col.num_rows + 1), split_align);
   }
 };
 
@@ -839,30 +833,31 @@ struct assemble_batch {
 };
 
 /**
- * @brief Generate the final (but still empty) output device memory buffers for the reassembled
- * columns and the set of copy batches needed to fill them.
+ * @brief Generate the shared buffer allocation with buffer slices and copy batches.
+ *
+ * This is the key optimization: instead of O(n) allocations, we do one allocation
+ * and create slices/views into it.
  *
  * @param column_info Per-column information
  * @param h_column_info Host memory per-column information
  * @param column_instance_info Per-column-instance information
- * a single value that gets collected into the overall result returned from transform_expand
  * @param partitions The partition buffer
  * @param partition_offsets Per-partition offsets into the partition buffer
  * @param per_partition_metadata_size Per-partition metadata header size
  * @param stream CUDA stream used for device memory operations and kernel launches
  * @param mr User provided resource used for allocating the returned device memory
  *
- * @return The output device buffers and the copy batches needed to fill them
+ * @return Shuffle assemble result with buffer slices and copy batches
  */
-std::pair<std::vector<rmm::device_buffer>, rmm::device_uvector<assemble_batch>>
-assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
-                       cudf::host_span<assemble_column_info const> h_column_info,
-                       cudf::device_span<assemble_column_info const> const& column_instance_info,
-                       cudf::device_span<uint8_t const> partitions,
-                       cudf::device_span<size_t const> partition_offsets,
-                       size_t per_partition_metadata_size,
-                       rmm::cuda_stream_view stream,
-                       rmm::device_async_resource_ref mr)
+std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble_build_buffers(
+  cudf::device_span<assemble_column_info> column_info,
+  cudf::host_span<assemble_column_info const> h_column_info,
+  cudf::device_span<assemble_column_info const> const& column_instance_info,
+  cudf::device_span<uint8_t const> partitions,
+  cudf::device_span<size_t const> partition_offsets,
+  size_t per_partition_metadata_size,
+  rmm::cuda_stream_view stream,
+  rmm::device_async_resource_ref mr)
 {
   auto temp_mr                    = cudf::get_current_device_resource_ref();
   auto const num_columns          = column_info.size();
@@ -875,29 +870,79 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
   size_t const num_src_buffers       = num_dst_buffers * num_partitions;
   size_t const buffers_per_partition = num_dst_buffers;
 
-  // allocate output buffers. ordered in the array as (validity, offsets, data) per column.
-  // so for 4 columns and 2 partitions, the ordering would be:
-  // vod vod vod vod | vod vod vod vod
-  std::vector<rmm::device_buffer> assemble_buffers(num_dst_buffers);
-  auto dst_validity_iter = assemble_buffers.begin();
-  auto dst_offsets_iter  = assemble_buffers.begin() + 1;
-  auto dst_data_iter     = assemble_buffers.begin() + 2;
-  for (size_t idx = 0; idx < column_info.size(); idx++) {
+  // *** The shared buffer optimization ***
+  // Calculate total memory needed for all buffers combined
+  std::vector<size_t> validity_sizes(num_columns);
+  std::vector<size_t> offsets_sizes(num_columns);
+  std::vector<size_t> data_sizes(num_columns);
+
+  for (size_t idx = 0; idx < num_columns; idx++) {
     cudf::type_dispatcher(cudf::data_type{h_column_info[idx].type},
-                          assemble_buffer_functor{stream, mr},
+                          shared_buffer_size_functor{},
                           h_column_info[idx],
-                          dst_validity_iter,
-                          dst_offsets_iter,
-                          dst_data_iter);
-    dst_validity_iter += 3;
-    dst_offsets_iter += 3;
-    dst_data_iter += 3;
+                          validity_sizes[idx],
+                          offsets_sizes[idx],
+                          data_sizes[idx]);
   }
-  std::vector<uint8_t*> h_dst_buffers(assemble_buffers.size());
-  std::transform(assemble_buffers.begin(),
-                 assemble_buffers.end(),
+
+  // Calculate buffer offsets and total size using exclusive scan
+  std::vector<size_t> all_sizes;
+  all_sizes.reserve(num_dst_buffers);
+  for (size_t col = 0; col < num_columns; col++) {
+    all_sizes.push_back(validity_sizes[col]);
+    all_sizes.push_back(offsets_sizes[col]);
+    all_sizes.push_back(data_sizes[col]);
+  }
+
+  std::vector<size_t> buffer_offsets(num_dst_buffers);
+  std::exclusive_scan(all_sizes.begin(), all_sizes.end(), buffer_offsets.begin(), size_t{0});
+  size_t total_size = buffer_offsets.back() + all_sizes.back();
+
+  // The shared buffer allocation! This is the core of the optimization
+  rmm::device_buffer shared_buffer(total_size, stream, mr);
+  uint8_t* base_ptr = static_cast<uint8_t*>(shared_buffer.data());
+
+  // Create buffer slices that point into the shared buffer allocation.
+  // Each slice represents a contiguous region of the shared buffer for one column's
+  // validity, offsets, or data buffer. Previously we allocated each buffer individually
+  // (O(n) allocations), but now we use one shared allocation with slices/views into it
+  // for better memory management and reduced allocation overhead.
+  std::vector<buffer_slice> buffer_slices(num_dst_buffers);
+
+  // Collect validity buffers that need zero-initialization
+  std::vector<cudf::device_span<cudf::bitmask_type>> validity_spans_to_zero;
+
+  for (size_t i = 0; i < num_dst_buffers; i++) {
+    size_t col_idx  = i / 3;
+    size_t buf_type = i % 3;  // 0=validity, 1=offsets, 2=data
+    size_t size     = (buf_type == 0)   ? validity_sizes[col_idx]
+                      : (buf_type == 1) ? offsets_sizes[col_idx]
+                                        : data_sizes[col_idx];
+
+    buffer_slices[i] = buffer_slice(base_ptr + buffer_offsets[i], size, buffer_offsets[i]);
+
+    // Collect validity buffers that need zero-initialization
+    if (buf_type == 0 && size > 0 && h_column_info[col_idx].has_validity) {
+      // Convert byte size to element count for bitmask_type (uint32_t) span
+      size_t num_elements = size / sizeof(cudf::bitmask_type);
+      validity_spans_to_zero.emplace_back(
+        reinterpret_cast<cudf::bitmask_type*>(buffer_slices[i].data), num_elements);
+    }
+  }
+
+  // Batch memset all validity buffers at once for better performance with many columns
+  if (!validity_spans_to_zero.empty()) {
+    cudf::host_span<cudf::device_span<cudf::bitmask_type> const> host_spans(
+      validity_spans_to_zero.data(), validity_spans_to_zero.size());
+    cudf::detail::batched_memset<cudf::bitmask_type>(host_spans, cudf::bitmask_type{0}, stream);
+  }
+
+  // Create device buffer of pointers to slices for copy operations
+  std::vector<uint8_t*> h_dst_buffers(buffer_slices.size());
+  std::transform(buffer_slices.begin(),
+                 buffer_slices.end(),
                  h_dst_buffers.begin(),
-                 [](rmm::device_buffer& buf) { return reinterpret_cast<uint8_t*>(buf.data()); });
+                 [](const buffer_slice& slice) { return slice.data; });
   auto dst_buffers = cudf::detail::make_device_uvector_async(h_dst_buffers, stream, temp_mr);
 
   // compute:
@@ -1239,7 +1284,10 @@ assemble_build_buffers(cudf::device_span<assemble_column_info> column_info,
     stream,
     mr);
 
-  return {std::move(assemble_buffers), std::move(copy_batches)};
+  // Return shuffle assemble result with slices and copy batches (column_views will be populated
+  // later)
+  shuffle_assemble_result result_buffers(std::move(shared_buffer), std::move(buffer_slices));
+  return {std::move(result_buffers), std::move(copy_batches)};
 }
 
 }  // namespace
@@ -1536,227 +1584,287 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
 }  // namespace
 
 /*
- * Code block for assembling the final cudf output table
+ * Code block for assembling the final shuffle assemble result
  * Key function: build_table
  *
  */
 namespace {
 
-/**
- * @brief Functor that generates final cudf columns assembled from provided input buffers
- */
-struct assemble_column_functor {
-  cudf::host_span<shuffle_split_col_data const> column_meta;
-  cudf::host_span<assemble_column_info const> columns;
-  rmm::cuda_stream_view stream;
-  rmm::device_async_resource_ref mr;
-
-  template <typename T, typename BufferIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
-  std::pair<size_t, BufferIter> operator()(size_t col_index,
-                                           BufferIter buffer,
-                                           std::vector<std::unique_ptr<cudf::column>>& out)
-  {
-    auto const validity = buffer;
-    // no offsets
-    auto const data = buffer + 2;
-
-    auto const col = columns[col_index];
-    out.push_back(
-      std::make_unique<cudf::column>(spark_rapids_jni::is_fixed_point(cudf::data_type{col.type})
-                                       ? cudf::data_type{col.type, column_meta[col_index].scale()}
-                                       : cudf::data_type{col.type},
-                                     col.num_rows,
-                                     std::move(*data),
-                                     col.has_validity ? std::move(*validity) : rmm::device_buffer{},
-                                     col.has_validity ? col.num_rows - col.valid_count : 0));
-    return {col_index + 1, buffer + 3};
-  }
-
-  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  std::pair<size_t, BufferIter> operator()(size_t col_index,
-                                           BufferIter buffer,
-                                           std::vector<std::unique_ptr<cudf::column>>& out)
-  {
-    auto const validity = buffer;
-    buffer += 3;
-
-    std::vector<std::unique_ptr<cudf::column>> children;
-    auto const& col = columns[col_index];
-    // build children
-    children.reserve(col.num_children);
-    auto next = col_index + 1;
-    for (size_type i = 0; i < col.num_children; i++) {
-      std::tie(next, buffer) =
-        cudf::type_dispatcher(cudf::data_type{columns[next].type},
-                              assemble_column_functor{column_meta, columns, stream, mr},
-                              next,
-                              buffer,
-                              children);
-    }
-
-    out.push_back(
-      cudf::make_structs_column(col.num_rows,
-                                std::move(children),
-                                col.has_validity ? col.num_rows - col.valid_count : 0,
-                                col.has_validity ? std::move(*validity) : rmm::device_buffer{},
-                                stream,
-                                mr));
-    return {next, buffer};
-  }
-
-  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
-  std::pair<size_t, BufferIter> operator()(size_t col_index,
-                                           BufferIter buffer,
-                                           std::vector<std::unique_ptr<cudf::column>>& out)
-  {
-    auto const validity = buffer;
-    auto const offsets  = buffer + 1;
-    auto const chars    = buffer + 2;
-
-    auto const& col = columns[col_index];
-    out.push_back(col.num_rows > 0
-                    ? cudf::make_strings_column(
-                        col.num_rows,
-                        std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                                       col.num_rows + 1,
-                                                       std::move(*offsets),
-                                                       rmm::device_buffer{},
-                                                       0),
-                        std::move(*chars),
-                        col.has_validity ? col.num_rows - col.valid_count : 0,
-                        col.has_validity ? std::move(*validity) : rmm::device_buffer{})
-                    : cudf::make_empty_column(type_id::STRING));
-    return {col_index + 1, buffer + 3};
-  }
-
-  template <typename T, typename BufferIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
-  std::pair<size_t, BufferIter> operator()(size_t col_index,
-                                           BufferIter buffer,
-                                           std::vector<std::unique_ptr<cudf::column>>& out)
-  {
-    auto const validity = buffer;
-    auto const offsets  = buffer + 1;
-    buffer += 3;
-
-    // build the child
-    auto const& col = columns[col_index];
-    std::vector<std::unique_ptr<cudf::column>> child_col;
-    auto next = col_index + 1;
-    std::tie(next, buffer) =
-      cudf::type_dispatcher(cudf::data_type{columns[next].type},
-                            assemble_column_functor{column_meta, columns, stream, mr},
-                            next,
-                            buffer,
-                            child_col);
-
-    // build the final column
-    out.push_back(cudf::make_lists_column(
-      col.num_rows,
-      std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::INT32},
-                                     col.num_rows > 0 ? col.num_rows + 1 : 0,
-                                     std::move(*offsets),
-                                     rmm::device_buffer{},
-                                     0),
-      std::move(child_col.back()),
-      col.has_validity ? col.num_rows - col.valid_count : 0,
-      col.has_validity ? std::move(*validity) : rmm::device_buffer{},
-      stream,
-      mr));
-    return {next, buffer};
-  }
-
-  template <typename T,
-            typename BufferIter,
-            CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view> and
-                           !std::is_same_v<T, cudf::string_view> and
-                           !std::is_same_v<T, cudf::list_view>)>
-  std::pair<size_t, BufferIter> operator()(size_t col_index,
-                                           BufferIter buffer,
-                                           std::vector<std::unique_ptr<cudf::column>>& out)
-  {
-    CUDF_FAIL("Unsupported type in shuffle_assemble");
-  }
-};
-
-// assemble all the columns and the final table from the intermediate buffers
-std::unique_ptr<cudf::table> build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
-                                         cudf::host_span<assemble_column_info const> assemble_data,
-                                         cudf::host_span<rmm::device_buffer> assemble_buffers,
-                                         rmm::cuda_stream_view stream,
-                                         rmm::device_async_resource_ref mr)
+// create mock assemble_column_info for empty columns
+std::vector<assemble_column_info> create_empty_assemble_data(
+  cudf::host_span<shuffle_split_col_data const> col_info)
 {
-  std::vector<std::unique_ptr<cudf::column>> columns;
-  size_t col_index = 0;
-  auto buffer      = assemble_buffers.begin();
-  while (col_index < assemble_data.size()) {
-    std::tie(col_index, buffer) =
-      cudf::type_dispatcher(cudf::data_type{assemble_data[col_index].type},
-                            assemble_column_functor{column_meta, assemble_data, stream, mr},
-                            col_index,
-                            buffer,
-                            columns);
+  std::vector<assemble_column_info> result;
+  result.reserve(col_info.size());
+
+  for (size_t i = 0; i < col_info.size(); i++) {
+    auto const& col = col_info[i];
+    assemble_column_info info{};
+    info.type         = col.type;
+    info.has_validity = true;  // Assume columns have validity for consistency
+    info.num_rows     = 0;
+    info.valid_count  = 0;     // No rows, so valid_count = 0
+    info.num_children = col.num_children();
+    // Other fields are not used for empty columns
+    result.push_back(info);
   }
-  return std::make_unique<cudf::table>(std::move(columns));
+
+  return result;
+}
+
+// calculate buffer sizes for empty columns
+std::tuple<std::vector<size_t>, std::vector<size_t>, std::vector<size_t>>
+calculate_empty_buffer_sizes(cudf::host_span<shuffle_split_col_data const> col_info,
+                             cudf::host_span<assemble_column_info const> assemble_data)
+{
+  std::vector<size_t> validity_sizes(col_info.size());
+  std::vector<size_t> offsets_sizes(col_info.size());
+  std::vector<size_t> data_sizes(col_info.size());
+
+  for (size_t i = 0; i < col_info.size(); i++) {
+    cudf::type_dispatcher(cudf::data_type{col_info[i].type},
+                          shared_buffer_size_functor{},
+                          assemble_data[i],
+                          validity_sizes[i],
+                          offsets_sizes[i],
+                          data_sizes[i]);
+  }
+
+  return {validity_sizes, offsets_sizes, data_sizes};
+}
+
+// initialize buffers for empty columns
+void initialize_empty_buffers(uint8_t* buffer_base, size_t total_size, rmm::cuda_stream_view stream)
+{
+  // Initialize all buffers to 0, which is correct for:
+  // - Validity: all bits 0 (but since num_rows=0, no bits matter)
+  // - Offsets: 0 (correct for empty offsets)
+  // - Data: 0 (empty data)
+  cudaMemsetAsync(buffer_base, 0, total_size, stream);
+}
+
+// create buffer slices for empty columns
+std::vector<buffer_slice> create_empty_buffer_slices(
+  cudf::host_span<shuffle_split_col_data const> col_info,
+  cudf::host_span<assemble_column_info const> assemble_data,
+  uint8_t* buffer_base)
+{
+  auto [validity_sizes, offsets_sizes, data_sizes] =
+    calculate_empty_buffer_sizes(col_info, assemble_data);
+
+  size_t num_dst_buffers = col_info.size() * 3;
+  std::vector<size_t> all_sizes;
+  all_sizes.reserve(num_dst_buffers);
+  for (size_t col = 0; col < col_info.size(); col++) {
+    all_sizes.push_back(validity_sizes[col]);
+    all_sizes.push_back(offsets_sizes[col]);
+    all_sizes.push_back(data_sizes[col]);
+  }
+
+  std::vector<size_t> buffer_offsets(num_dst_buffers);
+  std::exclusive_scan(all_sizes.begin(), all_sizes.end(), buffer_offsets.begin(), size_t{0});
+
+  std::vector<buffer_slice> buffer_slices(num_dst_buffers);
+  for (size_t i = 0; i < num_dst_buffers; i++) {
+    buffer_slices[i] =
+      buffer_slice(buffer_base + buffer_offsets[i], all_sizes[i], buffer_offsets[i]);
+  }
+
+  return buffer_slices;
 }
 
 /**
- * @brief Functor that generates final empty cudf columns from the provided metadata
- * schema.
+ * @brief Functor that generates column_view objects from buffer slices, handling nested types
  */
-struct assemble_empty_column_functor {
+struct assemble_column_view_functor {
+  cudf::host_span<shuffle_split_col_data const> column_meta;
+  cudf::host_span<assemble_column_info const> assemble_data;
+  shuffle_assemble_result const& assemble_result;
   rmm::cuda_stream_view stream;
   rmm::device_async_resource_ref mr;
 
-  template <typename T, typename ColumnIter, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
-  ColumnIter operator()(ColumnIter col, std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, CUDF_ENABLE_IF(cudf::is_fixed_width<T>())>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
   {
-    out.push_back(std::make_unique<cudf::column>(
-      cudf::data_type{col->type}, 0, rmm::device_buffer{}, rmm::device_buffer{}, 0));
+    auto const& col      = assemble_data[col_index];
+    auto const& meta_col = column_meta[col_index];
 
-    return {col + 1};
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t data_buffer_idx     = col_index * 3 + 2;
+
+    // Get buffer slices
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& data_slice     = assemble_result.buffer_slices[data_buffer_idx];
+
+    // Create cudf::data_type with proper scale for fixed-point types
+    cudf::type_id type = static_cast<cudf::type_id>(col.type);
+    int32_t scale =
+      spark_rapids_jni::is_fixed_point(cudf::data_type{col.type}) ? meta_col.scale() : 0;
+    cudf::data_type dtype{type, scale};
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      dtype,
+      static_cast<cudf::size_type>(col.num_rows),
+      data_slice.size > 0 ? static_cast<void const*>(data_slice.data) : nullptr,
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count);
+
+    return {col_index + 1, std::move(column_view)};
   }
 
-  template <typename T, typename ColumnIter, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
-  ColumnIter operator()(ColumnIter col, std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::struct_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
   {
-    // build children
-    std::vector<std::unique_ptr<cudf::column>> children;
-    children.reserve(col->num_children());
-    auto next = col + 1;
-    for (size_type i = 0; i < col->num_children(); i++) {
-      next = cudf::type_dispatcher(
-        cudf::data_type{next->type}, assemble_empty_column_functor{stream, mr}, next, children);
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices (only validity for structs)
+    size_t validity_buffer_idx = col_index * 3;
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+
+    // Build children recursively
+    std::vector<cudf::column_view> children;
+    children.reserve(col.num_children);
+    auto next = col_index + 1;
+    for (cudf::size_type i = 0; i < col.num_children; i++) {
+      auto [next_idx, child_view] = cudf::type_dispatcher(
+        cudf::data_type{assemble_data[next].type},
+        assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+        next);
+      children.push_back(*child_view);  // Copy the column_view (not owning)
+      next = next_idx;
     }
 
-    out.push_back(
-      cudf::make_structs_column(0, std::move(children), 0, rmm::device_buffer{}, stream, mr));
-    return next;
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::STRUCT},
+      static_cast<cudf::size_type>(col.num_rows),
+      nullptr,  // structs have no data buffer
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,        // offset
+      children  // pass children to constructor
+    );
+
+    return {next, std::move(column_view)};
   }
 
-  // template <typename T, CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T,
-  // cudf::list_view> and !std::is_same_v<T, cudf::struct_view>)>
-  template <typename T,
-            typename ColumnIter,
-            CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view>)>
-  ColumnIter operator()(ColumnIter col, std::vector<std::unique_ptr<cudf::column>>& out)
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::string_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
   {
-    CUDF_FAIL("Unsupported type in shuffle_assemble");
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t offsets_buffer_idx  = col_index * 3 + 1;
+    size_t data_buffer_idx     = col_index * 3 + 2;
+
+    // Get buffer slices
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice  = assemble_result.buffer_slices[offsets_buffer_idx];
+    auto const& data_slice     = assemble_result.buffer_slices[data_buffer_idx];
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    // For strings: chars data goes in parent's data buffer, offsets as single child column
+    std::vector<cudf::column_view> children;
+    // Always include offsets child column, even for empty strings
+    children.emplace_back(cudf::data_type{cudf::type_id::INT32},
+                          static_cast<cudf::size_type>(col.num_rows + 1),
+                          static_cast<void const*>(offsets_slice.data),
+                          nullptr,  // offsets never have nulls
+                          0);
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::STRING},
+      static_cast<cudf::size_type>(col.num_rows),
+      static_cast<void const*>(data_slice.data),  // chars data in parent's buffer
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,  // offset
+      children);
+
+    return {col_index + 1, std::move(column_view)};
+  }
+
+  template <typename T, CUDF_ENABLE_IF(std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    auto const& col = assemble_data[col_index];
+
+    // Calculate buffer slice indices
+    size_t validity_buffer_idx = col_index * 3;
+    size_t offsets_buffer_idx  = col_index * 3 + 1;
+    auto const& validity_slice = assemble_result.buffer_slices[validity_buffer_idx];
+    auto const& offsets_slice  = assemble_result.buffer_slices[offsets_buffer_idx];
+
+    // Build the child column recursively
+    std::vector<cudf::column_view> children;
+    auto next                   = col_index + 1;
+    auto [next_idx, child_view] = cudf::type_dispatcher(
+      cudf::data_type{assemble_data[next].type},
+      assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+      next);
+    children.push_back(*child_view);
+
+    cudf::size_type null_count = col.has_validity ? (col.num_rows - col.valid_count) : 0;
+
+    // Create offsets child column
+    children.insert(children.begin(),
+                    cudf::column_view(cudf::data_type{cudf::type_id::INT32},
+                                      static_cast<cudf::size_type>(col.num_rows + 1),
+                                      static_cast<void const*>(offsets_slice.data),
+                                      nullptr,  // offsets never have nulls
+                                      0));
+
+    auto column_view = std::make_unique<cudf::column_view>(
+      cudf::data_type{cudf::type_id::LIST},
+      static_cast<cudf::size_type>(col.num_rows),
+      nullptr,  // lists have no data buffer at top level
+      col.has_validity ? reinterpret_cast<cudf::bitmask_type const*>(validity_slice.data) : nullptr,
+      null_count,
+      0,  // offset
+      children);
+
+    return {next_idx, std::move(column_view)};
+  }
+
+  template <typename T,
+            CUDF_ENABLE_IF(!cudf::is_fixed_width<T>() and !std::is_same_v<T, cudf::struct_view> and
+                           !std::is_same_v<T, cudf::string_view> and
+                           !std::is_same_v<T, cudf::list_view>)>
+  std::pair<size_t, std::unique_ptr<cudf::column_view>> operator()(size_t col_index) const
+  {
+    CUDF_FAIL("Unsupported type in assemble_column_view_functor");
   }
 };
 
-// assemble all the columns and the final table from the intermediate buffers
-std::unique_ptr<cudf::table> build_empty_table(
-  cudf::host_span<shuffle_split_col_data const> col_info,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+// assemble all the column_views and populate the final shuffle assemble result
+void build_table(cudf::host_span<shuffle_split_col_data const> column_meta,
+                 cudf::host_span<assemble_column_info const> assemble_data,
+                 shuffle_assemble_result& assemble_result,
+                 rmm::cuda_stream_view stream,
+                 rmm::device_async_resource_ref mr)
 {
-  std::vector<std::unique_ptr<cudf::column>> columns;
-  auto column = col_info.begin();
-  while (column != col_info.end()) {
-    column = cudf::type_dispatcher(
-      cudf::data_type{column->type}, assemble_empty_column_functor{stream, mr}, column, columns);
+  // create native cudf::column_view objects pointing to slices in the shared buffer
+  std::vector<std::unique_ptr<cudf::column_view>> column_views;
+  column_views.reserve(assemble_data.size());
+
+  size_t col_index = 0;
+  while (col_index < assemble_data.size()) {
+    auto [next_idx, column_view] = cudf::type_dispatcher(
+      cudf::data_type{assemble_data[col_index].type},
+      assemble_column_view_functor{column_meta, assemble_data, assemble_result, stream, mr},
+      col_index);
+    column_views.push_back(std::move(column_view));
+    col_index = next_idx;
   }
-  return std::make_unique<cudf::table>(std::move(columns));
+
+  // update the result with our column_views
+  assemble_result.column_views = std::move(column_views);
 }
 
 }  // namespace
@@ -1764,11 +1872,11 @@ std::unique_ptr<cudf::table> build_empty_table(
 /**
  * @copydoc spark_rapids_jni::shuffle_assemble
  */
-std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& metadata,
-                                              cudf::device_span<uint8_t const> partitions,
-                                              cudf::device_span<size_t const> _partition_offsets,
-                                              rmm::cuda_stream_view stream,
-                                              rmm::device_async_resource_ref mr)
+shuffle_assemble_result shuffle_assemble(shuffle_split_metadata const& metadata,
+                                         cudf::device_span<uint8_t const> partitions,
+                                         cudf::device_span<size_t const> _partition_offsets,
+                                         rmm::cuda_stream_view stream,
+                                         rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -1785,14 +1893,43 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
         reinterpret_cast<partition_header const*>(partitions.begin() + _partition_offsets[pindex]);
       return cudf::hashing::detail::swap_endian(pheader->num_rows) > 0 ? pindex + 1 : 0;
     }));
-  size_t const num_partitions = thrust::reduce(rmm::exec_policy(stream, temp_mr),
-                                               iter,
-                                               iter + (_partition_offsets.size() - 1),
-                                               size_t{0},
-                                               thrust::maximum<size_t>{});
+  size_t const num_partitions_raw = thrust::reduce(rmm::exec_policy(stream, temp_mr),
+                                                   iter,
+                                                   iter + (_partition_offsets.size() - 1),
+                                                   size_t{0},
+                                                   thrust::maximum<size_t>{});
+  size_t const num_partitions     = num_partitions_raw == 0 ? 1 : num_partitions_raw;
 
-  // if the input is empty, just generate an empty table
-  if (num_partitions == 0) { return build_empty_table(metadata.col_info, stream, mr); }
+  // if the input is empty, allocate minimal buffer and create column_views
+  if (num_partitions_raw == 0) {
+    auto empty_assemble_data = create_empty_assemble_data(metadata.col_info);
+
+    // Calculate total buffer size needed
+    auto [validity_sizes, offsets_sizes, data_sizes] =
+      calculate_empty_buffer_sizes(metadata.col_info, empty_assemble_data);
+    size_t total_size = 0;
+    for (size_t i = 0; i < validity_sizes.size(); i++) {
+      total_size += validity_sizes[i] + offsets_sizes[i] + data_sizes[i];
+    }
+
+    // Allocate minimal buffer
+    rmm::device_buffer shared_buffer(total_size, stream, mr);
+    uint8_t* buffer_base = static_cast<uint8_t*>(shared_buffer.data());
+
+    // Initialize buffers appropriately for empty columns
+    initialize_empty_buffers(buffer_base, total_size, stream);
+
+    // Create buffer slices
+    std::vector<buffer_slice> buffer_slices =
+      create_empty_buffer_slices(metadata.col_info, empty_assemble_data, buffer_base);
+
+    shuffle_assemble_result result(std::move(shared_buffer), std::move(buffer_slices));
+
+    // Use build_table to create column_views
+    build_table(metadata.col_info, empty_assemble_data, result, stream, mr);
+
+    return result;
+  }
 
   cudf::device_span<size_t const> partition_offsets{_partition_offsets.data(), num_partitions + 1};
 
@@ -1802,16 +1939,15 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
     assemble_build_column_info(metadata, partitions, partition_offsets, stream, temp_mr);
   auto h_column_info = cudf::detail::make_std_vector(column_info, stream);
 
-  // generate the (empty) output buffers based on the column info.
-  // generate the copy batches to be performed to copy data to the output buffers
-  auto [dst_buffers, batches] = assemble_build_buffers(column_info,
-                                                       h_column_info,
-                                                       column_instance_info,
-                                                       partitions,
-                                                       partition_offsets,
-                                                       per_partition_metadata_size,
-                                                       stream,
-                                                       mr);
+  // generate the shared buffer allocation with buffer slices and copy batches
+  auto [assemble_result, batches] = assemble_build_buffers(column_info,
+                                                           h_column_info,
+                                                           column_instance_info,
+                                                           partitions,
+                                                           partition_offsets,
+                                                           per_partition_metadata_size,
+                                                           stream,
+                                                           mr);
 
   // copy the data. also updates valid_count in column_info
   assemble_copy(batches, column_info, h_column_info, stream);
@@ -1823,9 +1959,9 @@ std::unique_ptr<cudf::table> shuffle_assemble(shuffle_split_metadata const& meta
   // there's a decent chunk of time spend on the cpu in build_table that could be overlapped
   // with the the gpu work being done in assemble_copy.
 
-  // build the final table while the gpu is performing the copy
-  auto ret = build_table(metadata.col_info, h_column_info, dst_buffers, stream, mr);
-  return ret;
+  // build the final shuffle assemble result while the gpu is performing the copy
+  build_table(metadata.col_info, h_column_info, assemble_result, stream, mr);
+  return std::move(assemble_result);
 }
 
 }  // namespace spark_rapids_jni

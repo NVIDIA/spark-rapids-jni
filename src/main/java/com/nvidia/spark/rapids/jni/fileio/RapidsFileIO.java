@@ -34,6 +34,17 @@ public interface RapidsFileIO extends Serializable {
    */
   RapidsInputFile newInputFile(String path) throws IOException;
 
+  /**
+   * Creates a new {@link RapidsOutputFile} for the given path.
+   * @param path The absolute path to the file.
+   * @return a new {@link RapidsOutputFile} for the given path
+   * @throws IOException If the underlying file system throws IOException
+   */
+  default RapidsOutputFile newOutputFile(String path) throws IOException {
+    // To void breaking downstream, we provide a default implementation that throws
+    throw new UnsupportedOperationException("Output file not supported");
+  }
+
 
   /**
    * Creates a new {@link RapidsInputFile} for the given path.
@@ -43,5 +54,15 @@ public interface RapidsFileIO extends Serializable {
    */
   default RapidsInputFile newInputFile(Path path) throws IOException {
     return newInputFile(path.toString());
+  }
+
+  /**
+   * Creates a new {@link RapidsOutputFile} for the given path.
+   * @param path The absolute path to the file.
+   * @return a new {@link RapidsOutputFile} for the given path
+   * @throws IOException If the underlying file system throws IOException
+   */
+  default RapidsOutputFile newOutputFile(Path path) throws IOException {
+    return newOutputFile(path.toString());
   }
 }

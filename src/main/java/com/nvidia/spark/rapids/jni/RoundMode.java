@@ -13,22 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package com.nvidia.spark.rapids.jni;
 
-#include "cudf_jni_apis.hpp"
-#include "uuid.hpp"
+/**
+ * Rounding modes supported in round method.
+ * HALF_UP : Rounding mode to round towards "nearest neighbor". If both neighbors are
+ * equidistant, then round up.
+ * HALF_EVEN : Rounding mode to round towards the "nearest neighbor". If both neighbors are
+ * equidistant, round towards the even neighbor.
+ */
+public enum RoundMode {
+  HALF_UP(0),
+  HALF_EVEN(1);
+  final int nativeId;
 
-extern "C" {
-
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_StringUtils_randomUUIDs(JNIEnv* env,
-                                                                                 jclass,
-                                                                                 jint row_count,
-                                                                                 jlong seed)
-{
-  JNI_TRY
-  {
-    cudf::jni::auto_set_device(env);
-    return cudf::jni::release_as_jlong(spark_rapids_jni::random_uuids(row_count, seed));
-  }
-  JNI_CATCH(env, 0);
-}
+  RoundMode(int nativeId) { this.nativeId = nativeId; }
 }
