@@ -112,6 +112,17 @@ spark_rapids_jni::shuffle_split_result reshape_partitions(
           std::move(remapped_offsets)};
 }
 
+// Helper function to create a table_view from shuffle_assemble_result
+cudf::table_view make_table_view(spark_rapids_jni::shuffle_assemble_result const& result)
+{
+  std::vector<cudf::column_view> column_views;
+  column_views.reserve(result.column_views.size());
+  for (auto const& cv_ptr : result.column_views) {
+    column_views.push_back(*cv_ptr);
+  }
+  return cudf::table_view{column_views};
+}
+
 auto run_split(cudf::table_view const& tbl,
                std::vector<cudf::size_type> const& splits,
                std::vector<cudf::size_type> const& remaps = {})
@@ -138,7 +149,7 @@ auto run_split(cudf::table_view const& tbl,
       cudf::get_default_stream(),
       rmm::mr::get_current_device_resource());
 
-    CUDF_TEST_EXPECT_TABLES_EQUAL(*reshaped_table, *result);
+    CUDF_TEST_EXPECT_TABLES_EQUAL(*reshaped_table, make_table_view(result));
 
     return result;
   }
@@ -150,7 +161,7 @@ auto run_split(cudf::table_view const& tbl,
     cudf::get_default_stream(),
     rmm::mr::get_current_device_resource());
 
-  CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, *result);
+  CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, make_table_view(result));
   return result;
 }
 
@@ -431,7 +442,8 @@ TEST_F(ShuffleSplitTests, PurgeNulls)
 
   cudf::table_view tbl{{*col}};
   auto result = run_split(tbl, {});
-  CUDF_EXPECTS(!result->get_column(0).nullable(), "Got a nullable column when none was expected");
+  CUDF_EXPECTS(!make_table_view(result).column(0).nullable(),
+               "Got a nullable column when none was expected");
 }
 
 TEST_F(ShuffleSplitTests, EmptyOffsets)
