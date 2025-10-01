@@ -14,50 +14,46 @@
  * limitations under the License.
  */
 
-#include <gtest/gtest.h>
-
 #include <cuda_runtime.h>
+
+#include <gtest/gtest.h>
 #include <nvml.h>
 
 class NVMLTest : public ::testing::Test {
-protected:
-  void SetUp() override {
+ protected:
+  void SetUp() override
+  {
     // Initialize NVML
     nvml_result = nvmlInit();
   }
 
-  void TearDown() override {
+  void TearDown() override
+  {
     // Shutdown NVML if it was initialized
-    if (nvml_result == NVML_SUCCESS) {
-      nvmlShutdown();
-    }
+    if (nvml_result == NVML_SUCCESS) { nvmlShutdown(); }
   }
 
   nvmlReturn_t nvml_result = NVML_ERROR_UNKNOWN;
 
   // Helper to get first available device, returns nullptr if none
-  nvmlDevice_t getFirstDevice() {
-    if (nvml_result != NVML_SUCCESS) {
-      return nullptr;
-    }
+  nvmlDevice_t getFirstDevice()
+  {
+    if (nvml_result != NVML_SUCCESS) { return nullptr; }
 
     unsigned int deviceCount = 0;
-    nvmlReturn_t result = nvmlDeviceGetCount(&deviceCount);
-    if (result != NVML_SUCCESS || deviceCount == 0) {
-      return nullptr;
-    }
+    nvmlReturn_t result      = nvmlDeviceGetCount(&deviceCount);
+    if (result != NVML_SUCCESS || deviceCount == 0) { return nullptr; }
 
     nvmlDevice_t device;
     result = nvmlDeviceGetHandleByIndex(0, &device);
-    if (result != NVML_SUCCESS) {
-      return nullptr;
-    }
+    if (result != NVML_SUCCESS) { return nullptr; }
 
     return device;
   }
 };
 
-TEST_F(NVMLTest, NVMLDeviceGetName_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetName_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -66,7 +62,8 @@ TEST_F(NVMLTest, NVMLDeviceGetName_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetBrand_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetBrand_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -75,7 +72,8 @@ TEST_F(NVMLTest, NVMLDeviceGetBrand_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetUtilizationRates_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetUtilizationRates_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -84,7 +82,8 @@ TEST_F(NVMLTest, NVMLDeviceGetUtilizationRates_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetMemoryInfo_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetMemoryInfo_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -93,7 +92,8 @@ TEST_F(NVMLTest, NVMLDeviceGetMemoryInfo_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetTemperature_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetTemperature_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -102,7 +102,8 @@ TEST_F(NVMLTest, NVMLDeviceGetTemperature_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetPowerUsage_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetPowerUsage_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -112,7 +113,8 @@ TEST_F(NVMLTest, NVMLDeviceGetPowerUsage_Succeeds) {
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetPowerManagementLimit_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetPowerManagementLimit_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -121,7 +123,8 @@ TEST_F(NVMLTest, NVMLDeviceGetPowerManagementLimit_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Graphics_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Graphics_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -130,7 +133,8 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Graphics_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Memory_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Memory_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -139,7 +143,8 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Memory_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetClockInfo_SM_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetClockInfo_SM_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -148,7 +153,8 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_SM_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -157,7 +163,8 @@ TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -166,7 +173,8 @@ TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetFanSpeed_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetFanSpeed_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -175,7 +183,8 @@ TEST_F(NVMLTest, NVMLDeviceGetFanSpeed_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkGeneration_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkGeneration_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -184,7 +193,8 @@ TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkGeneration_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkWidth_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkWidth_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
@@ -193,22 +203,26 @@ TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkWidth_Succeeds) {
   EXPECT_EQ(result, NVML_SUCCESS);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_SingleBit_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_SingleBit_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
   unsigned long long eccCount;
-  nvmlReturn_t result = nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+  nvmlReturn_t result =
+    nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
   // ECC error reporting may not be supported on all GPUs
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
-TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_DoubleBit_Succeeds) {
+TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_DoubleBit_Succeeds)
+{
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
   unsigned long long eccCount;
-  nvmlReturn_t result = nvmlDeviceGetTotalEccErrors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+  nvmlReturn_t result =
+    nvmlDeviceGetTotalEccErrors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
   // ECC error reporting may not be supported on all GPUs
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
