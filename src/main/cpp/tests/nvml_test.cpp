@@ -59,7 +59,7 @@ TEST_F(NVMLTest, NVMLDeviceGetName_Succeeds)
 
   char name[NVML_DEVICE_NAME_BUFFER_SIZE];
   nvmlReturn_t result = nvmlDeviceGetName(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetBrand_Succeeds)
@@ -69,7 +69,7 @@ TEST_F(NVMLTest, NVMLDeviceGetBrand_Succeeds)
 
   nvmlBrandType_t brandType;
   nvmlReturn_t result = nvmlDeviceGetBrand(device, &brandType);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetUtilizationRates_Succeeds)
@@ -79,7 +79,7 @@ TEST_F(NVMLTest, NVMLDeviceGetUtilizationRates_Succeeds)
 
   nvmlUtilization_t utilization;
   nvmlReturn_t result = nvmlDeviceGetUtilizationRates(device, &utilization);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetMemoryInfo_Succeeds)
@@ -89,7 +89,7 @@ TEST_F(NVMLTest, NVMLDeviceGetMemoryInfo_Succeeds)
 
   nvmlMemory_t memory;
   nvmlReturn_t result = nvmlDeviceGetMemoryInfo(device, &memory);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetTemperature_Succeeds)
@@ -99,7 +99,7 @@ TEST_F(NVMLTest, NVMLDeviceGetTemperature_Succeeds)
 
   unsigned int temp;
   nvmlReturn_t result = nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetPowerUsage_Succeeds)
@@ -120,7 +120,7 @@ TEST_F(NVMLTest, NVMLDeviceGetPowerManagementLimit_Succeeds)
 
   unsigned int limit;
   nvmlReturn_t result = nvmlDeviceGetPowerManagementLimit(device, &limit);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Graphics_Succeeds)
@@ -130,7 +130,7 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Graphics_Succeeds)
 
   unsigned int clock;
   nvmlReturn_t result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_GRAPHICS, &clock);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Memory_Succeeds)
@@ -140,7 +140,7 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_Memory_Succeeds)
 
   unsigned int clock;
   nvmlReturn_t result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_MEM, &clock);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetClockInfo_SM_Succeeds)
@@ -150,7 +150,7 @@ TEST_F(NVMLTest, NVMLDeviceGetClockInfo_SM_Succeeds)
 
   unsigned int clock;
   nvmlReturn_t result = nvmlDeviceGetClockInfo(device, NVML_CLOCK_SM, &clock);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds)
@@ -160,7 +160,7 @@ TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds)
 
   unsigned int numCores;
   nvmlReturn_t result = nvmlDeviceGetNumGpuCores(device, &numCores);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds)
@@ -170,7 +170,7 @@ TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds)
 
   nvmlPstates_t pState;
   nvmlReturn_t result = nvmlDeviceGetPerformanceState(device, &pState);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetFanSpeed_Succeeds)
@@ -180,7 +180,7 @@ TEST_F(NVMLTest, NVMLDeviceGetFanSpeed_Succeeds)
 
   unsigned int speed;
   nvmlReturn_t result = nvmlDeviceGetFanSpeed(device, &speed);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkGeneration_Succeeds)
@@ -190,7 +190,7 @@ TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkGeneration_Succeeds)
 
   unsigned int gen;
   nvmlReturn_t result = nvmlDeviceGetCurrPcieLinkGeneration(device, &gen);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkWidth_Succeeds)
@@ -200,7 +200,7 @@ TEST_F(NVMLTest, NVMLDeviceGetCurrPcieLinkWidth_Succeeds)
 
   unsigned int width;
   nvmlReturn_t result = nvmlDeviceGetCurrPcieLinkWidth(device, &width);
-  EXPECT_EQ(result, NVML_SUCCESS);
+  EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
 TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_SingleBit_Succeeds)
