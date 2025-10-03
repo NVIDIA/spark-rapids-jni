@@ -17,6 +17,7 @@
 #include <rmm/mr/device/device_memory_resource.hpp>
 
 #include <cudf_jni_apis.hpp>
+#include <fmt/format.h>
 #include <pthread.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
