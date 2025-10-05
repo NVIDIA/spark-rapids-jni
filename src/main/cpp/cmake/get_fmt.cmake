@@ -26,7 +26,6 @@ function(get_fmt)
     GLOBAL_TARGETS fmt::fmt fmt::fmt-header-only
     CPM_ARGS
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG "v${version}"
     GIT_TAG "${version}"
     GIT_SHALLOW ON
     EXCLUDE_FROM_ALL ON
