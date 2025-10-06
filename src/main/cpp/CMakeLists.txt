@@ -123,11 +123,6 @@ if(NOT TARGET spdlog::spdlog_header_only)
   include(${CMAKE_SOURCE_DIR}/cmake/get_spdlog.cmake)
 endif()
 
-if(NOT TARGET fmt::fmt-header-only)
-  message(STATUS "Fetch package fmt from source.")
-  include(${CMAKE_SOURCE_DIR}/cmake/get_fmt.cmake)
-endif()
-
 # JNI
 find_package(JNI REQUIRED)
 if(JNI_FOUND)
@@ -308,7 +303,6 @@ target_link_libraries(
     cudf::cudf
     nvtx3::nvtx3-cpp
     spdlog::spdlog_header_only
-    fmt::fmt-header-only
   -Wl,--no-whole-archive
     ${ARROW_LIB}
     ${PARQUET_LIB}
