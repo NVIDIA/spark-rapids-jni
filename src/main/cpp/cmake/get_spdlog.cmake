@@ -12,48 +12,18 @@
 # the License.
 # =============================================================================
 
-# Get spdlog
-function(get_spdlog)
-  set(options)
-  set(one_value BUILD_EXPORT_SET INSTALL_EXPORT_SET)
-  set(multi_value)
-  cmake_parse_arguments(_RAPIDS "${options}" "${one_value}" "${multi_value}" ${ARGN})
-
-  # Fix up _RAPIDS_UNPARSED_ARGUMENTS to have EXPORT_SETS as this is need for rapids_cpm_find. Also
-  # propagate the user provided build and install export sets.
-  if(_RAPIDS_INSTALL_EXPORT_SET)
-    list(APPEND _RAPIDS_UNPARSED_ARGUMENTS INSTALL_EXPORT_SET ${_RAPIDS_INSTALL_EXPORT_SET})
-  endif()
-  if(_RAPIDS_BUILD_EXPORT_SET)
-    list(APPEND _RAPIDS_UNPARSED_ARGUMENTS BUILD_EXPORT_SET ${_RAPIDS_BUILD_EXPORT_SET})
-  endif()
-
-  set(to_install OFF)
-  if(_RAPIDS_INSTALL_EXPORT_SET)
-    set(to_install ON)
-  endif()
-
+function(find_and_configure_spdlog)
   set(spdlog_version 1.14.1)
-
-  include("${rapids-cmake-dir}/cpm/find.cmake")
   rapids_cpm_find(
-    spdlog "${spdlog_version}" ${_RAPIDS_UNPARSED_ARGUMENTS}
+    spdlog "${spdlog_version}"
     GLOBAL_TARGETS spdlog::spdlog spdlog::spdlog_header_only
     CPM_ARGS
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG "v${spdlog_version}"
     GIT_SHALLOW ON
     EXCLUDE_FROM_ALL ON
-    OPTIONS "SPDLOG_INSTALL ${to_install}" "SPDLOG_USE_STD_FORMAT ON"
+    OPTIONS "SPDLOG_INSTALL OFF" "SPDLOG_USE_STD_FORMAT ON" "CMAKE_POSITION_INDEPENDENT_CODE ON"
   )
-endfunction()
-
-
-# Use CPM to find or clone speedlog
-function(find_and_configure_spdlog)
-  set(CPM_DOWNLOAD_spdlog ON)
-  get_spdlog(CPM_ARGS OPTIONS "BUILD_SHARED_LIBS OFF" "SPDLOG_BUILD_SHARED OFF")
-  set_target_properties(spdlog PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endfunction()
 
 find_and_configure_spdlog()
