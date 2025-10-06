@@ -16,13 +16,14 @@ function(find_and_configure_spdlog)
   set(spdlog_version 1.14.1)
   rapids_cpm_find(
     spdlog "${spdlog_version}"
-    GLOBAL_TARGETS spdlog::spdlog spdlog::spdlog_header_only
+    GLOBAL_TARGETS spdlog::spdlog_header_only
     CPM_ARGS
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG "v${spdlog_version}"
     GIT_SHALLOW ON
     EXCLUDE_FROM_ALL ON
     OPTIONS "SPDLOG_INSTALL OFF" "SPDLOG_USE_STD_FORMAT ON" "CMAKE_POSITION_INDEPENDENT_CODE ON"
+      "SPDLOG_FMT_EXTERNAL OFF" "SPDLOG_FMT_EXTERNAL_HO OFF" 
   )
 endfunction()
 
