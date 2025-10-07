@@ -51,4 +51,4 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
           git submodule update --init --recursive
-          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=GPUSW_SPMD_Spark-Rapids_spark-rapids-jni -Dsonar.projectName='spark-rapids'
+          mvn -B compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=GPUSW_SPMD_Spark-Rapids_spark-rapids-jni -Dsonar.projectName='spark-rapids' -Dmaven.antrun.skip=true
