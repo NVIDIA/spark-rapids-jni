@@ -110,6 +110,9 @@ ConfigureTest(PARSE_URI
 ConfigureTest(LIST_SLICE
     list_slice.cpp)
 
+ConfigureTest(MAP_ZIP_WITH
+    map_zip_with_utils.cpp)
+
 ConfigureTest(SUBSTRING_INDEX
     substring_index.cpp)
 

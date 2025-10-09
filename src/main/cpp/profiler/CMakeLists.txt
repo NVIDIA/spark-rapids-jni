@@ -77,6 +77,9 @@ configure_file(
 
 add_executable(spark_rapids_profile_converter
   spark_rapids_profile_converter.cpp
+  init_nvtxw.cpp
+  nvtxw3.cpp
+  NvtxwEvents.cpp
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/profiler_schema.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_SOURCE_DIR}/spark_rapids_jni_version.cpp"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}/profiler_generated.h"
@@ -86,6 +89,7 @@ target_include_directories(
   spark_rapids_profile_converter
   PRIVATE
   "${CUDAToolkit_INCLUDE_DIRS}"
+  "${SPARK_RAPIDS_JNI_SOURCE_DIR}/profiler"
   "${SPARK_RAPIDS_JNI_SOURCE_DIR}/src"
   "${SPARK_RAPIDS_JNI_GENERATED_INCLUDE_DIR}"
 )
@@ -95,4 +99,6 @@ target_link_libraries(spark_rapids_profile_converter
   flatbuffers::flatbuffers
   dl
   pthread
-  rt)
+  rt
+  -static-libstdc++
+  -static-libgcc)

@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
 import com.nvidia.spark.rapids.jni.Arms;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -34,6 +35,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Arrays.asList;
@@ -41,7 +44,15 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.junit.jupiter.api.Assertions.*;
 
-public class KudoSerializerTest {
+public class KudoSerializerTest extends CudfTestBase {
+  private static final Logger log = LoggerFactory.getLogger(KudoSerializerTest.class);
+
+  static final long RMM_POOL_SIZE_LARGE = 10L * 1024 * 1024 * 1024;
+
+  public KudoSerializerTest() {
+    super(RmmAllocationMode.POOL, RMM_POOL_SIZE_LARGE);
+  }
+
   @Test
   public void testSerializeAndDeserializeTable() {
     try(Table expected = buildTestTable()) {
@@ -501,30 +512,37 @@ public class KudoSerializerTest {
         .build();
   }
 
+  // When expected is null, it means we are not expecting some error to happen when merging the tables.
   private static void checkMergeTable(Table expected, List<TableSlice> tableSlices) {
     try {
-      KudoSerializer serializer = new KudoSerializer(schemaOf(expected));
+      KudoSerializer serializer = new KudoSerializer(schemaOf(tableSlices.get(0).getBaseTable()));
 
-      OpenByteArrayOutputStream bout = new OpenByteArrayOutputStream();
+      List<OpenByteArrayOutputStream> outputStreams = new ArrayList<>();
       for (TableSlice slice : tableSlices) {
+        OpenByteArrayOutputStream bout = new OpenByteArrayOutputStream();
         serializer.writeToStreamWithMetrics(slice.getBaseTable(), bout, slice.getStartRow(), slice.getNumRows());
+        bout.flush();
+        outputStreams.add(bout);
       }
-      bout.flush();
 
-      ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
       Arms.withResource(new ArrayList<KudoTable>(tableSlices.size()), kudoTables -> {
         try {
           for (int i = 0; i < tableSlices.size(); i++) {
+            ByteArrayInputStream bin = new ByteArrayInputStream(outputStreams.get(i).toByteArray());
             kudoTables.add(KudoTable.from(bin).get());
           }
 
-          long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
-          assertEquals(expected.getRowCount(), toIntExact(rows));
+          if (expected != null) {
+            long rows = kudoTables.stream().mapToLong(t -> t.getHeader().getNumRows()).sum();
+            assertEquals(expected.getRowCount(), rows);
+          }
 
           try (Table merged = serializer.mergeToTable(kudoTables.toArray(new KudoTable[0]))) {
-            assertEquals(expected.getRowCount(), merged.getRowCount());
+            if (expected != null){
+              assertEquals(expected.getRowCount(), merged.getRowCount());
 
-            AssertUtils.assertTablesAreEqual(expected, merged);
+              AssertUtils.assertTablesAreEqual(expected, merged);
+            }
           }
         } catch (Exception e) {
           throw new RuntimeException(e);
@@ -671,6 +689,288 @@ public class KudoSerializerTest {
       // Cleanup
       if (tempFile != null && tempFile.exists()) {
         tempFile.delete();
+      }
+    }
+  }
+
+  @Test
+  public void testSerializeAndDeserializeLargeTable() {
+    try(Table t1 = buildLargeTestTable();
+        Table t2 = buildLargeTestTable();
+        Table expected = Table.concatenate(t1, t2)) {
+          assertTrue(expected.getDeviceMemorySize() > Integer.MAX_VALUE,
+              "Expected table size should exceed Integer.MAX_VALUE");
+          final int sliceSize = 50000000;
+
+          int rowCount1 = Math.toIntExact(t1.getRowCount());
+          int rowCount2 = Math.toIntExact(t2.getRowCount());
+
+          List<TableSlice> tableSlices = new ArrayList<>();
+          for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+            tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+          }
+
+          for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+            tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+          }
+
+          checkMergeTable(expected, tableSlices);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
+  public void testRowCountAndNullCountOverflow() {
+    // Create three tables where both total row count AND null count exceed Integer.MAX_VALUE
+    // Each table will have significant null counts that sum to > Integer.MAX_VALUE
+
+    final int nonNullCount1 = 5000;
+    final int nullCount1 = Integer.MAX_VALUE / 3 + 50000000;
+
+    final int nonNullCount2 = 3000; //
+    final int nullCount2 = Integer.MAX_VALUE / 3 - 50000000;
+
+    final int nonNullCount3 = 4000;
+    final int nullCount3 = Integer.MAX_VALUE / 3 + 10000000;
+
+
+    try(Table t1 = buildSingleLargeByteTable(nonNullCount1, nullCount1);
+        Table t2 = buildSingleLargeByteTable(nonNullCount2, nullCount2);
+        Table t3 = buildSingleLargeByteTable(nonNullCount3, nullCount3)) {
+
+
+        final int sliceSize = 50000000;
+
+        int rowCount1 = Math.toIntExact(t1.getRowCount());
+        int rowCount2 = Math.toIntExact(t2.getRowCount());
+        int rowCount3 = Math.toIntExact(t3.getRowCount());
+
+        List<TableSlice> tableSlices = new ArrayList<>();
+
+        // Add slices from first table
+        for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+        }
+
+        // Add slices from second table
+        for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+        }
+
+        // Add slices from third table
+        for (int startRow = 0; startRow < rowCount3; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount3 - startRow), t3));
+        }
+
+        assertThrows(ArithmeticException.class, () -> {
+          try {
+            checkMergeTable(null, tableSlices);
+          } catch (RuntimeException e) {
+            throw e.getCause().getCause();
+          }
+        });
+    }
+  }
+
+  @Test
+  public void testOffsetOverflow() {
+    // Create tables with string columns where total string data size exceeds Integer.MAX_VALUE
+    // This should trigger an offset overflow and throw IllegalStateException
+
+    final int stringSize = 100000;
+    final int rowsPerTable = 15000;
+
+    try (Table t1 = buildLargeStringTable(stringSize, rowsPerTable);
+         Table t2 = buildLargeStringTable(stringSize, rowsPerTable)) {
+
+        final int sliceSize = 50000;
+
+        int rowCount1 = Math.toIntExact(t1.getRowCount());
+        int rowCount2 = Math.toIntExact(t2.getRowCount());
+
+        List<TableSlice> tableSlices = new ArrayList<>();
+
+        // Add slices from first table
+        for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+        }
+
+        // Add slices from second table
+        for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+          tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+        }
+
+        assertThrows(IllegalArgumentException.class, () -> {
+          try {
+            checkMergeTable(null, tableSlices);
+          } catch (RuntimeException e) {
+            throw e.getCause().getCause();
+          }
+        });
+      }
+
+  }
+
+  static Table buildLargeTestTable() {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    final int nonNullCount = Integer.MAX_VALUE / 128 - 21; // to avoid OOM
+    final int nullCount = 11; // to add nulls
+    final int totalCount = nonNullCount + nullCount;
+
+    try {
+      ((Runnable) () -> {
+        try (Scalar v1 = Scalar.fromInt(100);
+             ColumnVector cv1 = ColumnVector.fromScalar(v1, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromBoxedInts(new Integer[nullCount])) { // nulls
+          ColumnVector cv = ColumnVector.concatenate(cv1, cv2);
+          tableCols.add(cv);
+          allCols.add(cv);
+        }
+      }).run();
+
+      ((Runnable) () -> {
+        try (Scalar v2 = Scalar.fromLong(100L);
+             ColumnVector cv1 = ColumnVector.fromScalar(v2, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromBoxedLongs(new Long[nullCount])) { // nulls
+          ColumnVector cv = ColumnVector.concatenate(cv1, cv2);
+          tableCols.add(cv);
+          allCols.add(cv);
+        }
+      }).run();
+
+      ((Runnable) () -> {
+        try (Scalar v2 = Scalar.fromDouble(100.0);
+             ColumnVector cv1 = ColumnVector.fromScalar(v2, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromBoxedDoubles(new Double[nullCount])) { // nulls
+          ColumnVector cv = ColumnVector.concatenate(cv1, cv2);
+          tableCols.add(cv);
+          allCols.add(cv);
+        }
+      }).run();
+
+      ((Runnable) () -> {
+        try (Scalar v3 = Scalar.fromString("test_string");
+             ColumnVector cv1 = ColumnVector.fromScalar(v3, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromStrings(new String[nullCount])) { // nulls
+          ColumnVector cv = ColumnVector.concatenate(cv1, cv2);
+          tableCols.add(cv);
+          allCols.add(cv);
+        }
+      }).run();
+
+      // List<List<Integer>>
+      ((Runnable) () -> {
+        ColumnVector integerList;
+        try (ColumnVector cv1 = ColumnVector.fromBoxedInts(new Integer[4 * nonNullCount]);
+             ColumnVector cv2 = ColumnVector.fromBoxedInts(new Integer[4 * nullCount])) { // nulls
+          integerList = ColumnVector.concatenate(cv1, cv2);
+          allCols.add(integerList);
+        }
+
+        ColumnVector list1;
+        try (Scalar zero = Scalar.fromInt(0);
+             Scalar two = Scalar.fromInt(2);
+            ColumnVector offsets = ColumnVector.sequence(zero, two, totalCount * 2 + 1)) { // nulls
+          list1 = integerList.makeListFromOffsets(totalCount * 2, offsets);
+          allCols.add(list1);
+        }
+
+        ColumnVector list;
+        try (Scalar zero = Scalar.fromInt(0);
+             Scalar two = Scalar.fromInt(2);
+             ColumnVector offsets = ColumnVector.sequence(zero, two, totalCount + 1)) { // nulls
+          list = list1.makeListFromOffsets(totalCount, offsets);
+          tableCols.add(list);
+          allCols.add(list);
+        }
+      }).run();
+
+      // Struct
+      ((Runnable) () -> {
+        // Create int32 child column
+        ColumnVector int32Child;
+        try (Scalar v1 = Scalar.fromInt(42);
+             ColumnVector cv1 = ColumnVector.fromScalar(v1, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromBoxedInts(new Integer[nullCount])) { // nulls
+          int32Child = ColumnVector.concatenate(cv1, cv2);
+          allCols.add(int32Child);
+        }
+
+        // Create float32 child column
+        ColumnVector float32Child;
+        try (Scalar v2 = Scalar.fromFloat(3.14f);
+             ColumnVector cv1 = ColumnVector.fromScalar(v2, nonNullCount);
+             ColumnVector cv2 = ColumnVector.fromBoxedFloats(new Float[nullCount])) { // nulls
+          float32Child = ColumnVector.concatenate(cv1, cv2);
+          allCols.add(float32Child);
+        }
+
+        // Create struct column from child columns
+        ColumnVector structColumn = ColumnVector.makeStruct(int32Child, float32Child);
+        tableCols.add(structColumn);
+        allCols.add(structColumn);
+      }).run();
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildSingleLargeByteTable(int nonNullCount, int nullCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+
+    try {
+      // Create a single double column
+      ColumnVector doubleColumn;
+      try (Scalar v1 = Scalar.fromByte((byte) 123);
+           ColumnVector cv1 = ColumnVector.fromScalar(v1, nonNullCount);
+           ColumnVector cv2 = ColumnVector.fromBoxedBytes(new Byte[nullCount])) { // nulls
+        doubleColumn = ColumnVector.concatenate(cv1, cv2);
+        tableCols.add(doubleColumn);
+        allCols.add(doubleColumn);
+      }
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildLargeStringTable(int stringSize, int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a large string by repeating characters
+      StringBuilder sb = new StringBuilder(stringSize);
+      for (int i = 0; i < stringSize; i++) {
+        sb.append((char)('A' + (i % 26))); // Cycle through A-Z
+      }
+      String largeString = sb.toString();
+      
+      // Create string array with the large string repeated
+      String[] stringArray = new String[rowCount];
+      Arrays.fill(stringArray, largeString);
+      
+      // Create the string column
+      ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
+      tableCols.add(stringColumn);
+      allCols.add(stringColumn);
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
       }
     }
   }
