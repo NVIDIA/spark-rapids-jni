@@ -627,7 +627,7 @@ public class KudoSerializerTest extends CudfTestBase {
   @Test
   public void testMergeWithDumpPath() {
     File tempFile = null;
-    try(CloseableArray<Table> tables = CloseableArray.wrap(new Table[4])) {
+    try(CloseableArray<Table> tables = CloseableArray.wrap(new Table[2])) {
       //Create a temporary file for dumping
       tempFile = File.createTempFile("kudo_dump_test", ".bin");
       tempFile.deleteOnExit();
@@ -674,7 +674,7 @@ public class KudoSerializerTest extends CudfTestBase {
           }
         };
         MergeOptions options = new MergeOptions(DumpOption.Always, outputStreamSupplier, dumpPath);
-        serializer.mergeOnHost(kudoTables.getArray(), options);
+        serializer.mergeOnHost(kudoTables.getArray(), options).close();
 
         // Verify dump file exists and has content
         assertTrue(tempFile.exists(), "Dump file should exist");
