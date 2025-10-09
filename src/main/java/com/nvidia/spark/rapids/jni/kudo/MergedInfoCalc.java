@@ -23,7 +23,6 @@ import com.nvidia.spark.rapids.jni.schema.Visitors;
 
 import java.util.*;
 
-import static com.nvidia.spark.rapids.jni.Preconditions.ensure;
 import static com.nvidia.spark.rapids.jni.kudo.ColumnOffsetInfo.INVALID_OFFSET;
 import static com.nvidia.spark.rapids.jni.kudo.KudoSerializer.*;
 
@@ -38,7 +37,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     private long totalDataLen;
     private final boolean[] hasNull;
     private final int[] rowCount;
-    private final int[] dataLen;
+    private final long[] dataLen;
 
     // Column offset in gpu device buffer, it has one field for each flattened column
     private final ColumnOffsetInfo[] columnOffsets;
@@ -52,7 +51,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         this.hasNull = new boolean[columnCount];
         initHasNull();
         this.rowCount = new int[columnCount];
-        this.dataLen = new int[columnCount];
+        this.dataLen = new long[columnCount];
         this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
 
@@ -229,7 +228,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void preVisitStruct(Schema structType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
 
             curColIdx++;
         }
@@ -242,7 +241,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void preVisitList(Schema listType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
 
             if (sliceInfo.getRowCount() > 0) {
                 int startOffset = table.getBuffer().getInt(bufferOffset);
@@ -266,7 +265,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         @Override
         public void visit(Schema primitiveType) {
             SliceInfo sliceInfo = sliceInfos.getLast();
-            rowCount[curColIdx] += sliceInfo.getRowCount();
+            rowCount[curColIdx] = Math.addExact(rowCount[curColIdx], sliceInfo.getRowCount());
             if (primitiveType.getType().hasOffsets()) {
                 // string type
                 if (sliceInfo.getRowCount() > 0) {

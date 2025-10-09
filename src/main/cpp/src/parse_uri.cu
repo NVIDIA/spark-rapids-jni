@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "exception_with_row_index_utilities.hpp"
 #include "parse_uri.hpp"
 
 #include <cudf/detail/get_value.cuh>
@@ -22,6 +23,7 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/valid_if.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/convert/convert_urls.hpp>
@@ -34,6 +36,7 @@
 
 #include <cuda/functional>
 #include <cuda/std/optional>
+#include <thrust/tabulate.h>
 
 #include <memory>
 #include <optional>
@@ -951,40 +954,88 @@ std::unique_ptr<column> parse_uri(strings_column_view const& input,
                              std::move(null_mask));
 }
 
+void validate_input_uris(strings_column_view const& input, rmm::cuda_stream_view stream)
+{
+  if (input.size() == 0) { return; }
+
+  // In ANSI mode, check for completely invalid URIs
+  auto const d_strings = column_device_view::create(input.parent(), stream);
+
+  // Create boolean vector: true for valid URIs, false for completely invalid URIs
+  auto validity_flags = rmm::device_uvector<bool>(input.size(), stream);
+
+  thrust::tabulate(
+    rmm::exec_policy_nosync(stream),
+    validity_flags.begin(),
+    validity_flags.end(),
+    cuda::proclaim_return_type<bool>([input = *d_strings] __device__(cudf::size_type row_idx) {
+      // Input nulls remain null
+      if (input.is_null(row_idx)) { return false; }
+
+      auto const in_string = input.element<string_view>(row_idx);
+      auto const uri =
+        validate_uri(in_string.data(), in_string.size_bytes(), cuda::std::nullopt, row_idx);
+
+      return uri.valid != 0;
+    }));
+
+  auto [validation_mask, null_count] =
+    cudf::detail::valid_if(validity_flags.begin(),
+                           validity_flags.end(),
+                           cuda::std::identity{},
+                           stream,
+                           rmm::mr::get_current_device_resource_ref());
+
+  // Create validation column for throw_row_error_if_any
+  auto validation_column = std::make_unique<column>(
+    std::move(validity_flags),
+    null_count > 0 ? std::move(validation_mask) : rmm::device_buffer{0, stream},
+    null_count);
+  throw_row_error_if_any(input.parent(), validation_column->view(), stream);
+}
+
 }  // namespace detail
 
 // external API
 
 std::unique_ptr<column> parse_uri_to_protocol(strings_column_view const& input,
+                                              bool ansi_mode,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PROTOCOL, std::nullopt, stream, mr);
 }
 
 std::unique_ptr<column> parse_uri_to_host(strings_column_view const& input,
+                                          bool ansi_mode,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::HOST, std::nullopt, stream, mr);
 }
 
 std::unique_ptr<column> parse_uri_to_query(strings_column_view const& input,
+                                           bool ansi_mode,
                                            rmm::cuda_stream_view stream,
                                            rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::QUERY, std::nullopt, stream, mr);
 }
 
 std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
                                                  std::string const& query_match,
+                                                 bool ansi_mode,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
 
   // build string_column_view from incoming query_match string
   auto d_scalar = make_string_scalar(query_match, stream);
@@ -995,20 +1046,24 @@ std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const
 
 std::unique_ptr<cudf::column> parse_uri_to_query(cudf::strings_column_view const& input,
                                                  cudf::strings_column_view const& query_match,
+                                                 bool ansi_mode,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
   CUDF_EXPECTS(input.size() == query_match.size(), "Query column must be the same size as input!");
 
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::QUERY, query_match, stream, mr);
 }
 
 std::unique_ptr<column> parse_uri_to_path(strings_column_view const& input,
+                                          bool ansi_mode,
                                           rmm::cuda_stream_view stream,
                                           rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
+  if (ansi_mode) { detail::validate_input_uris(input, stream); }
   return detail::parse_uri(input, detail::URI_chunks::PATH, std::nullopt, stream, mr);
 }
 }  // namespace spark_rapids_jni

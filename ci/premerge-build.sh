@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2024, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,13 +21,27 @@ nvidia-smi
 
 git submodule update --init --recursive
 
+CUDA_VER=${CUDA_VER:-cuda`nvcc --version | sed -n 's/^.*release \([0-9]\+\)\..*$/\1/p'`}
+BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
+BUILD_PROFILER=${BUILD_PROFILER:-ON}
+
+# disable the profiler and cufaultinj, since there are issues linking
+# against libcupti_static.a in CUDA 13
+if [ "${CUDA_VER}" == "cuda13" ]; then
+  BUILD_FAULTINJ="OFF"
+  BUILD_PROFILER="OFF"
+fi
+
 MVN="mvn -Dmaven.wagon.http.retryHandler.count=3 -B"
 PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 ${MVN} verify ${MVN_MIRROR} \
   -DCPP_PARALLEL_LEVEL=${PARALLEL_LEVEL} \
   -Dlibcudf.build.configure=true \
-  -DUSE_GDS=ON -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
-  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON
+  -DUSE_GDS=ON \
+  -Dtest=*,!CuFileTest,!CudaFatalTest,!ColumnViewNonEmptyNullsTest \
+  -DBUILD_TESTS=ON -DBUILD_BENCHMARKS=ON \
+  -DBUILD_FAULTINJ=${BUILD_FAULTINJ} \
+  -DBUILD_PROFILER=${BUILD_PROFILER}
 
 build_name=$(${MVN} help:evaluate -Dexpression=project.build.finalName -q -DforceStdout)
 cuda_version=$(${MVN} help:evaluate -Dexpression=cuda.version -q -DforceStdout)

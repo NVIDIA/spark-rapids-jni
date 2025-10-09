@@ -44,7 +44,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.08.00
+  VERSION 25.10.00
   LANGUAGES CXX CUDA
 )
 
@@ -169,14 +169,15 @@ set (GENERATED_PARQUET_INCLUDE
 
 # thrift
 find_library(THRIFT_LIB "libthrift.a" REQUIRED NO_DEFAULT_PATH
-    HINTS "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/lib/"
+    HINTS "${CUDFJNI_BUILD_DIR}/lib/"
 )
 
 set(CUDFJNI_INCLUDE_DIRS
   "${CUDF_DIR}/java/src/main/native/include"
   "${CUDF_DIR}/java/src/main/native/src"
   "${GENERATED_PARQUET_INCLUDE}"
-  "${CUDFJNI_BUILD_DIR}/_deps/arrow-build/thrift_ep-install/include/"
+  "${CUDFJNI_BUILD_DIR}/_deps/thrift-build/"
+  "${CUDFJNI_BUILD_DIR}/_deps/thrift-src/lib/cpp/src/"
 )
 
 # ##################################################################################################
@@ -191,6 +192,7 @@ add_library(
   src/CastStringJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
+  src/DeviceAttrJni.cpp
   src/GpuTimeZoneDBJni.cpp
   src/HashJni.cpp
   src/HistogramJni.cpp
@@ -199,6 +201,8 @@ add_library(
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
+  src/MapZipWithUtilsJNI.cpp
+  src/map_zip_with_utils.cu
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
@@ -206,6 +210,7 @@ add_library(
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
   src/SparkResourceAdaptorJni.cpp
+  src/StringUtilsJni.cpp
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
@@ -239,11 +244,13 @@ add_library(
   src/parse_uri.cu
   src/regex_rewrite_utils.cu
   src/row_conversion.cu
+  src/round_float.cu
   src/shuffle_assemble.cu
   src/shuffle_split.cu
   src/substring_index.cu
   src/timezones.cu
   src/utilities.cu
+  src/uuid.cu
   src/xxhash64.cu
   src/zorder.cu
 )
