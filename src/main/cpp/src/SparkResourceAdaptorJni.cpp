@@ -2060,7 +2060,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     wake_next_highest_priority_blocked(lock, true, is_for_cpu);
   }
 
-  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) override
+  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) noexcept override
   {
     resource->deallocate(p, size, stream);
     // deallocate success
