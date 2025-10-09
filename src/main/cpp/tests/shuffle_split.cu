@@ -95,7 +95,7 @@ spark_rapids_jni::shuffle_split_result reshape_partitions(
                                        remapped_offsets[i]);
       }));
 
-  size_t temp_storage_bytes;
+  size_t temp_storage_bytes = 0;
   cub::DeviceMemcpy::Batched(
     nullptr, temp_storage_bytes, input_iter, output_iter, size_iter, num_partitions, stream);
   rmm::device_buffer temp_storage(
@@ -855,4 +855,70 @@ TEST_F(ShuffleSplitTests, EmptyPartitionsWithNulls)
   // by splitting at row 3, the inner int column will have no rows in the second partition and
   // should therefore not be including nulls in that partition's header.
   run_split(tbl, {3});
+}
+
+struct offset_shift {
+  cudf::device_span<size_t const> offsets_a;
+  size_t num_partitions_a;
+  cudf::device_span<size_t const> offsets_b;
+
+  __device__ size_t operator()(int i) { return offsets_b[i] + offsets_a[num_partitions_a]; }
+};
+TEST_F(ShuffleSplitTests, MixedValidity)
+{
+  // test assembling partitions where some of the column instances contain validity, but others do
+  // not.
+  auto value_iter = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i; });
+
+  auto const stream = cudf::get_default_stream();
+  auto const mr     = cudf::get_current_device_resource_ref();
+
+  // every other row null
+  auto valid_iter_a =
+    cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 2; });
+  constexpr auto num_rows_a = 128;
+  cudf::test::fixed_width_column_wrapper<int> a(value_iter, value_iter + num_rows_a, valid_iter_a);
+  auto partitions_a = spark_rapids_jni::shuffle_split(cudf::table_view{{a}}, {64}, stream, mr);
+  auto const num_partitions_a = partitions_a.first.offsets.size() - 1;
+
+  // no nulls.
+  constexpr auto num_rows_b = 128;
+  cudf::test::fixed_width_column_wrapper<int> b(value_iter, value_iter + num_rows_b);
+  auto partitions_b = spark_rapids_jni::shuffle_split(cudf::table_view{{b}}, {64}, stream, mr);
+  auto const num_partitions_b = partitions_b.first.offsets.size() - 1;
+
+  // if we partition these and reassemble into one buffer. we expect a nullable column, even though
+  // input b has no nulls in it
+  rmm::device_uvector<uint8_t> full{
+    partitions_a.first.partitions->size() + partitions_b.first.partitions->size(), stream, mr};
+  cudaMemcpy(full.data(),
+             partitions_a.first.partitions->data(),
+             partitions_a.first.partitions->size(),
+             cudaMemcpyDeviceToDevice);
+  cudaMemcpy(full.data() + partitions_a.first.partitions->size(),
+             partitions_b.first.partitions->data(),
+             partitions_b.first.partitions->size(),
+             cudaMemcpyDeviceToDevice);
+  rmm::device_uvector<size_t> full_offsets{num_partitions_a + num_partitions_b + 1, stream, mr};
+  thrust::copy(rmm::exec_policy_nosync(stream, mr),
+               partitions_a.first.offsets.begin(),
+               partitions_a.first.offsets.begin() + num_partitions_a,
+               full_offsets.begin());
+  auto offset_shift_iter = cudf::detail::make_counting_transform_iterator(
+    0, offset_shift{partitions_a.first.offsets, num_partitions_a, partitions_b.first.offsets});
+  thrust::copy(rmm::exec_policy_nosync(stream, mr),
+               offset_shift_iter,
+               offset_shift_iter + num_partitions_b + 1,
+               full_offsets.begin() + num_partitions_a);
+
+  std::vector<cudf::column_view> to_concat;
+  to_concat.push_back(a);
+  to_concat.push_back(b);
+  auto expected_c = cudf::concatenate(to_concat, stream, mr);
+
+  spark_rapids_jni::shuffle_split_metadata md;
+  md.col_info.push_back({cudf::type_id::INT32, 0});
+  auto result = spark_rapids_jni::shuffle_assemble(md, full, full_offsets, stream, mr);
+
+  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*expected_c, *(result.column_views[0]));
 }
