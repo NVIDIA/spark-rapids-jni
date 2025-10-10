@@ -27,6 +27,7 @@
 #include <cudf/lists/lists_column_view.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/scalar/scalar.hpp>
+#include <cudf/stream_compaction.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/span.hpp>
 
@@ -275,10 +276,22 @@ void bloom_filter_put(cudf::list_scalar& bloom_filter,
   }
 }
 
-std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& bloom_filters,
+std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& input,
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
+  // We need to filter out nulls.
+  auto const input_no_nulls = [&]() -> std::unique_ptr<cudf::column> {
+    if (input.null_count() == 0) { return nullptr; }
+    auto filtered =
+      cudf::drop_nulls(cudf::table_view{{input}},
+                       std::vector<cudf::size_type>{0},  // remove nulls from column index 0
+                       stream,
+                       cudf::get_current_device_resource());
+    return std::move(filtered->release().front());
+  }();
+  auto const& bloom_filters = input_no_nulls ? input_no_nulls->view() : input;
+
   // unpack the bloom filter
   cudf::lists_column_view lcv(bloom_filters);
 

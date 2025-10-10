@@ -18,6 +18,7 @@ package com.nvidia.spark.rapids.jni;
 
 import ai.rapids.cudf.BaseDeviceMemoryBuffer;
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.CudfException;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Scalar;
@@ -50,16 +51,16 @@ public class BloomFilter {
    * @param bloomFilter The bloom filter to which values will be inserted.
    * @param cv The column containing the values to add.
    */
-  public static void put(Scalar bloomFilter, ColumnVector cv){
+  public static void put(Scalar bloomFilter, ColumnView cv){
     put(bloomFilter.getScalarHandle(), cv.getNativeView());
   }
 
   /**
    * Merge one or more bloom filters into a new bloom filter.
-   * @param bloomFilters A ColumnVector containing a bloom filter per row.
+   * @param bloomFilters A column containing a bloom filter per row.
    * @return A new bloom filter containing the merged inputs.
    */
-  public static Scalar merge(ColumnVector bloomFilters){
+  public static Scalar merge(ColumnView bloomFilters){
     return new Scalar(DType.LIST, merge(bloomFilters.getNativeView()));
   }
 
@@ -73,7 +74,7 @@ public class BloomFilter {
    * @param cv The column containing the values to check.
    * @return A boolean column indicating the results of the probe.
    */
-  public static ColumnVector probe(Scalar bloomFilter, ColumnVector cv){
+  public static ColumnVector probe(Scalar bloomFilter, ColumnView cv){
     return new ColumnVector(probe(bloomFilter.getScalarHandle(), cv.getNativeView()));
   }
 
@@ -88,7 +89,7 @@ public class BloomFilter {
    * @param cv The column containing the values to check.
    * @return A boolean column indicating the results of the probe.
    */
-  public static ColumnVector probe(BaseDeviceMemoryBuffer bloomFilter, ColumnVector cv){
+  public static ColumnVector probe(BaseDeviceMemoryBuffer bloomFilter, ColumnView cv){
     return new ColumnVector(probebuffer(bloomFilter.getAddress(), bloomFilter.getLength(), cv.getNativeView()));
   }
 
