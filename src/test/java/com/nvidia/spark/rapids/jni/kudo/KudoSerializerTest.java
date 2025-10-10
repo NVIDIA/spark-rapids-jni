@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni.kudo;
 import ai.rapids.cudf.*;
 import com.nvidia.spark.rapids.jni.Arms;
 import java.util.Arrays;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -51,6 +52,14 @@ public class KudoSerializerTest extends CudfTestBase {
 
   public KudoSerializerTest() {
     super(RmmAllocationMode.POOL, RMM_POOL_SIZE_LARGE);
+  }
+
+  @AfterAll
+  public static void afterAll() throws Exception {
+    if (Rmm.isInitialized()) {
+      Rmm.shutdown();
+    }
+    Thread.sleep(60000); // give some time for cleaner threads to finish
   }
 
   @Test
