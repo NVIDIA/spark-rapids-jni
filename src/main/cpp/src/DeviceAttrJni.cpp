@@ -20,7 +20,8 @@ extern "C" {
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceIntegrated(JNIEnv* env,
                                                                                       jclass)
 {
-  try {
+  JNI_TRY
+  {
     int device{};
     CUDF_CUDA_TRY(cudaGetDevice(&device));
 
@@ -29,7 +30,7 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_DeviceAttr_isDeviceInteg
 
     return integrated;
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

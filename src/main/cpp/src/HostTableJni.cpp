@@ -179,20 +179,22 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_bufferSize(JN
                                                                               jlong jstream)
 {
   JNI_NULL_CHECK(env, table_handle, "table is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto t      = reinterpret_cast<cudf::table_view const*>(table_handle);
     auto stream = reinterpret_cast<cudaStream_t>(jstream);
     return static_cast<jlong>(host_buffer_size(*t, stream));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_copyFromTableAsync(
   JNIEnv* env, jclass, jlong table_handle, jlong host_address, jlong host_size, jlong jstream)
 {
   JNI_NULL_CHECK(env, table_handle, "table is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto table           = reinterpret_cast<cudf::table_view const*>(table_handle);
     auto buffer          = reinterpret_cast<uint8_t*>(host_address);
@@ -201,7 +203,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_copyFromTable
     auto host_table_view = to_host_table_async(*table, buffer, buffer_size, stream);
     return reinterpret_cast<jlong>(host_table_view.release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_toDeviceColumnViews(
@@ -210,7 +212,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_toDevice
   JNI_NULL_CHECK(env, table_handle, "table is null", nullptr);
   JNI_ARG_CHECK(
     env, host_to_dev_offset % sizeof(cudf::bitmask_type) == 0, "invalid offset", nullptr);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto host_table = reinterpret_cast<spark_rapids_jni::host_table_view const*>(table_handle);
     auto column_view_ptrs = to_device_column_views(*host_table, host_to_dev_offset);
@@ -222,17 +225,15 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_toDevice
       [](std::unique_ptr<cudf::column_view>& p) { return cudf::jni::release_as_jlong(p); });
     return handles.get_jArray();
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_freeDeviceColumnView(
   JNIEnv* env, jclass, jlong dev_column_view_handle)
 {
   JNI_NULL_CHECK(env, dev_column_view_handle, "view is null", );
-  try {
-    delete reinterpret_cast<cudf::column_view*>(dev_column_view_handle);
-  }
-  CATCH_STD(env, );
+  JNI_TRY { delete reinterpret_cast<cudf::column_view*>(dev_column_view_handle); }
+  JNI_CATCH(env, );
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_freeHostTable(JNIEnv* env,
@@ -240,10 +241,8 @@ JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_HostTable_freeHostTable(
                                                                                 jlong table_handle)
 {
   JNI_NULL_CHECK(env, table_handle, "table is null", );
-  try {
-    delete reinterpret_cast<host_table_view*>(table_handle);
-  }
-  CATCH_STD(env, );
+  JNI_TRY { delete reinterpret_cast<host_table_view*>(table_handle); }
+  JNI_CATCH(env, );
 }
 
 }  // extern "C"

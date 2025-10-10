@@ -18,13 +18,31 @@ package com.nvidia.spark.rapids.jni.kudo;
 
 import ai.rapids.cudf.*;
 
-import static java.util.Objects.requireNonNull;
-
 /**
  * Right now this is just to provide access to the underlying C++ APIs. In the future it should hopefully
  * look more like the CPU KudoSerializer.
  */
 public class KudoGpuSerializer {
+
+  /**
+   * Result class for assembleFromDeviceRaw operation containing buffer metadata and column handles
+   */
+  public static class AssembleResult {
+    private final long bufferHandle;
+    private final long bufferSize;
+    private final long[] columnHandles;
+
+    public AssembleResult(long bufferHandle, long bufferSize, long[] columnHandles) {
+      this.bufferHandle = bufferHandle;
+      this.bufferSize = bufferSize;
+      this.columnHandles = columnHandles;
+    }
+
+    public long getBufferHandle() { return bufferHandle; }
+    public long getBufferSize() { return bufferSize; }
+    public long[] getColumnHandles() { return columnHandles; }
+    public int getNumColumns() { return columnHandles.length; }
+  }
   static {
     NativeDepsLoader.loadNativeDeps();
   }
@@ -53,12 +71,38 @@ public class KudoGpuSerializer {
   public static Table assembleFromDeviceRaw(Schema schema,
                                             DeviceMemoryBuffer partitions,
                                             DeviceMemoryBuffer offsets) {
-    return new Table(assembleFromDeviceRawNative(
+    AssembleResult result = assembleFromDeviceRawNative(
         partitions.getAddress(), partitions.getLength(),
         offsets.getAddress(), offsets.getLength(),
         schema.getFlattenedNumChildren(),
         schema.getFlattenedTypeIds(),
-        schema.getFlattenedTypeScales()));
+        schema.getFlattenedTypeScales());
+
+    DeviceMemoryBuffer singleBuffer = DeviceMemoryBuffer.fromRmm(
+        result.getBufferHandle(), result.getBufferSize(), result.getBufferHandle());
+
+    // Create ColumnVector array using fromViewWithContiguousAllocation
+    ColumnVector[] columnVectors = new ColumnVector[result.getNumColumns()];
+    try {
+      long[] columnHandles = result.getColumnHandles();
+      for (int i = 0; i < columnHandles.length; i++) {
+        columnVectors[i] = ColumnVector.fromViewWithContiguousAllocation(columnHandles[i], singleBuffer);
+      }
+
+      // Create Table from ColumnVector array (Table constructor increments refcount)
+      return new Table(columnVectors);
+    } finally {
+      // Close our references to the ColumnVectors (Table now owns them)
+      for (ColumnVector cv : columnVectors) {
+        if (cv != null) {
+          cv.close();
+        }
+      }
+      // Close the single buffer (ColumnVectors have their own references to it)
+      if (singleBuffer != null) {
+        singleBuffer.close();
+      }
+    }
   }
 
   /**
@@ -72,10 +116,10 @@ public class KudoGpuSerializer {
   private static native long[] splitAndSerializeToDevice(long tableNativeView, int[] splits);
 
 
-  private static native long[] assembleFromDeviceRawNative(long partAddr, long partLen,
-                                                           long offsetAddr, long offsetLen,
-                                                           int[] flattenedNumChildren,
-                                                           int[] flattenedTypeIds,
-                                                           int[] flattenedTypeScales);
+  private static native AssembleResult assembleFromDeviceRawNative(long partAddr, long partLen,
+                                                                   long offsetAddr, long offsetLen,
+                                                                   int[] flattenedNumChildren,
+                                                                   int[] flattenedTypeIds,
+                                                                   int[] flattenedTypeScales);
 
 }

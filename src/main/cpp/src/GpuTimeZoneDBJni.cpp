@@ -23,7 +23,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTi
 {
   JNI_NULL_CHECK(env, input_handle, "column is null", 0);
   JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input       = reinterpret_cast<cudf::column_view const*>(input_handle);
     auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
@@ -31,7 +32,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTi
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::convert_timestamp_to_utc(*input, *transitions, index).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -40,7 +41,8 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertUTCTimestampColumnToTimeZo
 {
   JNI_NULL_CHECK(env, input_handle, "column is null", 0);
   JNI_NULL_CHECK(env, transitions_handle, "column is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input       = reinterpret_cast<cudf::column_view const*>(input_handle);
     auto const transitions = reinterpret_cast<cudf::table_view const*>(transitions_handle);
@@ -48,7 +50,7 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertUTCTimestampColumnToTimeZo
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::convert_utc_timestamp_to_timezone(*input, *transitions, index).release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -71,7 +73,8 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTimestampColumnToUTCWithTz
   JNI_NULL_CHECK(env, transitions_handle, "transitions column is null", 0);
   JNI_NULL_CHECK(env, tz_indices_handle, "tz indices column is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input_seconds = reinterpret_cast<cudf::column_view const*>(input_seconds_handle);
     auto const input_microseconds =
@@ -91,7 +94,7 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTimestampColumnToUTCWithTz
                                                                               *tz_indices)
                                      .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL

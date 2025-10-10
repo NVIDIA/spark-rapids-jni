@@ -29,11 +29,12 @@ extern "C" {
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_getMaxJSONPathDepth(JNIEnv* env,
                                                                                       jclass)
 {
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     return spark_rapids_jni::MAX_JSON_PATH_DEPTH;
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -48,7 +49,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
   JNI_NULL_CHECK(env, j_type_nums, "j_type_nums is null", 0);
   JNI_NULL_CHECK(env, j_names, "j_names is null", 0);
   JNI_NULL_CHECK(env, j_indexes, "j_indexes is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const n_column_view      = reinterpret_cast<cudf::column_view const*>(input_column);
     auto const n_strings_col_view = cudf::strings_column_view{*n_column_view};
@@ -75,7 +77,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObject(JNIEnv* env,
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::get_json_object(n_strings_col_view, instructions));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -97,7 +99,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
 
   using path_type = std::vector<std::tuple<path_instruction_type, std::string, int32_t>>;
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const path_offsets = cudf::jni::native_jintArray(env, j_path_offsets).to_vector();
@@ -140,7 +143,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_getJsonObjectMultiplePaths(JNIEnv* en
     });
     return out_handles.get_jArray();
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMapFromJsonString(
@@ -154,7 +157,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
@@ -165,7 +169,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_extractRawMap
                                              allow_unquoted_control)
         .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -190,7 +194,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
   JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
   JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
@@ -220,7 +225,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_fromJSONToStructs(JNIEnv* env,
                                              is_us_locale)
         .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL
@@ -240,7 +245,8 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertFromStrings(JNIEnv* env,
   JNI_NULL_CHECK(env, j_scales, "j_scales is null", 0);
   JNI_NULL_CHECK(env, j_precisions, "j_precisions is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
 
     auto const input_cv     = reinterpret_cast<cudf::column_view const*>(j_input);
@@ -264,7 +270,7 @@ Java_com_nvidia_spark_rapids_jni_JSONUtils_convertFromStrings(JNIEnv* env,
                                              is_us_locale)
         .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
@@ -272,14 +278,15 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JSONUtils_removeQuotes(
 {
   JNI_NULL_CHECK(env, j_input, "j_input is null", 0);
 
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     auto const input_cv = reinterpret_cast<cudf::column_view const*>(j_input);
     return cudf::jni::ptr_as_jlong(
       spark_rapids_jni::remove_quotes(cudf::strings_column_view{*input_cv}, nullify_if_not_quoted)
         .release());
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 
 }  // extern "C"

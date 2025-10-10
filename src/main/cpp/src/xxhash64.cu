@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 #include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/row_operator/row_operators.cuh>
 #include <cudf/detail/utilities/algorithm.cuh>
-#include <cudf/table/experimental/row_operators.cuh>
 #include <cudf/table/table_device_view.cuh>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -493,7 +493,7 @@ class device_row_hasher {
             thrust::counting_iterator(curr_col.size()),
             ret,
             [curr_col, _check_nulls] __device__(auto hash, auto element_index) {
-              return cudf::type_dispatcher<cudf::experimental::dispatch_void_if_nested>(
+              return cudf::type_dispatcher<cudf::detail::dispatch_void_if_nested>(
                 curr_col.type(), element_hasher{_check_nulls, hash}, curr_col, element_index);
             });
           --stack_size;

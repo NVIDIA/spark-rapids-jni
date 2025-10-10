@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,13 +23,14 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_CaseWhen_selectFirstTru
   JNIEnv* env, jclass, jlongArray bool_cols)
 {
   JNI_NULL_CHECK(env, bool_cols, "array of column handles is null", 0);
-  try {
+  JNI_TRY
+  {
     cudf::jni::auto_set_device(env);
     cudf::jni::native_jpointerArray<cudf::column_view> n_cudf_bool_columns(env, bool_cols);
     auto bool_column_views = n_cudf_bool_columns.get_dereferenced();
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::select_first_true_index(cudf::table_view(bool_column_views)));
   }
-  CATCH_STD(env, 0);
+  JNI_CATCH(env, 0);
 }
 }
