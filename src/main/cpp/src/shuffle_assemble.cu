@@ -1319,8 +1319,12 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                      ? nullptr
                      : partitions + src_offset + batch_offset;
 
-        // printf("src: %lux (%d, %d)\n", (size_t)(src), (int)is_non_nullable_col_instance(cinfo,
-        // cinfo_inst), (int)btype);
+        /*
+        if(btype == buffer_type::VALIDITY){
+          printf("src: 0x%lu (%d, %d)\n", (size_t)(src), (int)is_non_nullable_col_instance(cinfo,
+          cinfo_inst), (int)btype);
+        }
+        */
         return assemble_batch{src,
                               dst_buffers[dst_buf_index] + dst_offset + batch_offset,
                               bytes,
@@ -1485,7 +1489,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // load current word, strip down to exactly the number of rows this thread is dealing with
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
-      cur = (load_word(&src[src_word_index], thread_num_rows, 4) & relevant_row_mask);
+      cur = (load_word(src == nullptr ? nullptr : &src[src_word_index], thread_num_rows, 4) & relevant_row_mask);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The
@@ -1619,7 +1623,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
                                stream);
   }
 
-  // copy validity
+  // copy validity  
   constexpr int copy_validity_block_size = 128;
   copy_validity<copy_validity_block_size>
     <<<batches.size(), copy_validity_block_size, 0, stream.value()>>>(batches);
