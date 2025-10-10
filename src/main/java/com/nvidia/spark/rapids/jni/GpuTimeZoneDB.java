@@ -16,18 +16,16 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.BinaryOp;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector;
-import ai.rapids.cudf.Scalar;
 import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
@@ -50,9 +48,23 @@ import java.util.concurrent.Executors;
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
 
-  // For the timezone database, we store the transitions in a ColumnVector that is a list of 
-  // structs. The type of this column vector is:
-  //   LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
+  // Timezone transition info:
+  // LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
+  private static HostColumnVector transitions;
+
+  // Timezone DST rules:
+  // LIST<STRUCT<
+  //    month:int,            // from 1 (January) to 12 (December)
+  //    dayOfMonth: int,      // from -28 to 31 excluding 0
+  //    dayOfWeek: int,       // from 0 (Monday) to 6 (Sunday)
+  //    secondsOfDay: int,    // transition time in seconds in a day
+  //    timeMode: int,        // defines the mode of `secondsOfDay`: 0 UTC, 1 WALL, 2 STANDARD
+  //    standardOffset: int,  // standard offset
+  //    offsetBefore: int,    // the offset before the cutover
+  //    offsetAfter: int>>    // The offset after the cutover
+  private static HostColumnVector dstRules;
+
+  // Map from timezone name to the index in the `transitions`
   private static java.util.Map<String, Integer> zoneIdToTable;
 
   // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
@@ -61,29 +73,38 @@ public class GpuTimeZoneDB {
   // If this is not null, it indicates loading is successful,
   // because it's the last variable to construct in `loadData` function.
   // use this reference to indicate if timezone cache is initialized successfully.
-  // The tz_name column constains both normalized and non-normalized timezone names.
+  // The tz_name column contains both normalized and non-normalized timezone names.
   private static volatile HostColumnVector timeZoneInfo;
 
-  // This is used to map the index of the transition table to the timezone name
-  private static ArrayList<String> sortedNormalizedTimeZones = new ArrayList<>();
-
-  private static HostColumnVector transitions;
-  // initial year set to 1900 because some transition rules start early
-  private static final int initialTransitionYear = 1900;
-  private static long maxTimestamp;
-  private static int lastCachedYear;
-  private static final ZoneId utcZoneId = ZoneId.of("UTC");
-
   /**
-   * This should be called on startup of an executor.
-   * Runs in a thread asynchronously.
-   * If `shutdown` was called ever, then will not load the cache
+   * This is deprecated, will be removed.
    */
   public static void cacheDatabaseAsync(int maxYear) {
     // start a new thread to load
     Runnable runnable = () -> {
       try {
-        cacheDatabaseImpl(maxYear);
+        cacheDatabaseImpl();
+      } catch (Exception e) {
+        log.error("cache timezone transitions cache failed", e);
+      }
+    };
+    Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+    thread.setName("gpu-timezone-database-0");
+    thread.setDaemon(true);
+    thread.start();
+  }
+
+  /**
+   * This is the replacement of the above function.
+   * This should be called on startup of an executor.
+   * Runs in a thread asynchronously.
+   * If `shutdown` was called ever, then will not load the cache
+   */
+  public static void cacheDatabaseAsync() {
+    // start a new thread to load
+    Runnable runnable = () -> {
+      try {
+        cacheDatabaseImpl();
       } catch (Exception e) {
         log.error("cache timezone transitions cache failed", e);
       }
@@ -110,12 +131,20 @@ public class GpuTimeZoneDB {
   }
 
   /**
+   * This is deprecated, will be removed.
+   */
+  public static void cacheDatabase(int maxYear) {
+    cacheDatabaseImpl();
+  }
+
+  /**
+   * This is the replacement of the above function
    * Cache the database. This will take some time like several seconds.
    * If one `cacheDatabase` is running, other `cacheDatabase` will wait until caching is done.
    * If cache is exits, do not load cache again.
    */
-  public static void cacheDatabase(int maxYear) {
-    cacheDatabaseImpl(maxYear);
+  public static void cacheDatabase() {
+    cacheDatabaseImpl();
   }
 
   /**
@@ -125,11 +154,10 @@ public class GpuTimeZoneDB {
     closeResources();
   }
 
-  private static synchronized void cacheDatabaseImpl(int maxYear) {
+  private static synchronized void cacheDatabaseImpl() {
     if (transitions == null) {
       try {
-        lastCachedYear = maxYear;
-        loadData(maxYear);
+        loadData();
       } catch (Exception e) {
         closeResources();
         throw e;
@@ -146,26 +174,14 @@ public class GpuTimeZoneDB {
       transitions.close();
       transitions = null;
     }
+    if (dstRules != null) {
+      dstRules.close();
+      dstRules = null;
+    }
     if (timeZoneInfo != null) {
       timeZoneInfo.close();
       timeZoneInfo = null;
     }
-    sortedNormalizedTimeZones.clear();
-  }
-
-  private static long getScaleFactor(ColumnView input){
-    DType inputType = input.getType();
-    if (inputType == DType.TIMESTAMP_SECONDS){
-      return 1;
-    } else if (inputType == DType.TIMESTAMP_MILLISECONDS){
-      return 1000;
-    } else if (inputType == DType.TIMESTAMP_MICROSECONDS){
-      return 1000*1000;
-    } else if (inputType == DType.INT64) {
-      // This is for seconds in long, this is for casting from string to timestamp
-      return 1;
-    }
-    throw new UnsupportedOperationException("Unsupported data type: " + inputType);
   }
 
   public static boolean isSupportedTimeZone(String zoneId) {
@@ -178,201 +194,10 @@ public class GpuTimeZoneDB {
     }
   }
 
-  public static boolean exceedsMaxYearThresholdOfDST(ColumnView input) {
-    return shouldFallbackToCpu(input, null, /* checkTimeZone */ false);
-  }
-
-  private static boolean shouldFallbackToCpu(
-      ColumnView input, ZoneId zoneId) {
-    return shouldFallbackToCpu(input, zoneId, /* checkTimeZone */ true);
-  }
-
-  private static Scalar getThresholdForDST(DType type, long scaleFactor) {
-    if (type == DType.INT64) {
-      return Scalar.fromLong(maxTimestamp * scaleFactor);
-    } else {
-      return Scalar.timestampFromLong(type, maxTimestamp * scaleFactor);
-    }
-  }
-
-  // enforce that all timestamps, regardless of timezone, be less than the desired date
-  private static boolean shouldFallbackToCpu(
-      ColumnView input, ZoneId zoneId, boolean checkTimeZone){
-    if (checkTimeZone && (zoneId.getRules().isFixedOffset() ||
-        zoneId.getRules().getTransitionRules().isEmpty())) {
-      return false;
-    }
-    boolean isValid = false;
-    long scaleFactor = getScaleFactor(input);
-
-    try (Scalar targetTimestamp = getThresholdForDST(input.getType(), scaleFactor);
-         ColumnVector compareCv = input.binaryOp(BinaryOp.GREATER, targetTimestamp, DType.BOOL8);
-         Scalar isGreater = compareCv.any()) {
-      if (!isGreater.isValid()) {
-        isValid = false;
-      }
-      else {
-        isValid = isGreater.getBoolean();
-      }
-    } catch (Exception e) {
-      log.error("Error validating input timestamps", e);
-      // don't need to throw error, can try CPU processing
-      return true;
-    }
-    return isValid;
-  }
-
-  private static ColumnVector cpuChangeTimestampTz(ColumnVector input, ZoneId currentTimeZone, ZoneId targetTimeZone) {
-    log.warn("Performing timestamp conversion on the CPU. There is a timestamp with a year over " + lastCachedYear +
-      ". You can modify the maxYear by setting spark.rapids.timezone.transitionCache.maxYear, or changing the inputs " +
-      "to stay under the year " +  lastCachedYear + ".");
-    ColumnVector resultCV = null;
-    try (HostColumnVector hostCV = input.copyToHost()) {
-      int rows = (int) hostCV.getRowCount();
-      DType inputType = input.getType();
-      long scaleFactor = getScaleFactor(input);
-      
-      try (HostColumnVector.Builder builder = HostColumnVector.builder(inputType, rows)) {
-        for (int i = 0; i < rows; i++) {
-          if (hostCV.isNull(i)) {
-            builder.appendNull();
-            continue;
-          }
-          
-          long timestamp = hostCV.getLong(i);
-          long unitOffset = timestamp % scaleFactor;
-          timestamp /= scaleFactor;
-          Instant instant = Instant.ofEpochSecond(timestamp);
-          /*
-           * .atZone(targetTimeZone) keeps same underlying timestamp, adds tzinfo
-           * .toLocalDateTime() keeps only the local date time
-           * .atZone(currentTimeZone) creates a ZonedDateTime, new underlying timestamp+tzinfo
-           * .toInstant().getEpochSecond() grabs that underlying timestamp
-           * 
-           * Example: input = 0, currentTimeZone = UTC, targetTimeZone = LA
-           * atZone(LA): 1969/12/31 16:00:00, tz=LA, timestamp=0
-           * toLocalDateTime(): 1969/12/31 16:00:00
-           * atZone(UTC): 1969/12/31 16:00:00, tz=UTC, timestamp=-28800
-           * 
-           * We reinterpret the underlying timestamp representation
-           * Spark Code For Reference:
-           * https://github.com/apache/spark/blob/ed702c0db71a2d185e9d56567375616170a1d6af/sql/api/src/main/scala/org/apache/spark/sql/catalyst/util/SparkDateTimeUtils.scala#L175-L177
-          */
-          timestamp = instant.atZone(targetTimeZone).toLocalDateTime().atZone(currentTimeZone)
-            .toInstant().getEpochSecond();
-          timestamp = timestamp * scaleFactor + unitOffset;
-          builder.append(timestamp);
-        }
-        
-        resultCV = builder.buildAndPutOnDevice();
-      }
-    }
-    return resultCV;
-  }
-
-  // From Spark, convert instant to microseconds with checking overflow
-  private static final long MICROS_PER_SECOND = 1000 * 1000;
-  private static final long MIN_SECONDS = Math.floorDiv(Long.MIN_VALUE, MICROS_PER_SECOND);
-
-  private static long instantToMicros(Instant instant) {
-    long secs = instant.getEpochSecond();
-    if (secs == MIN_SECONDS) {
-      long us = Math.multiplyExact(secs + 1, MICROS_PER_SECOND);
-      return Math.addExact(us, instant.getNano() / 1000L - MICROS_PER_SECOND);
-    } else {
-      long us = Math.multiplyExact(secs, MICROS_PER_SECOND);
-      return Math.addExact(us, instant.getNano() / 1000L);
-    }
-  }
-
-  /**
-   * Running on CPU to convert the intermediate result of casting string to
-   * timestamp to timestamp.
-   * This function is used for casting string with timezone to timestamp
-   *
-   * @param input_seconds      second part of UTC timestamp column
-   * @param input_microseconds microseconds part of UTC timestamp column
-   * @param invalid            if the parsing from string to timestamp is valid
-   * @param tzType             if the timezone in string is fixed offset or not
-   * @param tzOffset           the tz offset value, only applies to fixed type
-   *                           timezone
-   * @param tzIndex            the index to the timezone transition table
-   * @return timestamp column in microseconds
-   */
-  public static ColumnVector cpuChangeTimestampTzWithTimezones(
-      ColumnView invalid,
-      ColumnView input_seconds,
-      ColumnView input_microseconds,
-      ColumnView tzType,
-      ColumnView tzOffset,
-      ColumnView tzIndex) {
-    verifyDatabaseCached();
-    ColumnVector resultCV = null;
-    try (HostColumnVector hostInput = input_seconds.copyToHost();
-        HostColumnVector hostMicroInput = input_microseconds.copyToHost();
-        HostColumnVector hostInvalid = invalid.copyToHost();
-        HostColumnVector hostTzType = tzType.copyToHost();
-        HostColumnVector hostTzOffset = tzOffset.copyToHost();
-        HostColumnVector hostTzIndex = tzIndex.copyToHost()) {
-      int rows = (int) hostInput.getRowCount();
-
-      try (HostColumnVector.Builder builder = HostColumnVector.builder(DType.TIMESTAMP_MICROSECONDS, rows)) {
-        for (int i = 0; i < rows; i++) {
-          if (hostInvalid.getByte(i) != 0) {
-            // invalid parsing
-            builder.appendNull();
-            continue;
-          }
-
-          long seconds = hostInput.getLong(i);
-          long microseconds = hostMicroInput.getInt(i);
-
-          if (hostTzType.getByte(i) == 1) {
-            // fixed offset in seconds
-            int offset = hostTzOffset.getInt(i);
-            try {
-              seconds = Math.addExact(seconds, -offset);
-              long microsecondsForSeconds = Math.multiplyExact(seconds, 1000000L);
-              long result = Math.addExact(microsecondsForSeconds, microseconds);
-              builder.append(result);
-            } catch (ArithmeticException e) {
-              // overflow
-              builder.appendNull();
-            }
-            continue;
-          }
-
-          Instant instant = Instant.ofEpochSecond(seconds, microseconds * 1000L);
-
-          // get the timezone index
-          int tzIndexToTzInfo = hostTzIndex.getInt(i);
-          String normalizedTz = sortedNormalizedTimeZones.get(tzIndexToTzInfo);
-
-          // Please refer to the `cpuChangeTimestampTz` for more details
-          Instant toInstance = instant.atZone(utcZoneId).toLocalDateTime()
-              .atZone(ZoneId.of(normalizedTz)).toInstant();
-          try {
-            seconds = instantToMicros(toInstance);
-            builder.append(seconds);
-          } catch (ArithmeticException e) {
-            // overflow
-            builder.appendNull();
-          }
-        }
-
-        resultCV = builder.buildAndPutOnDevice();
-      }
-    }
-    return resultCV;
-  }
-
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (shouldFallbackToCpu(input, currentTimeZone)) {
-      return cpuChangeTimestampTz(input, currentTimeZone, utcZoneId);
-    }
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
@@ -384,16 +209,12 @@ public class GpuTimeZoneDB {
     // there is technically a race condition on shutdown. Shutdown could be called after
     // the database is cached. This would result in a null pointer exception at some point
     // in the processing. This should be rare enough that it is not a big deal.
-    if (shouldFallbackToCpu(input, desiredTimeZone)) {
-      return cpuChangeTimestampTz(input, utcZoneId, desiredTimeZone);
-    }
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
           transitions.getNativeView(), tzIndex));
     }
   }
-
 
   // Ported from Spark. Used to format timezone ID string with (+|-)h:mm and (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
@@ -406,7 +227,7 @@ public class GpuTimeZoneDB {
   }
 
   @SuppressWarnings("unchecked")
-  private static synchronized void loadData(int finalTransitionYear) {
+  private static synchronized void loadData() {
     try {
       // Spark uses timezones from TimeZone.getAvailableIDs
       // We use ZoneId.normalized to reduce the number of timezone names.
@@ -436,6 +257,8 @@ public class GpuTimeZoneDB {
       Collections.sort(sortedTimeZones);
 
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
+      List<List<HostColumnVector.StructData>> masterDsts = new ArrayList<>();
+
       zoneIdToTable = new HashMap<>();
       for (String nonNormalizedTz : sortedTimeZones) {
         // we use the normalized form to dedupe
@@ -446,37 +269,18 @@ public class GpuTimeZoneDB {
         if (!zoneIdToTable.containsKey(normalizedTz)) {
           List<ZoneOffsetTransition> zoneOffsetTransitions = new ArrayList<>(zoneRules.getTransitions());
           zoneOffsetTransitions.sort(Comparator.comparing(ZoneOffsetTransition::getInstant));
-          // It is desired to get lastTransitionEpochSecond because some rules don't start until late (e.g. 2007)
-          long lastTransitionEpochSecond = Long.MIN_VALUE;
-          if (!zoneOffsetTransitions.isEmpty()) {
-            long transitionInstant = zoneOffsetTransitions.get(zoneOffsetTransitions.size()-1).getInstant().getEpochSecond();
-            lastTransitionEpochSecond = Math.max(transitionInstant, lastTransitionEpochSecond);
-          }
-          List<ZoneOffsetTransitionRule> transitionRules = zoneRules.getTransitionRules();
-          for (ZoneOffsetTransitionRule transitionRule : transitionRules){
-            for (int year = initialTransitionYear; year <= finalTransitionYear; year++){
-              ZoneOffsetTransition transition = transitionRule.createTransition(year);
-              if (transition.getInstant().getEpochSecond() > lastTransitionEpochSecond){
-                zoneOffsetTransitions.add(transition);
-              }
-            }
-          }
-          // sort the transitions, multiple rules means transitions not added chronologically
-          zoneOffsetTransitions.sort(Comparator.comparing(ZoneOffsetTransition::getInstant));
+          List<ZoneOffsetTransitionRule> dstTransitionRules = zoneRules.getTransitionRules();
           int idx = masterTransitions.size();
           List<HostColumnVector.StructData> data = new ArrayList<>();
+          List<HostColumnVector.StructData> dstData = new ArrayList<>();
           if (zoneRules.isFixedOffset()) {
-            data.add(
-                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                    zoneRules.getOffset(Instant.now()).getTotalSeconds())
-            );
+            data.add(new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+                zoneRules.getOffset(Instant.now()).getTotalSeconds()));
           } else {
             // Capture the first official offset (before any transition) using Long min
             ZoneOffsetTransition first = zoneOffsetTransitions.get(0);
-            data.add(
-                new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
-                    first.getOffsetBefore().getTotalSeconds())
-            );
+            data.add(new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
+                first.getOffsetBefore().getTotalSeconds()));
             zoneOffsetTransitions.forEach(t -> {
               // Whether transition is an overlap vs gap.
               // In Spark:
@@ -500,16 +304,38 @@ public class GpuTimeZoneDB {
                 );
               }
             });
+
+            // collect DST rules
+            if (dstTransitionRules.size() != 0 && dstTransitionRules.size() != 2) {
+              // Checked all the timezones, the size of DST rules for a timezone is 2.
+              throw new IllegalStateException("DST rules size is not 2.");
+            }
+
+            dstTransitionRules.forEach(dstRule -> {
+              if (dstRule.isMidnightEndOfDay()) {
+                // Checked all the timezones, there is no midnight end of day for DST rules.
+                // This is a protection in case JVM adds new timezones in the future.
+                throw new IllegalStateException("Unsupported midnight end of day for DST rules.");
+              }
+
+              DayOfWeek dow = dstRule.getDayOfWeek();
+              int dayOfWeek = dow != null ? dow.getValue() - 1 : -1;
+              dstData.add(new HostColumnVector.StructData(
+                  dstRule.getMonth().getValue(), // from 1 (January) to 12 (December)
+                  dstRule.getDayOfMonthIndicator(), // from -28 to 31 excluding 0
+                  dayOfWeek, // from 0 (Monday) to 6 (Sunday)
+                  dstRule.getLocalTime().toSecondOfDay(), // transition time in seconds in a day
+                  dstRule.getTimeDefinition().ordinal(), // 0 UTC, 1 WALL, 2 STANDARD
+                  dstRule.getStandardOffset().getTotalSeconds(), // standard offset
+                  dstRule.getOffsetBefore().getTotalSeconds(), // the offset before the cutover
+                  dstRule.getOffsetAfter().getTotalSeconds())); // the offset after the cutover
+            });
           }
           masterTransitions.add(data);
+          masterDsts.add(dstData);
           // add index for normalized timezone
           zoneIdToTable.put(normalizedTz, idx);
-          sortedNormalizedTimeZones.add(normalizedTz);
         } // end of: if (!zoneIdToTable.containsKey(normalizedTz)) {
-
-        // set max year:
-        maxTimestamp = LocalDateTime.of(finalTransitionYear + 1, 1, 2, 0, 0, 0)
-            .atZone(utcZoneId).toEpochSecond();
 
         // Add index for non-normalized timezones
         // e.g.:
@@ -523,31 +349,44 @@ public class GpuTimeZoneDB {
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT32));
-      HostColumnVector.DataType resultType =
+      HostColumnVector.DataType transitionType =
           new HostColumnVector.ListType(false, childType);
-      transitions = HostColumnVector.fromLists(resultType,
+      transitions = HostColumnVector.fromLists(transitionType,
           masterTransitions.toArray(new List[0]));
+      dstRules = HostColumnVector.fromLists(getDstDataType(), masterDsts.toArray(new List[0]));
       timeZoneInfo = getTimeZoneInfo(sortedTimeZones, zoneIdToTable);
     } catch (Exception e) {
       throw new IllegalStateException("load timezone DB cache failed!", e);
     }
   }
 
+  private static HostColumnVector.DataType getDstDataType() {
+    HostColumnVector.DataType dstChildType = new HostColumnVector.StructType(false,
+        new HostColumnVector.BasicType(false, DType.INT32), // for month
+        new HostColumnVector.BasicType(false, DType.INT32), // for day of month
+        new HostColumnVector.BasicType(false, DType.INT32), // for day of week
+        new HostColumnVector.BasicType(false, DType.INT32), // for time
+        new HostColumnVector.BasicType(false, DType.INT32), // for time mode
+        new HostColumnVector.BasicType(false, DType.INT32), // for standard offset
+        new HostColumnVector.BasicType(false, DType.INT32), // for offset before
+        new HostColumnVector.BasicType(false, DType.INT32)); // for offset after
+    return new HostColumnVector.ListType(false, dstChildType);
+  }
+
   public static synchronized Table getTransitions() {
     verifyDatabaseCached();
-    try (ColumnVector fixedTransitions = transitions.copyToDevice()) {
-      return new Table(fixedTransitions);
+    try (ColumnVector fixedTransitions = transitions.copyToDevice();
+         ColumnVector dsts = dstRules.copyToDevice()) {
+      return new Table(fixedTransitions, dsts);
     }
   }
 
   /**
    * FOR TESTING PURPOSES ONLY, DO NOT USE IN PRODUCTION
-   *
-   * This method retrieves the raw list of struct data that forms the list of 
+   * This method retrieves the raw list of struct data that forms the list of
    * fixed transitions for a particular zoneId. 
-   *
    * It has default visibility so the test can access it.
-   * @param zoneId
+   * @param zoneId timezone id
    * @return list of fixed transitions
    */
   static synchronized List getHostTransitions(String zoneId) {
@@ -608,8 +447,7 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Running on GPU to convert the intermediate result of casting string to
-   * timestamp to timestamp.
+   * Running on GPU to convert the intermediate result of casting string to timestamp.
    * This function is used for casting string with timezone to timestamp.
    * MUST make sure input does not exceed max year threshold and has no DST
    *

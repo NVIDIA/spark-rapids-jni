@@ -58,6 +58,10 @@ struct convert_timestamp_tz_functor {
   // to adjust the timestamp. The type of the values in this column is
   // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
   lists_column_device_view const transitions;
+
+  // LIST<STRUCT<month, dayOfMonth, dayOfWeek, time, timeMode, standardOffset, offsetBefore, offsetAfter>>.
+  cudf::detail::lists_column_device_view dsts;
+
   // the index of the specified zone id in the transitions table
   size_type const tz_index;
   // whether we are converting to UTC or converting to the timezone
@@ -70,7 +74,7 @@ struct convert_timestamp_tz_functor {
    */
   __device__ timestamp_type operator()(timestamp_type const& timestamp) const
   {
-    return spark_rapids_jni::convert_timestamp(timestamp, transitions, tz_index, to_utc);
+    return spark_rapids_jni::convert_timestamp(timestamp, transitions, dsts, tz_index, to_utc);
   }
 };
 
@@ -86,6 +90,10 @@ auto convert_timestamp_tz(column_view const& input,
   auto const ft_cdv_ptr        = column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = lists_column_device_view{*ft_cdv_ptr};
 
+  // get the DST rules
+  auto const dst_cdv_ptr        = cudf::column_device_view::create(transitions.column(1), stream);
+  auto const dsts = cudf::detail::lists_column_device_view{*dst_cdv_ptr};
+
   auto results = cudf::make_timestamp_column(input.type(),
                                              input.size(),
                                              cudf::detail::copy_bitmask(input, stream, mr),
@@ -98,7 +106,7 @@ auto convert_timestamp_tz(column_view const& input,
     input.begin<timestamp_type>(),
     input.end<timestamp_type>(),
     results->mutable_view().begin<timestamp_type>(),
-    convert_timestamp_tz_functor<timestamp_type>{fixed_transitions, tz_index, to_utc});
+    convert_timestamp_tz_functor<timestamp_type>{fixed_transitions, dsts, tz_index, to_utc});
 
   return results;
 }

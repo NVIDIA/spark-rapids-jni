@@ -137,6 +137,89 @@ struct date_time_utils {
     return (hour >= 0 && hour < 24) && (minute >= 0 && minute < 60) &&
            (second >= 0 && second < 60) && (microseconds >= 0 && microseconds < 1'000'000);
   }
+
+  /**
+   * @brief Returns day of week in civil calendar for the specified epoch days.
+   * Range is [0, 6], 0 represents Monday, 6 represents Sunday.
+   * @param epoch_days the days from epoch time 1970-01-01
+   * @return the weekday for the days from epoch
+   */
+  __device__ static int32_t weekday_from_days(int32_t epoch_days) noexcept
+  {
+    return epoch_days >= -3 ? (epoch_days + 3) % 7 : (epoch_days + 4) % 7 + 6;
+  }
+
+  /**
+   * @brief Calculate difference for two weekdays of week.
+   * `from` and `to` are in range [0, 6], 0 represents Monday, 6 represents Sunday.
+   * E.g: `from` = 0(Monday), `to` = 6(Sunday), difference is 6
+   * E.g: `from` = 6(Sunday), `to` = 0(Monday), difference is 1
+   * @param from The from weekday of week
+   * @param to The to weekday of week
+   * @return difference between from and to in range [0, 6]
+   */
+  __device__ static int32_t weekday_difference(int32_t from, int32_t to)
+  {
+    int32_t diff = to - from;
+    return diff >= 0 ? diff : diff + 7;
+  }
+
+  /**
+   * @brief Calculate difference backward for two weekdays of week.
+   * `from` and `to` are in range [0, 6], 0 represents Monday, 6 represents Sunday.
+   * E.g: `from` = 0(Monday), `to` = 6(Sunday), difference is 1
+   * E.g: `from` = 6(Sunday), `to` = 0(Monday), difference is 6
+   * @param from The from weekday of week
+   * @param to The to weekday of week
+   * @return difference between from and to in range [0, 6]
+   */
+  __device__ static int32_t previous_weekday_difference(int32_t from, int32_t to)
+  {
+    int32_t diff = from - to;
+    return diff >= 0 ? diff : diff + 7;
+  }
+
+  /**
+   * @brief Get the next or the same weekday from the specified `epoch_days` and expected weekday.
+   * E.g.: if inputs are the days of 2025-10-10(Friday) and Sunday(6),
+   * the next or the same Sunday is 2025-10-12.
+   * @param epoch_days epoch days
+   * @param expected_weekday expected weekday, 0 represents Monday, 6 represents Sunday.
+   * @return the next or the same day that is `expected_weekday`
+   */
+  __device__ static int32_t next_or_same_weekday(int32_t const epoch_days, int32_t const expected_weekday)
+  {
+    int32_t curr_weekday = weekday_from_days(epoch_days);
+    return epoch_days + weekday_difference(curr_weekday, expected_weekday);
+  }
+
+  /**
+   * @brief Get the previous or the same weekday from the specified `epoch_days` and expected weekday.
+   * E.g.: if inputs are the days of 2025-10-13(Monday) and Sunday(6),
+   * the previous or the same Sunday is 2025-10-12.
+   * @param epoch_days epoch days
+   * @param expected_weekday expected weekday, 0 represents Monday, 6 represents Sunday.
+   * @return the previous or the same day that is `expected_weekday`
+   */
+  __device__ static int32_t previous_or_same_weekday(int32_t const epoch_days, int32_t const expected_weekday)
+  {
+    int32_t curr_weekday = weekday_from_days(epoch_days);
+    return epoch_days - previous_weekday_difference(curr_weekday, expected_weekday);
+  }
+
+  /**
+   * @brief Get the year from epoch seconds.
+   * @param seconds epoch seconds.
+   * @return the year for the epoch seconds.
+   */
+  __device__ static int32_t get_year(int64_t seconds)
+  {
+    constexpr int64_t seconds_per_day = 86400L;
+    int64_t days = seconds / seconds_per_day;
+    int32_t year, month, day;
+    to_date(days, year, month, day);
+    return year;
+  }
 };
 
 /**
@@ -209,6 +292,87 @@ struct overflow_checker {
   }
 };
 
+namespace {
+
+/**
+ * Defines how the local time is expressed for Daylight Saving Time(DST) rules.
+ */
+enum class time_mode : int32_t
+{
+  /**
+   * The transition time is expressed in UTC.
+   * E.g.: If the transition time in TZDB is 02:00 (UTC) and the offset is +01:00, the
+   * actual transition local time is 03:00: 02:00 + 01:00.
+   */
+  UTC = 0,
+
+  /**
+   * The transition time is expressed in WALL time.
+   * E.g.: If the transition time in TZDB is 02:00 (WALL time),
+   * the actual transition local time is 02:00.
+   */
+  WALL = 1,
+
+  /**
+   * The transition time is expressed in STANDARD time.
+   * E.g.: If the transition time in TZDB is 02:00 (STANDARD time),
+   * the standard offset is +01:00, and the offset is +06:00,
+   * the actual transition local time is 07:00:
+   * 06:00 - 01:00 + 02:00 = 07:00.
+   */
+  STANDARD = 2
+};
+
+
+/**
+ * Daylight Saving Time (DST) rule, it's decoded from the Java TZDB file.
+ */
+struct transition_rule
+{
+  // the month of this transition
+  int32_t month;
+
+  // the day of month of this transition
+  // if it's negative, count days from the end of the month
+  int32_t dom;
+
+  // weekday of week, [0, 6], 0 represents Monday, 6 represents Sunday,
+  // if it's negative, this is ignored.
+  int32_t dow;
+
+  // the local time point in a day when transition occurs.
+  int32_t second_of_day;
+
+  // defines how the local time point is expressed, in UTC, WALL or STANDARD time.
+  time_mode defn;
+
+  // standard offset in seconds
+  int32_t standard_offset;
+
+  // offset in seconds before this transition
+  int32_t offset_before;
+
+  // offset in seconds after this transition
+  int32_t offset_after;
+};
+
+/**
+ * Transition info
+ */
+struct transition_info
+{
+  // local transition time point in seconds
+  int64_t local_seconds;
+
+  // offset in seconds before this transition
+  int32_t offset_before;
+
+  // offset in seconds after this transition
+  int32_t offset_after;
+};
+
+}
+
 // This device functor uses a binary search to find the instant of the transition
 // to find the right offset to do the transition.
 // To transition to UTC: do a binary search on the tzInstant child column and subtract
@@ -219,6 +383,7 @@ template <typename timestamp_type>
 __device__ static timestamp_type convert_timestamp(
   timestamp_type const& timestamp,
   cudf::detail::lists_column_device_view const& transitions,
+  cudf::detail::lists_column_device_view const& dsts,
   cudf::size_type tz_index,
   bool to_utc)
 {
@@ -236,6 +401,19 @@ __device__ static timestamp_type convert_timestamp(
   auto const transition_times = cudf::device_span<int64_t const>(
     (to_utc ? tz_instants : utc_instants).data<int64_t>() + tz_transitions.element_offset(0),
     static_cast<size_t>(list_size));
+
+  if (transition_times[list_size - 1] != cuda::std::numeric_limits<int64_t>::min()) {
+    // It's not fixed timezone, because fixed timezone inserted a int64.min entry.
+    auto const dsts = cudf::list_device_view{transitions, tz_index};
+    auto const rules_size = dsts.size();
+    if (rules_size > 0) {
+      // it's DST
+      int64_t last_transition_value = transition_times[list_size - 1];
+      if (epoch_seconds > last_transition_value) {
+        
+      }
+    }
+  }
 
   auto const it = thrust::upper_bound(
     thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);

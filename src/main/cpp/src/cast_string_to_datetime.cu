@@ -726,6 +726,9 @@ struct parse_timestamp_string_fn {
   // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
   cudf::detail::lists_column_device_view transitions;
 
+  // LIST<STRUCT<month, dayOfMonth, dayOfWeek, time, timeMode, standardOffset, offsetBefore, offsetAfter>>.
+  cudf::detail::lists_column_device_view dsts;
+
   // parsed result types: not supported, invalid, success
   uint8_t* result_types;
 
@@ -843,6 +846,7 @@ struct parse_timestamp_string_fn {
           auto rebased_seconds = spark_rapids_jni::convert_timestamp<cudf::timestamp_s>(
             cudf::timestamp_s{cudf::duration_s{current_seconds_since_epoch}},
             transitions,
+            dsts,
             tz_indices[idx],
             /* to_utc */ false);
 
@@ -914,6 +918,10 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   auto const ft_cdv_ptr        = cudf::column_device_view::create(transitions.column(0), stream);
   auto const fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
 
+  // get the DST rules
+  auto const dst_cdv_ptr        = cudf::column_device_view::create(transitions.column(1), stream);
+  auto const dsts = cudf::detail::lists_column_device_view{*dst_cdv_ptr};
+
   thrust::for_each_n(
     rmm::exec_policy_nosync(stream),
     thrust::make_counting_iterator(0),
@@ -927,6 +935,7 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
                               current_seconds_since_epoch,
                               *d_tz_info,
                               fixed_transitions,
+                              dsts,
                               parsed_result_type_col->mutable_view().begin<uint8_t>(),
                               parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
                               parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
