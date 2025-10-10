@@ -287,7 +287,7 @@ std::unique_ptr<cudf::list_scalar> bloom_filter_merge(cudf::column_view const& i
       cudf::drop_nulls(cudf::table_view{{input}},
                        std::vector<cudf::size_type>{0},  // remove nulls from column index 0
                        stream,
-                       cudf::get_current_device_resource());
+                       cudf::get_current_device_resource_ref());
     return std::move(filtered->release().front());
   }();
   auto const& bloom_filters = input_no_nulls ? input_no_nulls->view() : input;
