@@ -52,16 +52,19 @@ public class GpuTimeZoneDB {
   // LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
   private static HostColumnVector transitions;
 
-  // Timezone DST rules:
-  // LIST<STRUCT<
-  //    month:int,            // from 1 (January) to 12 (December)
-  //    dayOfMonth: int,      // from -28 to 31 excluding 0
-  //    dayOfWeek: int,       // from 0 (Monday) to 6 (Sunday)
-  //    secondsOfDay: int,    // transition time in seconds in a day
-  //    timeMode: int,        // defines the mode of `secondsOfDay`: 0 UTC, 1 WALL, 2 STANDARD
-  //    standardOffset: int,  // standard offset
-  //    offsetBefore: int,    // the offset before the cutover
-  //    offsetAfter: int>>    // The offset after the cutover
+  // Timezone DST rules: LIST<LIST<INT>>
+  // Each sub list has constant 16 integers, each 8 integers are a DST rule.
+  //    index 0: month:int,            // from 1 (January) to 12 (December)
+  //    index 1: dayOfMonth: int,      // from -28 to 31 excluding 0
+  //    index 2: dayOfWeek: int,       // from 0 (Monday) to 6 (Sunday)
+  //    index 3: secondsOfDay: int,    // transition time in seconds in a day
+  //    index 4: timeMode: int,        // the mode of `secondsOfDay`: 0 UTC, 1 WALL, 2 STANDARD
+  //    index 5: standardOffset: int,  // standard offset
+  //    index 6: offsetBefore: int,    // the offset before the cutover
+  //    index 7: offsetAfter: int      // The offset after the cutover
+  //    index 8: the 2nd rule begin 
+  //    ...
+  //    index 15: the 2nd rule end
   private static HostColumnVector dstRules;
 
   // Map from timezone name to the index in the `transitions`
@@ -234,30 +237,36 @@ public class GpuTimeZoneDB {
       // `transitions` saves transitions for normalized timezones.
       //
       // e.g.:
-      //   "Etc/GMT" and "Etc/GMT+0" are from TimeZone.getAvailableIDs
-      //   ZoneId.of("Etc/GMT").normalized.getId = Z;
-      //   ZoneId.of("Etc/GMT+0").normalized.getId = Z
+      // "Etc/GMT" and "Etc/GMT+0" are from TimeZone.getAvailableIDs
+      // ZoneId.of("Etc/GMT").normalized.getId = Z;
+      // ZoneId.of("Etc/GMT+0").normalized.getId = Z
       // Both Etc/GMT and Etc/GMT+0 have normalized Z.
       // Use the normalized form will dedupe transition table size.
       //
-      // For `fromTimestampToUtcTimestamp` and `fromUtcTimestampToTimestamp`, it will first
-      // normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the transition index.
-      // But for cast string(with timezone) to timestamp, it may contain non-normalized tz.
-      // E.g.: '2025-01-01 00:00:00 Etc/GMT', so should map "Etc/GMT", "Etc/GMT+0" and "Z" to
-      // the same transition index. This means size of `zoneIdToTable` > size of `transitions`
+      // For `fromTimestampToUtcTimestamp` and `fromUtcTimestampToTimestamp`, it will
+      // first
+      // normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the
+      // transition index.
+      // But for cast string(with timezone) to timestamp, it may contain
+      // non-normalized tz.
+      // E.g.: '2025-01-01 00:00:00 Etc/GMT', so should map "Etc/GMT", "Etc/GMT+0" and
+      // "Z" to
+      // the same transition index. This means size of `zoneIdToTable` > size of
+      // `transitions`
       //
 
       // get and sort timezones
       String[] timeZones = TimeZone.getAvailableIDs();
       List<String> sortedTimeZones = new ArrayList<>(Arrays.asList(timeZones));
-      // Note: Z is a special normalized timezone from UTC: ZoneId.of("UTC").normalized = Z
+      // Note: Z is a special normalized timezone from UTC:
+      // ZoneId.of("UTC").normalized = Z
       // TimeZone.getAvailableIDs does not contain Z
       // Should add Z to `zoneIdToTable`
       sortedTimeZones.add("Z");
       Collections.sort(sortedTimeZones);
 
       List<List<HostColumnVector.StructData>> masterTransitions = new ArrayList<>();
-      List<List<HostColumnVector.StructData>> masterDsts = new ArrayList<>();
+      List<List<Integer>> masterDsts = new ArrayList<>();
 
       zoneIdToTable = new HashMap<>();
       for (String nonNormalizedTz : sortedTimeZones) {
@@ -272,7 +281,7 @@ public class GpuTimeZoneDB {
           List<ZoneOffsetTransitionRule> dstTransitionRules = zoneRules.getTransitionRules();
           int idx = masterTransitions.size();
           List<HostColumnVector.StructData> data = new ArrayList<>();
-          List<HostColumnVector.StructData> dstData = new ArrayList<>();
+          List<Integer> dstData = new ArrayList<>();
           if (zoneRules.isFixedOffset()) {
             data.add(new HostColumnVector.StructData(Long.MIN_VALUE, Long.MIN_VALUE,
                 zoneRules.getOffset(Instant.now()).getTotalSeconds()));
@@ -293,15 +302,13 @@ public class GpuTimeZoneDB {
                     new HostColumnVector.StructData(
                         t.getInstant().getEpochSecond(),
                         t.getInstant().getEpochSecond() + t.getOffsetAfter().getTotalSeconds(),
-                        t.getOffsetAfter().getTotalSeconds())
-                );
+                        t.getOffsetAfter().getTotalSeconds()));
               } else {
                 data.add(
                     new HostColumnVector.StructData(
                         t.getInstant().getEpochSecond(),
                         t.getInstant().getEpochSecond() + t.getOffsetBefore().getTotalSeconds(),
-                        t.getOffsetAfter().getTotalSeconds())
-                );
+                        t.getOffsetAfter().getTotalSeconds()));
               }
             });
 
@@ -320,15 +327,14 @@ public class GpuTimeZoneDB {
 
               DayOfWeek dow = dstRule.getDayOfWeek();
               int dayOfWeek = dow != null ? dow.getValue() - 1 : -1;
-              dstData.add(new HostColumnVector.StructData(
-                  dstRule.getMonth().getValue(), // from 1 (January) to 12 (December)
-                  dstRule.getDayOfMonthIndicator(), // from -28 to 31 excluding 0
-                  dayOfWeek, // from 0 (Monday) to 6 (Sunday)
-                  dstRule.getLocalTime().toSecondOfDay(), // transition time in seconds in a day
-                  dstRule.getTimeDefinition().ordinal(), // 0 UTC, 1 WALL, 2 STANDARD
-                  dstRule.getStandardOffset().getTotalSeconds(), // standard offset
-                  dstRule.getOffsetBefore().getTotalSeconds(), // the offset before the cutover
-                  dstRule.getOffsetAfter().getTotalSeconds())); // the offset after the cutover
+              dstData.add(dstRule.getMonth().getValue()); // from 1 (January) to 12 (December)
+              dstData.add(dstRule.getDayOfMonthIndicator()); // from -28 to 31 excluding 0
+              dstData.add(dayOfWeek); // from 0 (Monday) to 6 (Sunday)
+              dstData.add(dstRule.getLocalTime().toSecondOfDay()); // transition time in seconds in a day
+              dstData.add(dstRule.getTimeDefinition().ordinal()); // 0 UTC, 1 WALL, 2 STANDARD
+              dstData.add(dstRule.getStandardOffset().getTotalSeconds()); // standard offset
+              dstData.add(dstRule.getOffsetBefore().getTotalSeconds()); // the offset before the cutover
+              dstData.add(dstRule.getOffsetAfter().getTotalSeconds()); // the offset after the cutover
             });
           }
           masterTransitions.add(data);
@@ -339,8 +345,8 @@ public class GpuTimeZoneDB {
 
         // Add index for non-normalized timezones
         // e.g.:
-        //   normalize "Etc/GMT" = Z
-        //   normalize "Etc/GMT+0" = Z
+        // normalize "Etc/GMT" = Z
+        // normalize "Etc/GMT+0" = Z
         // use the index of Z for Etc/GMT and Etc/GMT+0
         zoneIdToTable.put(nonNormalizedTz, zoneIdToTable.get(normalizedTz));
       } // end of for
@@ -349,8 +355,7 @@ public class GpuTimeZoneDB {
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT32));
-      HostColumnVector.DataType transitionType =
-          new HostColumnVector.ListType(false, childType);
+      HostColumnVector.DataType transitionType = new HostColumnVector.ListType(false, childType);
       transitions = HostColumnVector.fromLists(transitionType,
           masterTransitions.toArray(new List[0]));
       dstRules = HostColumnVector.fromLists(getDstDataType(), masterDsts.toArray(new List[0]));
@@ -361,16 +366,9 @@ public class GpuTimeZoneDB {
   }
 
   private static HostColumnVector.DataType getDstDataType() {
-    HostColumnVector.DataType dstChildType = new HostColumnVector.StructType(false,
-        new HostColumnVector.BasicType(false, DType.INT32), // for month
-        new HostColumnVector.BasicType(false, DType.INT32), // for day of month
-        new HostColumnVector.BasicType(false, DType.INT32), // for day of week
-        new HostColumnVector.BasicType(false, DType.INT32), // for time
-        new HostColumnVector.BasicType(false, DType.INT32), // for time mode
-        new HostColumnVector.BasicType(false, DType.INT32), // for standard offset
-        new HostColumnVector.BasicType(false, DType.INT32), // for offset before
-        new HostColumnVector.BasicType(false, DType.INT32)); // for offset after
-    return new HostColumnVector.ListType(false, dstChildType);
+    return new HostColumnVector.ListType(false,
+        new HostColumnVector.ListType(false,
+            new HostColumnVector.BasicType(false, DType.INT32)));
   }
 
   public static synchronized Table getTransitions() {
