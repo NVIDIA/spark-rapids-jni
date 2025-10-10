@@ -1174,13 +1174,9 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
         auto& cinfo                   = column_info[col_index];
         auto const& cinfo_inst        = column_instance_info[col_instance_index];
         if (is_non_nullable_col_instance(cinfo, cinfo_inst)) {
-          // printf("EC: %d %d %d %d\n", (int)col_index, (int)col_instance_index,
-          // (int)cinfo_inst.num_rows, (int)bitmask_allocation_size_bytes(cinfo_inst.num_rows, 1));
           return bitmask_allocation_size_bytes(cinfo_inst.num_rows, 1);
         }
       }
-
-      // printf("EC2 (%d): %lu\n", src_sizes_unpadded[src_buf_index]);
       return src_sizes_unpadded[src_buf_index];
     });
   auto batch_count_iter = cudf::detail::make_counting_transform_iterator(
@@ -1236,14 +1232,6 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
           switch (btype) {
             // validity gets batched
             case buffer_type::VALIDITY:
-              /*
-              {
-                printf("Ci (%d, %d, %d): %d %d %d (%d %d %d)\n", (int)col_index,
-              (int)col_instance_index, cinfo_inst.row_index, cinfo_inst.num_rows,
-              cinfo_inst.src_row_index, (int)cinfo_inst.has_validity, (int)batch_src_size,
-              (int)dst_offset, (int)dst_buf_index);
-              }
-              */
               return std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
 
             // for offsets, all source buffers have an extra offset per partition (the terminating
@@ -1319,12 +1307,6 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                      ? nullptr
                      : partitions + src_offset + batch_offset;
 
-        /*
-        if(btype == buffer_type::VALIDITY){
-          printf("src: 0x%lu (%d, %d)\n", (size_t)(src), (int)is_non_nullable_col_instance(cinfo,
-          cinfo_inst), (int)btype);
-        }
-        */
         return assemble_batch{src,
                               dst_buffers[dst_buf_index] + dst_offset + batch_offset,
                               bytes,
@@ -1385,10 +1367,7 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
     [] __device__(void const* const _src, int num_bits, int leading_bytes) {
       // if src is null, this is coming from a column instance that has no validity, so we will
       // just fake it by returning all set bits
-      if (_src == nullptr) {
-        // printf("VVVV\n");
-        return static_cast<bitmask_type>((1 << num_bits) - 1);
-      }
+      if (_src == nullptr) { return static_cast<bitmask_type>((1 << num_bits) - 1); }
 
       uint8_t const* const src_b = reinterpret_cast<uint8_t const*>(_src);
       if (num_bits > 24) {
@@ -1489,7 +1468,8 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // load current word, strip down to exactly the number of rows this thread is dealing with
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
-      cur = (load_word(src == nullptr ? nullptr : &src[src_word_index], thread_num_rows, 4) & relevant_row_mask);
+      cur = (load_word(src == nullptr ? nullptr : &src[src_word_index], thread_num_rows, 4) &
+             relevant_row_mask);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The
@@ -1623,7 +1603,7 @@ void assemble_copy(cudf::device_span<assemble_batch> batches,
                                stream);
   }
 
-  // copy validity  
+  // copy validity
   constexpr int copy_validity_block_size = 128;
   copy_validity<copy_validity_block_size>
     <<<batches.size(), copy_validity_block_size, 0, stream.value()>>>(batches);
