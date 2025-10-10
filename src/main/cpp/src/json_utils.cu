@@ -187,7 +187,8 @@ std::tuple<std::unique_ptr<rmm::device_buffer>, char, std::unique_ptr<cudf::colu
     throw std::logic_error(
       "Cannot find any character suitable as delimiter during joining json strings.");
   }
-  auto const delimiter = static_cast<char>(thrust::distance(zero_level_it, first_zero_count_pos));
+  auto const delimiter =
+    static_cast<char>(cuda::std::distance(zero_level_it, first_zero_count_pos));
 
   auto [null_mask, null_count] = cudf::detail::valid_if(
     is_valid_input.begin(), is_valid_input.end(), cuda::std::identity{}, stream, default_mr);

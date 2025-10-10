@@ -19,7 +19,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/labeling/label_segments.cuh>
 #include <cudf/detail/null_mask.hpp>
-#include <cudf/detail/row_operator/row_operators.cuh>
+#include <cudf/detail/row_operator/equality.cuh>
 #include <cudf/lists/count_elements.hpp>
 #include <cudf/lists/gather.hpp>
 #include <cudf/lists/set_operations.hpp>
