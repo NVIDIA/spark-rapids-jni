@@ -23,6 +23,7 @@
 
 #include <cuda/std/limits>
 #include <thrust/binary_search.h>
+#include <thrust/pair.h>
 
 namespace spark_rapids_jni {
 
@@ -187,21 +188,23 @@ struct date_time_utils {
    * @param expected_weekday expected weekday, 0 represents Monday, 6 represents Sunday.
    * @return the next or the same day that is `expected_weekday`
    */
-  __device__ static int32_t next_or_same_weekday(int32_t const epoch_days, int32_t const expected_weekday)
+  __device__ static int32_t next_or_same_weekday(int32_t const epoch_days,
+                                                 int32_t const expected_weekday)
   {
     int32_t curr_weekday = weekday_from_days(epoch_days);
     return epoch_days + weekday_difference(curr_weekday, expected_weekday);
   }
 
   /**
-   * @brief Get the previous or the same weekday from the specified `epoch_days` and expected weekday.
-   * E.g.: if inputs are the days of 2025-10-13(Monday) and Sunday(6),
-   * the previous or the same Sunday is 2025-10-12.
+   * @brief Get the previous or the same weekday from the specified `epoch_days` and expected
+   * weekday. E.g.: if inputs are the days of 2025-10-13(Monday) and Sunday(6), the previous or the
+   * same Sunday is 2025-10-12.
    * @param epoch_days epoch days
    * @param expected_weekday expected weekday, 0 represents Monday, 6 represents Sunday.
    * @return the previous or the same day that is `expected_weekday`
    */
-  __device__ static int32_t previous_or_same_weekday(int32_t const epoch_days, int32_t const expected_weekday)
+  __device__ static int32_t previous_or_same_weekday(int32_t const epoch_days,
+                                                     int32_t const expected_weekday)
   {
     int32_t curr_weekday = weekday_from_days(epoch_days);
     return epoch_days - previous_weekday_difference(curr_weekday, expected_weekday);
@@ -215,7 +218,7 @@ struct date_time_utils {
   __device__ static int32_t get_year(int64_t seconds)
   {
     constexpr int64_t seconds_per_day = 86400L;
-    int64_t days = seconds / seconds_per_day;
+    int64_t days                      = seconds / seconds_per_day;
     int32_t year, month, day;
     to_date(days, year, month, day);
     return year;
@@ -270,7 +273,7 @@ struct overflow_checker {
                                                 int32_t microseconds,
                                                 int64_t& result)
   {
-    constexpr int64_t micros_per_sec       = 1000000;
+    constexpr int64_t micros_per_sec       = 1'000'000;
     constexpr int64_t max_v                = cuda::std::numeric_limits<int64_t>::max();
     constexpr int64_t min_v                = cuda::std::numeric_limits<int64_t>::min();
     constexpr int64_t max_positive_seconds = max_v / micros_per_sec;
@@ -297,8 +300,7 @@ namespace {
 /**
  * Defines how the local time is expressed for Daylight Saving Time(DST) rules.
  */
-enum class time_mode : int32_t
-{
+enum class time_mode : int32_t {
   /**
    * The transition time is expressed in UTC.
    * E.g.: If the transition time in TZDB is 02:00 (UTC) and the offset is +01:00, the
@@ -323,12 +325,10 @@ enum class time_mode : int32_t
   STANDARD = 2
 };
 
-
 /**
  * Daylight Saving Time (DST) rule, it's decoded from the Java TZDB file.
  */
-struct transition_rule
-{
+struct transition_rule {
   // the month of this transition
   int32_t month;
 
@@ -355,10 +355,22 @@ struct transition_rule
   // offset in seconds after this transition
   int32_t offset_after;
 
-  transition_rule(int32_t month_, int32_t dom_, int32_t dow_, int32_t second_of_day_, 
-    time_mode t_mode_, int32_t standard_offset_, int32_t offset_before_, int32_t offset_after_):
-    month(month_), dom(dom_), dow(dow_), second_of_day(second_of_day_),
-    t_mode(t_mode_), standard_offset(standard_offset_), offset_before(offset_before_), offset_after(offset_after_)
+  __device__ transition_rule(int32_t month_,
+                             int32_t dom_,
+                             int32_t dow_,
+                             int32_t second_of_day_,
+                             int32_t t_mode_,
+                             int32_t standard_offset_,
+                             int32_t offset_before_,
+                             int32_t offset_after_)
+    : month(month_),
+      dom(dom_),
+      dow(dow_),
+      second_of_day(second_of_day_),
+      t_mode(static_cast<time_mode>(t_mode_)),
+      standard_offset(standard_offset_),
+      offset_before(offset_before_),
+      offset_after(offset_after_)
   {
   }
 };
@@ -366,8 +378,7 @@ struct transition_rule
 /**
  * Transition info
  */
-struct transition_info
-{
+struct transition_info {
   // local transition time point in seconds
   int64_t local_seconds;
 
@@ -385,101 +396,122 @@ struct daylight_saving_time_utils {
    * @param rule The transition rule
    * @param info[out] The transition info created
    */
-  __device__ static void create_transition_info(int32_t const year, transition_rule const &rule, transition_info &info)
+  __device__ static void create_transition_info(int32_t const year,
+                                                transition_rule const& rule,
+                                                transition_info& info)
   {
     int32_t days;
 
-    if (rule.dom < 0)
-    {
+    if (rule.dom < 0) {
       // day of month is negative, locate the day from the last day of month.
-      int32_t day_of_month = days_in_month(year, rule.month) + 1 + rule.dom;
-      days = to_epoch_day(year, rule.month, day_of_month);
-      if (rule.dow >= 0) // 0~6, 0 represents Monday, 6 represents Sunday
+      int32_t day_of_month = date_time_utils::days_in_month(year, rule.month) + 1 + rule.dom;
+      days                 = date_time_utils::to_epoch_day(year, rule.month, day_of_month);
+      if (rule.dow >= 0)  // 0~6, 0 represents Monday, 6 represents Sunday
       {
         // shift to the previous day of week
-        days = previous_or_same_weekday(days, rule.dow);
+        days = date_time_utils::previous_or_same_weekday(days, rule.dow);
       }
-    }
-    else
-    {
+    } else {
       // day of month is positive
-      days = to_epoch_day(year, rule.month, rule.dom);
-      if (rule.dow >= 0) // 0~6, 0 represents Monday, 6 represents Sunday
+      days = date_time_utils::to_epoch_day(year, rule.month, rule.dom);
+      if (rule.dow >= 0)  // 0~6, 0 represents Monday, 6 represents Sunday
       {
         // shift to the previous day of week
-        days = next_or_same_weekday(days, rule.dow);
+        days = date_time_utils::next_or_same_weekday(days, rule.dow);
       }
     }
-
-    info.local_seconds = (days * seconds_per_day) + rule.second_of_day;
-    info.offset_before = rule.offset_before;
-    info.offset_after = rule.offset_after;
+    constexpr int64_t seconds_per_day = 86400L;
+    info.local_seconds                = (days * seconds_per_day) + rule.second_of_day;
+    info.offset_before                = rule.offset_before;
+    info.offset_after                 = rule.offset_after;
 
     // apply time definition: UTC, WALL or STANDARD
-    apply_time_definition(rule, info);
+    if (time_mode::UTC == rule.t_mode) {
+      info.local_seconds += rule.offset_before;
+    } else if (time_mode::STANDARD == rule.t_mode) {
+      info.local_seconds += (rule.offset_before - rule.standard_offset);
+    } else {
+      // WALL time, do nothing
+    }
   }
 
-  __device__ static int32_t get_offset_from_dst_rules(
-      int64_t seconds,
-      transition_rule start_rule,
-      transition_rule end_rule)
+  __device__ static int32_t get_offset_from_dst_rules(int64_t seconds,
+                                                      transition_rule start_rule,
+                                                      transition_rule end_rule)
   {
-    int32_t year = get_year(seconds);
+    int32_t year = date_time_utils::get_year(seconds);
     transition_info infos[2];
     create_transition_info(year, start_rule, infos[0]);
     create_transition_info(year, end_rule, infos[1]);
     transition_info curr_info;
-    for (int32_t i = 0; i < 2; ++i)
-    {
-      curr_info = infos[i];
-      int64_t seconds = microseconds / microseconds_per_second;
+    for (int32_t i = 0; i < 2; ++i) {
+      curr_info                   = infos[i];
       int64_t transition_utc_time = curr_info.local_seconds - curr_info.offset_before;
-      if (seconds < transition_utc_time)
-      {
-        return curr_info.offset_before;
-      }
+      if (seconds < transition_utc_time) { return curr_info.offset_before; }
     }
     return curr_info.offset_after;
   }
 
-  __device__ thrust::pair<transition_rule, transition_rule> create_dst_rules(cudf::list_device_view const &ldv)
+  __device__ static thrust::pair<transition_rule, transition_rule> create_dst_rules(
+    cudf::list_device_view const& ldv)
   {
-    int32_t const month_1st = ldv.element<int32_t>(0);
-    int32_t const day_of_month_1st = ldv.element<int32_t>(1);
-    int32_t const day_of_week_1st = ldv.element<int32_t>(2);
-    int32_t const seconds_of_day_1st = ldv.element<int32_t>(3);
-    int32_t const time_mode_1st = ldv.element<int32_t>(4);
+    int32_t const month_1st           = ldv.element<int32_t>(0);
+    int32_t const day_of_month_1st    = ldv.element<int32_t>(1);
+    int32_t const day_of_week_1st     = ldv.element<int32_t>(2);
+    int32_t const seconds_of_day_1st  = ldv.element<int32_t>(3);
+    int32_t const time_mode_1st       = ldv.element<int32_t>(4);
     int32_t const standard_offset_1st = ldv.element<int32_t>(5);
-    int32_t const offset_before_1st = ldv.element<int32_t>(6);
-    int32_t const offset_after_1st = ldv.element<int32_t>(7);
+    int32_t const offset_before_1st   = ldv.element<int32_t>(6);
+    int32_t const offset_after_1st    = ldv.element<int32_t>(7);
 
-    int32_t const month_2nd = ldv.element<int32_t>(8);
-    int32_t const day_of_month_2nd = ldv.element<int32_t>(9);
-    int32_t const day_of_week_2nd = ldv.element<int32_t>(10);
-    int32_t const seconds_of_day_2nd = ldv.element<int32_t>(11);
-    int32_t const time_mode_2nd = ldv.element<int32_t>(12);
+    int32_t const month_2nd           = ldv.element<int32_t>(8);
+    int32_t const day_of_month_2nd    = ldv.element<int32_t>(9);
+    int32_t const day_of_week_2nd     = ldv.element<int32_t>(10);
+    int32_t const seconds_of_day_2nd  = ldv.element<int32_t>(11);
+    int32_t const time_mode_2nd       = ldv.element<int32_t>(12);
     int32_t const standard_offset_2nd = ldv.element<int32_t>(13);
-    int32_t const offset_before_2nd = ldv.element<int32_t>(14);
-    int32_t const offset_after_2nd = ldv.element<int32_t>(15);
+    int32_t const offset_before_2nd   = ldv.element<int32_t>(14);
+    int32_t const offset_after_2nd    = ldv.element<int32_t>(15);
 
-    transition_rule r1(month_1st, day_of_month_1st, day_of_week_1st, seconds_of_day_1st,
-      time_mode_1st, standard_offset_1st, offset_before_1st, offset_after_1st);
-    
-    transition_rule r2(month_2nd, day_of_month_2nd, day_of_week_2nd, seconds_of_day_2nd,
-      time_mode_2nd, standard_offset_2nd, offset_before_2nd, offset_after_2nd);
-    
+    transition_rule r1(month_1st,
+                       day_of_month_1st,
+                       day_of_week_1st,
+                       seconds_of_day_1st,
+                       time_mode_1st,
+                       standard_offset_1st,
+                       offset_before_1st,
+                       offset_after_1st);
+
+    transition_rule r2(month_2nd,
+                       day_of_month_2nd,
+                       day_of_week_2nd,
+                       seconds_of_day_2nd,
+                       time_mode_2nd,
+                       standard_offset_2nd,
+                       offset_before_2nd,
+                       offset_after_2nd);
+
     return thrust::make_pair(r1, r2);
   }
 };
 
-}
+}  // namespace
 
-// This device functor uses a binary search to find the instant of the transition
-// to find the right offset to do the transition.
-// To transition to UTC: do a binary search on the tzInstant child column and subtract
-// the offset.
-// To transition from UTC: do a binary search on the utcInstant child column and add
-// the offset.
+/**
+ * @brief Convert the timestamp from/to UTC for the specified timezone.
+ * This function first apply DST rules if any, then apply the transitions.
+ * For the timezone without DST rules, it only applies the transitions.
+ * For the processing of apply the transitions:
+ * - Uses a binary search to find the right offset to do the transition.
+ * - For transition to UTC: do a binary search on the tzInstant.
+ * - For transition from UTC: do a binary search on the utcInstant.
+ * @param timestamp The timestamp to convert
+ * @param transitions The transitions list column device view for the timezone
+ * @param dsts The DST rules list column device view for the timezone
+ * @param tz_index The timezone index
+ * @param to_utc true to convert to UTC, false to convert from UTC
+ * @return The converted timestamp
+ */
 template <typename timestamp_type>
 __device__ static timestamp_type convert_timestamp(
   timestamp_type const& timestamp,
@@ -503,24 +535,24 @@ __device__ static timestamp_type convert_timestamp(
     (to_utc ? tz_instants : utc_instants).data<int64_t>() + tz_transitions.element_offset(0),
     static_cast<size_t>(list_size));
 
-  // DST processing  
-  if (transition_times[list_size - 1] != cuda::std::numeric_limits<int64_t>::min()) {
-    // It's not fixed timezone, because fixed timezone inserted a int64.min entry.
-    auto const dst = cudf::list_device_view{dsts, tz_index};
-    if (dst.size() > 0) {
-      // it's DST
-      int64_t last_transition_value = transition_times[list_size - 1];
-      auto const list_offset = tz_transitions.element_offset(list_size - 1);
-      int32_t last_offset = utc_offsets.element<int32_t>(list_offset);
-      if (epoch_seconds > last_transition_value) {
-        int year = date_time_utils::get_year(epoch_seconds + last_offset);
-        auto const [rule1, rule2] = daylight_saving_time_utils::create_dst_rules(dst);
-        int32_t offset_seconds = daylight_saving_time_utils::get_offset_from_dst_rules(
-          epoch_seconds + last_offset, rule1, rule2);
-        auto const offset  = cuda::std::chrono::duration_cast<duration_type>(
-          cudf::duration_s{static_cast<int64_t>(offset_seconds)});
-        return to_utc ? timestamp - offset : timestamp + offset;
-      }
+  auto const dst_integers = cudf::list_device_view{dsts, tz_index};
+  // size of dst integers, should be 0 or 16
+  auto const dst_integers_size = dst_integers.size();
+
+  // DST processing
+  if (dst_integers_size > 0) {
+    // it's DST timezone
+    int64_t last_transition_value = transition_times[list_size - 1];
+    auto const transition_offset  = tz_transitions.element_offset(list_size - 1);
+    int32_t last_offset           = utc_offsets.element<int32_t>(transition_offset);
+    if (epoch_seconds > last_transition_value) {
+      int year                  = date_time_utils::get_year(epoch_seconds + last_offset);
+      auto const [rule1, rule2] = daylight_saving_time_utils::create_dst_rules(dst_integers);
+      int32_t offset_seconds    = daylight_saving_time_utils::get_offset_from_dst_rules(
+        epoch_seconds + last_offset, rule1, rule2);
+      auto const offset = cuda::std::chrono::duration_cast<duration_type>(
+        cudf::duration_s{static_cast<int64_t>(offset_seconds)});
+      return to_utc ? timestamp - offset : timestamp + offset;
     }
   }
 

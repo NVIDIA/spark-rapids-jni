@@ -53,7 +53,7 @@ public class GpuTimeZoneDB {
   private static HostColumnVector transitions;
 
   // Timezone DST rules: LIST<LIST<INT>>
-  // Each sub list has constant 16 integers, each 8 integers are a DST rule.
+  // Each sub list has constant 16 integers, each 8 integers is a DST rule.
   //    index 0: month:int,            // from 1 (January) to 12 (December)
   //    index 1: dayOfMonth: int,      // from -28 to 31 excluding 0
   //    index 2: dayOfWeek: int,       // from 0 (Monday) to 6 (Sunday)
@@ -366,9 +366,8 @@ public class GpuTimeZoneDB {
   }
 
   private static HostColumnVector.DataType getDstDataType() {
-    return new HostColumnVector.ListType(false,
-        new HostColumnVector.ListType(false,
-            new HostColumnVector.BasicType(false, DType.INT32)));
+      return new HostColumnVector.ListType(false,
+          new HostColumnVector.BasicType(false, DType.INT32));
   }
 
   public static synchronized Table getTransitions() {
@@ -398,6 +397,7 @@ public class GpuTimeZoneDB {
   }
 
   /**
+   * This is deprecated, will be removed.
    * Generate a struct column to record timezone information
    * STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
    * The struct column is sorted by tz_name, it is used to query the index to the
@@ -428,6 +428,7 @@ public class GpuTimeZoneDB {
   }
 
   /**
+   * This is deprecated, will be removed.
    * Return a struct column which contains timezone information
    * STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
    * The struct column is sorted by tz_name, it is used to query the index to the
@@ -447,7 +448,7 @@ public class GpuTimeZoneDB {
   /**
    * Running on GPU to convert the intermediate result of casting string to timestamp.
    * This function is used for casting string with timezone to timestamp.
-   * MUST make sure input does not exceed max year threshold and has no DST
+   * TODO: Handle the case exceed max year threshold and has no DST
    *
    * @param input_seconds      second part of UTC timestamp column
    * @param input_microseconds microseconds part of UTC timestamp column

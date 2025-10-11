@@ -160,6 +160,8 @@ public class CastStrings {
   }
 
   /**
+   * TODO: Update, adopt new kernel for DST timezones.
+   *
    * Trims and parses strings to intermediate result.
    * This is the first phase of casting string with timezone to timestamp.
    * Intermediate result is a struct column with 7 sub-columns:
@@ -224,6 +226,7 @@ public class CastStrings {
   }
 
   /**
+   * TODO: adopt new kernel for DST timezones.
    * Trims and parses a string column with timezones to timestamp.
    *
    * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
@@ -341,6 +344,7 @@ public class CastStrings {
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
 
+  // TODO: Update
   private static native long parseTimestampStringsToIntermediate(
       long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
       long defaultEpochDay, long timeZoneInfo, long transitions, int platformOrdinal,
