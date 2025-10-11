@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <cuda_runtime.h>
-
 #include <jni.h>
 #include <nvml.h>
 #include <stdio.h>
@@ -350,17 +348,47 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceC
   return static_cast<jint>(deviceCount);
 }
 
-JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceHandleFromCudaDevice(JNIEnv* env,
-                                                                             jclass cls,
-                                                                             jint cudaDeviceId)
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceHandleFromUUID(
+  JNIEnv* env, jclass cls, jbyteArray uuid)
 {
-  char pciBuf[32];
-  cudaError_t cerr = cudaDeviceGetPCIBusId(pciBuf, sizeof(pciBuf), cudaDeviceId);
-  if (cerr != cudaSuccess) { return 0; }
+  if (uuid == nullptr) { return 0; }
 
+  jsize uuidLen = env->GetArrayLength(uuid);
+  if (uuidLen != 16) { return 0; }  // UUID should be 16 bytes
+
+  // Get the UUID bytes from Java (raw binary format from cudaDeviceProp.uuid)
+  jbyte* uuidBytes = env->GetByteArrayElements(uuid, nullptr);
+  if (uuidBytes == nullptr) { return 0; }
+
+  // Convert binary UUID to string format: "GPU-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+  char uuidStr[64];
+  snprintf(uuidStr,
+           sizeof(uuidStr),
+           "GPU-%02hhx%02hhx%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx%"
+           "02hhx%02hhx%02hhx%02hhx",
+           uuidBytes[0],
+           uuidBytes[1],
+           uuidBytes[2],
+           uuidBytes[3],
+           uuidBytes[4],
+           uuidBytes[5],
+           uuidBytes[6],
+           uuidBytes[7],
+           uuidBytes[8],
+           uuidBytes[9],
+           uuidBytes[10],
+           uuidBytes[11],
+           uuidBytes[12],
+           uuidBytes[13],
+           uuidBytes[14],
+           uuidBytes[15]);
+
+  env->ReleaseByteArrayElements(uuid, uuidBytes, JNI_ABORT);
+
+  // Get device handle by UUID string
   nvmlDevice_t device;
-  nvmlReturn_t nerr = nvmlDeviceGetHandleByPciBusId(pciBuf, &device);
+  nvmlReturn_t nerr = nvmlDeviceGetHandleByUUID(uuidStr, &device);
+
   if (nerr != NVML_SUCCESS) { return 0; }
 
   return static_cast<jlong>(

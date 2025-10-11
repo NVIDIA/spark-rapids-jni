@@ -16,6 +16,7 @@
 
 package com.nvidia.spark.rapids.jni.nvml;
 
+import ai.rapids.cudf.Cuda;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ public class NVMLTest {
 
   @BeforeAll
   public static void setup() {
+    // Set CUDA device to 0 before running tests
+    Cuda.setDevice(0);
+    
     // Initialize NVML before running tests
     assertTrue(NVML.initialize(), "NVML initialization should succeed");
     assertTrue(NVML.isAvailable(), "NVML should be available after initialization");
@@ -52,25 +56,9 @@ public class NVMLTest {
   }
 
   @Test
-  public void testGetDeviceHandle() {
-    // Test getting device handle for device 0
-    long deviceHandle = NVML.getDeviceHandle(0);
-    assertNotEquals(0, deviceHandle, "Device handle should be non-zero");
-    System.out.println("Device 0 handle: " + deviceHandle);
-  }
-
-  @Test
-  public void testGetCurrentDeviceHandle() {
-    // Test getting device handle for current CUDA device
-    long deviceHandle = NVML.getDeviceHandle();
-    assertNotEquals(0, deviceHandle, "Current device handle should be non-zero");
-    System.out.println("Current device handle: " + deviceHandle);
-  }
-
-  @Test
   public void testGetDeviceInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUDeviceInfo deviceInfo = NVML.getDeviceInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUDeviceInfo deviceInfo = NVML.getDeviceInfo(uuid);
     
     assertNotNull(deviceInfo, "Device info should not be null");
     assertNotNull(deviceInfo.name, "Device name should not be null");
@@ -82,8 +70,8 @@ public class NVMLTest {
 
   @Test
   public void testGetUtilizationInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUUtilizationInfo utilizationInfo = NVML.getUtilizationInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUUtilizationInfo utilizationInfo = NVML.getUtilizationInfo(uuid);
     
     assertNotNull(utilizationInfo, "Utilization info should not be null");
     assertTrue(utilizationInfo.gpuUtilization >= 0 && utilizationInfo.gpuUtilization <= 100,
@@ -97,8 +85,8 @@ public class NVMLTest {
 
   @Test
   public void testGetMemoryInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUMemoryInfo memoryInfo = NVML.getMemoryInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUMemoryInfo memoryInfo = NVML.getMemoryInfo(uuid);
     
     assertNotNull(memoryInfo, "Memory info should not be null");
     assertTrue(memoryInfo.memoryTotalMB > 0, "Total memory should be greater than 0");
@@ -114,8 +102,8 @@ public class NVMLTest {
 
   @Test
   public void testGetTemperatureInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUTemperatureInfo temperatureInfo = NVML.getTemperatureInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUTemperatureInfo temperatureInfo = NVML.getTemperatureInfo(uuid);
     
     assertNotNull(temperatureInfo, "Temperature info should not be null");
     assertTrue(temperatureInfo.temperatureGpu > 0 && temperatureInfo.temperatureGpu < 150,
@@ -126,8 +114,8 @@ public class NVMLTest {
 
   @Test
   public void testGetPowerInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUPowerInfo powerInfo = NVML.getPowerInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUPowerInfo powerInfo = NVML.getPowerInfo(uuid);
     
     assertNotNull(powerInfo, "Power info should not be null");
     assertTrue(powerInfo.powerUsageW >= 0, "Power usage should be non-negative");
@@ -141,8 +129,8 @@ public class NVMLTest {
 
   @Test
   public void testGetClockInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUClockInfo clockInfo = NVML.getClockInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUClockInfo clockInfo = NVML.getClockInfo(uuid);
     
     assertNotNull(clockInfo, "Clock info should not be null");
     assertTrue(clockInfo.graphicsClockMHz >= 0, "Graphics clock should be non-negative");
@@ -156,8 +144,8 @@ public class NVMLTest {
 
   @Test
   public void testGetHardwareInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUHardwareInfo hardwareInfo = NVML.getHardwareInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUHardwareInfo hardwareInfo = NVML.getHardwareInfo(uuid);
     
     assertNotNull(hardwareInfo, "Hardware info should not be null");
     assertTrue(hardwareInfo.streamingMultiprocessors > 0, "SM count should be greater than 0");
@@ -173,8 +161,8 @@ public class NVMLTest {
 
   @Test
   public void testGetPCIeInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUPCIeInfo pcieInfo = NVML.getPCIeInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUPCIeInfo pcieInfo = NVML.getPCIeInfo(uuid);
     
     assertNotNull(pcieInfo, "PCIe info should not be null");
     assertTrue(pcieInfo.pcieLinkGeneration > 0, "PCIe link generation should be greater than 0");
@@ -186,8 +174,8 @@ public class NVMLTest {
 
   @Test
   public void testGetECCInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUECCInfo eccInfo = NVML.getECCInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUECCInfo eccInfo = NVML.getECCInfo(uuid);
     
     assertNotNull(eccInfo, "ECC info should not be null");
     assertTrue(eccInfo.eccSingleBitErrors >= 0, "Single-bit ECC errors should be non-negative");
@@ -199,8 +187,8 @@ public class NVMLTest {
 
   @Test
   public void testGetGPUInfo() {
-    long deviceHandle = NVML.getDeviceHandle(0);
-    GPUInfo gpuInfo = NVML.getGPUInfo(deviceHandle);
+    byte[] uuid = Cuda.getGpuUuid();
+    GPUInfo gpuInfo = NVML.getGPUInfo(uuid);
     
     assertNotNull(gpuInfo, "GPU info should not be null");
     assertNotNull(gpuInfo.deviceInfo, "Device info should not be null");
@@ -243,54 +231,43 @@ public class NVMLTest {
   }
 
   @Test
-  public void testConvenienceMethods() {
-    // Test convenience methods that use current CUDA device
-    GPUDeviceInfo deviceInfo = NVML.getDeviceInfo();
-    assertNotNull(deviceInfo, "Device info (convenience) should not be null");
+  public void testUUIDBasedMethods() {
+    // Test UUID-based methods using current CUDA device UUID
+    byte[] uuid = Cuda.getGpuUuid();
+    assertNotNull(uuid, "GPU UUID should not be null");
     
-    GPUUtilizationInfo utilizationInfo = NVML.getUtilizationInfo();
-    assertNotNull(utilizationInfo, "Utilization info (convenience) should not be null");
+    GPUDeviceInfo deviceInfo = NVML.getDeviceInfo(uuid);
+    assertNotNull(deviceInfo, "Device info should not be null");
     
-    GPUMemoryInfo memoryInfo = NVML.getMemoryInfo();
-    assertNotNull(memoryInfo, "Memory info (convenience) should not be null");
+    GPUUtilizationInfo utilizationInfo = NVML.getUtilizationInfo(uuid);
+    assertNotNull(utilizationInfo, "Utilization info should not be null");
     
-    GPUTemperatureInfo temperatureInfo = NVML.getTemperatureInfo();
-    assertNotNull(temperatureInfo, "Temperature info (convenience) should not be null");
+    GPUMemoryInfo memoryInfo = NVML.getMemoryInfo(uuid);
+    assertNotNull(memoryInfo, "Memory info should not be null");
     
-    GPUPowerInfo powerInfo = NVML.getPowerInfo();
-    assertNotNull(powerInfo, "Power info (convenience) should not be null");
+    GPUTemperatureInfo temperatureInfo = NVML.getTemperatureInfo(uuid);
+    assertNotNull(temperatureInfo, "Temperature info should not be null");
     
-    GPUClockInfo clockInfo = NVML.getClockInfo();
-    assertNotNull(clockInfo, "Clock info (convenience) should not be null");
+    GPUPowerInfo powerInfo = NVML.getPowerInfo(uuid);
+    assertNotNull(powerInfo, "Power info should not be null");
     
-    GPUHardwareInfo hardwareInfo = NVML.getHardwareInfo();
-    assertNotNull(hardwareInfo, "Hardware info (convenience) should not be null");
+    GPUClockInfo clockInfo = NVML.getClockInfo(uuid);
+    assertNotNull(clockInfo, "Clock info should not be null");
     
-    GPUPCIeInfo pcieInfo = NVML.getPCIeInfo();
-    assertNotNull(pcieInfo, "PCIe info (convenience) should not be null");
+    GPUHardwareInfo hardwareInfo = NVML.getHardwareInfo(uuid);
+    assertNotNull(hardwareInfo, "Hardware info should not be null");
     
-    GPUECCInfo eccInfo = NVML.getECCInfo();
-    assertNotNull(eccInfo, "ECC info (convenience) should not be null");
+    GPUPCIeInfo pcieInfo = NVML.getPCIeInfo(uuid);
+    assertNotNull(pcieInfo, "PCIe info should not be null");
     
-    GPUInfo gpuInfo = NVML.getGPUInfo();
-    assertNotNull(gpuInfo, "GPU info (convenience) should not be null");
+    GPUECCInfo eccInfo = NVML.getECCInfo(uuid);
+    assertNotNull(eccInfo, "ECC info should not be null");
     
-    System.out.println("All convenience methods executed successfully");
-  }
-
-  @Test
-  public void testMultipleDevices() {
-    int deviceCount = NVML.getDeviceCount();
+    GPUInfo gpuInfo = NVML.getGPUInfo(uuid);
+    assertNotNull(gpuInfo, "GPU info should not be null");
     
-    for (int i = 0; i < deviceCount; i++) {
-      long deviceHandle = NVML.getDeviceHandle(i);
-      assertNotEquals(0, deviceHandle, "Device handle for device " + i + " should be non-zero");
-      
-      GPUDeviceInfo deviceInfo = NVML.getDeviceInfo(deviceHandle);
-      assertNotNull(deviceInfo, "Device info for device " + i + " should not be null");
-      
-      System.out.println("Device " + i + ": " + deviceInfo.name + " (handle: " + deviceHandle + ")");
-    }
+    System.out.println("All UUID-based methods executed successfully");
+    System.out.println("GPU UUID: " + new String(uuid));
   }
 }
 
