@@ -90,9 +90,9 @@ create_compile_commands_symlink() {
   local compile_commands_link="$source_dir/compile_commands.json"
   
   echo "Creating symlink from $compile_commands_link to $compile_commands_file..."
-  cmake -E rm -f "$compile_commands_link"
-  cmake -E touch "$compile_commands_file"
-  cmake -E create_symlink "$compile_commands_file" "$compile_commands_link"
+  rm -f "$compile_commands_link"
+  touch "$compile_commands_file"
+  ln -s "$compile_commands_file" "$compile_commands_link"
 }
 
 #
