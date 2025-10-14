@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -169,7 +169,7 @@ rmm::device_uvector<TreeDepthT> compute_node_levels(std::size_t num_nodes,
                                                    node_levels.begin(),
                                                    is_node{},
                                                    stream);
-  CUDF_EXPECTS(thrust::distance(node_levels.begin(), copy_end) == num_nodes,
+  CUDF_EXPECTS(cuda::std::distance(node_levels.begin(), copy_end) == num_nodes,
                "Node level count mismatch.");
 
 #ifdef DEBUG_FROM_JSON
@@ -190,7 +190,7 @@ rmm::device_uvector<NodeIndexT> compute_node_to_token_index_map(
                                                    node_token_ids.begin(),
                                                    is_node{},
                                                    stream);
-  CUDF_EXPECTS(thrust::distance(node_token_ids.begin(), copy_end) == num_nodes,
+  CUDF_EXPECTS(cuda::std::distance(node_token_ids.begin(), copy_end) == num_nodes,
                "Invalid computation for node-to-token-index map.");
 
 #ifdef DEBUG_FROM_JSON
@@ -507,7 +507,7 @@ std::unique_ptr<cudf::column> extract_keys_or_values(
                                                     extracted_ranges.begin(),
                                                     is_key_or_value,
                                                     stream);
-  auto const num_extract = thrust::distance(extracted_ranges.begin(), range_end);
+  auto const num_extract = cuda::std::distance(extracted_ranges.begin(), range_end);
   if (num_extract == 0) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
@@ -568,7 +568,7 @@ std::unique_ptr<cudf::column> compute_list_offsets(
     list_offsets.begin(),
     cuda::proclaim_return_type<bool>([] __device__(auto const count) { return count >= 0; }),
     stream);
-  CUDF_EXPECTS(thrust::distance(list_offsets.begin(), copy_end) == static_cast<int64_t>(n_lists),
+  CUDF_EXPECTS(cuda::std::distance(list_offsets.begin(), copy_end) == static_cast<int64_t>(n_lists),
                "Invalid list size computation.");
 #ifdef DEBUG_FROM_JSON
   print_debug(list_offsets, "Output list sizes (except the last one)", ", ", stream);
@@ -641,7 +641,7 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
                                invalid_indices.begin(),
                                is_invalid_struct_begin{tokens, node_token_ids, token_positions},
                                stream);
-  auto const num_invalid = thrust::distance(invalid_indices.begin(), invalid_copy_end);
+  auto const num_invalid = cuda::std::distance(invalid_indices.begin(), invalid_copy_end);
 #ifdef DEBUG_FROM_JSON
   print_debug(invalid_indices,
               "Invalid StructBegin nodes' indices (size = " + std::to_string(num_invalid) + ")",
@@ -661,7 +661,8 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
                                  line_begin_indices.begin(),
                                  is_line_begin{tokens, node_token_ids, parent_node_ids},
                                  stream);
-    auto const num_line_begin = thrust::distance(line_begin_indices.begin(), line_begin_copy_end);
+    auto const num_line_begin =
+      cuda::std::distance(line_begin_indices.begin(), line_begin_copy_end);
     CUDF_EXPECTS(num_line_begin == num_rows, "Incorrect count of JSON objects.");
 #ifdef DEBUG_FROM_JSON
     print_debug(line_begin_indices,

@@ -239,7 +239,7 @@ __device__ static timestamp_type convert_timestamp(
 
   auto const it = thrust::upper_bound(
     thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);
-  auto const idx = static_cast<cudf::size_type>(thrust::distance(transition_times.begin(), it));
+  auto const idx = static_cast<cudf::size_type>(cuda::std::distance(transition_times.begin(), it));
   auto const list_offset = tz_transitions.element_offset(idx - 1);
   auto const utc_offset  = cuda::std::chrono::duration_cast<duration_type>(
     cudf::duration_s{static_cast<int64_t>(utc_offsets.element<int32_t>(list_offset))});

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -78,7 +78,7 @@ __device__ __inline__ std::pair<__int128_t, cudf::size_type> to_java_bigdecimal(
     }).base();
   // Max handles special case of 0 and -1 which would shorten to 0 length otherwise
   cudf::size_type length =
-    std::max(1, static_cast<cudf::size_type>(thrust::distance(data, first_nonzero_byte)));
+    std::max(1, static_cast<cudf::size_type>(cuda::std::distance(data, first_nonzero_byte)));
 
   // Preserve the 2's complement sign bit by adding a byte back on if necessary.
   // e.g. 0x0000ff would shorten to 0x00ff. The 0x00 byte is retained to

@@ -18,7 +18,7 @@
 #include "hash.hpp"
 
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/row_operator/row_operators.cuh>
+#include <cudf/detail/row_operator/hashing.cuh>
 #include <cudf/detail/utilities/algorithm.cuh>
 #include <cudf/table/table_device_view.cuh>
 
