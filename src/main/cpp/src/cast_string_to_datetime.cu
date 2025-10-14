@@ -822,7 +822,8 @@ struct parse_timestamp_string_fn {
         thrust::seq, tzs_begin, tzs_end, target_tz, thrust::less<cudf::string_view>());
       if (it != tzs_end && *it == target_tz) {
         // found tz
-        auto const tz_idx_in_table = static_cast<cudf::size_type>(thrust::distance(tzs_begin, it));
+        auto const tz_idx_in_table =
+          static_cast<cudf::size_type>(cuda::std::distance(tzs_begin, it));
         // update tz index
         tz_indices[idx] = index_in_transition_col.element<int32_t>(tz_idx_in_table);
         if (is_DST_col.element<uint8_t>(tz_idx_in_table)) {
