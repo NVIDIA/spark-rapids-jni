@@ -857,68 +857,143 @@ TEST_F(ShuffleSplitTests, EmptyPartitionsWithNulls)
   run_split(tbl, {3});
 }
 
-struct offset_shift {
-  cudf::device_span<size_t const> offsets_a;
-  size_t num_partitions_a;
-  cudf::device_span<size_t const> offsets_b;
-
-  __device__ size_t operator()(int i) { return offsets_b[i] + offsets_a[num_partitions_a]; }
-};
 TEST_F(ShuffleSplitTests, MixedValidity)
 {
   // test assembling partitions where some of the column instances contain validity, but others do
   // not.
-  auto value_iter = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i; });
-
   auto const stream = cudf::get_default_stream();
   auto const mr     = cudf::get_current_device_resource_ref();
 
-  // every other row null
-  auto valid_iter_a =
-    cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 2; });
-  constexpr auto num_rows_a = 128;
-  cudf::test::fixed_width_column_wrapper<int> a(value_iter, value_iter + num_rows_a, valid_iter_a);
-  auto partitions_a = spark_rapids_jni::shuffle_split(cudf::table_view{{a}}, {64}, stream, mr);
-  auto const num_partitions_a = partitions_a.first.offsets.size() - 1;
+  auto run_mixed_null_split =
+    [stream, mr](int num_rows, std::vector<int> const& splits, std::vector<bool> const& has_nulls) {
+      CUDF_EXPECTS(has_nulls.size() == splits.size() + 1,
+                   "Invalid set of splits and has_nulls vectors");
 
-  // no nulls.
-  constexpr auto num_rows_b = 128;
-  cudf::test::fixed_width_column_wrapper<int> b(value_iter, value_iter + num_rows_b);
-  auto partitions_b = spark_rapids_jni::shuffle_split(cudf::table_view{{b}}, {64}, stream, mr);
-  auto const num_partitions_b = partitions_b.first.offsets.size() - 1;
+      auto value_iter = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i; });
+      auto valid_iter =
+        cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 2; });
+      cudf::test::fixed_width_column_wrapper<int> base(value_iter, value_iter + num_rows);
 
-  // if we partition these and reassemble into one buffer. we expect a nullable column, even though
-  // input b has no nulls in it
-  rmm::device_uvector<uint8_t> full{
-    partitions_a.first.partitions->size() + partitions_b.first.partitions->size(), stream, mr};
-  cudaMemcpy(full.data(),
-             partitions_a.first.partitions->data(),
-             partitions_a.first.partitions->size(),
-             cudaMemcpyDeviceToDevice);
-  cudaMemcpy(full.data() + partitions_a.first.partitions->size(),
-             partitions_b.first.partitions->data(),
-             partitions_b.first.partitions->size(),
-             cudaMemcpyDeviceToDevice);
-  rmm::device_uvector<size_t> full_offsets{num_partitions_a + num_partitions_b + 1, stream, mr};
-  thrust::copy(rmm::exec_policy_nosync(stream, mr),
-               partitions_a.first.offsets.begin(),
-               partitions_a.first.offsets.begin() + num_partitions_a,
-               full_offsets.begin());
-  auto offset_shift_iter = cudf::detail::make_counting_transform_iterator(
-    0, offset_shift{partitions_a.first.offsets, num_partitions_a, partitions_b.first.offsets});
-  thrust::copy(rmm::exec_policy_nosync(stream, mr),
-               offset_shift_iter,
-               offset_shift_iter + num_partitions_b + 1,
-               full_offsets.begin() + num_partitions_a);
+      // make the column with a specified series of nullable partitions. all other partitions will
+      // remain non-nullable
+      auto split_cols = cudf::split(base, splits);
+      std::vector<std::unique_ptr<cudf::column>> partition_cols;
+      std::vector<cudf::column_view> partition_views;
+      for (size_t idx = 0; idx < split_cols.size(); idx++) {
+        auto new_col = std::make_unique<cudf::column>(split_cols[idx]);
+        // if this gap has nulls, make this specific column piece nullable and add some nulls
+        if (has_nulls[idx]) {
+          auto nm = cudf::test::detail::make_null_mask(valid_iter, valid_iter + new_col->size());
+          new_col->set_null_mask(std::move(nm.first), nm.second);
+        }
+        partition_views.push_back(*new_col);
+        partition_cols.push_back(std::move(new_col));
+      }
 
-  std::vector<cudf::column_view> to_concat;
-  to_concat.push_back(a);
-  to_concat.push_back(b);
-  auto expected_c = cudf::concatenate(to_concat, stream, mr);
+      // make the expected table
+      auto expected = cudf::concatenate(partition_views, stream, mr);
+      cudf::table_view expected_t{{static_cast<cudf::column_view>(*expected)}};
 
-  spark_rapids_jni::shuffle_split_metadata md;
-  md.col_info.push_back({cudf::type_id::INT32, 0});
-  auto result = spark_rapids_jni::shuffle_assemble(md, full, full_offsets, stream, mr);
+      // make the concatenated shuffle_split partitions
+      std::vector<
+        std::pair<spark_rapids_jni::shuffle_split_result, spark_rapids_jni::shuffle_split_metadata>>
+        shuf;
+      size_t total_size = 0;
+      for (size_t idx = 0; idx < partition_views.size(); idx++) {
+        shuf.push_back(spark_rapids_jni::shuffle_split(
+          cudf::table_view{{partition_views[idx]}}, {}, stream, mr));
+        total_size += shuf.back().first.partitions->size();
+      }
+      rmm::device_uvector<uint8_t> full{total_size, stream, mr};
+      rmm::device_uvector<size_t> full_offsets{partition_views.size() + 1, stream, mr};
+      std::vector<size_t> h_full_offsets(partition_views.size() + 1);
+      size_t pos = 0;
+      for (size_t idx = 0; idx < partition_views.size(); idx++) {
+        cudaMemcpy(static_cast<uint8_t*>(full.data()) + pos,
+                   shuf[idx].first.partitions->data(),
+                   shuf[idx].first.partitions->size(),
+                   cudaMemcpyDeviceToDevice);
+        h_full_offsets[idx] = pos;
+        pos += shuf[idx].first.partitions->size();
+      }
+      h_full_offsets[partition_views.size()] = pos;
+      cudaMemcpy(full_offsets.data(),
+                 h_full_offsets.data(),
+                 sizeof(size_t) * h_full_offsets.size(),
+                 cudaMemcpyHostToDevice);
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUAL(*expected_c, *(result.column_views[0]));
+      spark_rapids_jni::shuffle_split_metadata md;
+      md.col_info.push_back({cudf::type_id::INT32, 0});
+      auto result = spark_rapids_jni::shuffle_assemble(md, full, full_offsets, stream, mr);
+      CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected_t.column(0), *(result.column_views[0]));
+    };
+
+  {
+    constexpr int num_rows = 256;
+    std::vector<int> splits{1};
+    std::vector<bool> has_nulls{0, 1};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+  {
+    constexpr int num_rows = 256;
+    std::vector<int> splits{1};
+    std::vector<bool> has_nulls{1, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 256;
+    std::vector<int> splits{11, 32};
+    std::vector<bool> has_nulls{0, 1, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{256, 512, 768};
+    std::vector<bool> has_nulls{1, 0, 1, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{256, 512, 768};
+    std::vector<bool> has_nulls{0, 1, 0, 1};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{62, 63};
+    std::vector<bool> has_nulls{1, 0, 1};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{62, 63};
+    std::vector<bool> has_nulls{0, 1, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{62, 97};
+    std::vector<bool> has_nulls{1, 0, 1};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{62, 97};
+    std::vector<bool> has_nulls{0, 1, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
+
+  {
+    constexpr int num_rows = 1024;
+    std::vector<int> splits{62, 500, 768, 901};
+    std::vector<bool> has_nulls{0, 1, 1, 0, 0};
+    run_mixed_null_split(num_rows, splits, has_nulls);
+  }
 }
