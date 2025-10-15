@@ -37,13 +37,14 @@ import java.util.concurrent.Executors;
 /**
  * Gpu timezone utility.
  * Provides two kinds of APIs
- *  - Timezone transitions cache APIs
- *      `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
- *      When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will wait;
- *      These APIs guarantee only one thread is loading transitions cache,
- *      And guarantee loading cache only occurs one time.
- *  - Rebase timezone APIs
- *    fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
+ * - Timezone transitions cache APIs
+ * `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
+ * When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will
+ * wait;
+ * These APIs guarantee only one thread is loading transitions cache,
+ * And guarantee loading cache only occurs one time.
+ * - Rebase timezone APIs
+ * fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
  */
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
@@ -53,30 +54,38 @@ public class GpuTimeZoneDB {
   private static HostColumnVector transitions;
 
   // Timezone DST rules: LIST<LIST<INT>>
-  // Each sub list has constant 16 integers, each 8 integers is a DST rule.
-  //    index 0: month:int,            // from 1 (January) to 12 (December)
-  //    index 1: dayOfMonth: int,      // from -28 to 31 excluding 0
-  //    index 2: dayOfWeek: int,       // from 0 (Monday) to 6 (Sunday)
-  //    index 3: secondsOfDay: int,    // transition time in seconds in a day
-  //    index 4: timeMode: int,        // the mode of `secondsOfDay`: 0 UTC, 1 WALL, 2 STANDARD
-  //    index 5: standardOffset: int,  // standard offset
-  //    index 6: offsetBefore: int,    // the offset before the cutover
-  //    index 7: offsetAfter: int      // The offset after the cutover
-  //    index 8: the 2nd rule begin 
-  //    ...
-  //    index 15: the 2nd rule end
+  // If a timezone has no DST, then the sub list is empty.
+  // If a timezone has DST, then the sub list has 12 integers, which contains 2
+  // rules(start and end)
+  //
+  // index 0: month:int, // from 1 (January) to 12 (December)
+  // index 1: dayOfMonth: int, // from -28 to 31 excluding 0
+  // index 2: dayOfWeek: int, // from 0 (Monday) to 6 (Sunday), -1 means not
+  // specified
+  // index 3: timeDiffToMidnight: int, // transition time diff in seconds compared
+  // to midnight
+  // index 4: offsetBefore: int, // the offset before the cutover
+  // index 5: offsetAfter: int // The offset after the cutover
+  //
+  // index 6: the 2nd rule begin
+  // ...
+  // index 11: the 2nd rule end
   private static HostColumnVector dstRules;
 
   // Map from timezone name to the index in the `transitions`
   private static java.util.Map<String, Integer> zoneIdToTable;
 
-  // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
-  // sorted by timezone, is used to query index to transition table and if tz is DST
-  // Casting string with timezone to timestamp needs loading all timezone is successful.
+  // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST:
+  // int8>,
+  // sorted by timezone, is used to query index to transition table and if tz is
+  // DST
+  // Casting string with timezone to timestamp needs loading all timezone is
+  // successful.
   // If this is not null, it indicates loading is successful,
   // because it's the last variable to construct in `loadData` function.
   // use this reference to indicate if timezone cache is initialized successfully.
-  // The tz_name column contains both normalized and non-normalized timezone names.
+  // The tz_name column contains both normalized and non-normalized timezone
+  // names.
   private static volatile HostColumnVector timeZoneInfo;
 
   /**
@@ -143,7 +152,8 @@ public class GpuTimeZoneDB {
   /**
    * This is the replacement of the above function
    * Cache the database. This will take some time like several seconds.
-   * If one `cacheDatabase` is running, other `cacheDatabase` will wait until caching is done.
+   * If one `cacheDatabase` is running, other `cacheDatabase` will wait until
+   * caching is done.
    * If cache is exits, do not load cache again.
    */
   public static void cacheDatabase() {
@@ -168,7 +178,7 @@ public class GpuTimeZoneDB {
     }
   }
 
-  private static synchronized void closeResources()  {
+  private static synchronized void closeResources() {
     if (zoneIdToTable != null) {
       zoneIdToTable.clear();
       zoneIdToTable = null;
@@ -198,8 +208,10 @@ public class GpuTimeZoneDB {
   }
 
   public static ColumnVector fromTimestampToUtcTimestamp(ColumnVector input, ZoneId currentTimeZone) {
-    // there is technically a race condition on shutdown. Shutdown could be called after
-    // the database is cached. This would result in a null pointer exception at some point
+    // there is technically a race condition on shutdown. Shutdown could be called
+    // after
+    // the database is cached. This would result in a null pointer exception at some
+    // point
     // in the processing. This should be rare enough that it is not a big deal.
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
@@ -207,10 +219,12 @@ public class GpuTimeZoneDB {
           transitions.getNativeView(), tzIndex));
     }
   }
-  
+
   public static ColumnVector fromUtcTimestampToTimestamp(ColumnVector input, ZoneId desiredTimeZone) {
-    // there is technically a race condition on shutdown. Shutdown could be called after
-    // the database is cached. This would result in a null pointer exception at some point
+    // there is technically a race condition on shutdown. Shutdown could be called
+    // after
+    // the database is cached. This would result in a null pointer exception at some
+    // point
     // in the processing. This should be rare enough that it is not a big deal.
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
     try (Table transitions = getTransitions()) {
@@ -219,14 +233,42 @@ public class GpuTimeZoneDB {
     }
   }
 
-  // Ported from Spark. Used to format timezone ID string with (+|-)h:mm and (+|-)hh:m
+  // Ported from Spark. Used to format timezone ID string with (+|-)h:mm and
+  // (+|-)hh:m
   public static ZoneId getZoneId(String timeZoneId) {
     String formattedZoneId = timeZoneId
-      // To support the (+|-)h:mm format because it was supported before Spark 3.0.
-      .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
-      // To support the (+|-)hh:m format because it was supported before Spark 3.0.
-      .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
+        // To support the (+|-)h:mm format because it was supported before Spark 3.0.
+        .replaceFirst("(\\+|\\-)(\\d):", "$10$2:")
+        // To support the (+|-)hh:m format because it was supported before Spark 3.0.
+        .replaceFirst("(\\+|\\-)(\\d\\d):(\\d)$", "$1$2:0$3");
     return ZoneId.of(formattedZoneId, ZoneId.SHORT_IDS);
+  }
+
+  /**
+   * Get the time difference in seconds compared to the midnight for a transition
+   * rule.
+   * Note: The returned time is based on Time 00:00:00, may be negative.
+   * E.g.: Give transition date "2000-01-02", and transition time diff in seconds
+   * "-3600",
+   * then the actual transition datetime is "2000-01-01 23:00:00"
+   *
+   * @param rule transition rule
+   * @return the time diff in seconds compared to the midnight
+   */
+  private static int getTransitionRuleTimeDiffComparedToMidnight(ZoneOffsetTransitionRule rule) {
+    int localTimeInSeconds = rule.getLocalTime().toSecondOfDay();
+    ZoneOffsetTransitionRule.TimeDefinition timeDef = rule.getTimeDefinition();
+    if (ZoneOffsetTransitionRule.TimeDefinition.UTC == timeDef) {
+      // UTC mode
+      return localTimeInSeconds + rule.getOffsetBefore().getTotalSeconds();
+    } else if (ZoneOffsetTransitionRule.TimeDefinition.STANDARD == timeDef) {
+      // STANDARD mode
+      return localTimeInSeconds + rule.getOffsetBefore().getTotalSeconds()
+          - rule.getStandardOffset().getTotalSeconds();
+    } else {
+      // WALL mode
+      return localTimeInSeconds;
+    }
   }
 
   @SuppressWarnings("unchecked")
@@ -294,8 +336,10 @@ public class GpuTimeZoneDB {
               // Whether transition is an overlap vs gap.
               // In Spark:
               // if it's a gap, then we use the offset after *on* the instant
-              // If it's an overlap, then there are 2 sets of valid timestamps in that are overlapping
-              // So, for the transition to UTC, you need to compare to instant + {offset before}
+              // If it's an overlap, then there are 2 sets of valid timestamps in that are
+              // overlapping
+              // So, for the transition to UTC, you need to compare to instant + {offset
+              // before}
               // The time math still uses {offset after}
               if (t.isGap()) {
                 data.add(
@@ -329,10 +373,8 @@ public class GpuTimeZoneDB {
               int dayOfWeek = dow != null ? dow.getValue() - 1 : -1;
               dstData.add(dstRule.getMonth().getValue()); // from 1 (January) to 12 (December)
               dstData.add(dstRule.getDayOfMonthIndicator()); // from -28 to 31 excluding 0
-              dstData.add(dayOfWeek); // from 0 (Monday) to 6 (Sunday)
-              dstData.add(dstRule.getLocalTime().toSecondOfDay()); // transition time in seconds in a day
-              dstData.add(dstRule.getTimeDefinition().ordinal()); // 0 UTC, 1 WALL, 2 STANDARD
-              dstData.add(dstRule.getStandardOffset().getTotalSeconds()); // standard offset
+              dstData.add(dayOfWeek); // from 0 (Monday) to 6 (Sunday), -1 means not specified
+              dstData.add(getTransitionRuleTimeDiffComparedToMidnight(dstRule)); // transition time
               dstData.add(dstRule.getOffsetBefore().getTotalSeconds()); // the offset before the cutover
               dstData.add(dstRule.getOffsetAfter().getTotalSeconds()); // the offset after the cutover
             });
@@ -366,14 +408,14 @@ public class GpuTimeZoneDB {
   }
 
   private static HostColumnVector.DataType getDstDataType() {
-      return new HostColumnVector.ListType(false,
-          new HostColumnVector.BasicType(false, DType.INT32));
+    return new HostColumnVector.ListType(false,
+        new HostColumnVector.BasicType(false, DType.INT32));
   }
 
   public static synchronized Table getTransitions() {
     verifyDatabaseCached();
     try (ColumnVector fixedTransitions = transitions.copyToDevice();
-         ColumnVector dsts = dstRules.copyToDevice()) {
+        ColumnVector dsts = dstRules.copyToDevice()) {
       return new Table(fixedTransitions, dsts);
     }
   }
@@ -381,8 +423,9 @@ public class GpuTimeZoneDB {
   /**
    * FOR TESTING PURPOSES ONLY, DO NOT USE IN PRODUCTION
    * This method retrieves the raw list of struct data that forms the list of
-   * fixed transitions for a particular zoneId. 
+   * fixed transitions for a particular zoneId.
    * It has default visibility so the test can access it.
+   * 
    * @param zoneId timezone id
    * @return list of fixed transitions
    */
@@ -404,7 +447,8 @@ public class GpuTimeZoneDB {
    * transition table, to query if tz is Daylight Saving timezone.
    *
    * @param sortedTimezones is sorted and supported timezones
-   * @param zoneIdToTable   is a map from non-normalized timezone to index in transition table
+   * @param zoneIdToTable   is a map from non-normalized timezone to index in
+   *                        transition table
    */
   private static HostColumnVector getTimeZoneInfo(List<String> sortedTimezones,
       java.util.Map<String, Integer> zoneIdToTable) {
@@ -446,7 +490,8 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Running on GPU to convert the intermediate result of casting string to timestamp.
+   * Running on GPU to convert the intermediate result of casting string to
+   * timestamp.
    * This function is used for casting string with timezone to timestamp.
    * TODO: Handle the case exceed max year threshold and has no DST
    *
