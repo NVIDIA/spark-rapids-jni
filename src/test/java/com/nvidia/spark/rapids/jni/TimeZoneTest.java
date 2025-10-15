@@ -429,9 +429,9 @@ public class TimeZoneTest {
   }
 
   /**
-   * test `Australia/Sydney` and `PST` timezones.
+   * test `Australia/Sydney` and `America/Los_Angeles` timezones.
    * Australia/Sydney: the start rule is overlap, the end rule is gap.
-   * PST: the start rule is gap, the end rule is overlap.
+   * America/Los_Angeles: the start rule is gap, the end rule is overlap.
    */
   @Test
   void convertToUtcSecondsCompareToJava() {
