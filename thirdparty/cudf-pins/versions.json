@@ -5,7 +5,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "db5c31a90375df0ae68be7adad72fc4b1a355fc1",
+      "git_tag" : "ecfd3adfaa7ebcb81d80d5b297ab3551619fda02",
       "git_url" : "https://github.com/NVIDIA/cccl.git",
       "version" : "3.1.0"
     },
@@ -77,7 +77,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "c12c5bbc08b4e759ad5cfb198c0c6e58c26b3ade",
+      "git_tag" : "a1171e1519e6756e979af5b029ee9142fbe24af6",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
       "version" : "25.12"
@@ -130,7 +130,7 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "82cc74ecabb50b91de485be994f256e0a488c13a",
+      "git_tag" : "f190e6c5553af69fbf57ed449ea2bd056e3a944a",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
       "version" : "25.12"
