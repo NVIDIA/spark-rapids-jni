@@ -381,15 +381,22 @@ struct daylight_saving_time_utils {
       {
         // shift to the previous day of week
         days = date_time_utils::next_or_same_weekday(days, rule.dow);
+      } else {
+        // do nothing
+        // also checked all the timezones in TimeZone.getAvailableIDs(), do not find dow is negative
       }
     } else {
       // day of month is negative, locate the day from the last day of month.
+      // checked all the timezones in TimeZone.getAvailableIDs(), do not find any dom is negative.
       int32_t day_of_month = date_time_utils::days_in_month(year, rule.month) + 1 + rule.dom;
       days                 = date_time_utils::to_epoch_day(year, rule.month, day_of_month);
       if (rule.dow >= 0)  // 0~6, 0 represents Monday, 6 represents Sunday; -1 means ignore
       {
         // shift to the previous day of week
         days = date_time_utils::previous_or_same_weekday(days, rule.dow);
+      } else {
+        // do nothing
+        // also checked all the timezones in TimeZone.getAvailableIDs(), do not find dow is negative
       }
     }
     constexpr int64_t seconds_per_day = 86400L;

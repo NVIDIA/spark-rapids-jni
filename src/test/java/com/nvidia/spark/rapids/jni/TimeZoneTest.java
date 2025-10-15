@@ -16,8 +16,14 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -422,4 +428,45 @@ public class TimeZoneTest {
     assertNotNull(transitions);
   }
 
+  /**
+   * test `Australia/Sydney` and `PST` timezones.
+   * Australia/Sydney: the start rule is overlap, the end rule is gap.
+   * PST: the start rule is gap, the end rule is overlap.
+   */
+  @Test
+  void convertToUtcSecondsCompareToJava() {
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
+    long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
+        .toEpochSecond(ZoneOffset.UTC);
+    long max = LocalDateTime.of(9999, 12, 31, 23, 59, 59)
+        .toEpochSecond(ZoneOffset.UTC);
+
+    // use today as the random seed so we get different values each day
+    Random rng = new Random(LocalDate.now().toEpochDay());
+    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney")) {
+      ZoneId zid = ZoneId.of(tz);
+
+      int num_rows = 10 * 1024;
+      long[] seconds = new long[num_rows];
+      for (int i = 0; i < seconds.length; ++i) {
+        // range is years from 0001 to 9999
+        seconds[i] = min + (long) (rng.nextDouble() * (max - min));
+      }
+
+      long[] expectedSeconds = new long[num_rows];
+      for (int i = 0; i < expectedSeconds.length; ++i) {
+        expectedSeconds[i] = Instant.ofEpochSecond(seconds[i]).atZone(ZoneOffset.UTC).toLocalDateTime().atZone(zid)
+            .toInstant().getEpochSecond();
+      }
+
+      try (ColumnVector input = ColumnVector.timestampSecondsFromLongs(seconds);
+          ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input, zid);
+          ColumnVector expected = ColumnVector.timestampSecondsFromLongs(expectedSeconds)) {
+
+        assertColumnsAreEqual(expected, actual);
+      }
+    }
+  }
 }
