@@ -528,4 +528,40 @@ public class TimeZoneTest {
       }
     }
   }
+
+  @Test
+  void convertFromUtcSecondsCompareToJava() {
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
+    long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
+        .toEpochSecond(ZoneOffset.UTC);
+    long max = LocalDateTime.of(9999, 12, 31, 23, 59, 59)
+        .toEpochSecond(ZoneOffset.UTC);
+
+    // use today as the random seed so we get different values each day
+    Random rng = new Random(LocalDate.now().toEpochDay());
+    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney", "PST")) {
+      ZoneId zid = ZoneId.of(tz, ZoneId.SHORT_IDS);
+
+      int num_rows = 10 * 1024;
+      long[] seconds = new long[num_rows];
+      for (int i = 0; i < seconds.length; ++i) {
+        // range is years from 0001 to 9999
+        seconds[i] = min + (long) (rng.nextDouble() * (max - min));
+      }
+
+      long[] expectedSeconds = new long[num_rows];
+      for (int i = 0; i < expectedSeconds.length; ++i) {
+        expectedSeconds[i] = fromUtcOnCpu(seconds[i], zid);
+      }
+
+      try (ColumnVector input = ColumnVector.timestampSecondsFromLongs(seconds);
+          ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input, zid);
+          ColumnVector expected = ColumnVector.timestampSecondsFromLongs(expectedSeconds)) {
+
+        assertColumnsAreEqual(expected, actual);
+      }
+    }
+  }
 }
