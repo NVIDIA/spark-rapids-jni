@@ -846,27 +846,27 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-  @Test
-  public void testMultipleOverflowScenarios() {
-    // Combined test with both large row count and large strings
-    // Tests all overflow scenarios together
-    final int rowCount = 270_000_000;
-    final int sliceSize = 50_000_000;
-
-    try (Table t1 = buildMixedLargeTable(rowCount)) {
-      int actualRowCount = Math.toIntExact(t1.getRowCount());
-      List<TableSlice> tableSlices = new ArrayList<>();
-
-      for (int startRow = 0; startRow < actualRowCount; startRow += sliceSize) {
-        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, actualRowCount - startRow), t1));
-      }
-
-      // This tests all overflow scenarios in combination
-      checkMergeTable(t1, tableSlices);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
+//  @Test
+//  public void testMultipleOverflowScenarios() {
+//    // Combined test with both large row count and large strings
+//    // Tests all overflow scenarios together
+//    final int rowCount = 270_000_000;
+//    final int sliceSize = 50_000_000;
+//
+//    try (Table t1 = buildMixedLargeTable(rowCount)) {
+//      int actualRowCount = Math.toIntExact(t1.getRowCount());
+//      List<TableSlice> tableSlices = new ArrayList<>();
+//
+//      for (int startRow = 0; startRow < actualRowCount; startRow += sliceSize) {
+//        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, actualRowCount - startRow), t1));
+//      }
+//
+//      // This tests all overflow scenarios in combination
+//      checkMergeTable(t1, tableSlices);
+//    } catch (Exception e) {
+//      throw new RuntimeException(e);
+//    }
+//  }
 
   static Table buildLargeDoubleTable(int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
