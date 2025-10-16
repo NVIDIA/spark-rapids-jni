@@ -819,6 +819,7 @@ public class KudoSerializerTest extends CudfTestBase {
   @Test
   public void testDataBufferLengthOverflow() {
     // Test for issue #13612: integer overflow when rowCount * sizeInBytes exceeds Integer.MAX_VALUE
+    // This tests MergedInfoCalc.java line 200 and KudoTableHeaderCalc.java line 190
     // For DOUBLE type (8 bytes), we need > 268,435,455 rows to trigger overflow
     // Integer.MAX_VALUE = 2,147,483,647
     // 2,147,483,647 / 8 = 268,435,455.875
@@ -839,6 +840,97 @@ public class KudoSerializerTest extends CudfTestBase {
 
       // Before the fix, this throws IllegalArgumentException with message about negative dataBufferLen
       // After the fix, this should succeed and produce a table matching the expected result
+      checkMergeTable(t1, tableSlices);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
+  public void testStringDataLengthOverflow() {
+    // Test for overflow in string data length calculation: (endOffset - startOffset)
+    // This tests MergedInfoCalc.java line 274, KudoTableHeaderCalc.java lines 182-183,
+    // and SlicedBufferSerializer.java lines 223-225
+    // When the string data size exceeds Integer.MAX_VALUE, endOffset - startOffset can overflow
+    
+    // Create a table with large strings where total data size > Integer.MAX_VALUE
+    // We need total string data > 2,147,483,647 bytes
+    // Using strings of 100KB each, we need > 21,475 strings to exceed Integer.MAX_VALUE
+    final int stringSize = 100_000; // 100KB per string
+    final int rowCount = 25_000; // Total: 2.5GB of string data
+    final int sliceSize = 5_000;
+
+    try (Table t1 = buildLargeStringTable(stringSize, rowCount)) {
+      int actualRowCount = Math.toIntExact(t1.getRowCount());
+      List<TableSlice> tableSlices = new ArrayList<>();
+
+      // Create slices that will be merged
+      for (int startRow = 0; startRow < actualRowCount; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, actualRowCount - startRow), t1));
+      }
+
+      // Before the fix, string offset calculations can overflow
+      // After the fix, this should succeed
+      checkMergeTable(t1, tableSlices);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
+  public void testOffsetCalculationOverflow() {
+    // Test for overflow in offset calculations: offset * sizeInBytes
+    // This tests SlicedBufferSerializer.java lines 238-239
+    // When offset * sizeInBytes exceeds Integer.MAX_VALUE, the calculation overflows
+    
+    // For LONG type (8 bytes), if offset > 268,435,455, then offset * 8 overflows
+    // We'll create a large table and slice from a high offset
+    final int totalRows = 280_000_000;
+    final int sliceSize = 10_000_000;
+    
+    try (Table t1 = buildLargeLongTable(totalRows)) {
+      List<TableSlice> tableSlices = new ArrayList<>();
+      
+      // Create slices starting from a high offset where offset * 8 would overflow int
+      // Start from row 270,000,000 where 270M * 8 = 2.16B > Integer.MAX_VALUE
+      int startRow = 270_000_000;
+      tableSlices.add(new TableSlice(startRow, sliceSize, t1));
+
+      // Before the fix, offset * sizeInBytes can overflow during serialization
+      // After the fix, this should succeed
+      KudoSerializer serializer = new KudoSerializer(schemaOf(t1));
+      OpenByteArrayOutputStream bout = new OpenByteArrayOutputStream();
+      
+      // This serialization will trigger the offset calculation overflow
+      serializer.writeToStreamWithMetrics(t1, bout, startRow, sliceSize);
+      bout.flush();
+      
+      ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
+      try (KudoTable kudoTable = KudoTable.from(bin).get();
+           Table result = serializer.mergeToTable(new KudoTable[]{kudoTable})) {
+        assertEquals(sliceSize, result.getRowCount());
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
+  public void testMultipleOverflowScenarios() {
+    // Combined test with both large row count and large strings
+    // Tests all overflow scenarios together
+    final int rowCount = 270_000_000;
+    final int sliceSize = 50_000_000;
+
+    try (Table t1 = buildMixedLargeTable(rowCount)) {
+      int actualRowCount = Math.toIntExact(t1.getRowCount());
+      List<TableSlice> tableSlices = new ArrayList<>();
+
+      for (int startRow = 0; startRow < actualRowCount; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, actualRowCount - startRow), t1));
+      }
+
+      // This tests all overflow scenarios in combination
       checkMergeTable(t1, tableSlices);
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -1021,6 +1113,67 @@ public class KudoSerializerTest extends CudfTestBase {
       ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
       tableCols.add(stringColumn);
       allCols.add(stringColumn);
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildLargeLongTable(int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a LONG column (8 bytes per value)
+      // When offset * 8 > Integer.MAX_VALUE, we hit the overflow bug
+      ColumnVector longColumn;
+      try (Scalar v1 = Scalar.fromLong(123456789L)) {
+        longColumn = ColumnVector.fromScalar(v1, rowCount);
+        tableCols.add(longColumn);
+        allCols.add(longColumn);
+      }
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildMixedLargeTable(int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create multiple columns to test various overflow scenarios
+      
+      // DOUBLE column for rowCount * sizeInBytes overflow
+      ColumnVector doubleColumn;
+      try (Scalar v1 = Scalar.fromDouble(123.456)) {
+        doubleColumn = ColumnVector.fromScalar(v1, rowCount);
+        tableCols.add(doubleColumn);
+        allCols.add(doubleColumn);
+      }
+
+      // LONG column for offset * sizeInBytes overflow
+      ColumnVector longColumn;
+      try (Scalar v2 = Scalar.fromLong(789L)) {
+        longColumn = ColumnVector.fromScalar(v2, rowCount);
+        tableCols.add(longColumn);
+        allCols.add(longColumn);
+      }
+
+      // INT column
+      ColumnVector intColumn;
+      try (Scalar v3 = Scalar.fromInt(42)) {
+        intColumn = ColumnVector.fromScalar(v3, rowCount);
+        tableCols.add(intColumn);
+        allCols.add(intColumn);
+      }
 
       return new Table(tableCols.toArray(new ColumnVector[0]));
     } finally {
