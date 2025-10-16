@@ -36,7 +36,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     // Total data len in gpu, which accounts for 64 byte alignment
     private long totalDataLen;
     private final boolean[] hasNull;
-    private final int[] rowCount;
+    private final long[] rowCount;
     private final long[] dataLen;
 
     // Column offset in gpu device buffer, it has one field for each flattened column
@@ -50,7 +50,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         int columnCount = tables[0].getHeader().getNumColumns();
         this.hasNull = new boolean[columnCount];
         initHasNull();
-        this.rowCount = new int[columnCount];
+        this.rowCount = new long[columnCount];
         this.dataLen = new long[columnCount];
         this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
@@ -73,7 +73,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         return kudoTables;
     }
 
-    public int[] getRowCount() {
+    public long[] getRowCount() {
         return rowCount;
     }
 
@@ -81,7 +81,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     public String toString() {
         return "MergedInfoCalc{" +
                 "totalDataLen=" + totalDataLen +
-                ", columnOffsets=" + columnOffsets +
+                ", columnOffsets=" + Arrays.toString(columnOffsets) +
                 ", hasNull=" + Arrays.toString(hasNull) +
                 ", rowCount=" + Arrays.toString(rowCount) +
                 ", dataLen=" + Arrays.toString(dataLen) +
@@ -190,7 +190,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
             if (primitiveType.getType().hasOffsets()) {
                 offsetOffset = totalDataLen;
                 offsetBufferLen = padFor64byteAlignment(
-                    (long) (rowCount[curColIdx] + 1) * Integer.BYTES);
+                    (rowCount[curColIdx] + 1) * Integer.BYTES);
                 totalDataLen += offsetBufferLen;
 
                 dataOffset = totalDataLen;
@@ -198,7 +198,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
             } else {
                 dataOffset = totalDataLen;
                 dataBufferLen = padFor64byteAlignment(
-                    (long) rowCount[curColIdx] * primitiveType.getType().getSizeInBytes());
+                    rowCount[curColIdx] * primitiveType.getType().getSizeInBytes());
             }
             totalDataLen += dataBufferLen;
         }
