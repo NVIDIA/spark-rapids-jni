@@ -818,29 +818,63 @@ public class KudoSerializerTest extends CudfTestBase {
 
   @Test
   public void testDataBufferLengthOverflow() {
-    // Test for issue #13612: integer overflow when rowCount * sizeInBytes exceeds Integer.MAX_VALUE
-    // This tests MergedInfoCalc.java line 200 and KudoTableHeaderCalc.java line 190
-    // For DOUBLE type (8 bytes), we need > 268,435,455 rows to trigger overflow
+    // This tests MergedInfoCalc.java line 200: rowCount[curColIdx] * primitiveType.getType().getSizeInBytes()
+    // For DOUBLE type (8 bytes), we need total merged rows > 268,435,455 to trigger overflow
     // Integer.MAX_VALUE = 2,147,483,647
     // 2,147,483,647 / 8 = 268,435,455.875
     
-    // Create tables with enough rows that rowCount * 8 exceeds Integer.MAX_VALUE
-    // We'll use ~270 million rows per table, split across multiple slices
-    final int rowsPerTable = 270_000_000;
-    final int sliceSize = 50_000_000;
+    // Strategy: Create 2 tables, each with 150M rows (individually OK: 150M * 8 = 1.2B < Integer.MAX_VALUE)
+    // When merged together: 300M * 8 = 2.4B > Integer.MAX_VALUE, causing overflow
+    final int rowsPerTable = 150_000_000;
 
-    try (Table t1 = buildLargeDoubleTable(rowsPerTable)) {
-      int rowCount = Math.toIntExact(t1.getRowCount());
+    try (Table t1 = buildLargeDoubleTable(rowsPerTable);
+         Table t2 = buildLargeDoubleTable(rowsPerTable)) {
+      
       List<TableSlice> tableSlices = new ArrayList<>();
+      // Each table is serialized as a single slice (no slicing within each table)
+      tableSlices.add(new TableSlice(0, rowsPerTable, t1));
+      tableSlices.add(new TableSlice(0, rowsPerTable, t2));
 
-      // Create slices that will be merged
-      for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
-        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), t1));
+      // Create expected result: total 300M rows
+      try (Table expected = Table.concatenate(t1, t2)) {
+        // Before the fix, merging throws IllegalArgumentException with message about negative dataBufferLen
+        // The overflow happens in MergedInfoCalc when calculating total buffer sizes
+        // After the fix, this should succeed
+        checkMergeTable(expected, tableSlices);
       }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
 
-      // Before the fix, this throws IllegalArgumentException with message about negative dataBufferLen
-      // After the fix, this should succeed and produce a table matching the expected result
-      checkMergeTable(t1, tableSlices);
+  @Test
+  public void testStringDataLengthOverflow() {
+    // Test for overflow during MERGE when total string data size exceeds Integer.MAX_VALUE
+    // This tests MergedInfoCalc.java line 274: dataLen[curColIdx] += (endOffset - startOffset)
+    // Also tests KudoTableHeaderCalc.java lines 182-183 and SlicedBufferSerializer.java lines 223-225
+    // When total string data > 2,147,483,647 bytes, the calculation can overflow
+    
+    // Strategy: Create 2 tables, each with ~1.5GB of string data (individually OK)
+    // When merged together: ~3GB total > Integer.MAX_VALUE, causing overflow
+    // Using 100KB strings: 15,000 strings * 100KB = 1.5GB per table
+    final int stringSize = 100_000; // 100KB per string
+    final int rowsPerTable = 15_000; // 1.5GB per table
+    
+    try (Table t1 = buildLargeStringTable(stringSize, rowsPerTable);
+         Table t2 = buildLargeStringTable(stringSize, rowsPerTable)) {
+      
+      List<TableSlice> tableSlices = new ArrayList<>();
+      // Each table is serialized as a single slice
+      tableSlices.add(new TableSlice(0, rowsPerTable, t1));
+      tableSlices.add(new TableSlice(0, rowsPerTable, t2));
+
+      // Create expected result: total 30,000 rows with 3GB of string data
+      try (Table expected = Table.concatenate(t1, t2)) {
+        // Before the fix, merging throws overflow when calculating total string data length
+        // The overflow happens in MergedInfoCalc when accumulating dataLen across tables
+        // After the fix, this should succeed
+        checkMergeTable(expected, tableSlices);
+      }
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
