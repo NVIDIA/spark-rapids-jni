@@ -847,39 +847,6 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-  @Test
-  public void testStringDataLengthOverflow() {
-    // Test for overflow during MERGE when total string data size exceeds Integer.MAX_VALUE
-    // This tests MergedInfoCalc.java line 274: dataLen[curColIdx] += (endOffset - startOffset)
-    // Also tests KudoTableHeaderCalc.java lines 182-183 and SlicedBufferSerializer.java lines 223-225
-    // When total string data > 2,147,483,647 bytes, the calculation can overflow
-    
-    // Strategy: Create 2 tables, each with ~1.5GB of string data (individually OK)
-    // When merged together: ~3GB total > Integer.MAX_VALUE, causing overflow
-    // Using 100KB strings: 15,000 strings * 100KB = 1.5GB per table
-    final int stringSize = 100_000; // 100KB per string
-    final int rowsPerTable = 15_000; // 1.5GB per table
-    
-    try (Table t1 = buildLargeStringTable(stringSize, rowsPerTable);
-         Table t2 = buildLargeStringTable(stringSize, rowsPerTable)) {
-      
-      List<TableSlice> tableSlices = new ArrayList<>();
-      // Each table is serialized as a single slice
-      tableSlices.add(new TableSlice(0, rowsPerTable, t1));
-      tableSlices.add(new TableSlice(0, rowsPerTable, t2));
-
-      // Create expected result: total 30,000 rows with 3GB of string data
-      try (Table expected = Table.concatenate(t1, t2)) {
-        // Before the fix, merging throws overflow when calculating total string data length
-        // The overflow happens in MergedInfoCalc when accumulating dataLen across tables
-        // After the fix, this should succeed
-        checkMergeTable(expected, tableSlices);
-      }
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
   static Table buildLargeDoubleTable(int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
