@@ -83,6 +83,14 @@ class TimeZoneTest : public cudf::test::BaseFixture {
       2, offsets.release(), struct_column.release(), null_count, std::move(null_mask));
     auto columns = std::vector<std::unique_ptr<cudf::column>>{};
     columns.push_back(std::move(list_column));
+
+    // make empty DST list<int> column, the second column in the transitions table is DST info.
+    auto dst_child   = int32_col({});
+    auto dst_offsets = cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 0, 0};
+    auto dst_col     = cudf::make_lists_column(
+      2, dst_offsets.release(), dst_child.release(), 0, rmm::device_buffer{});
+    columns.push_back(std::move(dst_col));
+
     return std::make_unique<cudf::table>(std::move(columns));
   }
 };
