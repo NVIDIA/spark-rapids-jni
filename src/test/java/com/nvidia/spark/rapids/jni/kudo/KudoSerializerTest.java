@@ -846,28 +846,6 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-//  @Test
-//  public void testMultipleOverflowScenarios() {
-//    // Combined test with both large row count and large strings
-//    // Tests all overflow scenarios together
-//    final int rowCount = 270_000_000;
-//    final int sliceSize = 50_000_000;
-//
-//    try (Table t1 = buildMixedLargeTable(rowCount)) {
-//      int actualRowCount = Math.toIntExact(t1.getRowCount());
-//      List<TableSlice> tableSlices = new ArrayList<>();
-//
-//      for (int startRow = 0; startRow < actualRowCount; startRow += sliceSize) {
-//        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, actualRowCount - startRow), t1));
-//      }
-//
-//      // This tests all overflow scenarios in combination
-//      checkMergeTable(t1, tableSlices);
-//    } catch (Exception e) {
-//      throw new RuntimeException(e);
-//    }
-//  }
-
   static Table buildLargeDoubleTable(int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
@@ -1044,67 +1022,6 @@ public class KudoSerializerTest extends CudfTestBase {
       ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
       tableCols.add(stringColumn);
       allCols.add(stringColumn);
-
-      return new Table(tableCols.toArray(new ColumnVector[0]));
-    } finally {
-      for (ColumnVector cv : allCols) {
-        cv.close();
-      }
-    }
-  }
-
-  static Table buildLargeLongTable(int rowCount) {
-    List<ColumnVector> allCols = new ArrayList<>();
-    List<ColumnVector> tableCols = new ArrayList<>();
-
-    try {
-      // Create a LONG column (8 bytes per value)
-      // When offset * 8 > Integer.MAX_VALUE, we hit the overflow bug
-      ColumnVector longColumn;
-      try (Scalar v1 = Scalar.fromLong(123456789L)) {
-        longColumn = ColumnVector.fromScalar(v1, rowCount);
-        tableCols.add(longColumn);
-        allCols.add(longColumn);
-      }
-
-      return new Table(tableCols.toArray(new ColumnVector[0]));
-    } finally {
-      for (ColumnVector cv : allCols) {
-        cv.close();
-      }
-    }
-  }
-
-  static Table buildMixedLargeTable(int rowCount) {
-    List<ColumnVector> allCols = new ArrayList<>();
-    List<ColumnVector> tableCols = new ArrayList<>();
-
-    try {
-      // Create multiple columns to test various overflow scenarios
-      
-      // DOUBLE column for rowCount * sizeInBytes overflow
-      ColumnVector doubleColumn;
-      try (Scalar v1 = Scalar.fromDouble(123.456)) {
-        doubleColumn = ColumnVector.fromScalar(v1, rowCount);
-        tableCols.add(doubleColumn);
-        allCols.add(doubleColumn);
-      }
-
-      // LONG column for offset * sizeInBytes overflow
-      ColumnVector longColumn;
-      try (Scalar v2 = Scalar.fromLong(789L)) {
-        longColumn = ColumnVector.fromScalar(v2, rowCount);
-        tableCols.add(longColumn);
-        allCols.add(longColumn);
-      }
-
-      // INT column
-      ColumnVector intColumn;
-      try (Scalar v3 = Scalar.fromInt(42)) {
-        intColumn = ColumnVector.fromScalar(v3, rowCount);
-        tableCols.add(intColumn);
-        allCols.add(intColumn);
-      }
 
       return new Table(tableCols.toArray(new ColumnVector[0]));
     } finally {
