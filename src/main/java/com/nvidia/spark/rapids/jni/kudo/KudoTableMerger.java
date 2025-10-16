@@ -309,7 +309,7 @@ class KudoTableMerger implements SimpleSchemaVisitor {
         for (int tableIdx = 0; tableIdx < kudoTables.length; tableIdx += 1) {
           SliceInfo sliceInfo = sliceInfoOf(tableIdx);
           if (sliceInfo.getRowCount() > 0) {
-            long thisDataLen = (long) elementSize * sliceInfo.getRowCount();
+            long thisDataLen = elementSize * (long) sliceInfo.getRowCount();
             copyDataBuffer(buffer, start, tableIdx, thisDataLen);
             start += thisDataLen;
           }
