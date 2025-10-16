@@ -816,6 +816,57 @@ public class KudoSerializerTest extends CudfTestBase {
 
   }
 
+  @Test
+  public void testDataBufferLengthOverflow() {
+    // Test for issue #13612: integer overflow when rowCount * sizeInBytes exceeds Integer.MAX_VALUE
+    // For DOUBLE type (8 bytes), we need > 268,435,455 rows to trigger overflow
+    // Integer.MAX_VALUE = 2,147,483,647
+    // 2,147,483,647 / 8 = 268,435,455.875
+    
+    // Create tables with enough rows that rowCount * 8 exceeds Integer.MAX_VALUE
+    // We'll use ~270 million rows per table, split across multiple slices
+    final int rowsPerTable = 270_000_000;
+    final int sliceSize = 50_000_000;
+
+    try (Table t1 = buildLargeDoubleTable(rowsPerTable)) {
+      int rowCount = Math.toIntExact(t1.getRowCount());
+      List<TableSlice> tableSlices = new ArrayList<>();
+
+      // Create slices that will be merged
+      for (int startRow = 0; startRow < rowCount; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount - startRow), t1));
+      }
+
+      // Before the fix, this throws IllegalArgumentException with message about negative dataBufferLen
+      // After the fix, this should succeed and produce a table matching the expected result
+      checkMergeTable(t1, tableSlices);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  static Table buildLargeDoubleTable(int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a DOUBLE column (8 bytes per value)
+      // When rowCount * 8 > Integer.MAX_VALUE, we hit the overflow bug
+      ColumnVector doubleColumn;
+      try (Scalar v1 = Scalar.fromDouble(123.456)) {
+        doubleColumn = ColumnVector.fromScalar(v1, rowCount);
+        tableCols.add(doubleColumn);
+        allCols.add(doubleColumn);
+      }
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
   static Table buildLargeTestTable() {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
