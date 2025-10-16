@@ -421,13 +421,13 @@ struct daylight_saving_time_utils {
     transition_info infos[2];
     create_transition_info(year, start_rule, infos[0]);
     create_transition_info(year, end_rule, infos[1]);
-
-    transition_info curr_info;
-    for (int32_t i = 0; i < 2; ++i) {
-      curr_info = infos[i];
-      if (seconds < curr_info.utc_seconds) { return curr_info.offset_after; }
+    if (seconds < infos[0].utc_seconds) {
+      return infos[0].offset_before;
+    } else if (seconds >= infos[0].utc_seconds && seconds < infos[1].utc_seconds) {
+      return infos[0].offset_after;
+    } else {
+      return infos[1].offset_after;
     }
-    return curr_info.offset_after;
   }
 
   /**
@@ -540,7 +540,6 @@ __device__ static timestamp_type convert_timestamp(
   if (dst_integers_size > 0) {
     // it's DST timezone
     int64_t last_transition_value = transition_times[list_size - 1];
-    auto const transition_offset  = tz_transitions.element_offset(list_size - 1);
     auto const [rule1, rule2]     = daylight_saving_time_utils::create_dst_rules(dst_integers);
     if (epoch_seconds > last_transition_value) {
       int32_t offset_seconds;
@@ -551,8 +550,9 @@ __device__ static timestamp_type convert_timestamp(
           daylight_saving_time_utils::get_offset_for_local_time(epoch_seconds, rule1, rule2);
       } else {
         // search in UTC time
-        int32_t last_offset = utc_offsets.element<int32_t>(transition_offset);
-        int year            = date_time_utils::get_year(epoch_seconds + last_offset);
+        auto const transition_offset = tz_transitions.element_offset(list_size - 1);
+        int32_t last_offset          = utc_offsets.element<int32_t>(transition_offset);
+        int year                     = date_time_utils::get_year(epoch_seconds + last_offset);
         offset_seconds =
           daylight_saving_time_utils::get_offset_for_utc_time(epoch_seconds, rule1, rule2);
       }

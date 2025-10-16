@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.zone.ZoneOffsetTransition;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.HostColumnVector;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -428,10 +430,20 @@ public class TimeZoneTest {
     assertNotNull(transitions);
   }
 
+  private static long toUtcOnCpu(long epochSeconds, ZoneId zid) {
+    return Instant.ofEpochSecond(epochSeconds).atZone(ZoneOffset.UTC).toLocalDateTime().atZone(zid)
+        .toInstant().getEpochSecond();
+  }
+
+  private static long fromUtcOnCpu(long epochSeconds, ZoneId zid) {
+    return Instant.ofEpochSecond(epochSeconds).atZone(zid).toLocalDateTime().atZone(ZoneOffset.UTC)
+        .toInstant().getEpochSecond();
+  }
+
   /**
    * test `Australia/Sydney` and `America/Los_Angeles` timezones.
    * Australia/Sydney: the start rule is overlap, the end rule is gap.
-   * America/Los_Angeles: the start rule is gap, the end rule is overlap.
+   * America/Los_Angeles(PST): the start rule is gap, the end rule is overlap.
    */
   @Test
   void convertToUtcSecondsCompareToJava() {
@@ -445,8 +457,8 @@ public class TimeZoneTest {
 
     // use today as the random seed so we get different values each day
     Random rng = new Random(LocalDate.now().toEpochDay());
-    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney")) {
-      ZoneId zid = ZoneId.of(tz);
+    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney", "PST")) {
+      ZoneId zid = ZoneId.of(tz, ZoneId.SHORT_IDS);
 
       int num_rows = 10 * 1024;
       long[] seconds = new long[num_rows];
@@ -457,8 +469,7 @@ public class TimeZoneTest {
 
       long[] expectedSeconds = new long[num_rows];
       for (int i = 0; i < expectedSeconds.length; ++i) {
-        expectedSeconds[i] = Instant.ofEpochSecond(seconds[i]).atZone(ZoneOffset.UTC).toLocalDateTime().atZone(zid)
-            .toInstant().getEpochSecond();
+        expectedSeconds[i] = toUtcOnCpu(seconds[i], zid);
       }
 
       try (ColumnVector input = ColumnVector.timestampSecondsFromLongs(seconds);
@@ -466,6 +477,54 @@ public class TimeZoneTest {
           ColumnVector expected = ColumnVector.timestampSecondsFromLongs(expectedSeconds)) {
 
         assertColumnsAreEqual(expected, actual);
+      }
+    }
+  }
+
+  @Test
+  void convertFromUtcSecondsSydneyTest() {
+    // DST rules:
+    // Overlap: UTC time at 2025-04-05T16:00:00Z, offset change from +11 to +10
+    // Gap: UTC time at 2025-10-04T16:00:00Z, offset change from +10 to +11
+    ZoneId zid = ZoneId.of("Australia/Sydney");
+    ZoneOffsetTransition overlap = zid.getRules().getTransitionRules().get(0).createTransition(2025);
+    ZoneOffsetTransition gap = zid.getRules().getTransitionRules().get(1).createTransition(2025);
+
+    // 2025-04-05T16:00:00Z is the overlap time
+    long epochOverlap2025 = overlap.getInstant().getEpochSecond();
+    // 2025-10-04T16:00:00Z is the gap time
+    long epochGap2025 = gap.getInstant().getEpochSecond();
+    try (
+        ColumnVector input = ColumnVector.timestampSecondsFromLongs(
+            epochOverlap2025 - 3601, // overlap begin - hour - 1s
+            epochOverlap2025 - 3600, // overlap begin - hour
+            epochOverlap2025 - 3600 + 1, // overlap begin - hour + 1s
+            epochOverlap2025 - 1, // overlap begin - 1s
+            epochOverlap2025, // overlap begin
+            epochOverlap2025 + 1, // overlap begin + 1s
+            epochOverlap2025 + 3600 - 1, // overlap begin + hour - 1s
+            epochOverlap2025 + 3600, // overlap begin + hour
+            epochOverlap2025 + 3600 + 1, // overlap begin + hour + 1s
+
+            epochGap2025 - 3601, // gap begin - hour - 1s
+            epochGap2025 - 3600, // gap begin - hour
+            epochGap2025 - 3600 + 1, // gap begin - hour + 1s
+            epochGap2025 - 1, // gap begin - 1s
+            epochGap2025, // gap begin
+            epochGap2025 + 1, // gap begin + 1s
+            epochGap2025 + 3600 - 1, // gap begin + hour - 1s
+            epochGap2025 + 3600, // gap begin + hour
+            epochGap2025 + 3600 + 1 // gap begin + hour + 1s
+        );
+        HostColumnVector input_hcv = input.copyToHost();
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input, zid);
+        HostColumnVector actual_hcv = actual.copyToHost()) {
+
+      for (int i = 0; i < input.getRowCount(); ++i) {
+        Long inputVal = input_hcv.getLong(i);
+        Long actualVal = actual_hcv.getLong(i);
+        long expectedVal = fromUtcOnCpu(inputVal, zid);
+        assertEquals(expectedVal, actualVal.longValue(), "diff at row " + i);
       }
     }
   }
