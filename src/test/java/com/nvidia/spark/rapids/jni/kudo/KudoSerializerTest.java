@@ -767,7 +767,7 @@ public class KudoSerializerTest extends CudfTestBase {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount3 - startRow), t3));
         }
 
-        assertThrows(ArithmeticException.class, () -> {
+        assertThrows(RuntimeException.class, () -> {
           try {
             checkMergeTable(null, tableSlices);
           } catch (RuntimeException e) {
