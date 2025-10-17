@@ -129,16 +129,24 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  * This method is the inverse of convert_timestamp_to_utc.
  *
  * @param input The input timestamp column in microseconds.
+ *
  * @param writer_tz_info_table The writer timezone table which contains a transition column.
  * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
  * transition time in seconds and 20 bits offset in seconds.
+ *
  * @param writer_raw_offset the raw offset in seconds.
+ *
  * @param reader_tz_info_table the reader timezone table which contains a transition column.
  * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
  * transition time in seconds and 20 bits offset in seconds.
+ *
  * @param reader_raw_offset the raw offset in seconds.
+ *
  * @param stream CUDA stream used for device memory operations and kernel launches.
+ *
  * @param mr Device memory resource used to allocate the returned timestamp column's memory
+ *
+ * @return a column of timestamps rebased between writer and reader timezones.
  */
 std::unique_ptr<cudf::column> convert_between_timezones(
   cudf::column_view const& input,

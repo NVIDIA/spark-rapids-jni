@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <cudf/column/column_device_view.cuh>
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/types.hpp>
@@ -308,10 +307,14 @@ __device__ static int64_t get_value_from_lowest_bits(int64_t holder, int num_bit
 /**
  * @brief Find the relative offset when moving between timezones at a particular point in time.
  * This is for ORC timezone support.
+ *
  * This function implements `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`
  * Refer to link: https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
  * java/org/apache/orc/impl/SerializationUtils.java#L1440
- * If the input `trans_begin` == `trans_begin` == 0, it means the timezone is fixed offset.
+ *
+ * If the input `trans_begin` == `trans_begin` == nullptr, it means the timezone is fixed offset,
+ * then use the raw_offset directly.
+ *
  * @param ts the input timestamp in UTC timezone to get the offset for.
  * @param writer_trans_begin The beginning of the writer timezone transition array, or 0 if using
  * fixed offset.
