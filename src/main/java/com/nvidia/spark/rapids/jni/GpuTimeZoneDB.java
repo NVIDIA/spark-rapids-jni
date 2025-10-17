@@ -40,7 +40,7 @@ import java.util.concurrent.Executors;
 /**
  * Used to save timezone info from `sun.util.calendar.ZoneInfo`
  */
-class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
+class TzInfoInJavaUtilForORC implements AutoCloseable {
   // from `sun.util.calendar.ZoneInfo`
   private static final long OFFSET_MASK_IN_ZONE_INFO = 0x0FL;
 
@@ -72,7 +72,7 @@ class TimeZoneInfoInJavaUtilPackage implements AutoCloseable {
    * @param offsets     offsets in `sun.util.calendar.ZoneInfo` in milliseconds
    * @param rawOffset   raw offset in `sun.util.calendar.ZoneInfo` in milliseconds
    */
-  TimeZoneInfoInJavaUtilPackage(long[] transitions, int[] offsets, int rawOffset) {
+  TzInfoInJavaUtilForORC(long[] transitions, int[] offsets, int rawOffset) {
     if (transitions != null) {
       this.transitions = new long[transitions.length];
       for (int i = 0; i < transitions.length; i++) {
@@ -727,7 +727,7 @@ public class GpuTimeZoneDB {
    * @param tzId timezone id
    * @return timezone info
    */
-  private static TimeZoneInfoInJavaUtilPackage getInfoForUtilTZ(String tzId) {
+  private static TzInfoInJavaUtilForORC getInfoForUtilTZ(String tzId) {
     TimeZone tz = TimeZone.getTimeZone(tzId);
     if (!(tz instanceof ZoneInfo)) {
       throw new UnsupportedOperationException("Unsupported timezone: " + tzId);
@@ -736,13 +736,13 @@ public class GpuTimeZoneDB {
 
     // The constructor of TimeZoneInfoInJavaUtilPackage will extract and repack
     // transitions info.
-    return new TimeZoneInfoInJavaUtilPackage(
+    return new TzInfoInJavaUtilForORC(
         (long[]) FieldUtils.readField(zoneInfo, "transitions"),
         (int[]) FieldUtils.readField(zoneInfo, "offsets"),
         (int) FieldUtils.readField(zoneInfo, "rawOffset"));
   }
 
-  private static ColumnVector getTransitionsForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
+  private static ColumnVector getTransitionsForUtilTZ(TzInfoInJavaUtilForORC info) {
     try (HostColumnVector hcv = HostColumnVector.fromLongs(info.transitions)) {
       return hcv.copyToDevice();
     }
@@ -754,7 +754,7 @@ public class GpuTimeZoneDB {
    * @param info timezone info
    * @return a table on GPU containing timezone info from `java.util.TimeZone`
    */
-  private static Table getTableForUtilTZ(TimeZoneInfoInJavaUtilPackage info) {
+  private static Table getTableForUtilTZ(TzInfoInJavaUtilForORC info) {
     if (info.transitions == null) {
       // fixed offset timezone
       return null;
@@ -801,8 +801,8 @@ public class GpuTimeZoneDB {
     }
 
     // get timezone info from `java.util.TimeZone`
-    try (TimeZoneInfoInJavaUtilPackage writerTzInfo = getInfoForUtilTZ(writerTimezone);
-        TimeZoneInfoInJavaUtilPackage readerTzInfo = getInfoForUtilTZ(readerTimezone);
+    try (TzInfoInJavaUtilForORC writerTzInfo = getInfoForUtilTZ(writerTimezone);
+        TzInfoInJavaUtilForORC readerTzInfo = getInfoForUtilTZ(readerTimezone);
         Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
         Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
 
