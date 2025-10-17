@@ -821,7 +821,7 @@ public class CastStringsTest {
     // Result is invalid, although ts is not zero
     list.add(Arrays.asList("2023-11-05 03:04:55 Ux", 1, 1699153495L, 0, 2, 0, -1));
     list.add(Arrays.asList("2023-11-05 03:04:55 UTx", 1, 1699153495L, 0, 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTCx", 1, 1699153495L, 0, 2, 0, 0, -1)); // row 110
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTCx", 1, 1699153495L, 0, 2, 0, -1)); // row 110
     list.add(Arrays.asList("2023-11-05 03:04:55 UT+", 1, 0L, 0, 3, 0, -1));
     list.add(Arrays.asList("2023-11-05 03:04:55 UT-08:1:08", 1, 0L, 0, 3, 0, -1));
     list.add(Arrays.asList("2023-11-05 03:04:55 UT-8:1:08", 1, 0L, 0, 3, 0, -1));
@@ -840,7 +840,7 @@ public class CastStringsTest {
     // ################################################
     // although input exceeds max Spark year, but the intermidiate can hold it.
     // only years not in range [-300000, 300000] are invalid
-    list.add(Arrays.asList("296271-05-22", 0, 9287254713600L, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("296271-05-22", 0, 9287254713600L, 0, 2, 0, 1));
 
     List<String> input = new ArrayList<>(list.size());
     List<Byte> expected_return_type = new ArrayList<>(list.size());
@@ -857,7 +857,7 @@ public class CastStringsTest {
       expected_utc_microseconds.add(Integer.parseInt(row.get(3).toString()));
       expected_tz_type.add(Byte.parseByte(row.get(4).toString()));
       expected_tz_offset.add(Integer.parseInt(row.get(5).toString()));
-      expected_tz_index.add(Integer.parseInt(row.get(7).toString()));
+      expected_tz_index.add(Integer.parseInt(row.get(6).toString()));
     }
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));

@@ -435,7 +435,7 @@ public class GpuTimeZoneDB {
    * 
    * @return timezone info table
    */
-  public static synchronized Table getTimezoneInfo() {
+  public static Table getTimezoneInfo() {
     verifyDatabaseCached();
     try (ColumnVector fixedInfo = fixedTransitions.copyToDevice();
         ColumnVector dstInfo = dstRules.copyToDevice()) {
