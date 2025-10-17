@@ -115,7 +115,7 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertBetweenTimezones(JNIEnv* e
     auto const writer_tz_info_tab = reinterpret_cast<cudf::table_view const*>(writer_tz_info_table);
     auto const reader_tz_info_tab = reinterpret_cast<cudf::table_view const*>(reader_tz_info_table);
     return cudf::jni::ptr_as_jlong(
-      spark_rapids_jni::convert_between_timezones(
+      spark_rapids_jni::convert_orc_writer_reader_timezones(
         *input, writer_tz_info_tab, writer_tz_raw_offset, reader_tz_info_tab, reader_tz_raw_offset)
         .release());
   }

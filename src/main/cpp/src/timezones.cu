@@ -334,6 +334,147 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
   return results;
 }
 
+// =================== ORC timezones utils begin ===================
+// ORC timezone uses java.util.TimeZone rules, which is different from java.time.ZoneId rules.
+
+/**
+ * @brief Get the transition index for the given seconds using binary search.
+ * The transition array is sorted, each int64 value is composed of 44 bits
+ * transition time in seconds and 20 bits offset in seconds.
+ */
+__device__ static int get_transition_index(int64_t const* begin,
+                                           int64_t const* end,
+                                           int64_t seconds)
+{
+  constexpr int OFFSET_SHIFT = 20;
+  if (begin == end) { return -1; }
+
+  int low  = 0;
+  int high = end - begin - 1;
+
+  while (low <= high) {
+    int mid     = (low + high) / 2;
+    int64_t val = begin[mid];
+    long midVal = val >> OFFSET_SHIFT;  // sign retained
+    if (midVal < seconds) {
+      low = mid + 1;
+    } else if (midVal > seconds) {
+      high = mid - 1;
+    } else {
+      return mid;
+    }
+  }
+
+  // if beyond the transitions, returns that index.
+  if (low >= (end - begin)) { return low; }
+  return low - 1;
+}
+
+/**
+ * @brief Get the int value from the least significant `num_bits` in a int64_t value.
+ * Note: If the `num_bits` bit is 1, it returns negative value.
+ * @param holder the int64_t value holds the bits.
+ * @param num_bits the number of bits to get from the least significant bits.
+ * @return the int value from the least significant `num_bits` in a int64_t value.
+ */
+__device__ static int64_t get_value_from_lowest_bits(int64_t holder, int num_bits)
+{
+  int64_t mask      = (1L << num_bits) - 1L;
+  int64_t sign_mask = 1L << (num_bits - 1);
+
+  if ((holder & sign_mask) != 0) {
+    // the sign bit is 1, it's a negative value
+    // set all the complement bits to 1
+    return holder | (~mask);
+  }
+
+  // positive value
+  return holder & mask;
+}
+
+/**
+ * @brief Find the relative offset when moving between timezones at a particular point in time.
+ * This is for ORC timezone support.
+ *
+ * This function implements `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`
+ * Refer to link: https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
+ * java/org/apache/orc/impl/SerializationUtils.java#L1440
+ *
+ * If the input `trans_begin` == `trans_begin` == nullptr, it means the timezone is fixed offset,
+ * then use the raw_offset directly.
+ *
+ * @param ts the input timestamp in UTC timezone to get the offset for.
+ * @param writer_trans_begin The beginning of the writer timezone transition array, or 0 if using
+ * fixed offset.
+ * @param writer_trans_end The end of the writer timezone transition array, or 0 if using fixed
+ * offset.
+ * @param writer_raw_offset Writer timezone raw offset in seconds.
+ * @param reader_trans_begin The beginning of the reader timezone transition array, or 0 if using
+ * fixed offset.
+ * @param reader_trans_end The end of the reader timezone transition array, or 0 if using fixed
+ * offset.
+ * @param reader_raw_offset Reader timezone raw offset in seconds.
+ * @return the timestamp after apply the offsets between timezones.
+ */
+__device__ static cudf::timestamp_us convert_timestamp_between_timezones(
+  cudf::timestamp_us ts,
+  int64_t const* writer_trans_begin,
+  int64_t const* writer_trans_end,
+  cudf::size_type writer_raw_offset,
+  int64_t const* reader_trans_begin,
+  int64_t const* reader_trans_end,
+  cudf::size_type reader_raw_offset)
+{
+  constexpr int32_t OFFSET_BITS = 20;
+
+  int64_t const epoch_seconds = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_s>(ts.time_since_epoch()).count());
+
+  int64_t writer_offset = [&] {
+    int const writer_index =
+      get_transition_index(writer_trans_begin, writer_trans_end, epoch_seconds);
+
+    if (writer_index >= 0 && writer_index < (writer_trans_end - writer_trans_begin)) {
+      return get_value_from_lowest_bits(writer_trans_begin[writer_index], OFFSET_BITS);
+    } else {
+      return static_cast<int64_t>(writer_raw_offset);
+    }
+  }();
+
+  int64_t reader_offset = [&] {
+    int const reader_index =
+      get_transition_index(reader_trans_begin, reader_trans_end, epoch_seconds);
+    if (reader_index >= 0 && reader_index < (reader_trans_end - reader_trans_begin)) {
+      return get_value_from_lowest_bits(reader_trans_begin[reader_index], OFFSET_BITS);
+    } else {
+      return static_cast<int64_t>(reader_raw_offset);
+    }
+  }();
+
+  int64_t reader_adjusted_offset = [&] {
+    int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
+
+    int const reader_adjusted_index =
+      get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);
+
+    if (reader_adjusted_index >= 0 &&
+        reader_adjusted_index < (reader_trans_end - reader_trans_begin)) {
+      return get_value_from_lowest_bits(reader_trans_begin[reader_adjusted_index], OFFSET_BITS);
+    } else {
+      return static_cast<int64_t>(reader_raw_offset);
+    }
+  }();
+
+  int64_t final_offset_seconds =
+    static_cast<int64_t>(writer_offset) - static_cast<int64_t>(reader_adjusted_offset);
+  int64_t const epoch_us = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
+  int64_t final_result = epoch_us + final_offset_seconds * 1'000'000L;
+  return cudf::timestamp_us{cudf::duration_us{final_result}};
+}
+
+// =================== ORC timezones utils end ===================
+
 }  // namespace
 
 namespace spark_rapids_jni {
@@ -400,7 +541,7 @@ std::unique_ptr<column> convert_timestamp_to_utc(column_view const& input_second
                                                 mr);
 }
 
-std::unique_ptr<cudf::column> convert_between_timezones(
+std::unique_ptr<cudf::column> convert_orc_writer_reader_timezones(
   cudf::column_view const& input,
   cudf::table_view const* writer_tz_info_table,
   cudf::size_type writer_raw_offset,

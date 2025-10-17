@@ -120,8 +120,7 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
 /**
- * @brief Convert input column timestamps from specified writer timezone to specified reader
- * timezone.
+ * @brief Convert between ORC writer timezone and reader timezone.
  *
  * If `writer_tz_info_table` is null, it means the writer timezone is fixed offset.
  * If `reader_tz_info_table` is null, it means the reader timezone is fixed offset.
@@ -148,7 +147,7 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
  *
  * @return a column of timestamps rebased between writer and reader timezones.
  */
-std::unique_ptr<cudf::column> convert_between_timezones(
+std::unique_ptr<cudf::column> convert_orc_writer_reader_timezones(
   cudf::column_view const& input,
   cudf::table_view const* writer_tz_info_table,
   cudf::size_type writer_raw_offset,
