@@ -243,98 +243,7 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
   return result;
 }
 
-struct convert_timezones_functor {
-  // writer timezone info
-  int64_t const* writer_trans_begin;
-  int64_t const* writer_trans_end;
-  int32_t writer_raw_offset;
-
-  // reader timezone info
-  int64_t const* reader_trans_begin;
-  int64_t const* reader_trans_end;
-  int32_t reader_raw_offset;
-
-  __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
-  {
-    return spark_rapids_jni::convert_timestamp_between_timezones(timestamp,
-                                                                 writer_trans_begin,
-                                                                 writer_trans_end,
-                                                                 writer_raw_offset,
-                                                                 reader_trans_begin,
-                                                                 reader_trans_end,
-                                                                 reader_raw_offset);
-  }
-};
-
-std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
-                                          cudf::table_view const* writer_tz_info_table,
-                                          cudf::size_type writer_raw_offset,
-                                          cudf::table_view const* reader_tz_info_table,
-                                          cudf::size_type reader_raw_offset,
-                                          rmm::cuda_stream_view stream,
-                                          rmm::device_async_resource_ref mr)
-{
-  // Input is from Spark, so it should be TIMESTAMP_MICROSECONDS type
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
-               "Input column must be of type TIMESTAMP_MICROSECONDS");
-  auto results = cudf::make_timestamp_column(input.type(),
-                                             input.size(),
-                                             cudf::detail::copy_bitmask(input, stream, mr),
-                                             input.null_count(),
-                                             stream,
-                                             mr);
-
-  int64_t const* writer_trans_begin = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(0).begin<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
-
-  int64_t const* writer_trans_end = [&]() {
-    if (writer_tz_info_table != nullptr) {
-      return writer_tz_info_table->column(0).end<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
-
-  int64_t const* reader_trans_begin = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(0).begin<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
-
-  int64_t const* reader_trans_end = [&]() {
-    if (reader_tz_info_table != nullptr) {
-      return reader_tz_info_table->column(0).end<int64_t>();
-    } else {
-      // fixed transition, has no transitions
-      return static_cast<int64_t const*>(0);
-    }
-  }();
-
-  thrust::transform(rmm::exec_policy_nosync(stream),
-                    input.begin<cudf::timestamp_us>(),
-                    input.end<cudf::timestamp_us>(),
-                    results->mutable_view().begin<cudf::timestamp_us>(),
-                    convert_timezones_functor{writer_trans_begin,
-                                              writer_trans_end,
-                                              writer_raw_offset,
-                                              reader_trans_begin,
-                                              reader_trans_end,
-                                              reader_raw_offset});
-
-  return results;
-}
-
-// =================== ORC timezones utils begin ===================
+// =================== ORC timezones begin ===================
 // ORC timezone uses java.util.TimeZone rules, which is different from java.time.ZoneId rules.
 
 /**
@@ -473,7 +382,98 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
-// =================== ORC timezones utils end ===================
+struct convert_timezones_functor {
+  // writer timezone info
+  int64_t const* writer_trans_begin;
+  int64_t const* writer_trans_end;
+  int32_t writer_raw_offset;
+
+  // reader timezone info
+  int64_t const* reader_trans_begin;
+  int64_t const* reader_trans_end;
+  int32_t reader_raw_offset;
+
+  __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
+  {
+    return spark_rapids_jni::convert_timestamp_between_timezones(timestamp,
+                                                                 writer_trans_begin,
+                                                                 writer_trans_end,
+                                                                 writer_raw_offset,
+                                                                 reader_trans_begin,
+                                                                 reader_trans_end,
+                                                                 reader_raw_offset);
+  }
+};
+
+std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
+                                          cudf::table_view const* writer_tz_info_table,
+                                          cudf::size_type writer_raw_offset,
+                                          cudf::table_view const* reader_tz_info_table,
+                                          cudf::size_type reader_raw_offset,
+                                          rmm::cuda_stream_view stream,
+                                          rmm::device_async_resource_ref mr)
+{
+  // Input is from Spark, so it should be TIMESTAMP_MICROSECONDS type
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::TIMESTAMP_MICROSECONDS,
+               "Input column must be of type TIMESTAMP_MICROSECONDS");
+  auto results = cudf::make_timestamp_column(input.type(),
+                                             input.size(),
+                                             cudf::detail::copy_bitmask(input, stream, mr),
+                                             input.null_count(),
+                                             stream,
+                                             mr);
+
+  int64_t const* writer_trans_begin = [&]() {
+    if (writer_tz_info_table != nullptr) {
+      return writer_tz_info_table->column(0).begin<int64_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int64_t const*>(0);
+    }
+  }();
+
+  int64_t const* writer_trans_end = [&]() {
+    if (writer_tz_info_table != nullptr) {
+      return writer_tz_info_table->column(0).end<int64_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int64_t const*>(0);
+    }
+  }();
+
+  int64_t const* reader_trans_begin = [&]() {
+    if (reader_tz_info_table != nullptr) {
+      return reader_tz_info_table->column(0).begin<int64_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int64_t const*>(0);
+    }
+  }();
+
+  int64_t const* reader_trans_end = [&]() {
+    if (reader_tz_info_table != nullptr) {
+      return reader_tz_info_table->column(0).end<int64_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int64_t const*>(0);
+    }
+  }();
+
+  thrust::transform(rmm::exec_policy_nosync(stream),
+                    input.begin<cudf::timestamp_us>(),
+                    input.end<cudf::timestamp_us>(),
+                    results->mutable_view().begin<cudf::timestamp_us>(),
+                    convert_timezones_functor{writer_trans_begin,
+                                              writer_trans_end,
+                                              writer_raw_offset,
+                                              reader_trans_begin,
+                                              reader_trans_end,
+                                              reader_raw_offset});
+
+  return results;
+}
+
+// =================== ORC timezones end ===================
 
 }  // namespace
 
