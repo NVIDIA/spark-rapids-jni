@@ -165,8 +165,8 @@ public class CastStrings {
    *
    * Intermediate result is a struct column with 6 sub-columns:
    * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
-   * - seconds part of parsed UTC timestamp
-   * - microseconds part of parsed UTC timestamp
+   * - seconds part of parsed UTC timestamp, it's from yyyy-mm-dd hh:mm:ss part of input string
+   * - microseconds part of parsed UTC timestamp, it's from sub-second part of input string
    * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
    * - Timezone offset for fixed type, only applies to fixed type
    * - Timezone index to `GpuTimeZoneDB.getTimezoneInfo` table
@@ -179,12 +179,10 @@ public class CastStrings {
    *
    * @param input The input String column contains timestamp strings
    * @param defaultTimeZoneIndex The default timezone index to `GpuTimeZoneDB`
-   *   transition table.
-   * @param defaultEpochDay Default epoch day to use if just time, e.g.: epoch day of
-   *   "2025-05-05", then "T00:00:00" is "2025-05-05T00:00:00Z"
-   * @param tzNameToIndexMap Timezone info column:
-   *   STRUCT<tz_name: string, index_to_tz_info_table: int, is_DST: int8>,
-   *   Refer to `GpuTimeZoneDB` for more details.
+   *   timezone info table.
+   * @param defaultEpochDay Default epoch day to use if just time, it's current date.
+   * @param tzNameToIndexMap Timezone name to row index of timezone info table.
+   *   Refer to `GpuTimeZoneDB.getTimezoneInfo` for more details.
    * @param timezoneInfo Timezone info table contains fixed-transitions and DST rules.
    * @param sparkVersion Spark version
    * @return a struct column contains 6 columns described above.

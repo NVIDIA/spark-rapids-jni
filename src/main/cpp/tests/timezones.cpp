@@ -84,7 +84,7 @@ class TimeZoneTest : public cudf::test::BaseFixture {
     auto columns = std::vector<std::unique_ptr<cudf::column>>{};
     columns.push_back(std::move(list_column));
 
-    // make empty DST list<int> column, the second column in the transitions table is DST info.
+    // make empty DST list<int> column, it means all timezones are non-DST
     auto dst_child   = int32_col({});
     auto dst_offsets = cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 0, 0};
     auto dst_col     = cudf::make_lists_column(

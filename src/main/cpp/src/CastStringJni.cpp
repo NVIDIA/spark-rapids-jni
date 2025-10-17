@@ -297,7 +297,7 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
   int patchVersion)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  JNI_NULL_CHECK(env, tz_name_to_index_map, "timezone info column is null", 0);
+  JNI_NULL_CHECK(env, tz_name_to_index_map, "timezone name to index column is null", 0);
   JNI_NULL_CHECK(env, timezone_info_table, "timezone info table is null", 0);
 
   JNI_TRY

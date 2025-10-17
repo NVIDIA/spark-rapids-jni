@@ -446,7 +446,7 @@ public class CastStringsTest {
 
   @Test
   void castStringToTimestampFirstPhaseJustTimeTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     long defaultEpochDay = 1;
     long secondsOfEpochDay = defaultEpochDay * 24 * 60 * 60;
     List<List<Object>> list = new ArrayList<>();
@@ -551,7 +551,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampJustTimeWithFixedTzTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     ZoneId eightHours = ZoneId.of("+08:00");
@@ -607,7 +607,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampJustTimeWithOtherTzTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     ZoneId pstTZ = ZoneId.of("America/Los_Angeles");
@@ -656,7 +656,7 @@ public class CastStringsTest {
 
   @Test
   void castStringToTimestampFirstPhaseTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     List<List<Object>> list = new ArrayList<>();
     // make a dummy epoch day, this test case does not test just time.
     long defaultEpochDay = 1;
@@ -887,8 +887,8 @@ public class CastStringsTest {
   }
 
   @Test
-  void castStringToTimestampOnCpu() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampHasYearAfter2200() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -1020,8 +1020,8 @@ public class CastStringsTest {
   }
 
   @Test
-  void castStringToTimestampOnGpu() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestamp() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -1208,7 +1208,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampUseNonUTCDefaultTimezone() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     // 1. test fallback to cpu: has year > 2200 and has DST
@@ -1244,8 +1244,8 @@ public class CastStringsTest {
   }
 
   @Test
-  void castStringToTimestampOnGpuForSpark320() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampForSpark320() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -1293,8 +1293,8 @@ public class CastStringsTest {
    * Refer to https://github.com/NVIDIA/spark-rapids-jni/issues/3401
    */
   @Test
-  void castStringToTimestampOnGpuForSpark400PlusDB14_3Plus() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampForSpark400PlusDB14_3Plus() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     List<List<Object>> list = new ArrayList<>();

@@ -142,9 +142,9 @@ struct date_time_utils {
   /**
    * @brief Returns day of week in civil calendar for the specified epoch days.
    * Day of week is from 0(Monday) to 6(Sunday).
-   * @param epoch_days the days from epoch time 1970-01-01
-   * MUST be in range [Int32.MinValue - 8, Int64.MaxValue - Int32.MaxValue + 9],
-   * In general, range [Int32.MinValue - 8, Int32.MaxValue + 8] is enough for Spark date.
+   *
+   * @param epoch_days the days from epoch time 1970-01-01, it's int64 type,
+   * for Spark, only has int32 days, so [Int32.MinValue, Int32.MaxValue] is expected.
    * @return the weekday for the days from epoch
    */
   __device__ static int64_t weekday_from_days(int64_t epoch_days) noexcept
@@ -160,7 +160,7 @@ struct date_time_utils {
    * E.g: weekday of `epoch_days` = 0(Monday), `expected_weekday` = 6(Sunday), returns 6
    * E.g: weekday of `epoch_days` = 6(Sunday), `expected_weekday` = 0(Monday), returns 1
    * @param epoch_days The days from epoch time 1970-01-01
-   * @param expected_weekday The to weekday of week, MUST be in range: from 0(Monday) to 6(Sunday)
+   * @param expected_weekday The exptected day of week, MUST be from 0(Monday) to 6(Sunday)
    * @return difference to move forward in range [0, 6]
    */
   __device__ static int64_t weekday_difference(int64_t epoch_days, int64_t expected_weekday)
@@ -178,7 +178,7 @@ struct date_time_utils {
    * E.g: weekday of `epoch_days` = 0(Monday), `expected_weekday` = 6(Sunday), returns 1
    * E.g: weekday of `epoch_days` = 6(Sunday), `expected_weekday` = 0(Monday), returns 6
    * @param epoch_days The days from epoch time 1970-01-01
-   * @param expected_weekday The to weekday of week, MUST be in range: from 0(Monday) to 6(Sunday)
+   * @param expected_weekday The to weekday of week, MUST be from 0(Monday) to 6(Sunday)
    * @return difference to move backward in range [0, 6]
    */
   __device__ static int64_t previous_weekday_difference(int64_t epoch_days,
@@ -193,7 +193,8 @@ struct date_time_utils {
   }
 
   /**
-   * @brief Get the next or the same weekday from the specified `epoch_days` and expected weekday.
+   * @brief Move forward to get the expected weekday.
+   * If the input day is already the expected weekday, do not move.
    * E.g.: if inputs are the days of 2025-10-10(Friday) and Sunday(6),
    * the next or the same Sunday is 2025-10-12.
    * @param epoch_days epoch days
@@ -207,8 +208,9 @@ struct date_time_utils {
   }
 
   /**
-   * @brief Get the previous or the same weekday from the specified `epoch_days` and expected
-   * weekday. E.g.: if inputs are the days of 2025-10-13(Monday) and Sunday(6), the previous or the
+   * @brief Move backward to get the expected weekday.
+   * If the input day is already the expected weekday, do not move.
+   * E.g.: if inputs are the days of 2025-10-13(Monday) and Sunday(6), the previous or the
    * same Sunday is 2025-10-12.
    * @param epoch_days epoch days
    * @param expected_weekday expected weekday, 0 represents Monday, 6 represents Sunday.
@@ -284,7 +286,7 @@ struct overflow_checker {
                                                 int32_t microseconds,
                                                 int64_t& result)
   {
-    constexpr int64_t micros_per_sec       = 1'000'000;
+    constexpr int64_t micros_per_sec       = 1'000'000L;
     constexpr int64_t max_v                = cuda::std::numeric_limits<int64_t>::max();
     constexpr int64_t min_v                = cuda::std::numeric_limits<int64_t>::min();
     constexpr int64_t max_positive_seconds = max_v / micros_per_sec;
@@ -323,7 +325,7 @@ struct transition_rule {
   // if it's negative, this is ignored.
   int32_t dow;
 
-  // time difference in seconds compared to the midnight
+  // time difference in seconds compared to the midnight, can be negative
   int32_t time_diff_compared_to_midnight;
 
   // offset in seconds before this transition
@@ -367,7 +369,7 @@ struct daylight_saving_time_utils {
    * @brief Create transition info for the specified year and the transition rule.
    * @param year The year for the transition rule to apply
    * @param rule The transition rule
-   * @param info[out] The transition info created
+   * @param info[out] The transition info to get
    */
   __device__ static void create_transition_info(int32_t const year,
                                                 transition_rule const& rule,
@@ -472,7 +474,7 @@ struct daylight_saving_time_utils {
   /**
    * @brief Create the DST rules from the list device view.
    * The list device view must contain 12 integers, each 6 integers represent a DST rule.
-   * @param ldv The list device view
+   * @param ldv The list device view containing DST rules
    * @return A pair of transition rules
    */
   __device__ static thrust::pair<transition_rule, transition_rule> create_dst_rules(
@@ -497,43 +499,51 @@ struct daylight_saving_time_utils {
 
 /**
  * @brief Convert the timestamp from/to UTC for the specified timezone.
- * This function first apply DST rules if any, then apply the transitions.
- * For the timezone without DST rules, it only applies the transitions.
- * For the processing of apply the transitions:
+ * This function first apply DST rules if any, then apply the fixed-transitions.
+ * For the timezone without DST rules, it only applies the fixed-transitions.
+ *
+ * For the processing of apply DST rules:
+ * - If there is no DST rules, skip this step.
+ * - If time <= the last fixed-transition time, skip this step.
+ * - Make two fixed-transitions for the specified year using the DST rules.
+ * - Find the right rule in the two fixed-transitions.
+ *
+ * For the processing of apply the fixed-transitions:
  * - Uses a binary search to find the right offset to do the transition.
  * - For transition to UTC: do a binary search on the tzInstant.
  * - For transition from UTC: do a binary search on the utcInstant.
+ *
  * @param timestamp The timestamp to convert
- * @param transitions The transitions list column device view for the timezone
- * @param dsts The DST rules list column device view for the timezone
- * @param tz_index The timezone index
+ * @param fixed_transitions The fixed transitions forthe timezone
+ * @param dst_rules The DST rules for the timezone
+ * @param tz_index The timezone index to `fixed_transitions` and `dst_rules`
  * @param to_utc true to convert to UTC, false to convert from UTC
  * @return The converted timestamp
  */
 template <typename timestamp_type>
 __device__ static timestamp_type convert_timestamp(
   timestamp_type const& timestamp,
-  cudf::detail::lists_column_device_view const& transitions,
-  cudf::detail::lists_column_device_view const& dsts,
+  cudf::detail::lists_column_device_view const& fixed_transitions,
+  cudf::detail::lists_column_device_view const& dst_rules,
   cudf::size_type tz_index,
   bool to_utc)
 {
   using duration_type = typename timestamp_type::duration;
 
-  auto const utc_instants = transitions.child().child(0);
-  auto const tz_instants  = transitions.child().child(1);
-  auto const utc_offsets  = transitions.child().child(2);
+  auto const utc_instants = fixed_transitions.child().child(0);
+  auto const tz_instants  = fixed_transitions.child().child(1);
+  auto const utc_offsets  = fixed_transitions.child().child(2);
 
   auto const epoch_seconds = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_s>(timestamp.time_since_epoch()).count());
-  auto const tz_transitions = cudf::list_device_view{transitions, tz_index};
+  auto const tz_transitions = cudf::list_device_view{fixed_transitions, tz_index};
   auto const list_size      = tz_transitions.size();
 
   auto const transition_times = cudf::device_span<int64_t const>(
     (to_utc ? tz_instants : utc_instants).data<int64_t>() + tz_transitions.element_offset(0),
     static_cast<size_t>(list_size));
 
-  auto const dst_integers = cudf::list_device_view{dsts, tz_index};
+  auto const dst_integers = cudf::list_device_view{dst_rules, tz_index};
   // size of dst integers, MUST be 0 or 12, each 6 integers represent a DST rule
   auto const dst_integers_size = dst_integers.size();
 

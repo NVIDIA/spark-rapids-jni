@@ -41,10 +41,6 @@ import java.util.concurrent.Executors;
  * - Timezone rebasing APIs: `fromTimestampToUtcTimestamp`, etc.
  * - Utilities for casting string with timezone to timestamp APIs
  * - Loading, shutdown, and checking APIs, etc.
- *
- * Note: `cacheDatabase` and `verifyDatabaseCachedSync` are synchronized.
- * When cacheDatabaseAsync is running, the `verifyDatabaseCachedSync` will
- * wait; These APIs guarantee only one thread is loading timezone info cache
  */
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
@@ -132,6 +128,10 @@ public class GpuTimeZoneDB {
     thread.start();
   }
 
+  /**
+   * Verify the timezone database is loaded.
+   * If not loaded, throw IllegalStateException.
+   */
   private static synchronized void verifyDatabaseCachedSync() {
     if (tzNameToIndexMap == null) {
       throw new IllegalStateException("Timezone DB is not loaded, or the loading was failed.");

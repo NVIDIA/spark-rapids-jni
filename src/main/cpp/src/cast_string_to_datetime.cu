@@ -227,8 +227,8 @@ __device__ time_zone parse_tz_from_sign(
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
         if (m_digits == 0 || (is_spark_320 && m_digits == 1)) {
-          // [+-]h[h]: without digits following, or Spark 320 not supports
-          // [+-]h[h]:m
+          // [+-]h[h]: without digits following,
+          // or Spark 320 does not support [+-]h[h]:m
           return make_invalid_tz();
         } else {
           // [+-]h[h]:m[m]
@@ -739,9 +739,8 @@ struct parse_timestamp_string_fn {
 
   __device__ void operator()(cudf::size_type const idx) const
   {
-    // No need to check null for the `str` element
-    // Because get element on null will return empty string and then result in
-    // invalid
+    // No need to check null for the `str` element, because get element on
+    // null will return empty string and then result in invalid
     auto const str = d_strings.element<cudf::string_view>(idx);
 
     unsigned char const* str_ptr     = reinterpret_cast<unsigned char const*>(str.data());

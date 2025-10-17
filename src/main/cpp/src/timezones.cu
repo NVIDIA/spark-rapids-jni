@@ -44,12 +44,9 @@ using table_view               = cudf::table_view;
 
 namespace {
 
-// This device functor uses a binary search to find the instant of the transition
-// to find the right offset to do the transition.
-// To transition to UTC: do a binary search on the tzInstant child column and subtract
-// the offset.
-// To transition from UTC: do a binary search on the utcInstant child column and add
-// the offset.
+/**
+ * Functor to convert timestamps between UTC and a specific timezone.
+ */
 template <typename timestamp_type>
 struct convert_timestamp_tz_functor {
   using duration_type = typename timestamp_type::duration;
@@ -113,6 +110,11 @@ auto convert_timestamp_tz(column_view const& input,
   return results;
 }
 
+/**
+ * Functor to convert timestamps between UTC and a specific timezone.
+ * This is used for casting string(with timezone) to timestamp.
+ * This functor can handle multiple timezones for each row.
+ */
 struct convert_with_timezones_fn {
   // inputs
   int64_t const* input_seconds;

@@ -143,22 +143,21 @@ std::unique_ptr<cudf::column> long_to_binary_string(
 
 /**
  * @brief Parse a timestamp string column into an intermediate struct column.
- * The output column is a struct column with 7 children:
+ * The intermediate column has 6 children:
  * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
- * - seconds part of parsed UTC timestamp
- * - microseconds part of parsed UTC timestamp
+ * - seconds part of parsed UTC timestamp, from part: yyyy-mm-dd hh:mm:ss
+ * - microseconds part of parsed UTC timestamp, from part: sub-seconds
  * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
  * - Timezone offset for fixed type, only applies to fixed type
- * - Timezone is DST, only applies to other type
  * - Timezone index to `GpuTimeZoneDB.transitions` table
  *
  * @param input The input String column contains timestamp strings
  * @param default_tz_index The default timezone index to `GpuTimeZoneDB` transition table.
  * @param default_epoch_day Default epoch day to use if just time, e.g.:
- *   "T00:00:00Z" will use the default_epoch_day, e.g.: the result will be "2025-05-05T00:00:00Z"
- * @param tz_name_to_index_map Timezone info column: STRUCT<tz_name: string, index_to_tz_table: int>
- * @param tz_info_table Timezone transitions table from `GpuTimeZoneDB`, first column is fixed
- * offset, second column is DST rules.
+ *   "T00:00:00Z" will use the default_epoch_day, which is the current date.
+ * @param tz_name_to_index_map Timezone name to row index in the timezone info table
+ * @param tz_info_table Timezone info table from `GpuTimeZoneDB`, first column is fixed
+ * offsets, second column is DST rules.
  * @param stream Stream on which to operate.
  * @param mr Memory resource for returned column
  * @return a struct column constains 7 columns described above.

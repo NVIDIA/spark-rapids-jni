@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Test;
 public class TimeZoneTest {
   @BeforeAll
   static void cacheTimezoneDatabase() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
   }
   
   @AfterAll
