@@ -288,7 +288,6 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
   jclass,
   jlong input_column,
   int default_timezone_index,
-  bool is_default_timezone_dst,
   long default_epoch_day,
   jlong timezone_info_column,
   jlong transitions_table,
@@ -314,7 +313,6 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::parse_timestamp_strings(input_view,
                                                 default_timezone_index,
-                                                is_default_timezone_dst,
                                                 default_epoch_day,
                                                 *tz_info_view,
                                                 *transitions,

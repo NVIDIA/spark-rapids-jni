@@ -273,7 +273,8 @@ struct date_segments {
 
 struct overflow_checker {
   /**
-   * Calculate the timestamp from epoch seconds and microseconds with checking overflow
+   * Calculate the timestamp from epoch seconds and microseconds with checking overflow.
+   * Overflow happens when seconds plus microseconds is out of int64 range.
    * @param seconds seconds from epoch
    * @param microseconds MUST be in range [0, 999999]
    * @param[out] result timestamp in microseconds
