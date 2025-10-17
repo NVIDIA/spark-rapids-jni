@@ -162,7 +162,7 @@ struct convert_with_timezones_fn {
         fixed_transitions,
         dst_rules,
         tz_indices[row_idx],
-        false);
+        true);
       converted_seconds = converted_ts.time_since_epoch().count();
     }
 

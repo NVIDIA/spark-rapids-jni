@@ -721,10 +721,10 @@ struct parse_timestamp_string_fn {
   cudf::column_device_view tz_name_to_index_map;
   // Fixed offset transitions in the timezone table
   // Column type is LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
-  cudf::detail::lists_column_device_view transitions;
+  cudf::detail::lists_column_device_view fixed_transitions;
   // DST rules in the timezone table
   // column type is LIST<INT>, if it's DST, 12 integers defines two rules
-  cudf::detail::lists_column_device_view dsts;
+  cudf::detail::lists_column_device_view dst_rules;
 
   // outputs
   // parsed result types: not supported, invalid, success
@@ -763,11 +763,12 @@ struct parse_timestamp_string_fn {
                                               just_time);
 
     // set result column
-    result_types[idx]    = static_cast<uint8_t>(result_type);
-    ts_seconds[idx]      = seconds;
-    ts_microseconds[idx] = microseconds;
-    tz_types[idx]        = static_cast<uint8_t>(tz.type);
-    tz_indices[idx]      = -1;
+    result_types[idx]     = static_cast<uint8_t>(result_type);
+    ts_seconds[idx]       = seconds;
+    ts_microseconds[idx]  = microseconds;
+    tz_types[idx]         = static_cast<uint8_t>(tz.type);
+    tz_fixed_offsets[idx] = tz.fixed_offset;
+    tz_indices[idx]       = -1;
 
     if (result_type != result_type::SUCCESS) {
       // already set result_type::INVALID
@@ -836,8 +837,8 @@ struct parse_timestamp_string_fn {
           // local timezone to get the current date
           auto rebased_seconds = spark_rapids_jni::convert_timestamp<cudf::timestamp_s>(
             cudf::timestamp_s{cudf::duration_s{current_seconds_since_epoch}},
-            transitions,
-            dsts,
+            fixed_transitions,
+            dst_rules,
             tz_indices[idx],
             /* to_utc */ false);
 

@@ -36,57 +36,62 @@ import java.util.concurrent.Executors;
 
 /**
  * Gpu timezone utility.
- * Provides two kinds of APIs
- * - Timezone transitions cache APIs
- * `cacheDatabaseAsync`, `cacheDatabase` and `shutdown` are synchronized.
- * When cacheDatabaseAsync is running, the `shutdown` and `cacheDatabase` will
- * wait;
- * These APIs guarantee only one thread is loading transitions cache,
- * And guarantee loading cache only occurs one time.
- * - Rebase timezone APIs
- * fromTimestampToUtcTimestamp, fromUtcTimestampToTimestamp ...
+ *
+ * Provides the following APIs
+ * - Timezone rebasing APIs: `fromTimestampToUtcTimestamp`, etc.
+ * - Utilities for casting string with timezone to timestamp APIs
+ * - Loading, shutdown, and checking APIs, etc.
+ *
+ * Note: `cacheDatabase` and `verifyDatabaseCachedSync` are synchronized.
+ * When cacheDatabaseAsync is running, the `verifyDatabaseCachedSync` will
+ * wait; These APIs guarantee only one thread is loading timezone info cache
  */
 public class GpuTimeZoneDB {
   private static final Logger log = LoggerFactory.getLogger(GpuTimeZoneDB.class);
 
-  // Timezone transition info:
-  // LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
-  private static HostColumnVector transitions;
+  /**
+   * Timezone fixed transitions column, column type is:
+   * LIST<STRUCT<utcInstant: int64, localInstant: int64, offset: int32>>
+   * This is from `ZoneRules.getTransitions()`
+   */
+  private static HostColumnVector fixedTransitions;
 
-  // Timezone DST rules: LIST<LIST<INT>>
-  // If a timezone has no DST, then the sub list is empty.
-  // If a timezone has DST, then the sub list has 12 integers, which contains 2
-  // rules(start and end)
-  //
-  // index 0: month:int, // from 1 (January) to 12 (December)
-  // index 1: dayOfMonth: int, // from -28 to 31 excluding 0
-  // index 2: dayOfWeek: int, // from 0 (Monday) to 6 (Sunday), -1 means not
-  // specified
-  // index 3: timeDiffToMidnight: int, // transition time diff in seconds compared
-  // to midnight
-  // index 4: offsetBefore: int, // the offset before the cutover
-  // index 5: offsetAfter: int // The offset after the cutover
-  //
-  // index 6: the 2nd rule begin
-  // ...
-  // index 11: the 2nd rule end
+  /**
+   * Timezone DST rules column, column type is: LIST<INT32>
+   * This is from `ZoneRules.getTransitionRules()`
+   * `fixedTransitions` and `dstRules` compose the full timezone database.
+   * If a timezone has no DST, then the list is empty.
+   * If a timezone has DST, then the list has 12 integers, which contains 2
+   * rules(start rule and end rule)
+   * The integers in a list are:
+   *
+   * index 0: month:int, // from 1 (January) to 12 (December)
+   * index 1: dayOfMonth: int, // from -28 to 31 excluding 0
+   * index 2: dayOfWeek: int, // from 0 (Monday) to 6 (Sunday), -1 means ignore
+   * index 3: timeDiffToMidnight: int, // transition time in seconds compared to
+   * midnight
+   * index 4: offsetBefore: int, // the offset before the cutover
+   * index 5: offsetAfter: int // The offset after the cutover
+   * index 6: the 2nd rule begin
+   * ...
+   * index 11: the 2nd rule end
+   *
+   */
   private static HostColumnVector dstRules;
 
-  // Map from timezone name to the index in the `transitions`
+  // Map from timezone name to the index in the timezone info table
   private static java.util.Map<String, Integer> zoneIdToTable;
 
-  // host column STRUCT<tz_name: string, index_to_transition_table: int, is_DST:
-  // int8>,
-  // sorted by timezone, is used to query index to transition table and if tz is
-  // DST
-  // Casting string with timezone to timestamp needs loading all timezone is
-  // successful.
-  // If this is not null, it indicates loading is successful,
-  // because it's the last variable to construct in `loadData` function.
-  // use this reference to indicate if timezone cache is initialized successfully.
-  // The tz_name column contains both normalized and non-normalized timezone
-  // names.
-  private static volatile HostColumnVector timeZoneInfo;
+  /**
+   * Used by Casting string with timezone to timestamp.
+   * Host column STRUCT<tz_name: string, index_to_tz_info_table: int>,
+   * sorted by timezone names.
+   * Casting string with timezone to timestamp needs loading all timezone.
+   * If this is not null, it indicates loading is successful, because it's the
+   * last variable to construct in `loadData` function.
+   * The tz_name column contains both normalized and non-normalized tz names.
+   */
+  private static volatile HostColumnVector tzNameToIndexMap;
 
   /**
    * This is deprecated, will be removed.
@@ -97,7 +102,7 @@ public class GpuTimeZoneDB {
       try {
         cacheDatabaseImpl();
       } catch (Exception e) {
-        log.error("cache timezone transitions cache failed", e);
+        log.error("cache timezone info cache failed", e);
       }
     };
     Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -118,7 +123,7 @@ public class GpuTimeZoneDB {
       try {
         cacheDatabaseImpl();
       } catch (Exception e) {
-        log.error("cache timezone transitions cache failed", e);
+        log.error("cache timezone info cache failed", e);
       }
     };
     Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -128,13 +133,13 @@ public class GpuTimeZoneDB {
   }
 
   private static synchronized void verifyDatabaseCachedSync() {
-    if (timeZoneInfo == null) {
+    if (tzNameToIndexMap == null) {
       throw new IllegalStateException("Timezone DB is not loaded, or the loading was failed.");
     }
   }
 
   public static void verifyDatabaseCached() {
-    if (timeZoneInfo != null) {
+    if (tzNameToIndexMap != null) {
       // already loaded
       return;
     }
@@ -168,7 +173,7 @@ public class GpuTimeZoneDB {
   }
 
   private static synchronized void cacheDatabaseImpl() {
-    if (transitions == null) {
+    if (fixedTransitions == null) {
       try {
         loadData();
       } catch (Exception e) {
@@ -183,17 +188,17 @@ public class GpuTimeZoneDB {
       zoneIdToTable.clear();
       zoneIdToTable = null;
     }
-    if (transitions != null) {
-      transitions.close();
-      transitions = null;
+    if (fixedTransitions != null) {
+      fixedTransitions.close();
+      fixedTransitions = null;
     }
     if (dstRules != null) {
       dstRules.close();
       dstRules = null;
     }
-    if (timeZoneInfo != null) {
-      timeZoneInfo.close();
-      timeZoneInfo = null;
+    if (tzNameToIndexMap != null) {
+      tzNameToIndexMap.close();
+      tzNameToIndexMap = null;
     }
   }
 
@@ -214,9 +219,9 @@ public class GpuTimeZoneDB {
     // point
     // in the processing. This should be rare enough that it is not a big deal.
     Integer tzIndex = zoneIdToTable.get(currentTimeZone.normalized().toString());
-    try (Table transitions = getTransitions()) {
+    try (Table timezoneInfo = getTimezoneInfo()) {
       return new ColumnVector(convertTimestampColumnToUTC(input.getNativeView(),
-          transitions.getNativeView(), tzIndex));
+          timezoneInfo.getNativeView(), tzIndex));
     }
   }
 
@@ -227,9 +232,9 @@ public class GpuTimeZoneDB {
     // point
     // in the processing. This should be rare enough that it is not a big deal.
     Integer tzIndex = zoneIdToTable.get(desiredTimeZone.normalized().toString());
-    try (Table transitions = getTransitions()) {
+    try (Table timezoneInfo = getTimezoneInfo()) {
       return new ColumnVector(convertUTCTimestampColumnToTimeZone(input.getNativeView(),
-          transitions.getNativeView(), tzIndex));
+          timezoneInfo.getNativeView(), tzIndex));
     }
   }
 
@@ -276,25 +281,22 @@ public class GpuTimeZoneDB {
     try {
       // Spark uses timezones from TimeZone.getAvailableIDs
       // We use ZoneId.normalized to reduce the number of timezone names.
-      // `transitions` saves transitions for normalized timezones.
+      // `fixedTransitions` and `dstRules` only save info for normalized timezones,
+      // while `zoneIdToTable` contains both normalized and non-normalized timezones.
       //
       // e.g.:
       // "Etc/GMT" and "Etc/GMT+0" are from TimeZone.getAvailableIDs
       // ZoneId.of("Etc/GMT").normalized.getId = Z;
       // ZoneId.of("Etc/GMT+0").normalized.getId = Z
       // Both Etc/GMT and Etc/GMT+0 have normalized Z.
-      // Use the normalized form will dedupe transition table size.
+      // Use the normalized form will dedupe timezone info table size.
       //
       // For `fromTimestampToUtcTimestamp` and `fromUtcTimestampToTimestamp`, it will
-      // first
-      // normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the
-      // transition index.
-      // But for cast string(with timezone) to timestamp, it may contain
-      // non-normalized tz.
-      // E.g.: '2025-01-01 00:00:00 Etc/GMT', so should map "Etc/GMT", "Etc/GMT+0" and
-      // "Z" to
-      // the same transition index. This means size of `zoneIdToTable` > size of
-      // `transitions`
+      // first normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the
+      // transition index. But for cast string(with timezone) to timestamp, it may
+      // contain non-normalized tz. E.g.: '2025-01-01 00:00:00 Etc/GMT', so should
+      // map "Etc/GMT", "Etc/GMT+0" and "Z" to the same transition index.
+      // This means size of `zoneIdToTable` > `fixedTransitions` and `dstRules` size
       //
 
       // get and sort timezones
@@ -398,10 +400,10 @@ public class GpuTimeZoneDB {
           new HostColumnVector.BasicType(false, DType.INT64),
           new HostColumnVector.BasicType(false, DType.INT32));
       HostColumnVector.DataType transitionType = new HostColumnVector.ListType(false, childType);
-      transitions = HostColumnVector.fromLists(transitionType,
+      fixedTransitions = HostColumnVector.fromLists(transitionType,
           masterTransitions.toArray(new List[0]));
       dstRules = HostColumnVector.fromLists(getDstDataType(), masterDsts.toArray(new List[0]));
-      timeZoneInfo = getTimeZoneInfo(sortedTimeZones, zoneIdToTable);
+      tzNameToIndexMap = getTzNameToIndexMap(sortedTimeZones, zoneIdToTable);
     } catch (Exception e) {
       throw new IllegalStateException("load timezone DB cache failed!", e);
     }
@@ -412,11 +414,32 @@ public class GpuTimeZoneDB {
         new HostColumnVector.BasicType(false, DType.INT32));
   }
 
+  /**
+   * This is deprecated, will be removed.
+   * Renamed to `getTimezoneInfo`.
+   */
   public static synchronized Table getTransitions() {
     verifyDatabaseCached();
-    try (ColumnVector fixedTransitions = transitions.copyToDevice();
-        ColumnVector dsts = dstRules.copyToDevice()) {
-      return new Table(fixedTransitions, dsts);
+    try (ColumnVector fixedInfo = fixedTransitions.copyToDevice();
+        ColumnVector dstInfo = dstRules.copyToDevice()) {
+      return new Table(fixedInfo, dstInfo);
+    }
+  }
+
+   /**
+   * Get the timezone info table, which contains two columns:
+   * - fixed transitions: LIST<STRUCT<utcInstant: int64, localInstant: int64,
+   * offset: int32>>
+   * - dst rules: LIST<INT32>
+   * The caller is responsible to close the returned table.
+   * 
+   * @return timezone info table
+   */
+  public static synchronized Table getTimezoneInfo() {
+    verifyDatabaseCached();
+    try (ColumnVector fixedInfo = fixedTransitions.copyToDevice();
+        ColumnVector dstInfo = dstRules.copyToDevice()) {
+      return new Table(fixedInfo, dstInfo);
     }
   }
 
@@ -436,34 +459,30 @@ public class GpuTimeZoneDB {
     if (idx == null) {
       return null;
     }
-    return transitions.getList(idx);
+    return fixedTransitions.getList(idx);
   }
 
   /**
-   * This is deprecated, will be removed.
-   * Generate a struct column to record timezone information
-   * STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
+   * Generate a map from timezone name to index of transition table.
+   * return a column of STRUCT<tz_name: string, index_to_tz_info_table: int>
    * The struct column is sorted by tz_name, it is used to query the index to the
-   * transition table, to query if tz is Daylight Saving timezone.
+   * transition table.
    *
    * @param sortedTimezones is sorted and supported timezones
    * @param zoneIdToTable   is a map from non-normalized timezone to index in
    *                        transition table
    */
-  private static HostColumnVector getTimeZoneInfo(List<String> sortedTimezones,
+  private static HostColumnVector getTzNameToIndexMap(List<String> sortedTimezones,
       java.util.Map<String, Integer> zoneIdToTable) {
     HostColumnVector.DataType type = new HostColumnVector.StructType(false,
         new HostColumnVector.BasicType(false, DType.STRING),
-        new HostColumnVector.BasicType(false, DType.INT32),
-        new HostColumnVector.BasicType(false, DType.BOOL8));
+        new HostColumnVector.BasicType(false, DType.INT32));
     ArrayList<HostColumnVector.StructData> data = new ArrayList<>();
 
     for (String tz : sortedTimezones) {
-      ZoneId zoneId = ZoneId.of(tz, ZoneId.SHORT_IDS);
-      boolean isDST = !zoneId.getRules().getTransitionRules().isEmpty();
       Integer indexToTable = zoneIdToTable.get(tz);
       if (indexToTable != null) {
-        data.add(new HostColumnVector.StructData(tz, indexToTable, isDST));
+        data.add(new HostColumnVector.StructData(tz, indexToTable));
       } else {
         throw new IllegalStateException("Could not find timezone " + tz);
       }
@@ -472,16 +491,15 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * This is deprecated, will be removed.
    * Return a struct column which contains timezone information
-   * STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
+   * STRUCT<tz_name: string, index_to_tz_info_table: int>
    * The struct column is sorted by tz_name, it is used to query the index to the
-   * transition table, to query if tz is Daylight Saving timezone.
+   * timezone information table from timezone name.
    * The caller is responsible to close the returned column vector.
    */
-  public static synchronized ColumnVector getTimeZoneInfo() {
+  public static synchronized ColumnVector getTzNameToIndexMap() {
     verifyDatabaseCached();
-    return timeZoneInfo.copyToDevice();
+    return tzNameToIndexMap.copyToDevice();
   }
 
   public static Integer getIndexToTransitionTable(String timezone) {
@@ -490,19 +508,12 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Running on GPU to convert the intermediate result of casting string to
-   * timestamp.
-   * This function is used for casting string with timezone to timestamp.
-   * TODO: Handle the case exceed max year threshold and has no DST
+   * Convert the intermediate result of casting string to timestamp.
+   * This is used for casting string with timezone to timestamp.
    *
-   * @param input_seconds      second part of UTC timestamp column
-   * @param input_microseconds microseconds part of UTC timestamp column
-   * @param invalid            if the parsing from string to timestamp is valid
-   * @param tzType             if the timezone in string is fixed offset or not
-   * @param tzOffset           the tz offset value, only applies to fixed type
-   *                           timezone
-   * @param tzIndex            the index to the timezone transition/timeZoneInfo
-   *                           table
+   * @param invalidCv if the parsing from string to timestamp is valid
+   * @param tsCv      long column with UTC microseconds parsed from string
+   * @param tzIndexCv the index to the timezone transition table
    * @return timestamp column in microseconds
    */
   public static ColumnVector fromTimestampToUtcTimestampWithTzCv(
@@ -512,14 +523,14 @@ public class GpuTimeZoneDB {
       ColumnView tzType,
       ColumnView tzOffset,
       ColumnView tzIndex) {
-    try (Table transitions = getTransitions()) {
+    try (Table timezoneInfo = getTimezoneInfo()) {
       return new ColumnVector(convertTimestampColumnToUTCWithTzCv(
           input_seconds.getNativeView(),
           input_microseconds.getNativeView(),
           invalid.getNativeView(),
           tzType.getNativeView(),
           tzOffset.getNativeView(),
-          transitions.getNativeView(),
+          timezoneInfo.getNativeView(),
           tzIndex.getNativeView()));
     }
   }
@@ -529,12 +540,12 @@ public class GpuTimeZoneDB {
     return !zoneId.getRules().getTransitionRules().isEmpty();
   }
 
-  private static native long convertTimestampColumnToUTC(long input, long transitions, int tzIndex);
+  private static native long convertTimestampColumnToUTC(long input, long timezoneInfo, int tzIndex);
 
-  private static native long convertUTCTimestampColumnToTimeZone(long input, long transitions, int tzIndex);
+  private static native long convertUTCTimestampColumnToTimeZone(long input, long timezoneInfo, int tzIndex);
 
   private static native long convertTimestampColumnToUTCWithTzCv(
       long input_seconds, long input_microseconds, long invalid, long tzType,
-      long tzOffset, long transitions, long tzIndex);
+      long tzOffset, long timezoneInfo, long tzIndex);
 
 }

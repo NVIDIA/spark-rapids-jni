@@ -160,43 +160,46 @@ public class CastStrings {
   }
 
   /**
-   * TODO: Update, adopt new kernel for DST timezones.
-   *
    * Trims and parses strings to intermediate result.
    * This is the first phase of casting string with timezone to timestamp.
-   * Intermediate result is a struct column with 7 sub-columns:
+   *
+   * Intermediate result is a struct column with 6 sub-columns:
    * - Parse Result type: 0 Success, 1 invalid e.g. year is 7 digits 1234567
    * - seconds part of parsed UTC timestamp
    * - microseconds part of parsed UTC timestamp
    * - Timezone type: 0 unspecified, 1 fixed type, 2 other type, 3 invalid
    * - Timezone offset for fixed type, only applies to fixed type
-   * - Timezone is DST, only applies to other type
-   * - Timezone index to `GpuTimeZoneDB.transitions` table
+   * - Timezone index to `GpuTimeZoneDB.getTimezoneInfo` table
    *
+   * Note, need to use two columns (seconds and microseconds) to represent
+   * the parsed timestamp string for a corner case:
+   * The parsed timestamp is overflow for int64 integer, but after
+   * rebasing according to timezone, it is not overflow.
+   * This is a very rare case, but we need to handle it.
    *
    * @param input The input String column contains timestamp strings
    * @param defaultTimeZoneIndex The default timezone index to `GpuTimeZoneDB`
    *   transition table.
-   * @param isDefaultTimeZoneDST Whether the default timezone is DST or not.
    * @param defaultEpochDay Default epoch day to use if just time, e.g.: epoch day of
    *   "2025-05-05", then "T00:00:00" is "2025-05-05T00:00:00Z"
-   * @param timeZoneInfo Timezone info column:
-   *   STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>,
+   * @param tzNameToIndexMap Timezone info column:
+   *   STRUCT<tz_name: string, index_to_tz_info_table: int, is_DST: int8>,
    *   Refer to `GpuTimeZoneDB` for more details.
-   * @param transitions Timezone transition table.
+   * @param timezoneInfo Timezone info table contains fixed-transitions and DST rules.
    * @param sparkVersion Spark version
-   * @return a struct column contains 7 columns described above.
+   * @return a struct column contains 6 columns described above.
    */
   static ColumnVector parseTimestampStrings(
-      ColumnView input, int defaultTimeZoneIndex,
-      boolean isDefaultTimeZoneDST, long defaultEpochDay,
-      ColumnView timeZoneInfo,
-      Table transitions,
+      ColumnView input,
+      int defaultTimeZoneIndex,
+      long defaultEpochDay,
+      ColumnView tzNameToIndexMap,
+      Table timezoneInfo,
       Version sparkVersion) {
 
     return new ColumnVector(parseTimestampStringsToIntermediate(
-        input.getNativeView(), defaultTimeZoneIndex, isDefaultTimeZoneDST,
-        defaultEpochDay, timeZoneInfo.getNativeView(), transitions.getNativeView(),
+        input.getNativeView(), defaultTimeZoneIndex,
+        defaultEpochDay, tzNameToIndexMap.getNativeView(), timezoneInfo.getNativeView(),
         sparkVersion.getPlatformOrdinal(), sparkVersion.getMajor(),
         sparkVersion.getMinor(), sparkVersion.getPatch()));
   }
@@ -226,7 +229,6 @@ public class CastStrings {
   }
 
   /**
-   * TODO: adopt new kernel for DST timezones.
    * Trims and parses a string column with timezones to timestamp.
    *
    * Refer to: https://github.com/apache/spark/blob/v3.5.0/sql/api/src/main/scala/
@@ -273,7 +275,6 @@ public class CastStrings {
 
     // 1. check default timezone is valid
     Integer defaultTimeZoneIndex = GpuTimeZoneDB.getIndexToTransitionTable(defaultTimeZone);
-    boolean isDefaultTimeZoneDST = GpuTimeZoneDB.isDST(defaultTimeZone);
     if (defaultTimeZoneIndex == null) {
       throw new IllegalArgumentException("Invalid default timezone: " + defaultTimeZone);
     }
@@ -282,18 +283,17 @@ public class CastStrings {
     long defaultEpochDay = LocalDate.now(ZoneId.of(defaultTimeZone)).toEpochDay();
 
     // 2. parse to intermediate result
-    try (ColumnVector tzInfo = GpuTimeZoneDB.getTimeZoneInfo();
-        Table transitions = GpuTimeZoneDB.getTransitions();
+    try (ColumnVector tzNameToIndexMap = GpuTimeZoneDB.getTzNameToIndexMap();
+        Table timezoneInfo = GpuTimeZoneDB.getTimezoneInfo();
         ColumnVector parseResult = parseTimestampStrings(
-            input, defaultTimeZoneIndex, isDefaultTimeZoneDST, defaultEpochDay, tzInfo,
-            transitions, sparkVersion);
+            input, defaultTimeZoneIndex, defaultEpochDay, tzNameToIndexMap,
+            timezoneInfo, sparkVersion);
         ColumnView invalid = parseResult.getChildColumnView(0);
         ColumnView tsSeconds = parseResult.getChildColumnView(1);
         ColumnView tsMicroseconds = parseResult.getChildColumnView(2);
         ColumnView tzType = parseResult.getChildColumnView(3);
         ColumnView tzOffset = parseResult.getChildColumnView(4);
-        ColumnView hasDSTCv = parseResult.getChildColumnView(5);
-        ColumnView tzIndex = parseResult.getChildColumnView(6)) {
+        ColumnView tzIndex = parseResult.getChildColumnView(5)) {
 
       // 3. convert to timestamp on GPU
       return convertToTimestamp(input.getNullCount(), invalid, tsSeconds, tsMicroseconds,
@@ -344,10 +344,9 @@ public class CastStrings {
     boolean ansiEnabled, int dtype);
   private static native long fromIntegersWithBase(long nativeColumnView, int base);
 
-  // TODO: Update
   private static native long parseTimestampStringsToIntermediate(
-      long input, int defaultTimezoneIndex, boolean isDefaultTimeZoneDST,
-      long defaultEpochDay, long timeZoneInfo, long transitions, int platformOrdinal,
+      long input, int defaultTimezoneIndex,
+      long defaultEpochDay, long tzNameToIndexMap, long tzInfo, int platformOrdinal,
       int sparkMajor, int sparkMinor, int sparkPatch);
 
   private static native long parseDateStringsToDate(long input);
