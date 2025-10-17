@@ -89,6 +89,7 @@
     <BUILD_CUDF_BENCHMARKS>OFF</BUILD_CUDF_BENCHMARKS>
     <BUILD_FAULTINJ>ON</BUILD_FAULTINJ>
     <BUILD_PROFILER>ON</BUILD_PROFILER>
+    <CMAKE_EXPORT_COMPILE_COMMANDS>ON</CMAKE_EXPORT_COMPILE_COMMANDS>
     <ai.rapids.cudf.nvtx.enabled>false</ai.rapids.cudf.nvtx.enabled>
     <ai.rapids.refcount.debug>false</ai.rapids.refcount.debug>
     <cuda.version>cuda12</cuda.version>
@@ -447,6 +448,7 @@
                   <env key="BUILD_FAULTINJ" value="${BUILD_FAULTINJ}"/>
                   <env key="BUILD_PROFILER" value="${BUILD_PROFILER}"/>
                   <env key="BUILD_TESTS" value="${BUILD_TESTS}"/>
+                  <env key="CMAKE_EXPORT_COMPILE_COMMANDS" value="${CMAKE_EXPORT_COMPILE_COMMANDS}"/>
                   <env key="CPP_PARALLEL_LEVEL" value="${CPP_PARALLEL_LEVEL}"/>
                   <env key="CUDF_BUILD_TYPE" value="${CUDF_BUILD_TYPE}"/>
                   <env key="CUDF_PATH" value="${cudf.path}"/>

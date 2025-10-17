@@ -342,7 +342,9 @@ public class KudoGpuSerializerTest {
       kt = KudoTable.from(din);
       kt.ifPresent(kudoTables::add);
     } while(kt.isPresent());
-    return serializer.mergeToTable(kudoTables.toArray(new KudoTable[kudoTables.size()]));
+    try (CloseableArray<KudoTable> kudoTablesArr = CloseableArray.wrap(new KudoTable[kudoTables.size()])) {
+      return serializer.mergeToTable(kudoTables.toArray(kudoTablesArr.getArray()));
+    }
   }
 
   public void testRoundTrip(String name, Table table, int[] slices) throws Exception {

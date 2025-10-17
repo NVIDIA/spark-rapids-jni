@@ -126,7 +126,7 @@ struct fill_percentile_fn {
   {
     auto const it = thrust::lower_bound(
       thrust::seq, accumulated_counts.begin() + start, accumulated_counts.begin() + end, position);
-    return static_cast<cudf::size_type>(thrust::distance(accumulated_counts.begin(), it));
+    return static_cast<cudf::size_type>(cuda::std::distance(accumulated_counts.begin(), it));
   }
 
   cudf::size_type const* const offsets;

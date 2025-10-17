@@ -52,3 +52,4 @@ target/
 cufile.log
 rmm_log.txt
 sanitizer_for_pid_*.log
+compile_commands.json
