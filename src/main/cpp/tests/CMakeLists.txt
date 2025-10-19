@@ -127,3 +127,6 @@ ConfigureTest(CONV
 
 ConfigureTest(MULTIPLY
     multiply.cpp)
+
+ConfigureTest(MIXED_SORT_MERGE_JOIN
+    mixed_sort_merge_join.cpp)
