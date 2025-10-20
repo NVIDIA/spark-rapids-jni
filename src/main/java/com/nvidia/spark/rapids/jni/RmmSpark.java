@@ -531,6 +531,14 @@ public class RmmSpark {
     }
   }
 
+  /**
+   * Function used to remove task metrics.
+   * 
+   * Use this after a task is complete, and metrics have been reported to
+   * clean up any metric related state
+   * 
+   * @param taskId the id of the task to remove metrics for.
+   */
   public static void removeTaskMetrics(long taskId) {
     synchronized (Rmm.class) {
       if (sra != null && sra.isOpen()) {
