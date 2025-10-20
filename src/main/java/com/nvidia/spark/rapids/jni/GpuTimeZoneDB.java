@@ -292,7 +292,7 @@ public class GpuTimeZoneDB {
       // Use the normalized form will dedupe timezone info table size.
       //
       // For `fromTimestampToUtcTimestamp` and `fromUtcTimestampToTimestamp`, it will
-      // first normalize the timezone, e.g.: Etc/GMT => Z, then the use Z to find the
+      // first normalize the timezone, e.g.: Etc/GMT => Z, then use Z to find the
       // transition index. But for cast string(with timezone) to timestamp, it may
       // contain non-normalized tz. E.g.: '2025-01-01 00:00:00 Etc/GMT', so should
       // map "Etc/GMT", "Etc/GMT+0" and "Z" to the same transition index.
