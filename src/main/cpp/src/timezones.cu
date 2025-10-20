@@ -247,27 +247,32 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
 // ORC timezone uses java.util.TimeZone rules, which is different from java.time.ZoneId rules.
 
 /**
- * @brief Get the transition index for the given seconds using binary search.
+ * @brief Get the transition index for the given time `time_ms` using binary search.
  * The transition array is sorted, each int64 value is composed of 44 bits
  * transition time in seconds and 20 bits offset in seconds.
+ * @param begin the beginning of the transition array.
+ * @param end the end of the transition array.
+ * @param time_ms the input time in milliseconds to find the transition index for.
  */
 __device__ static int get_transition_index(int64_t const* begin,
                                            int64_t const* end,
-                                           int64_t seconds)
+                                           int64_t time_ms)
 {
-  constexpr int OFFSET_SHIFT = 20;
+  constexpr int OFFSET_SHIFT      = 20;
+  constexpr int64_t MS_PER_SECOND = 1000L;
+
   if (begin == end) { return -1; }
 
   int low  = 0;
   int high = end - begin - 1;
 
   while (low <= high) {
-    int mid     = (low + high) / 2;
-    int64_t val = begin[mid];
-    long midVal = val >> OFFSET_SHIFT;  // sign retained
-    if (midVal < seconds) {
+    int mid = (low + high) / 2;
+    // sign retained shift, then multiple 1000 to get milliseconds
+    long midVal = (begin[mid] >> OFFSET_SHIFT) * MS_PER_SECOND;
+    if (midVal < time_ms) {
       low = mid + 1;
-    } else if (midVal > seconds) {
+    } else if (midVal > time_ms) {
       high = mid - 1;
     } else {
       return mid;
@@ -334,14 +339,16 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   int64_t const* reader_trans_end,
   cudf::size_type reader_raw_offset)
 {
-  constexpr int32_t OFFSET_BITS = 20;
+  constexpr int32_t OFFSET_BITS   = 20;
+  constexpr int64_t MS_PER_SECOND = 1000L;
+  constexpr int64_t US_PER_SECOND = 1'000'000L;
 
-  int64_t const epoch_seconds = static_cast<int64_t>(
-    cuda::std::chrono::duration_cast<cudf::duration_s>(ts.time_since_epoch()).count());
+  int64_t const epoch_milliseconds = static_cast<int64_t>(
+    cuda::std::chrono::duration_cast<cudf::duration_ms>(ts.time_since_epoch()).count());
 
   int64_t writer_offset = [&] {
     int const writer_index =
-      get_transition_index(writer_trans_begin, writer_trans_end, epoch_seconds);
+      get_transition_index(writer_trans_begin, writer_trans_end, epoch_milliseconds);
 
     if (writer_index >= 0 && writer_index < (writer_trans_end - writer_trans_begin)) {
       return get_value_from_lowest_bits(writer_trans_begin[writer_index], OFFSET_BITS);
@@ -352,7 +359,7 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
 
   int64_t reader_offset = [&] {
     int const reader_index =
-      get_transition_index(reader_trans_begin, reader_trans_end, epoch_seconds);
+      get_transition_index(reader_trans_begin, reader_trans_end, epoch_milliseconds);
     if (reader_index >= 0 && reader_index < (reader_trans_end - reader_trans_begin)) {
       return get_value_from_lowest_bits(reader_trans_begin[reader_index], OFFSET_BITS);
     } else {
@@ -361,10 +368,11 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   }();
 
   int64_t reader_adjusted_offset = [&] {
-    int64_t adjusted_seconds = epoch_seconds + writer_offset - reader_offset;
+    int64_t adjusted_milliseconds =
+      epoch_milliseconds + (writer_offset - reader_offset) * MS_PER_SECOND;
 
     int const reader_adjusted_index =
-      get_transition_index(reader_trans_begin, reader_trans_end, adjusted_seconds);
+      get_transition_index(reader_trans_begin, reader_trans_end, adjusted_milliseconds);
 
     if (reader_adjusted_index >= 0 &&
         reader_adjusted_index < (reader_trans_end - reader_trans_begin)) {
@@ -378,7 +386,7 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
     static_cast<int64_t>(writer_offset) - static_cast<int64_t>(reader_adjusted_offset);
   int64_t const epoch_us = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
-  int64_t final_result = epoch_us + final_offset_seconds * 1'000'000L;
+  int64_t final_result = epoch_us + final_offset_seconds * US_PER_SECOND;
   return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
