@@ -395,13 +395,13 @@ struct convert_timezones_functor {
 
   __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
   {
-    return spark_rapids_jni::convert_timestamp_between_timezones(timestamp,
-                                                                 writer_trans_begin,
-                                                                 writer_trans_end,
-                                                                 writer_raw_offset,
-                                                                 reader_trans_begin,
-                                                                 reader_trans_end,
-                                                                 reader_raw_offset);
+    return convert_timestamp_between_timezones(timestamp,
+                                               writer_trans_begin,
+                                               writer_trans_end,
+                                               writer_raw_offset,
+                                               reader_trans_begin,
+                                               reader_trans_end,
+                                               reader_raw_offset);
   }
 };
 
