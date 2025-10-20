@@ -134,7 +134,7 @@ public class RmmSpark {
    * @param taskId the task ID this thread is working on.
    */
   public static void startDedicatedTaskThread(long threadId, long taskId, Thread thread) {
-    SparkResourceAdaptor local = getSra()
+    SparkResourceAdaptor local = getSra();
     if (local != null && local.isOpen()) {
       ThreadStateRegistry.addThread(threadId, thread);
       local.startDedicatedTaskThread(threadId, taskId);
