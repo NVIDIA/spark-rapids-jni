@@ -609,7 +609,7 @@ public class RmmSpark {
   public static long getMaxGpuTaskMemory(long taskId) {
     SparkResourceAdaptor local = getSra();
     if (local != null && local.isOpen()) {
-      return sra.getMaxGpuTaskMemory(taskId);
+      return local.getMaxGpuTaskMemory(taskId);
     } else {
       // sra is not set so the value is by definition 0
       return 0;
