@@ -182,7 +182,7 @@ public class TimeZoneTest {
           1699542834L,
           2299542834L,
           568008000L,
-          11684584557L, // 2340 year, 
+          11684584557L, // Timestamp for the year 2340.
           16820549757L
         );
         ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
