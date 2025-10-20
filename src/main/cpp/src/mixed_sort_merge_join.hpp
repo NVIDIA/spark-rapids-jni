@@ -67,11 +67,11 @@ std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 sort_merge_left_join(cudf::table_view const& left_keys,
                      cudf::table_view const& right_keys,
-                     cudf::sorted is_left_sorted           = cudf::sorted::NO,
-                     cudf::sorted is_right_sorted          = cudf::sorted::NO,
-                     cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-                     rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-                     rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+                     cudf::sorted is_left_sorted       = cudf::sorted::NO,
+                     cudf::sorted is_right_sorted      = cudf::sorted::NO,
+                     cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+                     rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+                     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Returns an index vector corresponding to a left semi join on equality keys only.
@@ -93,11 +93,11 @@ sort_merge_left_join(cudf::table_view const& left_keys,
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Returns an index vector corresponding to a left anti join on equality keys only.
@@ -119,11 +119,11 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 // =============================================================================
 // CONDITIONAL (MIXED) SORT-MERGE JOINS
@@ -180,11 +180,11 @@ mixed_sort_merge_inner_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Returns a pair of row index vectors corresponding to a left join
@@ -209,7 +209,7 @@ mixed_sort_merge_inner_join(
  * @endcode
  *
  * Note: Unmatched left rows will have their right index set to `right_equality.num_rows()`.
- * This out-of-bounds value can be used with `cudf::gather` and 
+ * This out-of-bounds value can be used with `cudf::gather` and
  * `cudf::out_of_bounds_policy::NULLIFY` to produce null values for unmatched rows.
  *
  * @throw cudf::data_type_error If the binary predicate outputs a non-boolean result.
@@ -240,11 +240,11 @@ mixed_sort_merge_left_join(
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Returns an index vector corresponding to a left semi join where rows
@@ -288,11 +288,11 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Returns an index vector corresponding to a left anti join where rows
@@ -336,11 +336,10 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
   cudf::table_view const& left_conditional,
   cudf::table_view const& right_conditional,
   cudf::ast::expression const& binary_predicate,
-  cudf::sorted is_left_sorted           = cudf::sorted::NO,
-  cudf::sorted is_right_sorted          = cudf::sorted::NO,
-  cudf::null_equality compare_nulls     = cudf::null_equality::EQUAL,
-  rmm::cuda_stream_view stream          = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr     = cudf::get_current_device_resource_ref());
+  cudf::sorted is_left_sorted       = cudf::sorted::NO,
+  cudf::sorted is_right_sorted      = cudf::sorted::NO,
+  cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
-

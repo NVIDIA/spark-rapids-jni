@@ -31,8 +31,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
-#include <cuda_runtime_api.h>
 
+#include <cuda_runtime_api.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/distance.h>
@@ -69,12 +69,12 @@ __global__ void filter_join_indices_kernel(
   auto evaluator = cudf::ast::detail::expression_evaluator<has_nulls>(
     left_table, right_table, device_expression_data);
 
-  cudf::thread_index_type const idx = blockIdx.x * blockDim.x + threadIdx.x;
+  cudf::thread_index_type const idx    = blockIdx.x * blockDim.x + threadIdx.x;
   cudf::thread_index_type const stride = blockDim.x * gridDim.x;
 
   for (cudf::thread_index_type i = idx; i < num_pairs; i += stride) {
-    auto output_dest = cudf::ast::detail::value_expression_result<bool, has_nulls>();
-    cudf::size_type const left_idx = left_indices[i];
+    auto output_dest                = cudf::ast::detail::value_expression_result<bool, has_nulls>();
+    cudf::size_type const left_idx  = left_indices[i];
     cudf::size_type const right_idx = right_indices[i];
 
     evaluator.evaluate(output_dest, left_idx, right_idx, 0, thread_intermediate_storage);
@@ -111,34 +111,34 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
   int current_device = 0;
   CUDF_CUDA_TRY(cudaGetDevice(&current_device));
   int max_shmem_per_block = 0;
-  CUDF_CUDA_TRY(cudaDeviceGetAttribute(&max_shmem_per_block,
-                                       cudaDevAttrMaxSharedMemoryPerBlock,
-                                       current_device));
+  CUDF_CUDA_TRY(cudaDeviceGetAttribute(
+    &max_shmem_per_block, cudaDevAttrMaxSharedMemoryPerBlock, current_device));
 
   using intermediate_t = cudf::ast::detail::IntermediateDataType<has_nulls>;
-  auto const per_thread_bytes = static_cast<int>(num_intermediates) * static_cast<int>(sizeof(intermediate_t));
+  auto const per_thread_bytes =
+    static_cast<int>(num_intermediates) * static_cast<int>(sizeof(intermediate_t));
   int block_size = 256;  // default
   if (per_thread_bytes > 0) {
     int const max_by_shmem = max_shmem_per_block / per_thread_bytes;
     if (max_by_shmem > 0) {
       // Prefer multiples of warp size (32)
       int const rounded = (max_by_shmem / 32) * 32;
-      block_size = std::max(32, std::min(256, rounded > 0 ? rounded : max_by_shmem));
+      block_size        = std::max(32, std::min(256, rounded > 0 ? rounded : max_by_shmem));
     } else {
-      block_size = 32; // minimal reasonable size
+      block_size = 32;  // minimal reasonable size
     }
   }
   cudf::size_type const grid_size = (num_pairs + block_size - 1) / block_size;
   auto const shmem_size = static_cast<size_t>(block_size) * static_cast<size_t>(per_thread_bytes);
 
-  filter_join_indices_kernel<has_nulls><<<grid_size, block_size, shmem_size, stream.value()>>>(
-    left_indices.data(),
-    right_indices.data(),
-    num_pairs,
-    left_table,
-    right_table,
-    device_expression_data,
-    keep_mask.data());
+  filter_join_indices_kernel<has_nulls>
+    <<<grid_size, block_size, shmem_size, stream.value()>>>(left_indices.data(),
+                                                            right_indices.data(),
+                                                            num_pairs,
+                                                            left_table,
+                                                            right_table,
+                                                            device_expression_data,
+                                                            keep_mask.data());
 
   // Surface any kernel launch errors immediately
   CUDF_CUDA_TRY(cudaPeekAtLastError());
@@ -156,15 +156,15 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
   // Copy indices where condition is true
   auto input_iter =
     thrust::make_zip_iterator(thrust::make_tuple(left_indices.begin(), right_indices.begin()));
-  auto output_iter =
-    thrust::make_zip_iterator(thrust::make_tuple(out_left_indices->begin(), out_right_indices->begin()));
+  auto output_iter = thrust::make_zip_iterator(
+    thrust::make_tuple(out_left_indices->begin(), out_right_indices->begin()));
 
   thrust::copy_if(rmm::exec_policy(stream),
                   input_iter,
                   input_iter + num_pairs,
                   keep_mask.begin(),
                   output_iter,
-                  [] __device__ (bool x) { return x; });
+                  [] __device__(bool x) { return x; });
 
   return {std::move(out_left_indices), std::move(out_right_indices)};
 }
@@ -175,26 +175,17 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
 filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
-                     rmm::device_uvector<cudf::size_type>&& right_indices,
-                     cudf::table_device_view const& left_table,
-                     cudf::table_device_view const& right_table,
-                     cudf::ast::detail::expression_device_view device_expression_data,
-                     cudf::size_type num_intermediates,
-                     bool has_nulls,
-                     rmm::cuda_stream_view stream,
-                     rmm::device_async_resource_ref mr)
+                      rmm::device_uvector<cudf::size_type>&& right_indices,
+                      cudf::table_device_view const& left_table,
+                      cudf::table_device_view const& right_table,
+                      cudf::ast::detail::expression_device_view device_expression_data,
+                      cudf::size_type num_intermediates,
+                      bool has_nulls,
+                      rmm::cuda_stream_view stream,
+                      rmm::device_async_resource_ref mr)
 {
   if (has_nulls) {
     return filter_by_conditional_impl<true>(std::move(left_indices),
-                                           std::move(right_indices),
-                                           left_table,
-                                           right_table,
-                                           device_expression_data,
-                                           num_intermediates,
-                                           stream,
-                                           mr);
-  } else {
-    return filter_by_conditional_impl<false>(std::move(left_indices),
                                             std::move(right_indices),
                                             left_table,
                                             right_table,
@@ -202,6 +193,15 @@ filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
                                             num_intermediates,
                                             stream,
                                             mr);
+  } else {
+    return filter_by_conditional_impl<false>(std::move(left_indices),
+                                             std::move(right_indices),
+                                             left_table,
+                                             right_table,
+                                             device_expression_data,
+                                             num_intermediates,
+                                             stream,
+                                             mr);
   }
 }
 
@@ -243,10 +243,8 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
     std::make_unique<rmm::device_uvector<cudf::size_type>>(total_size, stream, mr);
 
   // Copy matched pairs
-  thrust::copy(rmm::exec_policy(stream),
-               left_indices.begin(),
-               left_indices.end(),
-               out_left_indices->begin());
+  thrust::copy(
+    rmm::exec_policy(stream), left_indices.begin(), left_indices.end(), out_left_indices->begin());
   thrust::copy(rmm::exec_policy(stream),
                right_indices.begin(),
                right_indices.end(),
@@ -325,7 +323,9 @@ sort_merge_left_join(cudf::table_view const& left_keys,
       std::make_unique<rmm::device_uvector<cudf::size_type>>(left_keys.num_rows(), stream, mr);
 
     thrust::sequence(rmm::exec_policy(stream), left_indices->begin(), left_indices->end());
-    thrust::fill(rmm::exec_policy(stream), right_indices->begin(), right_indices->end(), 
+    thrust::fill(rmm::exec_policy(stream),
+                 right_indices->begin(),
+                 right_indices->end(),
                  right_keys.num_rows());
 
     return {std::move(left_indices), std::move(right_indices)};
@@ -404,13 +404,8 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
   }
 
   // Get left semi join result (rows that DO match)
-  auto semi_indices = sort_merge_left_semi_join(left_keys,
-                                                 right_keys,
-                                                 is_left_sorted,
-                                                 is_right_sorted,
-                                                 compare_nulls,
-                                                 stream,
-                                                 mr);
+  auto semi_indices = sort_merge_left_semi_join(
+    left_keys, right_keys, is_left_sorted, is_right_sorted, compare_nulls, stream, mr);
 
   // Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
@@ -458,10 +453,13 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
 {
   CUDF_FUNC_RANGE();
 
-  // Validate inputs - only equality tables need columns, conditionals can be empty if expression uses only literals
-  CUDF_EXPECTS(left_equality.num_columns() > 0, "Left equality table must have at least one column");
-  CUDF_EXPECTS(right_equality.num_columns() > 0, "Right equality table must have at least one column");
-  
+  // Validate inputs - only equality tables need columns, conditionals can be empty if expression
+  // uses only literals
+  CUDF_EXPECTS(left_equality.num_columns() > 0,
+               "Left equality table must have at least one column");
+  CUDF_EXPECTS(right_equality.num_columns() > 0,
+               "Right equality table must have at least one column");
+
   // Only validate row counts if conditional tables have columns
   // Empty conditional tables (for literal-only expressions) don't have meaningful row counts
   if (left_conditional.num_columns() > 0) {
@@ -474,8 +472,7 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) ||
-                         cudf::has_nulls(right_conditional) ||
+  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
                          cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
@@ -496,7 +493,7 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   }
 
   // Create device views of conditional tables
-  auto left_table = cudf::table_device_view::create(left_conditional, stream);
+  auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
   // Step 2: Filter by conditional expression
@@ -526,10 +523,13 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
 {
   CUDF_FUNC_RANGE();
 
-  // Validate inputs - only equality tables need columns, conditionals can be empty if expression uses only literals
-  CUDF_EXPECTS(left_equality.num_columns() > 0, "Left equality table must have at least one column");
-  CUDF_EXPECTS(right_equality.num_columns() > 0, "Right equality table must have at least one column");
-  
+  // Validate inputs - only equality tables need columns, conditionals can be empty if expression
+  // uses only literals
+  CUDF_EXPECTS(left_equality.num_columns() > 0,
+               "Left equality table must have at least one column");
+  CUDF_EXPECTS(right_equality.num_columns() > 0,
+               "Right equality table must have at least one column");
+
   // Only validate row counts if conditional tables have columns
   // Empty conditional tables (for literal-only expressions) don't have meaningful row counts
   if (left_conditional.num_columns() > 0) {
@@ -549,15 +549,16 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
       std::make_unique<rmm::device_uvector<cudf::size_type>>(left_equality.num_rows(), stream, mr);
 
     thrust::sequence(rmm::exec_policy(stream), left_indices->begin(), left_indices->end());
-    thrust::fill(rmm::exec_policy(stream), right_indices->begin(), right_indices->end(), 
+    thrust::fill(rmm::exec_policy(stream),
+                 right_indices->begin(),
+                 right_indices->end(),
                  right_equality.num_rows());
 
     return {std::move(left_indices), std::move(right_indices)};
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) ||
-                         cudf::has_nulls(right_conditional) ||
+  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
                          cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
@@ -573,20 +574,20 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
     join_obj.inner_join(left_equality, is_left_sorted, stream, mr);
 
   // Create device views of conditional tables
-  auto left_table = cudf::table_device_view::create(left_conditional, stream);
+  auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
   // Step 2: Filter by conditional expression
   auto [filtered_left_indices, filtered_right_indices] =
     filter_by_conditional(std::move(*equality_left_indices),
-                         std::move(*equality_right_indices),
-                         *left_table,
-                         *right_table,
-                         parser.device_expression_data,
-                         parser.device_expression_data.num_intermediates,
-                         has_nulls,
-                         stream,
-                         mr);
+                          std::move(*equality_right_indices),
+                          *left_table,
+                          *right_table,
+                          parser.device_expression_data,
+                          parser.device_expression_data.num_intermediates,
+                          has_nulls,
+                          stream,
+                          mr);
 
   // Step 3: Add back left rows with no matches
   return add_left_unmatched_rows(std::move(*filtered_left_indices),
@@ -611,10 +612,13 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
 {
   CUDF_FUNC_RANGE();
 
-  // Validate inputs - only equality tables need columns, conditionals can be empty if expression uses only literals
-  CUDF_EXPECTS(left_equality.num_columns() > 0, "Left equality table must have at least one column");
-  CUDF_EXPECTS(right_equality.num_columns() > 0, "Right equality table must have at least one column");
-  
+  // Validate inputs - only equality tables need columns, conditionals can be empty if expression
+  // uses only literals
+  CUDF_EXPECTS(left_equality.num_columns() > 0,
+               "Left equality table must have at least one column");
+  CUDF_EXPECTS(right_equality.num_columns() > 0,
+               "Right equality table must have at least one column");
+
   // Only validate row counts if conditional tables have columns
   // Empty conditional tables (for literal-only expressions) don't have meaningful row counts
   if (left_conditional.num_columns() > 0) {
@@ -632,8 +636,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) ||
-                         cudf::has_nulls(right_conditional) ||
+  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
                          cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
@@ -654,20 +657,20 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
   }
 
   // Create device views of conditional tables
-  auto left_table = cudf::table_device_view::create(left_conditional, stream);
+  auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
   // Step 2: Filter by conditional expression
   auto [filtered_left_indices, filtered_right_indices] =
     filter_by_conditional(std::move(*equality_left_indices),
-                         std::move(*equality_right_indices),
-                         *left_table,
-                         *right_table,
-                         parser.device_expression_data,
-                         parser.device_expression_data.num_intermediates,
-                         has_nulls,
-                         stream,
-                         mr);
+                          std::move(*equality_right_indices),
+                          *left_table,
+                          *right_table,
+                          parser.device_expression_data,
+                          parser.device_expression_data.num_intermediates,
+                          has_nulls,
+                          stream,
+                          mr);
 
   // Step 3: Extract unique left indices
   return extract_unique_left_indices(std::move(*filtered_left_indices), stream, mr);
@@ -687,10 +690,13 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
 {
   CUDF_FUNC_RANGE();
 
-  // Validate inputs - only equality tables need columns, conditionals can be empty if expression uses only literals
-  CUDF_EXPECTS(left_equality.num_columns() > 0, "Left equality table must have at least one column");
-  CUDF_EXPECTS(right_equality.num_columns() > 0, "Right equality table must have at least one column");
-  
+  // Validate inputs - only equality tables need columns, conditionals can be empty if expression
+  // uses only literals
+  CUDF_EXPECTS(left_equality.num_columns() > 0,
+               "Left equality table must have at least one column");
+  CUDF_EXPECTS(right_equality.num_columns() > 0,
+               "Right equality table must have at least one column");
+
   // Only validate row counts if conditional tables have columns
   // Empty conditional tables (for literal-only expressions) don't have meaningful row counts
   if (left_conditional.num_columns() > 0) {
@@ -713,15 +719,15 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
 
   // Step 1: Get left semi join result (rows that DO match)
   auto semi_indices = mixed_sort_merge_left_semi_join(left_equality,
-                                                       right_equality,
-                                                       left_conditional,
-                                                       right_conditional,
-                                                       binary_predicate,
-                                                       is_left_sorted,
-                                                       is_right_sorted,
-                                                       compare_nulls,
-                                                       stream,
-                                                       mr);
+                                                      right_equality,
+                                                      left_conditional,
+                                                      right_conditional,
+                                                      binary_predicate,
+                                                      is_left_sorted,
+                                                      is_right_sorted,
+                                                      compare_nulls,
+                                                      stream,
+                                                      mr);
 
   // Step 2: Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
@@ -751,4 +757,3 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
 }
 
 }  // namespace spark_rapids_jni
-
