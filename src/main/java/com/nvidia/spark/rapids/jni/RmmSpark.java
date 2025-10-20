@@ -531,6 +531,14 @@ public class RmmSpark {
     }
   }
 
+  public static void removeTaskMetrics(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+         sra.removeTaskMetrics(taskId);
+      }
+    }
+  }
+
   /**
    * Get the number of retry exceptions that were thrown and reset the metric.
    * @param taskId the id of the task to get the metric for.

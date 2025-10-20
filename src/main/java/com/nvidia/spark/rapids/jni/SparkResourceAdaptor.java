@@ -271,6 +271,10 @@ public class SparkResourceAdaptor
     return RmmSparkThreadState.fromNativeId(getStateOf(getHandle(), threadId));
   }
 
+  public void removeTaskMetrics(long taskId) {
+    removeTaskMetrics(getHandle(), taskId);
+  }
+
   public int getAndResetNumRetryThrow(long taskId) {
     return getAndResetRetryThrowInternal(getHandle(), taskId);
   }
@@ -371,6 +375,7 @@ public class SparkResourceAdaptor
   private static native void forceCudfException(long handle, long threadId, int numTimes);
   private static native void blockThreadUntilReady(long handle);
   private static native int getStateOf(long handle, long threadId);
+  private static native int removeTaskMetrics(long handle, long taskId);
   private static native int getAndResetRetryThrowInternal(long handle, long taskId);
   private static native int getAndResetSplitRetryThrowInternal(long handle, long taskId);
   private static native long getAndResetBlockTimeInternal(long handle, long taskId);

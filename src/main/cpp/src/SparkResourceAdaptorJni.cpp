@@ -871,6 +871,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return get_and_reset_metric(task_id, &task_metrics::num_times_retry_throw);
   }
 
+  void remove_task_metrics(long const task_id)
+  {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    task_to_metrics.erase(task_id);
+  }
+
   /**
    * get the number of times a split and retry was thrown and reset the value to 0.
    */
@@ -2303,6 +2309,21 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
     return mr->get_thread_state_as_int(thread_id);
   }
   JNI_CATCH(env, 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeTaskMetrics(JNIEnv* env,
+                                                                        jclass,
+                                                                        jlong ptr,
+                                                                        jlong task_id)
+{
+  JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
+  JNI_TRY
+  {
+    auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
+    mr->remove_task_metrics(task_id);
+  }
+  JNI_CATCH(env, );
 }
 
 JNIEXPORT jint JNICALL
