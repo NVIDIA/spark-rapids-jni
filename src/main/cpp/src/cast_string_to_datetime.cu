@@ -826,7 +826,7 @@ struct parse_timestamp_string_fn {
         tz_indices[idx] = index_in_transition_col.element<int32_t>(tz_idx_in_table);
 
         if (just_time == TS_TYPE::JUST_TIME) {
-          // get current date in the the timezone, equvalent to Java code:
+          // get current date in the timezone, equivalent to Java code:
           // LocalDate.now(zoneId) E.g.:
           //   LocalDate.now("America/Los_Angeles") = 2025-05-21,
           //   at the same time:
