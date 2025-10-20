@@ -2312,10 +2312,8 @@ JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_get
 }
 
 JNIEXPORT void JNICALL
-Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeTaskMetrics(JNIEnv* env,
-                                                                        jclass,
-                                                                        jlong ptr,
-                                                                        jlong task_id)
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_removeTaskMetrics(
+  JNIEnv* env, jclass, jlong ptr, jlong task_id)
 {
   JNI_NULL_CHECK(env, ptr, "resource_adaptor is null", );
   JNI_TRY
