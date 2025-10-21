@@ -63,8 +63,7 @@ namespace spark_rapids_jni {
  *
  * @return A pair of vectors [`left_indices`, `right_indices`] for the left join result
  */
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
 sort_merge_left_join(cudf::table_view const& left_keys,
                      cudf::table_view const& right_keys,
                      cudf::sorted is_left_sorted       = cudf::sorted::NO,
@@ -90,7 +89,7 @@ sort_merge_left_join(cudf::table_view const& left_keys,
  *
  * @return A vector of indices from the left table that have matches in the right table
  */
-std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
+rmm::device_uvector<cudf::size_type> sort_merge_left_semi_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
   cudf::sorted is_left_sorted       = cudf::sorted::NO,
@@ -116,7 +115,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
  *
  * @return A vector of indices from the left table that do not have matches in the right table
  */
-std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
+rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(
   cudf::table_view const& left_keys,
   cudf::table_view const& right_keys,
   cudf::sorted is_left_sorted       = cudf::sorted::NO,
@@ -172,8 +171,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
  * @return A pair of vectors [`left_indices`, `right_indices`] that can be used to
  * construct the result of performing a mixed sort-merge inner join
  */
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
 mixed_sort_merge_inner_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
@@ -232,8 +230,7 @@ mixed_sort_merge_inner_join(
  * @return A pair of vectors [`left_indices`, `right_indices`] that can be used to
  * construct the result of performing a mixed sort-merge left join
  */
-std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-          std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
+std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
 mixed_sort_merge_left_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
@@ -282,7 +279,7 @@ mixed_sort_merge_left_join(
  *
  * @return A vector of indices from the left table that have matches in the right table
  */
-std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi_join(
+rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_semi_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
   cudf::table_view const& left_conditional,
@@ -330,7 +327,7 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
  *
  * @return A vector of indices from the left table that do not have matches in the right table
  */
-std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti_join(
+rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
   cudf::table_view const& left_equality,
   cudf::table_view const& right_equality,
   cudf::table_view const& left_conditional,

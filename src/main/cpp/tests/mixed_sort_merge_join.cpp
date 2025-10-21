@@ -102,8 +102,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinBasic)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({1});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinNoMatches)
@@ -128,8 +128,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinNoMatches)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no matches
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftJoinBasic)
@@ -160,19 +160,19 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinBasic)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: all left rows (0, 1, 2), with row 1 matching right row 0, others null
-  EXPECT_EQ(3, left_result->size());
-  EXPECT_EQ(3, right_result->size());
+  EXPECT_EQ(3, left_result.size());
+  EXPECT_EQ(3, right_result.size());
 
   // Check that we have row 1 from left matching with row 0 from right
-  std::vector<cudf::size_type> left_host(left_result->size());
-  std::vector<cudf::size_type> right_host(right_result->size());
+  std::vector<cudf::size_type> left_host(left_result.size());
+  std::vector<cudf::size_type> right_host(right_result.size());
   CUDF_CUDA_TRY(cudaMemcpy(left_host.data(),
-                           left_result->data(),
-                           left_result->size() * sizeof(cudf::size_type),
+                           left_result.data(),
+                           left_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
   CUDF_CUDA_TRY(cudaMemcpy(right_host.data(),
-                           right_result->data(),
-                           right_result->size() * sizeof(cudf::size_type),
+                           right_result.data(),
+                           right_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   // Find the matching pair
@@ -223,8 +223,8 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinEmptyRight)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({0, 1, 2});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0, 0, 0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftJoinGatherNullify)
@@ -250,18 +250,18 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinGatherNullify)
 
   // Gather from right conditional using right_map with NULLIFY policy
   auto gathered_right_tbl =
-    cudf::gather(right_cond_table, to_column_view(*right_map), cudf::out_of_bounds_policy::NULLIFY);
+    cudf::gather(right_cond_table, to_column_view(right_map), cudf::out_of_bounds_policy::NULLIFY);
 
   // Locate the matched pair position (left==1 with right==0)
-  std::vector<cudf::size_type> left_host(left_map->size());
-  std::vector<cudf::size_type> right_host(right_map->size());
+  std::vector<cudf::size_type> left_host(left_map.size());
+  std::vector<cudf::size_type> right_host(right_map.size());
   CUDF_CUDA_TRY(cudaMemcpy(left_host.data(),
-                           left_map->data(),
-                           left_map->size() * sizeof(cudf::size_type),
+                           left_map.data(),
+                           left_map.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
   CUDF_CUDA_TRY(cudaMemcpy(right_host.data(),
-                           right_map->data(),
-                           right_map->size() * sizeof(cudf::size_type),
+                           right_map.data(),
+                           right_map.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   size_t match_pos = left_host.size();
@@ -309,7 +309,7 @@ TEST_F(MixedSortMergeJoinTest, LeftSemiJoinBasic)
   // Expected: {1} - only row 1 from left has a match
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected({1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(*result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(result));
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftSemiJoinEmptyRight)
@@ -334,7 +334,7 @@ TEST_F(MixedSortMergeJoinTest, LeftSemiJoinEmptyRight)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: empty result - no rows match
-  EXPECT_EQ(0, result->size());
+  EXPECT_EQ(0, result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftAntiJoinBasic)
@@ -361,7 +361,7 @@ TEST_F(MixedSortMergeJoinTest, LeftAntiJoinBasic)
   // Expected: {0, 2} - rows 0 and 2 from left have no matches
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected({0, 2});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(*result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(result));
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftAntiJoinEmptyRight)
@@ -388,7 +388,7 @@ TEST_F(MixedSortMergeJoinTest, LeftAntiJoinEmptyRight)
   // Expected: {0, 1, 2} - all left rows have no matches
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected({0, 1, 2});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(*result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(result));
 }
 
 TEST_F(MixedSortMergeJoinTest, MultipleEqualityKeys)
@@ -419,7 +419,7 @@ TEST_F(MixedSortMergeJoinTest, MultipleEqualityKeys)
   // Row 1: (1,2)==(1,2) and 20>15
   // Row 2: (2,1)==(2,1) and 30>25
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected({1, 2});
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(*result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(result));
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftJoinMultipleMatchesPerLeftRow)
@@ -451,19 +451,19 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinMultipleMatchesPerLeftRow)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: 3 rows total (left row 0 appears twice, left row 1 appears once)
-  EXPECT_EQ(3, left_result->size());
-  EXPECT_EQ(3, right_result->size());
+  EXPECT_EQ(3, left_result.size());
+  EXPECT_EQ(3, right_result.size());
 
   // Copy results to host for verification
-  std::vector<cudf::size_type> left_host(left_result->size());
-  std::vector<cudf::size_type> right_host(right_result->size());
+  std::vector<cudf::size_type> left_host(left_result.size());
+  std::vector<cudf::size_type> right_host(right_result.size());
   CUDF_CUDA_TRY(cudaMemcpy(left_host.data(),
-                           left_result->data(),
-                           left_result->size() * sizeof(cudf::size_type),
+                           left_result.data(),
+                           left_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
   CUDF_CUDA_TRY(cudaMemcpy(right_host.data(),
-                           right_result->data(),
-                           right_result->size() * sizeof(cudf::size_type),
+                           right_result.data(),
+                           right_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   // Count how many times each left row appears
@@ -515,8 +515,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinMultipleMatchesPerLeftRow)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({0, 0});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0, 1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, PreSortedTables)
@@ -551,8 +551,8 @@ TEST_F(MixedSortMergeJoinTest, PreSortedTables)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({1});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinComplexCondition)
@@ -590,8 +590,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinComplexCondition)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({3});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({3});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinAsymmetricSizes)
@@ -619,8 +619,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinAsymmetricSizes)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({2});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinDuplicateKeysWithDifferentConditionalResults)
@@ -650,8 +650,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinDuplicateKeysWithDifferentConditionalRes
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({1, 2});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0, 1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinNullsInConditionalColumns)
@@ -682,8 +682,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinNullsInConditionalColumns)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({0});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinWithGatherVerification)
@@ -712,8 +712,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinWithGatherVerification)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Perform gather on both tables
-  auto gathered_left  = cudf::gather(left_full_table, to_column_view(*left_map));
-  auto gathered_right = cudf::gather(right_full_table, to_column_view(*right_map));
+  auto gathered_left  = cudf::gather(left_full_table, to_column_view(left_map));
+  auto gathered_right = cudf::gather(right_full_table, to_column_view(right_map));
 
   // Expected: Only row 1 from left (200) matches with row 0 from right (10)
   cudf::test::fixed_width_column_wrapper<int32_t> expected_left_eq({1});
@@ -755,9 +755,9 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinWithMultipleDataColumns)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Perform gather with NULLIFY for right table
-  auto gathered_left = cudf::gather(left_full_table, to_column_view(*left_map));
+  auto gathered_left = cudf::gather(left_full_table, to_column_view(left_map));
   auto gathered_right =
-    cudf::gather(right_full_table, to_column_view(*right_map), cudf::out_of_bounds_policy::NULLIFY);
+    cudf::gather(right_full_table, to_column_view(right_map), cudf::out_of_bounds_policy::NULLIFY);
 
   // All left rows should be present
   EXPECT_EQ(3, gathered_left->num_rows());
@@ -860,7 +860,7 @@ TEST_F(MixedSortMergeJoinTest, LeftSemiJoinDuplicateKeys)
   // But semi-join should return unique indices: {1, 3}
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected({1, 3});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(*result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected, to_column_view(result));
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftAntiJoinWithGatherVerification)
@@ -887,7 +887,7 @@ TEST_F(MixedSortMergeJoinTest, LeftAntiJoinWithGatherVerification)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Perform gather
-  auto gathered = cudf::gather(left_full_table, to_column_view(*result_map));
+  auto gathered = cudf::gather(left_full_table, to_column_view(result_map));
 
   // Expected: rows 0 and 2 from left don't match (row 1 matches with 4>3)
   cudf::test::fixed_width_column_wrapper<int32_t> expected_eq({0, 2});
@@ -929,8 +929,8 @@ TEST_F(MixedSortMergeJoinTest, NullsInEqualityKeysWithNullEqual)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({0, 1});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0, 2});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, NullsInEqualityKeysWithNullUnequal)
@@ -965,8 +965,8 @@ TEST_F(MixedSortMergeJoinTest, NullsInEqualityKeysWithNullUnequal)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({0});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 // ===== Empty Table Tests =====
@@ -992,8 +992,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinEmptyLeftTable)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinEmptyRightTable)
@@ -1017,8 +1017,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinEmptyRightTable)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinBothTablesEmpty)
@@ -1042,8 +1042,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinBothTablesEmpty)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftJoinEmptyLeftTable)
@@ -1067,8 +1067,8 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinEmptyLeftTable)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results (no left rows to preserve)
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftSemiJoinEmptyLeftTable)
@@ -1092,7 +1092,7 @@ TEST_F(MixedSortMergeJoinTest, LeftSemiJoinEmptyLeftTable)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results
-  EXPECT_EQ(0, result->size());
+  EXPECT_EQ(0, result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftAntiJoinEmptyLeftTable)
@@ -1116,7 +1116,7 @@ TEST_F(MixedSortMergeJoinTest, LeftAntiJoinEmptyLeftTable)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: no results
-  EXPECT_EQ(0, result->size());
+  EXPECT_EQ(0, result.size());
 }
 
 // ===== Literal-Only Expression Tests =====
@@ -1154,8 +1154,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinLiteralOnlyExpressionAlwaysTrue)
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_left({1, 2});
   cudf::test::fixed_width_column_wrapper<cudf::size_type> expected_right({0, 1});
 
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(*left_result));
-  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(*right_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_left, to_column_view(left_result));
+  CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected_right, to_column_view(right_result));
 }
 
 TEST_F(MixedSortMergeJoinTest, InnerJoinLiteralOnlyExpressionAlwaysFalse)
@@ -1185,8 +1185,8 @@ TEST_F(MixedSortMergeJoinTest, InnerJoinLiteralOnlyExpressionAlwaysFalse)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, condition);
 
   // Expected: No matches since condition is always false
-  EXPECT_EQ(0, left_result->size());
-  EXPECT_EQ(0, right_result->size());
+  EXPECT_EQ(0, left_result.size());
+  EXPECT_EQ(0, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LeftJoinLiteralOnlyExpression)
@@ -1217,18 +1217,18 @@ TEST_F(MixedSortMergeJoinTest, LeftJoinLiteralOnlyExpression)
   // Expected: All left rows present
   // Rows 1 and 2 match on equality with condition true
   // Row 0 has no equality match, so unmatched (right index = 3 = right_num_rows)
-  EXPECT_EQ(3, left_result->size());
-  EXPECT_EQ(3, right_result->size());
+  EXPECT_EQ(3, left_result.size());
+  EXPECT_EQ(3, right_result.size());
 
-  std::vector<cudf::size_type> left_host(left_result->size());
-  std::vector<cudf::size_type> right_host(right_result->size());
+  std::vector<cudf::size_type> left_host(left_result.size());
+  std::vector<cudf::size_type> right_host(right_result.size());
   CUDF_CUDA_TRY(cudaMemcpy(left_host.data(),
-                           left_result->data(),
-                           left_result->size() * sizeof(cudf::size_type),
+                           left_result.data(),
+                           left_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
   CUDF_CUDA_TRY(cudaMemcpy(right_host.data(),
-                           right_result->data(),
-                           right_result->size() * sizeof(cudf::size_type),
+                           right_result.data(),
+                           right_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   // Verify all left rows are present
@@ -1292,13 +1292,13 @@ TEST_F(MixedSortMergeJoinTest, LargeRandomDataSemiJoin)
 
   // Expected: All unique values should have matches since left_cond > right_cond for all pairs
   // Each left row should match at least one right row with the same equality key
-  EXPECT_GT(result->size(), 0);
+  EXPECT_GT(result.size(), 0);
 
   // Verify that all returned indices are valid
-  std::vector<cudf::size_type> result_host(result->size());
+  std::vector<cudf::size_type> result_host(result.size());
   CUDF_CUDA_TRY(cudaMemcpy(result_host.data(),
-                           result->data(),
-                           result->size() * sizeof(cudf::size_type),
+                           result.data(),
+                           result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   for (auto idx : result_host) {
@@ -1333,19 +1333,19 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftJoinBasic)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: all 3 left rows
-  EXPECT_EQ(3, left_result->size());
-  EXPECT_EQ(3, right_result->size());
+  EXPECT_EQ(3, left_result.size());
+  EXPECT_EQ(3, right_result.size());
 
   // Copy results to host for verification
-  std::vector<cudf::size_type> left_host(left_result->size());
-  std::vector<cudf::size_type> right_host(right_result->size());
+  std::vector<cudf::size_type> left_host(left_result.size());
+  std::vector<cudf::size_type> right_host(right_result.size());
   CUDF_CUDA_TRY(cudaMemcpy(left_host.data(),
-                           left_result->data(),
-                           left_result->size() * sizeof(cudf::size_type),
+                           left_result.data(),
+                           left_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
   CUDF_CUDA_TRY(cudaMemcpy(right_host.data(),
-                           right_result->data(),
-                           right_result->size() * sizeof(cudf::size_type),
+                           right_result.data(),
+                           right_result.size() * sizeof(cudf::size_type),
                            cudaMemcpyDeviceToHost));
 
   // Verify we have the expected matching pairs: (1,0) and (2,1)
@@ -1384,12 +1384,12 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftJoinEmptyRight)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: all left rows with OOB right indices
-  EXPECT_EQ(3, left_result->size());
-  EXPECT_EQ(3, right_result->size());
+  EXPECT_EQ(3, left_result.size());
+  EXPECT_EQ(3, right_result.size());
 
   // With empty right table, special code path returns left indices in order
-  auto left_col  = to_column_view(*left_result);
-  auto right_col = to_column_view(*right_result);
+  auto left_col  = to_column_view(left_result);
+  auto right_col = to_column_view(right_result);
 
   cudf::test::fixed_width_column_wrapper<int32_t> expected_left({0, 1, 2});
   cudf::test::fixed_width_column_wrapper<int32_t> expected_right(
@@ -1413,8 +1413,8 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftJoinNullKeys)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: both left rows should match (1==1 at indices 0,na and null==null at indices 1,0)
-  EXPECT_EQ(left_result->size(), 2);
-  EXPECT_EQ(right_result->size(), 2);
+  EXPECT_EQ(left_result.size(), 2);
+  EXPECT_EQ(right_result.size(), 2);
 }
 
 TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftSemiJoinBasic)
@@ -1434,9 +1434,9 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftSemiJoinBasic)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: indices 1 and 2 from left
-  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(result.size(), 2);
 
-  auto result_col = to_column_view(*result);
+  auto result_col = to_column_view(result);
   cudf::test::fixed_width_column_wrapper<int32_t> expected({1, 2});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result_col);
@@ -1455,7 +1455,7 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftSemiJoinEmptyRight)
   auto result = spark_rapids_jni::sort_merge_left_semi_join(
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
-  EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result.size(), 0);
 }
 
 TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftSemiJoinDuplicateKeys)
@@ -1475,7 +1475,7 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftSemiJoinDuplicateKeys)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: 3 left rows all match (indices 0, 1, 2)
-  EXPECT_EQ(result->size(), 3);
+  EXPECT_EQ(result.size(), 3);
 }
 
 TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftAntiJoinBasic)
@@ -1495,9 +1495,9 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftAntiJoinBasic)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: index 0 from left (value 0 has no match)
-  EXPECT_EQ(result->size(), 1);
+  EXPECT_EQ(result.size(), 1);
 
-  auto result_col = to_column_view(*result);
+  auto result_col = to_column_view(result);
   cudf::test::fixed_width_column_wrapper<int32_t> expected({0});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result_col);
@@ -1517,9 +1517,9 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftAntiJoinEmptyRight)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: all left rows
-  EXPECT_EQ(result->size(), 3);
+  EXPECT_EQ(result.size(), 3);
 
-  auto result_col = to_column_view(*result);
+  auto result_col = to_column_view(result);
   cudf::test::fixed_width_column_wrapper<int32_t> expected({0, 1, 2});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result_col);
@@ -1538,7 +1538,7 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyLeftAntiJoinAllMatch)
   auto result = spark_rapids_jni::sort_merge_left_anti_join(
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
-  EXPECT_EQ(result->size(), 0);
+  EXPECT_EQ(result.size(), 0);
 }
 
 TEST_F(MixedSortMergeJoinTest, EqualityOnlyPreSortedTables)
@@ -1555,9 +1555,9 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyPreSortedTables)
     left_table, right_table, cudf::sorted::YES, cudf::sorted::YES, cudf::null_equality::EQUAL);
 
   // Expected: indices 1 and 2 from left
-  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(result.size(), 2);
 
-  auto result_col = to_column_view(*result);
+  auto result_col = to_column_view(result);
   cudf::test::fixed_width_column_wrapper<int32_t> expected({1, 2});
 
   CUDF_TEST_EXPECT_COLUMNS_EQUAL(expected, result_col);
@@ -1579,7 +1579,7 @@ TEST_F(MixedSortMergeJoinTest, EqualityOnlyMultipleColumns)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Expected: (1,2) matches at index 1, (2,1) matches at index 2
-  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(result.size(), 2);
 }
 
 // =============================================================================
@@ -1683,8 +1683,8 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalLeftJoin)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, and_expr);
 
   // All right rows should match (condition is satisfied for all)
-  EXPECT_EQ(num_rows, left_result->size());
-  EXPECT_EQ(num_rows, right_result->size());
+  EXPECT_EQ(num_rows, left_result.size());
+  EXPECT_EQ(num_rows, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalInnerJoin)
@@ -1732,8 +1732,8 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalInnerJoin)
   auto [left_result, right_result] = spark_rapids_jni::mixed_sort_merge_inner_join(
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, and_expr);
 
-  EXPECT_EQ(num_rows, left_result->size());
-  EXPECT_EQ(num_rows, right_result->size());
+  EXPECT_EQ(num_rows, left_result.size());
+  EXPECT_EQ(num_rows, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalLeftSemiJoin)
@@ -1783,7 +1783,7 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalLeftSemiJoin)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, and_expr);
 
   // Semi join returns unique left indices, so should be 1
-  EXPECT_EQ(1, result->size());
+  EXPECT_EQ(1, result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalLeftAntiJoin)
@@ -1832,7 +1832,7 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleConditionalLeftAntiJoin)
     left_eq_table, right_eq_table, left_cond_table, right_cond_table, and_expr);
 
   // Anti join should return 0 (left row matches)
-  EXPECT_EQ(0, result->size());
+  EXPECT_EQ(0, result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftJoin)
@@ -1864,8 +1864,8 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftJoin)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // All right rows should match with the single left row
-  EXPECT_EQ(num_rows, left_result->size());
-  EXPECT_EQ(num_rows, right_result->size());
+  EXPECT_EQ(num_rows, left_result.size());
+  EXPECT_EQ(num_rows, right_result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftSemiJoin)
@@ -1894,7 +1894,7 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftSemiJoin)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Semi join returns unique left indices, so should be 1
-  EXPECT_EQ(1, result->size());
+  EXPECT_EQ(1, result.size());
 }
 
 TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftAntiJoin)
@@ -1923,5 +1923,5 @@ TEST_F(MixedSortMergeJoinTest, LargeScaleEqualityOnlyLeftAntiJoin)
     left_table, right_table, cudf::sorted::NO, cudf::sorted::NO, cudf::null_equality::EQUAL);
 
   // Anti join should return 0 (left row matches)
-  EXPECT_EQ(0, result->size());
+  EXPECT_EQ(0, result.size());
 }

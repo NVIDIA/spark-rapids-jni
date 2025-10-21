@@ -30,16 +30,15 @@ namespace {
  */
 jlongArray gather_maps_to_java(
   JNIEnv* env,
-  std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
-            std::unique_ptr<rmm::device_uvector<cudf::size_type>>> gather_maps)
+  std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>> gather_maps)
 {
   // Both gather maps must have the same size for paired results
-  CUDF_EXPECTS(gather_maps.first->size() == gather_maps.second->size(),
+  CUDF_EXPECTS(gather_maps.first.size() == gather_maps.second.size(),
                "Left and right gather maps must have the same size");
 
   // Release the underlying device buffers to Java
-  auto left_map_buffer  = std::make_unique<rmm::device_buffer>(gather_maps.first->release());
-  auto right_map_buffer = std::make_unique<rmm::device_buffer>(gather_maps.second->release());
+  auto left_map_buffer  = std::make_unique<rmm::device_buffer>(gather_maps.first.release());
+  auto right_map_buffer = std::make_unique<rmm::device_buffer>(gather_maps.second.release());
 
   cudf::jni::native_jlongArray result(env, 5);
   // Return size in bytes (as expected by DeviceMemoryBuffer.fromRmm)
@@ -55,12 +54,12 @@ jlongArray gather_maps_to_java(
  * @brief Convert device vector to Java long array (single gather map)
  * Returns a 3-element array: [size_in_bytes, device_ptr, rmm_handle]
  */
-jlongArray gather_single_map_to_java(
-  JNIEnv* env, std::unique_ptr<rmm::device_uvector<cudf::size_type>> gather_map)
+jlongArray gather_single_map_to_java(JNIEnv* env,
+                                      rmm::device_uvector<cudf::size_type> gather_map)
 {
   cudf::jni::native_jlongArray result(env, 3);
-  result[0]              = static_cast<jlong>(gather_map->size() * sizeof(cudf::size_type));
-  auto gather_map_buffer = std::make_unique<rmm::device_buffer>(gather_map->release());
+  result[0]              = static_cast<jlong>(gather_map.size() * sizeof(cudf::size_type));
+  auto gather_map_buffer = std::make_unique<rmm::device_buffer>(gather_map.release());
   result[1]              = cudf::jni::ptr_as_jlong(gather_map_buffer->data());
   result[2]              = cudf::jni::release_as_jlong(std::move(gather_map_buffer));
   return result.get_jArray();
