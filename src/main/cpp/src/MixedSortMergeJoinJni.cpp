@@ -54,8 +54,7 @@ jlongArray gather_maps_to_java(
  * @brief Convert device vector to Java long array (single gather map)
  * Returns a 3-element array: [size_in_bytes, device_ptr, rmm_handle]
  */
-jlongArray gather_single_map_to_java(JNIEnv* env,
-                                      rmm::device_uvector<cudf::size_type> gather_map)
+jlongArray gather_single_map_to_java(JNIEnv* env, rmm::device_uvector<cudf::size_type> gather_map)
 {
   cudf::jni::native_jlongArray result(env, 3);
   result[0]              = static_cast<jlong>(gather_map.size() * sizeof(cudf::size_type));
@@ -263,12 +262,12 @@ Java_com_nvidia_spark_rapids_jni_MixedSortMergeJoin_mixedSortMergeLeftAntiJoin(
 
 JNIEXPORT jlongArray JNICALL
 Java_com_nvidia_spark_rapids_jni_SortMergeJoin_sortMergeInnerJoin(JNIEnv* env,
-                                                                   jclass,
-                                                                   jlong j_left_keys,
-                                                                   jlong j_right_keys,
-                                                                   jboolean j_is_left_sorted,
-                                                                   jboolean j_is_right_sorted,
-                                                                   jboolean j_nulls_equal)
+                                                                  jclass,
+                                                                  jlong j_left_keys,
+                                                                  jlong j_right_keys,
+                                                                  jboolean j_is_left_sorted,
+                                                                  jboolean j_is_right_sorted,
+                                                                  jboolean j_nulls_equal)
 {
   JNI_NULL_CHECK(env, j_left_keys, "left keys table is null", nullptr);
   JNI_NULL_CHECK(env, j_right_keys, "right keys table is null", nullptr);

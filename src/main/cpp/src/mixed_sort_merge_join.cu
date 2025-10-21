@@ -128,8 +128,8 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
     &max_shmem_per_block, cudaDevAttrMaxSharedMemoryPerBlock, current_device));
 
   // Use the same type alias as in the kernel to ensure consistency
-  auto const per_thread_bytes =
-    static_cast<int>(num_intermediates) * static_cast<int>(sizeof(intermediate_storage_type<has_nulls>));
+  auto const per_thread_bytes = static_cast<int>(num_intermediates) *
+                                static_cast<int>(sizeof(intermediate_storage_type<has_nulls>));
   int block_size = 256;  // default
   if (per_thread_bytes > 0) {
     int const max_by_shmem = max_shmem_per_block / per_thread_bytes;
@@ -243,7 +243,8 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
 
   // Create a boolean mask to track which left rows have matches
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
   thrust::for_each(rmm::exec_policy_nosync(stream),
@@ -254,8 +255,8 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
                    });
 
   // Count unmatched left rows
-  auto const num_unmatched =
-    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  auto const num_unmatched = thrust::count(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Allocate output with space for both matched and unmatched
   auto const total_size  = left_indices.size() + num_unmatched;
@@ -263,8 +264,10 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
   auto out_right_indices = rmm::device_uvector<cudf::size_type>(total_size, stream, mr);
 
   // Copy matched pairs
-  thrust::copy(
-    rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end(), out_left_indices.begin());
+  thrust::copy(rmm::exec_policy_nosync(stream),
+               left_indices.begin(),
+               left_indices.end(),
+               out_left_indices.begin());
   thrust::copy(rmm::exec_policy_nosync(stream),
                right_indices.begin(),
                right_indices.end(),
@@ -309,7 +312,8 @@ rmm::device_uvector<cudf::size_type> extract_unique_left_indices(
 
   // Sort and unique
   thrust::sort(rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end());
-  auto new_end  = thrust::unique(rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end());
+  auto new_end =
+    thrust::unique(rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end());
   auto new_size = thrust::distance(left_indices.begin(), new_end);
 
   auto result = rmm::device_uvector<cudf::size_type>(new_size, stream, mr);
@@ -400,14 +404,13 @@ sort_merge_left_join(cudf::table_view const& left_keys,
   return result;
 }
 
-rmm::device_uvector<cudf::size_type> sort_merge_left_semi_join(
-  cudf::table_view const& left_keys,
-  cudf::table_view const& right_keys,
-  cudf::sorted is_left_sorted,
-  cudf::sorted is_right_sorted,
-  cudf::null_equality compare_nulls,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+rmm::device_uvector<cudf::size_type> sort_merge_left_semi_join(cudf::table_view const& left_keys,
+                                                               cudf::table_view const& right_keys,
+                                                               cudf::sorted is_left_sorted,
+                                                               cudf::sorted is_right_sorted,
+                                                               cudf::null_equality compare_nulls,
+                                                               rmm::cuda_stream_view stream,
+                                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -434,14 +437,13 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_semi_join(
   return result;
 }
 
-rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(
-  cudf::table_view const& left_keys,
-  cudf::table_view const& right_keys,
-  cudf::sorted is_left_sorted,
-  cudf::sorted is_right_sorted,
-  cudf::null_equality compare_nulls,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(cudf::table_view const& left_keys,
+                                                               cudf::table_view const& right_keys,
+                                                               cudf::sorted is_left_sorted,
+                                                               cudf::sorted is_right_sorted,
+                                                               cudf::null_equality compare_nulls,
+                                                               rmm::cuda_stream_view stream,
+                                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -465,7 +467,8 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(
 
   // Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
   thrust::for_each(rmm::exec_policy_nosync(stream),
@@ -476,8 +479,8 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(
                    });
 
   // Count and collect unmatched rows
-  auto const num_unmatched =
-    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  auto const num_unmatched = thrust::count(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   auto result = rmm::device_uvector<cudf::size_type>(num_unmatched, stream, mr);
   thrust::copy_if(rmm::exec_policy_nosync(stream),
@@ -792,7 +795,8 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
 
   // Step 2: Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
   thrust::for_each(rmm::exec_policy_nosync(stream),
@@ -803,8 +807,8 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
                    });
 
   // Count and collect unmatched rows
-  auto const num_unmatched =
-    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  auto const num_unmatched = thrust::count(
+    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   auto result = rmm::device_uvector<cudf::size_type>(num_unmatched, stream, mr);
   thrust::copy_if(rmm::exec_policy_nosync(stream),
