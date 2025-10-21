@@ -47,19 +47,13 @@ class TzInfoInJavaUtilForORC implements AutoCloseable {
   // from `sun.util.calendar.ZoneInfo`
   private static final int TRANSITION_NSHIFT_IN_ZONE_INFO = 12;
 
-  // Uses 20 bits to store offset in seconds
-  private static final int OFFSET_SHIFT = 20;
-
-  // Offset bit mask: 20 one bits
-  private static final long OFFSET_MASK = 0xFFFFFL;
-
-  // Transition time in seconds from Gregorian January 1 1970, 00:00:00 GMT;
-  // Each long is packed in form of:
-  // - The least significant 20 bits are for offset in seconds.
-  // - The most significant 44 bits are for transition time in seconds.
+  // Transition time in milliseconds
   long[] transitions;
 
-  // from `sun.util.calendar.ZoneInfo`, but in seconds.
+  // Offsets in milliseconds, the size is the same as transitions.length
+  int[] offsets;
+
+  // `rawOffset` from `sun.util.calendar.ZoneInfo` in milliseconds.
   int rawOffset;
 
   /**
@@ -75,31 +69,13 @@ class TzInfoInJavaUtilForORC implements AutoCloseable {
   TzInfoInJavaUtilForORC(long[] transitions, int[] offsets, int rawOffset) {
     if (transitions != null) {
       this.transitions = new long[transitions.length];
+      this.offsets = new int[transitions.length];
       for (int i = 0; i < transitions.length; i++) {
-        long transitionMs = (transitions[i] >> TRANSITION_NSHIFT_IN_ZONE_INFO);
-        if (transitionMs % 1000 != 0) {
-          throw new IllegalArgumentException("transitions should be in seconds");
-        }
-        long offsetMs = offsets[(int) (transitions[i] & OFFSET_MASK_IN_ZONE_INFO)];
-        if (offsetMs % 1000 != 0) {
-          throw new IllegalArgumentException("offsets should be in seconds");
-        }
-        long offsetSeconds = offsetMs / 1000L;
-        if (offsetSeconds < -18L * 3600L || offsetSeconds > 18L * 3600L) {
-          throw new IllegalArgumentException("offsets should be in range [-18h, +18h]");
-        }
-
-        // pack transition(in seconds) and offset(in seconds) into a int64 value.
-        // - The least significant 20 bits are for offset in seconds.
-        // - The most significant 44 bits are for transition time in seconds.
-        this.transitions[i] = ((transitionMs / 1000L) << OFFSET_SHIFT)
-            | (OFFSET_MASK & offsetSeconds);
+        this.transitions[i] = (transitions[i] >> TRANSITION_NSHIFT_IN_ZONE_INFO);
+        this.offsets[i] = offsets[(int) (transitions[i] & OFFSET_MASK_IN_ZONE_INFO)];
       }
     }
-    if (rawOffset % 1000 != 0) {
-      throw new IllegalArgumentException("rawOffset should be in seconds, but find milliseconds");
-    }
-    this.rawOffset = rawOffset / 1000;
+    this.rawOffset = rawOffset;
   }
 
   @Override
@@ -748,6 +724,12 @@ public class GpuTimeZoneDB {
     }
   }
 
+  private static ColumnVector getOffsetsForUtilTZ(TzInfoInJavaUtilForORC info) {
+    try (HostColumnVector hcv = HostColumnVector.fromInts(info.offsets)) {
+      return hcv.copyToDevice();
+    }
+  }
+
   /**
    * Get timezone info from `java.util.TimeZone`.
    * 
@@ -759,8 +741,9 @@ public class GpuTimeZoneDB {
       // fixed offset timezone
       return null;
     }
-    try (ColumnVector trans = getTransitionsForUtilTZ(info)) {
-      return new Table(trans);
+    try (ColumnVector trans = getTransitionsForUtilTZ(info);
+        ColumnVector offsets = getOffsetsForUtilTZ(info)) {
+      return new Table(trans, offsets);
     } catch (Exception e) {
       throw new IllegalStateException("get timezone info from java.util.TimeZone failed!", e);
     }

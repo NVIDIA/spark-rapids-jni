@@ -248,62 +248,31 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
 
 /**
  * @brief Get the transition index for the given time `time_ms` using binary search.
- * The transition array is sorted, each int64 value is composed of 44 bits
- * transition time in seconds and 20 bits offset in seconds.
+ *
  * @param begin the beginning of the transition array.
  * @param end the end of the transition array.
  * @param time_ms the input time in milliseconds to find the transition index for.
+ * @param offset_begin the beginning of the offset array.
+ * @param offset_end the end of the offset array.
+ *
+ * @return the offset.
  */
-__device__ static int get_transition_index(int64_t const* begin,
-                                           int64_t const* end,
-                                           int64_t time_ms)
+__device__ static int32_t get_transition_index(int64_t const* begin,
+                                               int64_t const* end,
+                                               int64_t time_ms,
+                                               int32_t const* offset_begin,
+                                               int32_t const* offset_end,
+                                               int32_t raw_offset)
 {
-  constexpr int OFFSET_SHIFT      = 20;
-  constexpr int64_t MS_PER_SECOND = 1000L;
+  auto const iter = thrust::upper_bound(thrust::seq, begin, end, time_ms);
+  if (iter == end) { return raw_offset; }
 
-  if (begin == end) { return -1; }
+  int32_t index = static_cast<int32_t>(cuda::std::distance(begin, iter));
+  if (*iter == time_ms) { return offset_begin[index]; }
 
-  int low  = 0;
-  int high = end - begin - 1;
+  if (index == 0) { return raw_offset; }
 
-  while (low <= high) {
-    int mid = (low + high) / 2;
-    // sign retained shift, then multiple 1000 to get milliseconds
-    long midVal = (begin[mid] >> OFFSET_SHIFT) * MS_PER_SECOND;
-    if (midVal < time_ms) {
-      low = mid + 1;
-    } else if (midVal > time_ms) {
-      high = mid - 1;
-    } else {
-      return mid;
-    }
-  }
-
-  // if beyond the transitions, returns that index.
-  if (low >= (end - begin)) { return low; }
-  return low - 1;
-}
-
-/**
- * @brief Get the int value from the least significant `num_bits` in a int64_t value.
- * Note: If the `num_bits` bit is 1, it returns negative value.
- * @param holder the int64_t value holds the bits.
- * @param num_bits the number of bits to get from the least significant bits.
- * @return the int value from the least significant `num_bits` in a int64_t value.
- */
-__device__ static int64_t get_value_from_lowest_bits(int64_t holder, int num_bits)
-{
-  int64_t mask      = (1L << num_bits) - 1L;
-  int64_t sign_mask = 1L << (num_bits - 1);
-
-  if ((holder & sign_mask) != 0) {
-    // the sign bit is 1, it's a negative value
-    // set all the complement bits to 1
-    return holder | (~mask);
-  }
-
-  // positive value
-  return holder & mask;
+  return offset_begin[index - 1];
 }
 
 /**
@@ -334,59 +303,46 @@ __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   cudf::timestamp_us ts,
   int64_t const* writer_trans_begin,
   int64_t const* writer_trans_end,
-  cudf::size_type writer_raw_offset,
+  int32_t const* writer_offsets_begin,
+  int32_t const* writer_offsets_end,
+  int32_t writer_raw_offset,
   int64_t const* reader_trans_begin,
   int64_t const* reader_trans_end,
-  cudf::size_type reader_raw_offset)
+  int32_t const* reader_offsets_begin,
+  int32_t const* reader_offsets_end,
+  int32_t reader_raw_offset)
 {
-  constexpr int32_t OFFSET_BITS   = 20;
-  constexpr int64_t MS_PER_SECOND = 1000L;
-  constexpr int64_t US_PER_SECOND = 1'000'000L;
+  constexpr int64_t MICROS_PER_MILLI = 1000L;
 
-  int64_t const epoch_milliseconds = static_cast<int64_t>(
+  int64_t const epoch_millis = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_ms>(ts.time_since_epoch()).count());
 
-  int64_t writer_offset = [&] {
-    int const writer_index =
-      get_transition_index(writer_trans_begin, writer_trans_end, epoch_milliseconds);
+  int32_t writer_offset_millis = get_transition_index(writer_trans_begin,
+                                                      writer_trans_end,
+                                                      epoch_millis,
+                                                      writer_offsets_begin,
+                                                      writer_offsets_end,
+                                                      writer_raw_offset);
 
-    if (writer_index >= 0 && writer_index < (writer_trans_end - writer_trans_begin)) {
-      return get_value_from_lowest_bits(writer_trans_begin[writer_index], OFFSET_BITS);
-    } else {
-      return static_cast<int64_t>(writer_raw_offset);
-    }
-  }();
+  int32_t reader_offset_millis = get_transition_index(reader_trans_begin,
+                                                      reader_trans_end,
+                                                      epoch_millis,
+                                                      reader_offsets_begin,
+                                                      reader_offsets_end,
+                                                      reader_raw_offset);
 
-  int64_t reader_offset = [&] {
-    int const reader_index =
-      get_transition_index(reader_trans_begin, reader_trans_end, epoch_milliseconds);
-    if (reader_index >= 0 && reader_index < (reader_trans_end - reader_trans_begin)) {
-      return get_value_from_lowest_bits(reader_trans_begin[reader_index], OFFSET_BITS);
-    } else {
-      return static_cast<int64_t>(reader_raw_offset);
-    }
-  }();
+  int64_t adjusted_milliseconds    = epoch_millis + (writer_offset_millis - reader_offset_millis);
+  int const reader_adjusted_offset = get_transition_index(reader_trans_begin,
+                                                          reader_trans_end,
+                                                          adjusted_milliseconds,
+                                                          reader_offsets_begin,
+                                                          reader_offsets_end,
+                                                          reader_raw_offset);
 
-  int64_t reader_adjusted_offset = [&] {
-    int64_t adjusted_milliseconds =
-      epoch_milliseconds + (writer_offset - reader_offset) * MS_PER_SECOND;
-
-    int const reader_adjusted_index =
-      get_transition_index(reader_trans_begin, reader_trans_end, adjusted_milliseconds);
-
-    if (reader_adjusted_index >= 0 &&
-        reader_adjusted_index < (reader_trans_end - reader_trans_begin)) {
-      return get_value_from_lowest_bits(reader_trans_begin[reader_adjusted_index], OFFSET_BITS);
-    } else {
-      return static_cast<int64_t>(reader_raw_offset);
-    }
-  }();
-
-  int64_t final_offset_seconds =
-    static_cast<int64_t>(writer_offset) - static_cast<int64_t>(reader_adjusted_offset);
-  int64_t const epoch_us = static_cast<int64_t>(
+  int32_t final_offset_millis = writer_offset_millis - reader_adjusted_offset;
+  int64_t const epoch_us      = static_cast<int64_t>(
     cuda::std::chrono::duration_cast<cudf::duration_us>(ts.time_since_epoch()).count());
-  int64_t final_result = epoch_us + final_offset_seconds * US_PER_SECOND;
+  int64_t final_result = epoch_us + static_cast<int64_t>(final_offset_millis) * MICROS_PER_MILLI;
   return cudf::timestamp_us{cudf::duration_us{final_result}};
 }
 
@@ -394,11 +350,15 @@ struct convert_timezones_functor {
   // writer timezone info
   int64_t const* writer_trans_begin;
   int64_t const* writer_trans_end;
+  int32_t const* writer_offsets_begin;
+  int32_t const* writer_offsets_end;
   int32_t writer_raw_offset;
 
   // reader timezone info
   int64_t const* reader_trans_begin;
   int64_t const* reader_trans_end;
+  int32_t const* reader_offsets_begin;
+  int32_t const* reader_offsets_end;
   int32_t reader_raw_offset;
 
   __device__ cudf::timestamp_us operator()(cudf::timestamp_us const& timestamp) const
@@ -406,9 +366,13 @@ struct convert_timezones_functor {
     return convert_timestamp_between_timezones(timestamp,
                                                writer_trans_begin,
                                                writer_trans_end,
+                                               writer_offsets_begin,
+                                               writer_offsets_end,
                                                writer_raw_offset,
                                                reader_trans_begin,
                                                reader_trans_end,
+                                               reader_offsets_begin,
+                                               reader_offsets_end,
                                                reader_raw_offset);
   }
 };
@@ -449,6 +413,24 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     }
   }();
 
+  int32_t const* writer_offsets_begin = [&]() {
+    if (writer_tz_info_table != nullptr) {
+      return writer_tz_info_table->column(1).begin<int32_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int32_t const*>(0);
+    }
+  }();
+
+  int32_t const* writer_offsets_end = [&]() {
+    if (writer_tz_info_table != nullptr) {
+      return writer_tz_info_table->column(1).end<int32_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int32_t const*>(0);
+    }
+  }();
+
   int64_t const* reader_trans_begin = [&]() {
     if (reader_tz_info_table != nullptr) {
       return reader_tz_info_table->column(0).begin<int64_t>();
@@ -467,15 +449,37 @@ std::unique_ptr<column> convert_timezones(cudf::column_view const& input,
     }
   }();
 
+  int32_t const* reader_offsets_begin = [&]() {
+    if (reader_tz_info_table != nullptr) {
+      return reader_tz_info_table->column(1).begin<int32_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int32_t const*>(0);
+    }
+  }();
+
+  int32_t const* reader_offsets_end = [&]() {
+    if (reader_tz_info_table != nullptr) {
+      return reader_tz_info_table->column(1).end<int32_t>();
+    } else {
+      // fixed transition, has no transitions
+      return static_cast<int32_t const*>(0);
+    }
+  }();
+
   thrust::transform(rmm::exec_policy_nosync(stream),
                     input.begin<cudf::timestamp_us>(),
                     input.end<cudf::timestamp_us>(),
                     results->mutable_view().begin<cudf::timestamp_us>(),
                     convert_timezones_functor{writer_trans_begin,
                                               writer_trans_end,
+                                              writer_offsets_begin,
+                                              writer_offsets_end,
                                               writer_raw_offset,
                                               reader_trans_begin,
                                               reader_trans_end,
+                                              reader_offsets_begin,
+                                              reader_offsets_end,
                                               reader_raw_offset});
 
   return results;
