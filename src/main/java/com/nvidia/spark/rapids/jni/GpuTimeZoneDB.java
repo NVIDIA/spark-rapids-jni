@@ -767,9 +767,9 @@ public class GpuTimeZoneDB {
   }
 
   /**
-   * Is Daylight Saving Time for the given timezone id
+   * Does the given timezone have Daylight Saving Time(DST) rules.
    */
-  private static boolean isDaylightSavingTime(String timezoneId) {
+  private static boolean hasDaylightSavingTime(String timezoneId) {
     ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
     return !zoneId.getRules().getTransitionRules().isEmpty();
   }
@@ -795,8 +795,8 @@ public class GpuTimeZoneDB {
       String writerTimezone,
       String readerTimezone) {
     // Does not support DST timezone now, just throw exception.
-    if (isDaylightSavingTime(writerTimezone) ||
-        isDaylightSavingTime(readerTimezone)) {
+    if (hasDaylightSavingTime(writerTimezone) ||
+        hasDaylightSavingTime(readerTimezone)) {
       throw new UnsupportedOperationException("Daylight Saving Time is not supported now.");
     }
 

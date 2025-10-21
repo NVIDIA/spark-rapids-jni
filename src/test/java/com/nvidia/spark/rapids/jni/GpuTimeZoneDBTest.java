@@ -87,7 +87,6 @@ public class GpuTimeZoneDBTest {
           microseconds[i] = min + (long) (rng.nextDouble() * (max - min));
         }
 
-
         try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(microseconds);
             // Convert on CPU
             ColumnVector expected = convertBetweenTimezonesOnCPU(microseconds, writerTz, readerTz);
