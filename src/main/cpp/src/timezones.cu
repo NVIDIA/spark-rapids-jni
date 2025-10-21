@@ -248,6 +248,8 @@ std::unique_ptr<column> convert_to_utc_with_multiple_timezones(
 
 /**
  * @brief Get the transition index for the given time `time_ms` using binary search.
+ * Find the first transition that is greater or equal to `time_ms`,
+ * and return the corresponding offset.
  *
  * @param begin the beginning of the transition array.
  * @param end the end of the transition array.
@@ -264,16 +266,29 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
                                                int32_t const* offset_end,
                                                int32_t raw_offset)
 {
-  if (begin == end) { return raw_offset; }
+  if (begin == end) {
+    // fixed offset timezone, no transitions
+    return raw_offset;
+  }
 
   auto const iter = thrust::upper_bound(thrust::seq, begin, end, time_ms);
-  if (iter == end) { return raw_offset; }
+  if (iter == end) {
+    // after the transition table, returns the raw offset
+    return raw_offset;
+  }
 
   int32_t index = static_cast<int32_t>(cuda::std::distance(begin, iter));
-  if (*iter == time_ms) { return offset_begin[index]; }
+  if (*iter == time_ms) {
+    // find exact match, return the offset at that index
+    return offset_begin[index];
+  }
 
-  if (index == 0) { return raw_offset; }
+  if (index == 0) {
+    // prior to the transition table, returns the raw offset
+    return raw_offset;
+  }
 
+  // return the offset at the previous index
   return offset_begin[index - 1];
 }
 

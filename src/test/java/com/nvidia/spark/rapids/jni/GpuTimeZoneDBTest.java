@@ -60,6 +60,9 @@ public class GpuTimeZoneDBTest {
 
   @Test
   void testConvertOrcTimezones() {
+    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.verifyDatabaseCached();
+
     // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
     long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
         .toEpochSecond(ZoneOffset.UTC) * TimeUnit.SECONDS.toMicros(1);
@@ -68,14 +71,13 @@ public class GpuTimeZoneDBTest {
 
     // use today as the random seed so we get different values each day
     Random rng = new Random(LocalDate.now().toEpochDay());
-    String[] tzIds = TimeZone.getAvailableIDs();
 
-    for (String writerTz : tzIds) {
+    for (String writerTz : GpuTimeZoneDB.getOrcSupportedTimezones()) {
       if (GpuTimeZoneDB.isDST(writerTz)) {
         // currently do not support DST conversions
         continue;
       }
-      for (String readerTz : tzIds) {
+      for (String readerTz : GpuTimeZoneDB.getOrcSupportedTimezones()) {
         if (GpuTimeZoneDB.isDST(readerTz)) {
           // currently do not support DST conversions
           continue;
@@ -92,7 +94,7 @@ public class GpuTimeZoneDBTest {
             ColumnVector expected = convertOrcTimezonesOnCPU(microseconds, writerTz, readerTz);
             // Convert on GPU
             ColumnVector actual = GpuTimeZoneDB.convertOrcTimezones(input, writerTz, readerTz)) {
-          // assertColumnsAreEqual(expected, actual);
+          assertColumnsAreEqual(expected, actual);
         }
       }
     }
