@@ -58,7 +58,7 @@ class TzInfoInJavaUtilForORC implements AutoCloseable {
 
   /**
    * Constructor for TimeZone info from `sun.util.calendar.ZoneInfo`.
-   * Extract timezone info from `ZoneInfo` and convert to seconds.
+   * Extract timezone info from `ZoneInfo`.
    * The inputs are from `sun.util.calendar.ZoneInfo` via reflection.
    * 
    * @param transitions transitions in milliseconds from
@@ -121,8 +121,6 @@ public class GpuTimeZoneDB {
   private static long maxTimestamp;
   private static int lastCachedYear;
   private static final ZoneId utcZoneId = ZoneId.of("UTC");
-
-  // // Cache the timezone info for 6 timezones.
 
   /**
    * This should be called on startup of an executor.
@@ -773,7 +771,7 @@ public class GpuTimeZoneDB {
    *                       timezone.
    * @return timestamp column in microseconds after converting between timezones
    */
-  public static ColumnVector convertBetweenTimezones(
+  public static ColumnVector convertOrcTimezones(
       ColumnVector input,
       String writerTimezone,
       String readerTimezone) {
@@ -790,7 +788,7 @@ public class GpuTimeZoneDB {
         Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
 
       // convert between timezones
-      return new ColumnVector(convertBetweenTimezones(
+      return new ColumnVector(convertOrcTimezones(
           input.getNativeView(),
           writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0L,
           writerTzInfo.rawOffset,
@@ -809,7 +807,7 @@ public class GpuTimeZoneDB {
       long input_seconds, long input_microseconds, long invalid, long tzType,
       long tzOffset, long transitions, long tzIndex);
 
-  private static native long convertBetweenTimezones(
+  private static native long convertOrcTimezones(
       long input,
       long writerTzInfoTable,
       int writerTzRawOffset,

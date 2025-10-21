@@ -98,13 +98,13 @@ Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertTimestampColumnToUTCWithTz
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertBetweenTimezones(JNIEnv* env,
-                                                                       jclass,
-                                                                       jlong input_handle,
-                                                                       jlong writer_tz_info_table,
-                                                                       jint writer_tz_raw_offset,
-                                                                       jlong reader_tz_info_table,
-                                                                       jint reader_tz_raw_offset)
+Java_com_nvidia_spark_rapids_jni_GpuTimeZoneDB_convertOrcTimezones(JNIEnv* env,
+                                                                   jclass,
+                                                                   jlong input_handle,
+                                                                   jlong writer_tz_info_table,
+                                                                   jint writer_tz_raw_offset,
+                                                                   jlong reader_tz_info_table,
+                                                                   jint reader_tz_raw_offset)
 {
   JNI_NULL_CHECK(env, input_handle, "input column is null", 0);
 

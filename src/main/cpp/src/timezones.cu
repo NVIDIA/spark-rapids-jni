@@ -264,6 +264,8 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
                                                int32_t const* offset_end,
                                                int32_t raw_offset)
 {
+  if (begin == end) { return raw_offset; }
+
   auto const iter = thrust::upper_bound(thrust::seq, begin, end, time_ms);
   if (iter == end) { return raw_offset; }
 
@@ -285,19 +287,6 @@ __device__ static int32_t get_transition_index(int64_t const* begin,
  *
  * If the input `trans_begin` == `trans_begin` == nullptr, it means the timezone is fixed offset,
  * then use the raw_offset directly.
- *
- * @param ts the input timestamp in UTC timezone to get the offset for.
- * @param writer_trans_begin The beginning of the writer timezone transition array, or 0 if using
- * fixed offset.
- * @param writer_trans_end The end of the writer timezone transition array, or 0 if using fixed
- * offset.
- * @param writer_raw_offset Writer timezone raw offset in seconds.
- * @param reader_trans_begin The beginning of the reader timezone transition array, or 0 if using
- * fixed offset.
- * @param reader_trans_end The end of the reader timezone transition array, or 0 if using fixed
- * offset.
- * @param reader_raw_offset Reader timezone raw offset in seconds.
- * @return the timestamp after apply the offsets between timezones.
  */
 __device__ static cudf::timestamp_us convert_timestamp_between_timezones(
   cudf::timestamp_us ts,

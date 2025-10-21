@@ -39,7 +39,7 @@ public class GpuTimeZoneDBTest {
    * Refer to https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/
    * src/java/org/apache/orc/impl/SerializationUtils.java#L1440
    */
-  private static ColumnVector convertBetweenTimezonesOnCPU(
+  private static ColumnVector convertOrcTimezonesOnCPU(
       long[] microseconds,
       String writeTzId,
       String readerTzId) {
@@ -59,7 +59,7 @@ public class GpuTimeZoneDBTest {
   }
 
   @Test
-  void testConvertBetweenTimezones() {
+  void testConvertOrcTimezones() {
     // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
     long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
         .toEpochSecond(ZoneOffset.UTC) * TimeUnit.SECONDS.toMicros(1);
@@ -89,9 +89,9 @@ public class GpuTimeZoneDBTest {
 
         try (ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(microseconds);
             // Convert on CPU
-            ColumnVector expected = convertBetweenTimezonesOnCPU(microseconds, writerTz, readerTz);
+            ColumnVector expected = convertOrcTimezonesOnCPU(microseconds, writerTz, readerTz);
             // Convert on GPU
-            ColumnVector actual = GpuTimeZoneDB.convertBetweenTimezones(input, writerTz, readerTz)) {
+            ColumnVector actual = GpuTimeZoneDB.convertOrcTimezones(input, writerTz, readerTz)) {
           // assertColumnsAreEqual(expected, actual);
         }
       }

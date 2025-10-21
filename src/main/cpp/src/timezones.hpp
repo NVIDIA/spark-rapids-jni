@@ -122,22 +122,18 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
 /**
  * @brief Convert between ORC writer timezone and reader timezone.
  *
- * If `writer_tz_info_table` is null, it means the writer timezone is fixed offset.
- * If `reader_tz_info_table` is null, it means the reader timezone is fixed offset.
- *
- * This method is the inverse of convert_timestamp_to_utc.
+ * If `writer_tz_info_table` is nullptr, it means the writer timezone is fixed offset.
+ * If `reader_tz_info_table` is nullptr, it means the reader timezone is fixed offset.
  *
  * @param input The input timestamp column in microseconds.
  *
- * @param writer_tz_info_table The writer timezone table which contains a transition column.
- * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
- * transition time in seconds and 20 bits offset in seconds.
+ * @param writer_tz_info_table The writer timezone table which contains a transition column and a
+ * timezone index column both in milliseconds.
  *
  * @param writer_raw_offset the raw offset in seconds.
  *
- * @param reader_tz_info_table the reader timezone table which contains a transition column.
- * The first column stores int64 values as transition info, each int64 value is composed of 44 bits
- * transition time in seconds and 20 bits offset in seconds.
+ * @param reader_tz_info_table The reader timezone table which contains a transition column and a
+ * timezone index column both in milliseconds.
  *
  * @param reader_raw_offset the raw offset in seconds.
  *
