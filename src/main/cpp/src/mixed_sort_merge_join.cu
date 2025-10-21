@@ -50,6 +50,13 @@ namespace {
 // =============================================================================
 // HELPER FUNCTIONS (Used by both conditional and non-conditional joins)
 // =============================================================================
+
+// Type alias for intermediate storage used in AST expression evaluation.
+// Using a global alias ensures consistency between kernel launch site and kernel body,
+// protecting against discrepancies when doing pointer casts with dynamic shared memory.
+template <bool has_nulls>
+using intermediate_storage_type = cudf::ast::detail::IntermediateDataType<has_nulls>;
+
 template <bool has_nulls>
 __global__ void filter_join_indices_kernel(
   cudf::size_type const* __restrict__ left_indices,
@@ -61,8 +68,8 @@ __global__ void filter_join_indices_kernel(
   bool* __restrict__ keep_mask)
 {
   extern __shared__ char raw_intermediate_storage[];
-  cudf::ast::detail::IntermediateDataType<has_nulls>* intermediate_storage =
-    reinterpret_cast<cudf::ast::detail::IntermediateDataType<has_nulls>*>(raw_intermediate_storage);
+  intermediate_storage_type<has_nulls>* intermediate_storage =
+    reinterpret_cast<intermediate_storage_type<has_nulls>*>(raw_intermediate_storage);
   auto thread_intermediate_storage =
     &intermediate_storage[threadIdx.x * device_expression_data.num_intermediates];
 
@@ -85,12 +92,19 @@ __global__ void filter_join_indices_kernel(
 
 /**
  * @brief Filter join results by evaluating conditional expression
+ *
+ * This function takes references to the input index vectors (not rvalue references) and uses
+ * exec_policy_nosync for all thrust operations. The caller is responsible for synchronizing
+ * the stream before using the returned results. This pattern ensures safe memory lifetime
+ * management when chaining operations.
+ *
+ * @note Uses exec_policy_nosync internally - caller must synchronize before using results
  */
 template <bool has_nulls>
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
-                           rmm::device_uvector<cudf::size_type>&& right_indices,
+filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
+                           rmm::device_uvector<cudf::size_type>& right_indices,
                            cudf::table_device_view const& left_table,
                            cudf::table_device_view const& right_table,
                            cudf::ast::detail::expression_device_view device_expression_data,
@@ -114,9 +128,9 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
   CUDF_CUDA_TRY(cudaDeviceGetAttribute(
     &max_shmem_per_block, cudaDevAttrMaxSharedMemoryPerBlock, current_device));
 
-  using intermediate_t = cudf::ast::detail::IntermediateDataType<has_nulls>;
+  // Use the same type alias as in the kernel to ensure consistency
   auto const per_thread_bytes =
-    static_cast<int>(num_intermediates) * static_cast<int>(sizeof(intermediate_t));
+    static_cast<int>(num_intermediates) * static_cast<int>(sizeof(intermediate_storage_type<has_nulls>));
   int block_size = 256;  // default
   if (per_thread_bytes > 0) {
     int const max_by_shmem = max_shmem_per_block / per_thread_bytes;
@@ -145,7 +159,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
 
   // Count the number of true values in the mask
   auto const num_matches =
-    thrust::count(rmm::exec_policy(stream), keep_mask.begin(), keep_mask.end(), true);
+    thrust::count(rmm::exec_policy_nosync(stream), keep_mask.begin(), keep_mask.end(), true);
 
   // Allocate output vectors
   auto out_left_indices =
@@ -159,7 +173,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
   auto output_iter = thrust::make_zip_iterator(
     thrust::make_tuple(out_left_indices->begin(), out_right_indices->begin()));
 
-  thrust::copy_if(rmm::exec_policy(stream),
+  thrust::copy_if(rmm::exec_policy_nosync(stream),
                   input_iter,
                   input_iter + num_pairs,
                   keep_mask.begin(),
@@ -171,11 +185,17 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>&& left_indices,
 
 /**
  * @brief Wrapper to call templated filter function based on has_nulls
+ *
+ * This function takes references to the input index vectors (not rvalue references) and uses
+ * exec_policy_nosync for all thrust operations. The caller is responsible for synchronizing
+ * the stream before using the returned results.
+ *
+ * @note Uses exec_policy_nosync internally - caller must synchronize before using results
  */
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
-                      rmm::device_uvector<cudf::size_type>&& right_indices,
+filter_by_conditional(rmm::device_uvector<cudf::size_type>& left_indices,
+                      rmm::device_uvector<cudf::size_type>& right_indices,
                       cudf::table_device_view const& left_table,
                       cudf::table_device_view const& right_table,
                       cudf::ast::detail::expression_device_view device_expression_data,
@@ -185,8 +205,8 @@ filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
                       rmm::device_async_resource_ref mr)
 {
   if (has_nulls) {
-    return filter_by_conditional_impl<true>(std::move(left_indices),
-                                            std::move(right_indices),
+    return filter_by_conditional_impl<true>(left_indices,
+                                            right_indices,
                                             left_table,
                                             right_table,
                                             device_expression_data,
@@ -194,8 +214,8 @@ filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
                                             stream,
                                             mr);
   } else {
-    return filter_by_conditional_impl<false>(std::move(left_indices),
-                                             std::move(right_indices),
+    return filter_by_conditional_impl<false>(left_indices,
+                                             right_indices,
                                              left_table,
                                              right_table,
                                              device_expression_data,
@@ -207,11 +227,18 @@ filter_by_conditional(rmm::device_uvector<cudf::size_type>&& left_indices,
 
 /**
  * @brief Add back left rows with no matches (for left join)
+ *
+ * This function takes references to the input index vectors (not rvalue references) and uses
+ * exec_policy_nosync for all thrust operations. The caller is responsible for synchronizing
+ * the stream before using the returned results. This pattern ensures safe memory lifetime
+ * management when the input vectors are allocated in the caller's scope.
+ *
+ * @note Uses exec_policy_nosync internally - caller must synchronize before using results
  */
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
           std::unique_ptr<rmm::device_uvector<cudf::size_type>>>
-add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
-                        rmm::device_uvector<cudf::size_type>&& right_indices,
+add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
+                        rmm::device_uvector<cudf::size_type>& right_indices,
                         cudf::size_type left_num_rows,
                         cudf::size_type right_num_rows,
                         rmm::cuda_stream_view stream,
@@ -221,10 +248,10 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
 
   // Create a boolean mask to track which left rows have matches
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy(stream),
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    left_indices.begin(),
                    left_indices.end(),
                    [left_has_match = left_has_match.data()] __device__(cudf::size_type idx) {
@@ -233,7 +260,7 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
 
   // Count unmatched left rows
   auto const num_unmatched =
-    thrust::count(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Allocate output with space for both matched and unmatched
   auto const total_size = left_indices.size() + num_unmatched;
@@ -244,15 +271,15 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
 
   // Copy matched pairs
   thrust::copy(
-    rmm::exec_policy(stream), left_indices.begin(), left_indices.end(), out_left_indices->begin());
-  thrust::copy(rmm::exec_policy(stream),
+    rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end(), out_left_indices->begin());
+  thrust::copy(rmm::exec_policy_nosync(stream),
                right_indices.begin(),
                right_indices.end(),
                out_right_indices->begin());
 
   // Add unmatched left rows with null right indices
   auto unmatched_iter = out_left_indices->begin() + left_indices.size();
-  thrust::copy_if(rmm::exec_policy(stream),
+  thrust::copy_if(rmm::exec_policy_nosync(stream),
                   thrust::counting_iterator<cudf::size_type>(0),
                   thrust::counting_iterator<cudf::size_type>(left_num_rows),
                   left_has_match.begin(),
@@ -260,7 +287,7 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
                   thrust::logical_not<bool>());
 
   // Fill corresponding right indices with out-of-bounds values (null markers)
-  thrust::fill(rmm::exec_policy(stream),
+  thrust::fill(rmm::exec_policy_nosync(stream),
                out_right_indices->begin() + left_indices.size(),
                out_right_indices->end(),
                right_num_rows);
@@ -270,9 +297,16 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>&& left_indices,
 
 /**
  * @brief Extract unique left indices for semi/anti joins
+ *
+ * This function takes a reference to the input index vector (not an rvalue reference) and uses
+ * exec_policy_nosync for all thrust operations. The caller is responsible for synchronizing
+ * the stream before using the returned result. This pattern ensures safe memory lifetime
+ * management when the input vector is allocated in the caller's scope.
+ *
+ * @note Uses exec_policy_nosync internally - caller must synchronize before using results
  */
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> extract_unique_left_indices(
-  rmm::device_uvector<cudf::size_type>&& left_indices,
+  rmm::device_uvector<cudf::size_type>& left_indices,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
 {
@@ -283,12 +317,12 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> extract_unique_left_indice
   }
 
   // Sort and unique
-  thrust::sort(rmm::exec_policy(stream), left_indices.begin(), left_indices.end());
-  auto new_end = thrust::unique(rmm::exec_policy(stream), left_indices.begin(), left_indices.end());
+  thrust::sort(rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end());
+  auto new_end = thrust::unique(rmm::exec_policy_nosync(stream), left_indices.begin(), left_indices.end());
   auto new_size = thrust::distance(left_indices.begin(), new_end);
 
   auto result = std::make_unique<rmm::device_uvector<cudf::size_type>>(new_size, stream, mr);
-  thrust::copy(rmm::exec_policy(stream), left_indices.begin(), new_end, result->begin());
+  thrust::copy(rmm::exec_policy_nosync(stream), left_indices.begin(), new_end, result->begin());
 
   return result;
 }
@@ -322,12 +356,13 @@ sort_merge_left_join(cudf::table_view const& left_keys,
     auto right_indices =
       std::make_unique<rmm::device_uvector<cudf::size_type>>(left_keys.num_rows(), stream, mr);
 
-    thrust::sequence(rmm::exec_policy(stream), left_indices->begin(), left_indices->end());
-    thrust::fill(rmm::exec_policy(stream),
+    thrust::sequence(rmm::exec_policy_nosync(stream), left_indices->begin(), left_indices->end());
+    thrust::fill(rmm::exec_policy_nosync(stream),
                  right_indices->begin(),
                  right_indices->end(),
                  right_keys.num_rows());
 
+    stream.synchronize();
     return {std::move(left_indices), std::move(right_indices)};
   }
 
@@ -337,12 +372,14 @@ sort_merge_left_join(cudf::table_view const& left_keys,
     join_obj.inner_join(left_keys, is_left_sorted, stream, mr);
 
   // Add back left rows with no matches
-  return add_left_unmatched_rows(std::move(*equality_left_indices),
-                                 std::move(*equality_right_indices),
-                                 left_keys.num_rows(),
-                                 right_keys.num_rows(),
-                                 stream,
-                                 mr);
+  auto result = add_left_unmatched_rows(*equality_left_indices,
+                                        *equality_right_indices,
+                                        left_keys.num_rows(),
+                                        right_keys.num_rows(),
+                                        stream,
+                                        mr);
+  stream.synchronize();
+  return result;
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
@@ -376,7 +413,9 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_semi_join(
   }
 
   // Extract unique left indices
-  return extract_unique_left_indices(std::move(*equality_left_indices), stream, mr);
+  auto result = extract_unique_left_indices(*equality_left_indices, stream, mr);
+  stream.synchronize();
+  return result;
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
@@ -399,7 +438,8 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
   // Handle empty right table case - all left rows are anti-join matches
   if (right_keys.num_rows() == 0) {
     auto result = std::make_unique<rmm::device_uvector<cudf::size_type>>(left_num_rows, stream, mr);
-    thrust::sequence(rmm::exec_policy(stream), result->begin(), result->end());
+    thrust::sequence(rmm::exec_policy_nosync(stream), result->begin(), result->end());
+    stream.synchronize();
     return result;
   }
 
@@ -409,10 +449,10 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
 
   // Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy(stream),
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    semi_indices->begin(),
                    semi_indices->end(),
                    [left_has_match = left_has_match.data()] __device__(cudf::size_type idx) {
@@ -421,16 +461,17 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> sort_merge_left_anti_join(
 
   // Count and collect unmatched rows
   auto const num_unmatched =
-    thrust::count(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   auto result = std::make_unique<rmm::device_uvector<cudf::size_type>>(num_unmatched, stream, mr);
-  thrust::copy_if(rmm::exec_policy(stream),
+  thrust::copy_if(rmm::exec_policy_nosync(stream),
                   thrust::counting_iterator<cudf::size_type>(0),
                   thrust::counting_iterator<cudf::size_type>(left_num_rows),
                   left_has_match.begin(),
                   result->begin(),
                   thrust::logical_not<bool>());
 
+  stream.synchronize();
   return result;
 }
 
@@ -497,15 +538,17 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
   // Step 2: Filter by conditional expression
-  return filter_by_conditional(std::move(*equality_left_indices),
-                               std::move(*equality_right_indices),
-                               *left_table,
-                               *right_table,
-                               parser.device_expression_data,
-                               parser.device_expression_data.num_intermediates,
-                               has_nulls,
-                               stream,
-                               mr);
+  auto result = filter_by_conditional(*equality_left_indices,
+                                      *equality_right_indices,
+                                      *left_table,
+                                      *right_table,
+                                      parser.device_expression_data,
+                                      parser.device_expression_data.num_intermediates,
+                                      has_nulls,
+                                      stream,
+                                      mr);
+  stream.synchronize();
+  return result;
 }
 
 std::pair<std::unique_ptr<rmm::device_uvector<cudf::size_type>>,
@@ -548,12 +591,13 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
     auto right_indices =
       std::make_unique<rmm::device_uvector<cudf::size_type>>(left_equality.num_rows(), stream, mr);
 
-    thrust::sequence(rmm::exec_policy(stream), left_indices->begin(), left_indices->end());
-    thrust::fill(rmm::exec_policy(stream),
+    thrust::sequence(rmm::exec_policy_nosync(stream), left_indices->begin(), left_indices->end());
+    thrust::fill(rmm::exec_policy_nosync(stream),
                  right_indices->begin(),
                  right_indices->end(),
                  right_equality.num_rows());
 
+    stream.synchronize();
     return {std::move(left_indices), std::move(right_indices)};
   }
 
@@ -579,8 +623,8 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
 
   // Step 2: Filter by conditional expression
   auto [filtered_left_indices, filtered_right_indices] =
-    filter_by_conditional(std::move(*equality_left_indices),
-                          std::move(*equality_right_indices),
+    filter_by_conditional(*equality_left_indices,
+                          *equality_right_indices,
                           *left_table,
                           *right_table,
                           parser.device_expression_data,
@@ -590,12 +634,14 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
                           mr);
 
   // Step 3: Add back left rows with no matches
-  return add_left_unmatched_rows(std::move(*filtered_left_indices),
-                                 std::move(*filtered_right_indices),
-                                 left_equality.num_rows(),
-                                 right_equality.num_rows(),
-                                 stream,
-                                 mr);
+  auto result = add_left_unmatched_rows(*filtered_left_indices,
+                                        *filtered_right_indices,
+                                        left_equality.num_rows(),
+                                        right_equality.num_rows(),
+                                        stream,
+                                        mr);
+  stream.synchronize();
+  return result;
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi_join(
@@ -662,8 +708,8 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
 
   // Step 2: Filter by conditional expression
   auto [filtered_left_indices, filtered_right_indices] =
-    filter_by_conditional(std::move(*equality_left_indices),
-                          std::move(*equality_right_indices),
+    filter_by_conditional(*equality_left_indices,
+                          *equality_right_indices,
                           *left_table,
                           *right_table,
                           parser.device_expression_data,
@@ -673,7 +719,9 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_semi
                           mr);
 
   // Step 3: Extract unique left indices
-  return extract_unique_left_indices(std::move(*filtered_left_indices), stream, mr);
+  auto result = extract_unique_left_indices(*filtered_left_indices, stream, mr);
+  stream.synchronize();
+  return result;
 }
 
 std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti_join(
@@ -713,7 +761,8 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
   // Handle empty right table case - all left rows are anti-join matches
   if (right_equality.num_rows() == 0) {
     auto result = std::make_unique<rmm::device_uvector<cudf::size_type>>(left_num_rows, stream, mr);
-    thrust::sequence(rmm::exec_policy(stream), result->begin(), result->end());
+    thrust::sequence(rmm::exec_policy_nosync(stream), result->begin(), result->end());
+    stream.synchronize();
     return result;
   }
 
@@ -731,10 +780,10 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
 
   // Step 2: Find complement - rows that DON'T match
   auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+  thrust::fill(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy(stream),
+  thrust::for_each(rmm::exec_policy_nosync(stream),
                    semi_indices->begin(),
                    semi_indices->end(),
                    [left_has_match = left_has_match.data()] __device__(cudf::size_type idx) {
@@ -743,16 +792,17 @@ std::unique_ptr<rmm::device_uvector<cudf::size_type>> mixed_sort_merge_left_anti
 
   // Count and collect unmatched rows
   auto const num_unmatched =
-    thrust::count(rmm::exec_policy(stream), left_has_match.begin(), left_has_match.end(), false);
+    thrust::count(rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   auto result = std::make_unique<rmm::device_uvector<cudf::size_type>>(num_unmatched, stream, mr);
-  thrust::copy_if(rmm::exec_policy(stream),
+  thrust::copy_if(rmm::exec_policy_nosync(stream),
                   thrust::counting_iterator<cudf::size_type>(0),
                   thrust::counting_iterator<cudf::size_type>(left_num_rows),
                   left_has_match.begin(),
                   result->begin(),
                   thrust::logical_not<bool>());
 
+  stream.synchronize();
   return result;
 }
 
