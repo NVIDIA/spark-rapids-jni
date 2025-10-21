@@ -59,6 +59,35 @@ public class SortMergeJoin {
   }
 
   /**
+   * Performs a sort-merge inner join.
+   * <p>
+   * Returns gather maps for rows that have matches in both tables.
+   * Only matching rows are included in the result.
+   * </p>
+   *
+   * @param leftKeys The left table for equality key comparison
+   * @param rightKeys The right table for equality key comparison
+   * @param isLeftSorted Whether the left table is pre-sorted
+   * @param isRightSorted Whether the right table is pre-sorted
+   * @param compareNullsEqual Whether nulls in equality keys should be considered equal
+   * @return An array of two GatherMaps: [left_map, right_map]
+   */
+  public static GatherMap[] innerJoin(Table leftKeys,
+                                      Table rightKeys,
+                                      boolean isLeftSorted,
+                                      boolean isRightSorted,
+                                      boolean compareNullsEqual) {
+    long[] result = sortMergeInnerJoin(
+      leftKeys.getNativeView(),
+      rightKeys.getNativeView(),
+      isLeftSorted,
+      isRightSorted,
+      compareNullsEqual);
+    
+    return gatherMapsFromJNI(result);
+  }
+
+  /**
    * Performs a sort-merge left outer join.
    * <p>
    * Returns gather maps for all left rows. Rows with no match in the right table
@@ -148,6 +177,13 @@ public class SortMergeJoin {
   }
 
   // Native method declarations
+  private static native long[] sortMergeInnerJoin(
+    long leftKeys,
+    long rightKeys,
+    boolean isLeftSorted,
+    boolean isRightSorted,
+    boolean compareNullsEqual);
+
   private static native long[] sortMergeLeftJoin(
     long leftKeys,
     long rightKeys,

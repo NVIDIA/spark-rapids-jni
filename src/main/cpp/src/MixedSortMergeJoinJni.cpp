@@ -262,6 +262,38 @@ Java_com_nvidia_spark_rapids_jni_MixedSortMergeJoin_mixedSortMergeLeftAntiJoin(
 }
 
 JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_SortMergeJoin_sortMergeInnerJoin(JNIEnv* env,
+                                                                   jclass,
+                                                                   jlong j_left_keys,
+                                                                   jlong j_right_keys,
+                                                                   jboolean j_is_left_sorted,
+                                                                   jboolean j_is_right_sorted,
+                                                                   jboolean j_nulls_equal)
+{
+  JNI_NULL_CHECK(env, j_left_keys, "left keys table is null", nullptr);
+  JNI_NULL_CHECK(env, j_right_keys, "right keys table is null", nullptr);
+
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+
+    auto const left_keys  = reinterpret_cast<cudf::table_view const*>(j_left_keys);
+    auto const right_keys = reinterpret_cast<cudf::table_view const*>(j_right_keys);
+
+    auto const is_left_sorted  = j_is_left_sorted ? cudf::sorted::YES : cudf::sorted::NO;
+    auto const is_right_sorted = j_is_right_sorted ? cudf::sorted::YES : cudf::sorted::NO;
+    auto const nulls_equal =
+      j_nulls_equal ? cudf::null_equality::EQUAL : cudf::null_equality::UNEQUAL;
+
+    auto result = spark_rapids_jni::sort_merge_inner_join(
+      *left_keys, *right_keys, is_left_sorted, is_right_sorted, nulls_equal);
+
+    return gather_maps_to_java(env, std::move(result));
+  }
+  JNI_CATCH(env, nullptr);
+}
+
+JNIEXPORT jlongArray JNICALL
 Java_com_nvidia_spark_rapids_jni_SortMergeJoin_sortMergeLeftJoin(JNIEnv* env,
                                                                  jclass,
                                                                  jlong j_left_keys,

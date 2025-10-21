@@ -325,6 +325,36 @@ rmm::device_uvector<cudf::size_type> extract_unique_left_indices(
 // =============================================================================
 
 std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
+sort_merge_inner_join(cudf::table_view const& left_keys,
+                      cudf::table_view const& right_keys,
+                      cudf::sorted is_left_sorted,
+                      cudf::sorted is_right_sorted,
+                      cudf::null_equality compare_nulls,
+                      rmm::cuda_stream_view stream,
+                      rmm::device_async_resource_ref mr)
+{
+  CUDF_FUNC_RANGE();
+
+  // Validate inputs
+  CUDF_EXPECTS(left_keys.num_columns() > 0, "Left keys table must have at least one column");
+  CUDF_EXPECTS(right_keys.num_columns() > 0, "Right keys table must have at least one column");
+
+  // Handle empty table cases - inner join returns empty if either table is empty
+  if (left_keys.num_rows() == 0 || right_keys.num_rows() == 0) {
+    return {rmm::device_uvector<cudf::size_type>(0, stream, mr),
+            rmm::device_uvector<cudf::size_type>(0, stream, mr)};
+  }
+
+  // Perform sort-merge inner join on equality keys
+  cudf::sort_merge_join join_obj(right_keys, is_right_sorted, compare_nulls, stream);
+  auto [left_indices, right_indices] = join_obj.inner_join(left_keys, is_left_sorted, stream, mr);
+
+  // Return the raw device_uvectors (RVO will handle the move)
+  stream.synchronize();
+  return {std::move(*left_indices), std::move(*right_indices)};
+}
+
+std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
 sort_merge_left_join(cudf::table_view const& left_keys,
                      cudf::table_view const& right_keys,
                      cudf::sorted is_left_sorted,

@@ -45,6 +45,32 @@ namespace spark_rapids_jni {
 // =============================================================================
 
 /**
+ * @brief Returns a pair of row index vectors corresponding to an inner join
+ * on equality keys only.
+ *
+ * This performs a sort-merge inner join without any conditional filtering.
+ * Only returns rows that have matches in both tables.
+ *
+ * @param left_keys The left table for equality comparison
+ * @param right_keys The right table for equality comparison
+ * @param is_left_sorted Enum to indicate if left table is pre-sorted
+ * @param is_right_sorted Enum to indicate if right table is pre-sorted
+ * @param compare_nulls Whether or not null values in equality keys join to each other
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned indices' device memory
+ *
+ * @return A pair of vectors [`left_indices`, `right_indices`] for the inner join result
+ */
+std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
+sort_merge_inner_join(cudf::table_view const& left_keys,
+                      cudf::table_view const& right_keys,
+                      cudf::sorted is_left_sorted       = cudf::sorted::NO,
+                      cudf::sorted is_right_sorted      = cudf::sorted::NO,
+                      cudf::null_equality compare_nulls = cudf::null_equality::EQUAL,
+                      rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+                      rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+/**
  * @brief Returns a pair of row index vectors corresponding to a left outer join
  * on equality keys only.
  *
