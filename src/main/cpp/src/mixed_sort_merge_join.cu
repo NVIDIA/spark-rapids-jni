@@ -20,8 +20,8 @@
 #include <cudf/ast/detail/expression_parser.hpp>
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column_factories.hpp>
-#include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/join/sort_merge_join.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_device_view.cuh>
@@ -119,7 +119,8 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
   }
 
   // Create a boolean mask for indices to keep
-  auto keep_mask = rmm::device_uvector<bool>(num_pairs, stream, cudf::get_current_device_resource_ref());
+  auto keep_mask =
+    rmm::device_uvector<bool>(num_pairs, stream, cudf::get_current_device_resource_ref());
 
   // Launch kernel to evaluate expression for each pair with dynamic shared memory sizing
   int current_device = 0;
@@ -243,7 +244,8 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
   CUDF_FUNC_RANGE();
 
   // Create a boolean mask to track which left rows have matches
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
+  auto left_has_match =
+    rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
   CUDF_CUDA_TRY(cudaMemsetAsync(left_has_match.data(), 0, left_has_match.size(), stream.value()));
 
   // Mark left rows that have matches
@@ -457,11 +459,17 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(cudf::table_view 
   }
 
   // Get left semi join result (rows that DO match) - intermediate
-  auto semi_indices = sort_merge_left_semi_join(
-    left_keys, right_keys, is_left_sorted, is_right_sorted, compare_nulls, stream, cudf::get_current_device_resource_ref());
+  auto semi_indices = sort_merge_left_semi_join(left_keys,
+                                                right_keys,
+                                                is_left_sorted,
+                                                is_right_sorted,
+                                                compare_nulls,
+                                                stream,
+                                                cudf::get_current_device_resource_ref());
 
   // Find complement - rows that DON'T match (intermediate)
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
+  auto left_has_match =
+    rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
   thrust::fill(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
@@ -530,15 +538,19 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
                          cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
-  auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
+  auto const parser = cudf::ast::detail::expression_parser{binary_predicate,
+                                                           left_conditional,
+                                                           right_conditional,
+                                                           has_nulls,
+                                                           stream,
+                                                           cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
   // Step 1: Perform sort-merge join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
-  auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
+  auto [equality_left_indices, equality_right_indices] = join_obj.inner_join(
+    left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // If no equality matches, return empty result
   if (equality_left_indices->size() == 0) {
@@ -614,15 +626,19 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
                          cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
-  auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
+  auto const parser = cudf::ast::detail::expression_parser{binary_predicate,
+                                                           left_conditional,
+                                                           right_conditional,
+                                                           has_nulls,
+                                                           stream,
+                                                           cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
   // Step 1: Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
-  auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
+  auto [equality_left_indices, equality_right_indices] = join_obj.inner_join(
+    left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // Create device views of conditional tables
   auto left_table  = cudf::table_device_view::create(left_conditional, stream);
@@ -688,19 +704,23 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_semi_join(
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
-                         cudf::has_nested_nulls(right_conditional);
+  auto const has_nulls =
+    cudf::has_nested_nulls(left_conditional) || cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
-  auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
+  auto const parser = cudf::ast::detail::expression_parser{binary_predicate,
+                                                           left_conditional,
+                                                           right_conditional,
+                                                           has_nulls,
+                                                           stream,
+                                                           cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
   // Step 1: Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
-  auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
+  auto [equality_left_indices, equality_right_indices] = join_obj.inner_join(
+    left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // If no equality matches, return empty result
   if (equality_left_indices->size() == 0) {
@@ -782,7 +802,8 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
                                                       cudf::get_current_device_resource_ref());
 
   // Step 2: Find complement - rows that DON'T match (intermediate)
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
+  auto left_has_match =
+    rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
   thrust::fill(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
