@@ -49,6 +49,7 @@ BUILD_CUDF_TESTS=${BUILD_CUDF_TESTS:-OFF}
 BUILD_FAULTINJ=${BUILD_FAULTINJ:-ON}
 BUILD_PROFILER=${BUILD_PROFILER:-ON}
 BUILD_TESTS=${BUILD_TESTS:-ON}
+CMAKE_EXPORT_COMPILE_COMMANDS=${CMAKE_EXPORT_COMPILE_COMMANDS:-ON}
 export CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 CPP_PARALLEL_LEVEL=${CPP_PARALLEL_LEVEL:-10}
 CUDF_BUILD_TYPE=${CUDF_BUILD_TYPE:-Release}
@@ -79,6 +80,20 @@ WARNING: CMAKE_CUDA_ARCHITECTURES is overridden by GPU_ARCHS.
 fi
 
 #
+# Function to create symlink to compile_commands.json for IDE/clangd discovery
+# (similar to NVBenchClangdCompileInfo.cmake)
+#
+create_compile_commands_symlink() {
+  local build_dir=$1
+  local source_dir=$2
+  local compile_commands_file="$build_dir/compile_commands.json"
+  local compile_commands_link="$source_dir/compile_commands.json"
+  
+  echo "Creating symlink from $compile_commands_link to $compile_commands_file..."
+  ln -sf "$compile_commands_file" "$compile_commands_link"
+}
+
+#
 # libcudf build
 #
 mkdir -p "$LIBCUDF_INSTALL_PATH" "$LIBCUDF_BUILD_PATH"
@@ -89,6 +104,7 @@ if [[ $LIBCUDF_BUILD_CONFIGURE == true || ! -f $LIBCUDF_BUILD_PATH/CMakeCache.tx
   echo "Configuring cudf native libs"
   cmake "$CUDF_PATH/cpp" \
     -DBUILD_BENCHMARKS="$BUILD_CUDF_BENCHMARKS" \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS="$CMAKE_EXPORT_COMPILE_COMMANDS" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_TESTS="$BUILD_CUDF_TESTS" \
     -DCMAKE_BUILD_TYPE="$CUDF_BUILD_TYPE" \
@@ -121,6 +137,7 @@ echo "Configuring cudfjni native libs"
 CUDF_INSTALL_DIR="$LIBCUDF_INSTALL_PATH" cmake \
   "$CUDF_PATH/java/src/main/native" \
   -DBUILD_SHARED_LIBS=OFF \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS="$CMAKE_EXPORT_COMPILE_COMMANDS" \
   -DCUDA_STATIC_CUFILE=ON \
   -DCUDA_STATIC_RUNTIME=ON \
   -DCUDF_DEPENDENCY_PIN_MODE=pinned \
@@ -130,6 +147,9 @@ CUDF_INSTALL_DIR="$LIBCUDF_INSTALL_PATH" cmake \
   -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
   -DUSE_GDS="$USE_GDS" \
   -C="$CUDF_PIN_PATH/setup.cmake"
+
+create_compile_commands_symlink "$LIBCUDFJNI_BUILD_PATH" "$CUDF_PATH/java/src/main/native"
+
 echo "Building cudfjni native libs"
 cmake --build "$LIBCUDFJNI_BUILD_PATH" "-j$CPP_PARALLEL_LEVEL"
 
@@ -145,6 +165,7 @@ CUDF_ROOT="$CUDF_PATH" \
   cmake \
     "$PROJECT_BASE_DIR/src/main/cpp" \
     -DBUILD_BENCHMARKS="$BUILD_BENCHMARKS" \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS="$CMAKE_EXPORT_COMPILE_COMMANDS" \
     -DBUILD_FAULTINJ="$BUILD_FAULTINJ" \
     -DBUILD_PROFILER="$BUILD_PROFILER" \
     -DBUILD_TESTS="$BUILD_TESTS" \
@@ -154,5 +175,8 @@ CUDF_ROOT="$CUDF_PATH" \
     -DRMM_LOGGING_LEVEL="$RMM_LOGGING_LEVEL" \
     -DUSE_GDS="$USE_GDS" \
     -C="$CUDF_PIN_PATH/setup.cmake"
+
+create_compile_commands_symlink "$SPARK_JNI_BUILD_PATH" "$PROJECT_BASE_DIR/src/main/cpp"
+
 echo "Building spark-rapids-jni native libs"
 cmake --build "$SPARK_JNI_BUILD_PATH" "-j$CPP_PARALLEL_LEVEL"

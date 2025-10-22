@@ -303,8 +303,8 @@ target_link_libraries(
     ${CUDFJNI_LIB}
     cudf::cudf
     nvtx3::nvtx3-cpp
-    spdlog::spdlog_header_only
   -Wl,--no-whole-archive
+    spdlog::spdlog_header_only
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}

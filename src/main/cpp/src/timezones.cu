@@ -170,7 +170,7 @@ struct convert_with_timezones_fn {
 
     auto const it = thrust::upper_bound(
       thrust::seq, transition_times.begin(), transition_times.end(), epoch_seconds);
-    auto const idx         = static_cast<size_type>(thrust::distance(transition_times.begin(), it));
+    auto const idx = static_cast<size_type>(cuda::std::distance(transition_times.begin(), it));
     auto const list_offset = tz_transitions.element_offset(idx - 1);
     auto const utc_offset  = utc_offsets.element<int32_t>(list_offset);
 

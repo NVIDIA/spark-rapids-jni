@@ -1151,16 +1151,45 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
   // - data is copied by cub, so we will do no subdivision of the batches under the assumption that
   // cub will make it's
   //   own smart internal decisions
+  auto is_non_nullable_col_instance = cuda::proclaim_return_type<bool>(
+    [] __device__(assemble_column_info const& cinfo, assemble_column_info const& cinfo_inst) {
+      return cinfo.has_validity && !cinfo_inst.has_validity;
+    });
+  auto batch_src_buf_size = cuda::proclaim_return_type<size_t>(
+    [src_buf_to_type,
+     src_sizes_unpadded = src_sizes_unpadded.begin(),
+     num_columns,
+     buffers_per_partition,
+     column_info,
+     column_instance_info,
+     is_non_nullable_col_instance] __device__(int src_buf_index) {
+      // - handle an edge case with validity. if a particular column instance that does not contain
+      //   validity is part of an overall column that does, it will have no src validity size. but
+      //   we do need to fill it's rows in with all valids. So we have to create some artificial
+      //   batches that will do a memset.
+      if (static_cast<buffer_type>(src_buf_to_type(src_buf_index)) == buffer_type::VALIDITY) {
+        auto const partition_index    = src_buf_index / buffers_per_partition;
+        auto const col_index          = src_buf_index % num_columns;
+        auto const col_instance_index = (partition_index * num_columns) + col_index;
+        auto& cinfo                   = column_info[col_index];
+        auto const& cinfo_inst        = column_instance_info[col_instance_index];
+        if (is_non_nullable_col_instance(cinfo, cinfo_inst)) {
+          return bitmask_allocation_size_bytes(cinfo_inst.num_rows, 1);
+        }
+      }
+      return src_sizes_unpadded[src_buf_index];
+    });
   auto batch_count_iter = cudf::detail::make_counting_transform_iterator(
     0,
-    cuda::proclaim_return_type<size_t>([src_sizes_unpadded = src_sizes_unpadded.begin(),
-                                        src_buf_to_type] __device__(size_t src_buf_index) {
-      // data buffers use cub batched memcpy, so we won't pre-batch them at all. just use the raw
-      // size.
-      return static_cast<buffer_type>(src_buf_to_type(src_buf_index)) == buffer_type::DATA
-               ? 1
-               : size_to_batch_count(src_sizes_unpadded[src_buf_index]);
-    }));
+    cuda::proclaim_return_type<size_t>(
+      [batch_src_buf_size, src_buf_to_type] __device__(size_t src_buf_index) {
+        // data buffers are copied via cub batched memcpy so we will not pre-batch things and will
+        // return one full sized batch.
+        if (static_cast<buffer_type>(src_buf_to_type(src_buf_index)) == buffer_type::DATA) {
+          return size_t{1};
+        }
+        return size_to_batch_count(batch_src_buf_size(src_buf_index));
+      }));
   auto copy_batches = transform_expand(
     batch_count_iter,
     batch_count_iter + src_sizes_unpadded.size(),
@@ -1171,7 +1200,6 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
        partition_offsets = partition_offsets.data(),
        buffers_per_partition,
        num_partitions,
-       src_sizes_unpadded          = src_sizes_unpadded.begin(),
        src_offsets                 = src_offsets.begin(),
        desired_assemble_batch_size = desired_assemble_batch_size,
        column_info                 = column_info.begin(),
@@ -1179,7 +1207,9 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
        num_columns,
        src_buf_to_dst_buf,
        src_buf_to_dst_offset,
-       src_buf_to_type] __device__(size_t src_buf_index, size_t batch_index) {
+       src_buf_to_type,
+       batch_src_buf_size,
+       is_non_nullable_col_instance] __device__(size_t src_buf_index, size_t batch_index) {
         auto const batch_offset    = batch_index * desired_assemble_batch_size;
         auto const partition_index = src_buf_index / buffers_per_partition;
 
@@ -1196,20 +1226,21 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
         auto const dst_offset_index = src_buf_to_dst_offset(src_buf_index);
         auto const dst_offset       = dst_offsets[dst_offset_index];
 
+        size_t const batch_src_size = batch_src_buf_size(src_buf_index);
+
         auto const bytes = [&] __device__() {
           switch (btype) {
             // validity gets batched
             case buffer_type::VALIDITY:
-              return std::min(src_sizes_unpadded[src_buf_index] - batch_offset,
-                              desired_assemble_batch_size);
+              return std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
 
             // for offsets, all source buffers have an extra offset per partition (the terminating
             // offset for that partition) that we need to ignore, except in the case of the final
             // partition.
             case buffer_type::OFFSETS: {
-              if (src_sizes_unpadded[src_buf_index] == 0) { return size_t{0}; }
+              if (batch_src_size == 0) { return size_t{0}; }
               bool const end_of_buffer =
-                (batch_offset + desired_assemble_batch_size) >= src_sizes_unpadded[src_buf_index];
+                (batch_offset + desired_assemble_batch_size) >= batch_src_size;
               if (!end_of_buffer) {
                 return desired_assemble_batch_size;
               } else {
@@ -1228,8 +1259,8 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
                 bool const is_terminating_partition =
                   cinfo_inst.row_index + cinfo_inst.num_rows == last_row_index;
 
-                auto const size = std::min(src_sizes_unpadded[src_buf_index] - batch_offset,
-                                           desired_assemble_batch_size);
+                auto const size =
+                  std::min(batch_src_size - batch_offset, desired_assemble_batch_size);
                 return is_terminating_partition ? size : size - 4;
               }
             }
@@ -1237,7 +1268,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
           }
 
           // data copies go through the cub batched memcopy, so just do the whole thing in one shot.
-          return src_sizes_unpadded[src_buf_index];
+          return batch_src_size;
         }();
 
         auto const validity_rows_per_batch  = desired_assemble_batch_size * 8;
@@ -1256,7 +1287,7 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
 
         // transform the incoming raw offsets into final offsets
         int const offset_shift = [&] __device__() {
-          if (btype != buffer_type::OFFSETS || src_sizes_unpadded[src_buf_index] == 0) { return 0; }
+          if (btype != buffer_type::OFFSETS || batch_src_size == 0) { return 0; }
 
           auto const root_partition_offset =
             (reinterpret_cast<size_type const*>(partitions + src_offset))[0];
@@ -1271,7 +1302,12 @@ std::pair<shuffle_assemble_result, rmm::device_uvector<assemble_batch>> assemble
           return 0;
         }();
 
-        return assemble_batch{partitions + src_offset + batch_offset,
+        // for validity buffers that are going to end up being all-valid memsets, pass nullptr.
+        auto src = is_non_nullable_col_instance(cinfo, cinfo_inst) && btype == buffer_type::VALIDITY
+                     ? nullptr
+                     : partitions + src_offset + batch_offset;
+
+        return assemble_batch{src,
                               dst_buffers[dst_buf_index] + dst_offset + batch_offset,
                               bytes,
                               btype,
@@ -1329,6 +1365,10 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   // safely load a word, handling alignment and allocation boundaries
   auto load_word = cuda::proclaim_return_type<bitmask_type>(
     [] __device__(void const* const _src, int num_bits, int leading_bytes) {
+      // if src is null, this is coming from a column instance that has no validity, so we will
+      // just fake it by returning all set bits
+      if (_src == nullptr) { return static_cast<bitmask_type>((1 << num_bits) - 1); }
+
       uint8_t const* const src_b = reinterpret_cast<uint8_t const*>(_src);
       if (num_bits > 24) {
         // if we are aligned we can do a single read. this should be the most common case. only
@@ -1384,7 +1424,8 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
   }
 
   // src and dst pointers. src will be word-aligned now
-  auto src = reinterpret_cast<bitmask_type const*>(batch.src + leading_bytes);
+  auto src = reinterpret_cast<bitmask_type const*>(
+    batch.src == nullptr ? nullptr : batch.src + leading_bytes);
   auto dst = reinterpret_cast<bitmask_type*>(batch.dst);
 
   // how many words we visited in the initial batch. note that even if we only wrote 2 bits, it is
@@ -1427,7 +1468,8 @@ __global__ void copy_validity(cudf::device_span<assemble_batch> batches)
       // load current word, strip down to exactly the number of rows this thread is dealing with
       auto const thread_num_rows           = min(remaining_rows - (threadIdx.x * 32), 32);
       bitmask_type const relevant_row_mask = ((1 << thread_num_rows) - 1);
-      cur = (load_word(&src[src_word_index], thread_num_rows, 4) & relevant_row_mask);
+      cur = (load_word(src == nullptr ? nullptr : &src[src_word_index], thread_num_rows, 4) &
+             relevant_row_mask);
 
       // bounce our trailing bits off shared memory. for example, if bit_shift is
       // 27, we are only storing the first 5 bits at the top of the current destination. The

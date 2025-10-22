@@ -627,23 +627,26 @@ public class KudoSerializerTest extends CudfTestBase {
   @Test
   public void testMergeWithDumpPath() {
     File tempFile = null;
-    try {
+    try(CloseableArray<Table> tables = CloseableArray.wrap(new Table[2])) {
       //Create a temporary file for dumping
       tempFile = File.createTempFile("kudo_dump_test", ".bin");
       tempFile.deleteOnExit();
 
       String dumpPath = tempFile.getAbsolutePath();
-      
+
+
       Table table1 = new Table.TestBuilder()
           .column(1, 2, 3, 4)
           .column("a", "b", "c", "d")
           .build();
+      tables.set(0, table1);
       
       Table table2 = new Table.TestBuilder()
           .column(5, 6, 7, 8)
           .column("e", "f", "g", "h")
           .build();
-      
+      tables.set(1, table2);
+
       // Create KudoSerializer with table1's schema
       KudoSerializer serializer = new KudoSerializer(schemaOf(table1));
       
@@ -656,33 +659,34 @@ public class KudoSerializerTest extends CudfTestBase {
       bout.flush();
       
       ByteArrayInputStream bin = new ByteArrayInputStream(bout.toByteArray());
-      KudoTable[] kudoTables = new KudoTable[2];
-      
-      // Read the KudoTables from the stream
-      kudoTables[0] = KudoTable.from(bin).get();
-      kudoTables[1] = KudoTable.from(bin).get();
-      
-      // merge the two tables and dump the result to the temp file
-      Supplier<OutputStream> outputStreamSupplier = () -> {
-        try {
-          return new FileOutputStream(dumpPath);
-        } catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      };
-      MergeOptions options = new MergeOptions(DumpOption.Always, outputStreamSupplier, dumpPath);
-      serializer.mergeOnHost(kudoTables, options);
-      
-      // Verify dump file exists and has content
-      assertTrue(tempFile.exists(), "Dump file should exist");
-      assertTrue(tempFile.length() > 0, "Dump file should not be empty");
-      
-      // Basic check that file contains schema info
-      byte[] fileContent = java.nio.file.Files.readAllBytes(tempFile.toPath());
-      String contentStart = new String(fileContent, 0, Math.min(100, fileContent.length));
-      assertTrue(contentStart.contains("col_0_0") || contentStart.contains("Schema"), 
-          "Dump file should contain schema information");
-      
+
+      try(CloseableArray<KudoTable> kudoTables  = CloseableArray.wrap(new KudoTable[2])) {
+        // Read the KudoTables from the stream
+        kudoTables.set(0, KudoTable.from(bin).get());
+        kudoTables.set(1, KudoTable.from(bin).get());
+
+        // merge the two tables and dump the result to the temp file
+        Supplier<OutputStream> outputStreamSupplier = () -> {
+          try {
+            return new FileOutputStream(dumpPath);
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
+        };
+        MergeOptions options = new MergeOptions(DumpOption.Always, outputStreamSupplier, dumpPath);
+        serializer.mergeOnHost(kudoTables.getArray(), options).close();
+
+        // Verify dump file exists and has content
+        assertTrue(tempFile.exists(), "Dump file should exist");
+        assertTrue(tempFile.length() > 0, "Dump file should not be empty");
+
+        // Basic check that file contains schema info
+        byte[] fileContent = java.nio.file.Files.readAllBytes(tempFile.toPath());
+        String contentStart = new String(fileContent, 0, Math.min(100, fileContent.length));
+        assertTrue(contentStart.contains("col_0_0") || contentStart.contains("Schema"),
+            "Dump file should contain schema information");  // Intentionally left blank to ensure proper closing of KudoTables
+      }
+
     } catch (Exception e) {
       fail("Test failed with exception: " + e.getMessage());
     } finally {

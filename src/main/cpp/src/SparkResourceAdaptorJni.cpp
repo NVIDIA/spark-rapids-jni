@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <exception>
+#include <format>
 #include <map>
 #include <set>
 #include <sstream>
@@ -1498,7 +1499,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         thread->second.is_retry_alloc_before_bufn = false;
 
         if (is_log_enabled) {
-          auto note = fmt::format(
+          auto note = std::format(
             "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
             thread_id);
           log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
@@ -1780,7 +1781,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       for (auto const& [k, v] : threads) {
         threads_key_set.insert(k);
       }
-      auto note = fmt::format(
+      auto note = std::format(
         "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
         "bufn_task_ids: {} ({}), threads: {} ({})",
         to_string(all_task_ids),
@@ -1851,7 +1852,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
             if (is_log_enabled) {
-              auto note = fmt::format("thread (id: {}) is_retry_alloc_before_bufn set to true",
+              auto note = std::format("thread (id: {}) is_retry_alloc_before_bufn set to true",
                                       thread_id_to_bufn);
               log_status(
                 "DETAIL", thread_id_to_bufn, thread->second.task_id, thread->second.state, note);
@@ -1882,7 +1883,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       if (all_bufn) {
         if (is_log_enabled) {
-          auto note = fmt::format("all_bufn state is reached with all_task_ids size: {}",
+          auto note = std::format("all_bufn state is reached with all_task_ids size: {}",
                                   all_task_ids.size());
           log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
         }
@@ -1949,7 +1950,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
               if (is_log_enabled) {
-                auto note = fmt::format(
+                auto note = std::format(
                   "thread (id: {}) is_retry_alloc_before_bufn set to false in "
                   "post_alloc_failed_core",
                   thread_id);
@@ -1963,7 +1964,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
               thread->second.is_retry_alloc_before_bufn = false;
 
               if (is_log_enabled) {
-                auto note = fmt::format(
+                auto note = std::format(
                   "thread (id: {}) is_retry_alloc_before_bufn set to false in "
                   "post_alloc_failed_core",
                   thread_id);
@@ -2030,7 +2031,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       }
     } else {
       log_status(
-        "DEALLOC", tid, -2, thread_state::UNKNOWN, fmt::format("is_for_cpu: {}", is_for_cpu));
+        "DEALLOC", tid, -2, thread_state::UNKNOWN, std::format("is_for_cpu: {}", is_for_cpu));
     }
 
     for (auto& [thread_id, t_state] : threads) {
@@ -2059,7 +2060,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     wake_next_highest_priority_blocked(lock, true, is_for_cpu);
   }
 
-  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) override
+  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) noexcept override
   {
     resource->deallocate(p, size, stream);
     // deallocate success

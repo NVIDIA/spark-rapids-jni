@@ -404,7 +404,7 @@ class json_parser {
     [[maybe_unused]] auto const [success, matched, end] =
       try_parse_string(char_range_reader{chars.slice(curr_pos, chars.size() - curr_pos)});
     if (success) {
-      curr_pos      = static_cast<cudf::size_type>(thrust::distance(chars.data(), end));
+      curr_pos      = static_cast<cudf::size_type>(cuda::std::distance(chars.data(), end));
       current_token = json_token::VALUE_STRING;
     } else {
       set_current_error();
@@ -1213,7 +1213,7 @@ class json_parser {
                        char_range_reader{std::move(to_match_field_name)});
     if (success) {
       matched_field_name = matched;
-      curr_pos           = static_cast<cudf::size_type>(thrust::distance(chars.data(), end));
+      curr_pos           = static_cast<cudf::size_type>(cuda::std::distance(chars.data(), end));
       current_token      = json_token::FIELD_NAME;
     } else {
       set_current_error();
