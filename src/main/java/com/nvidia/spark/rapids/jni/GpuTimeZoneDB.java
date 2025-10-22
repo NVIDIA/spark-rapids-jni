@@ -52,26 +52,26 @@ import java.util.TimeZone;
  * Other regular timezone conversion, it uses `java.time.ZoneId` APIs.
  */
 class OrcTimezoneInfo {
+
+  private static final String ORC_TZ_FILE = "timezone_info_for_orc.csv";
+
   int rawOffset;
   long[] transitions;
   int[] offsets;
 
   /**
-   * Reads the ORC timezone info from a file. The file is generaged from
+   * Reads the ORC timezone info from a file. The file is generated from
    * `sun.util.calendar.ZoneInfo` via reflection. Because ZoneInfo is not
    * Java public API, e.g.: Oracle JDKs have a different package name.
    * We cannot use it directly, so we dump the info to a file.
-   * The file is generaged from OpenJDK 8. So for newer JDKs, some timezones
-   * is missing.
+   * The file is generated from OpenJDK 8. So for newer JDKs, some timezones
+   * are missing.
    *
    * @return a map from timezone ID to OrcTimezoneInfo
    */
   static Map<String, OrcTimezoneInfo> readOrcTzInfo() {
-
-    final String fileName = "timezone_info_for_orc.csv";
-    String path = GpuTimeZoneDB.class.getClassLoader().getResource(fileName).getPath();
-
     try {
+      String path = GpuTimeZoneDB.class.getClassLoader().getResource(ORC_TZ_FILE).getPath();
       Map<String, OrcTimezoneInfo> map = new HashMap<>();
 
       List<String> lines = Files.readAllLines(Paths.get(path));
@@ -104,7 +104,7 @@ class OrcTimezoneInfo {
 
       return map;
     } catch (Exception e) {
-      throw new RuntimeException("Failed to read ORC timezone info from " + path, e);
+      throw new RuntimeException("Failed to read ORC timezone info from " + ORC_TZ_FILE, e);
     }
   }
 
