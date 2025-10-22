@@ -47,6 +47,14 @@ RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-11 gcc-toolset-
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
 
+# install specific maven version 3.6.3
+ENV MAVEN_HOME "/usr/local/apache-maven-3.6.3"
+ARG MAVEN_URL=https://archive.apache.org/dist/maven/maven-3/3.6.3/binaries/
+RUN wget --quiet ${MAVEN_URL}/apache-maven-3.6.3-bin.tar.gz -P /usr/local && \
+    tar xzvf $MAVEN_HOME-bin.tar.gz -C /usr/local && \
+    rm -f $MAVEN_HOME-bin.tar.gz
+ENV PATH="$MAVEN_HOME/bin:${PATH}"
+
 # Enable the gcc-toolset by default for bash shell if DEV_BUILD is ON
 RUN if [ "$DEV_BUILD" = "ON" ]; then \
         echo "source scl_source enable gcc-toolset-${TOOLSET_VERSION}" >> /etc/bashrc; \
@@ -64,13 +72,6 @@ RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/down
 
 # Make version-less alias for external reference such as when cmake is called by an IDE outside of the container
 RUN ln -s /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/cmake /usr/local/bin/cmake
-
-# install maven 3.6.3+
-ENV MAVEN_HOME "/usr/local/apache-maven-3.6.3"
-ARG MAVEN_URL=https://archive.apache.org/dist/maven/maven-3/3.6.3/binaries/
-RUN wget ${MAVEN_URL}/apache-maven-3.6.3-bin.tar.gz -P /usr/local && \
-    tar xzvf $MAVEN_HOME-bin.tar.gz -C /usr/local && \
-    rm -f $MAVEN_HOME-bin.tar.gz
 
 # ccache for interactive builds
 RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}.tar.gz && \

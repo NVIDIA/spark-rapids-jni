@@ -158,7 +158,7 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             PREMERGE_TAG_CU13 = "rockylinux8-blossom-dev-${BUILD_TAG}-cu13"
                             IMAGE_PREMERGE_CU12 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU12}"
                             IMAGE_PREMERGE_CU13 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU13}"
-
+                            // use internal mirror to accelerate downloading
                             def urmMaven = "${common.urmURL}/artifactory/sw-spark-maven/org/apache/maven/apache-maven/3.6.3/"
                             docker.build(IMAGE_PREMERGE_CU12,
                                 "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 " +
