@@ -22,6 +22,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static com.nvidia.spark.rapids.jni.nvml.NVMLReturnCode.SUCCESS;
 import static com.nvidia.spark.rapids.jni.nvml.NVMLReturnCode.ERROR_NOT_SUPPORTED;
@@ -288,19 +291,27 @@ public class NVMLTest {
 
   @Test
   public void testGetAllGPUInfo() {
-    GPUInfo[] allGPUInfo = NVML.getAllGPUInfo();
-    
-    assertNotNull(allGPUInfo, "All GPU info array should not be null");
-    assertTrue(allGPUInfo.length > 0, "Should have at least one GPU");
-    
+    NVMLResult<GPUInfo>[] results = NVML.getAllGPUInfo();
+
+    assertNotNull(results, "All GPU info results array should not be null");
+    assertTrue(results.length > 0, "Should have at least one GPU result");
+
+    // Extract successful GPUInfo objects
+    List<GPUInfo> allGPUInfo = new ArrayList<>();
+    for (NVMLResult<GPUInfo> result : results) {
+      if (result.isSuccess() && result.getData() != null) {
+        allGPUInfo.add(result.getData());
+      }
+    }
+
     System.out.println("===== All GPUs Info =====");
-    for (int i = 0; i < allGPUInfo.length; i++) {
-      GPUInfo info = allGPUInfo[i];
+    for (int i = 0; i < allGPUInfo.size(); i++) {
+      GPUInfo info = allGPUInfo.get(i);
       assertNotNull(info, "GPU info at index " + i + " should not be null");
       assertNotNull(info.deviceInfo, "Device info at index " + i + " should not be null");
-      
+
       System.out.println("GPU " + i + ": " + info.deviceInfo.name);
-      System.out.println("  Memory: " + info.memoryInfo.memoryUsedMB + "/" + 
+      System.out.println("  Memory: " + info.memoryInfo.memoryUsedMB + "/" +
                          info.memoryInfo.memoryTotalMB + " MB");
       System.out.println("  Temperature: " + info.temperatureInfo.temperatureGpu + "°C");
     }

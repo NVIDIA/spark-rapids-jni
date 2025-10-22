@@ -152,34 +152,45 @@ public class NVMLMonitor {
     private void monitoringLoop() {
         while (monitoring.get()) {
             try {
-                GPUInfo[] gpuInfos = NVML.getAllGPUInfo();
+                NVMLResult<GPUInfo>[] results = NVML.getAllGPUInfo();
 
-                if (gpuInfos != null && gpuInfos.length > 0) {
-                    long timestamp = System.currentTimeMillis();
+                if (results != null && results.length > 0) {
+                    // Extract successful GPUInfo objects
+                    List<GPUInfo> successfulInfos = new ArrayList<>();
+                    for (NVMLResult<GPUInfo> result : results) {
+                        if (result.isSuccess() && result.getData() != null) {
+                            successfulInfos.add(result.getData());
+                        }
+                    }
+                    GPUInfo[] gpuInfos = successfulInfos.toArray(new GPUInfo[0]);
 
-                    // Update lifecycle statistics
-                    for (int i = 0; i < gpuInfos.length; i++) {
-                        GPUInfo info = gpuInfos[i];
-                        if (info.deviceInfo != null) {
-                            GPULifecycleStats stats = lifecycleStats.get(i);
-                            if (stats != null) {
-                                stats.addSample(info);
+                    if (gpuInfos.length > 0) {
+                        long timestamp = System.currentTimeMillis();
+
+                        // Update lifecycle statistics
+                        for (int i = 0; i < gpuInfos.length; i++) {
+                            GPUInfo info = gpuInfos[i];
+                            if (info.deviceInfo != null) {
+                                GPULifecycleStats stats = lifecycleStats.get(i);
+                                if (stats != null) {
+                                    stats.addSample(info);
+                                }
                             }
                         }
-                    }
 
-                    // Verbose output
-                    if (verbose) {
-                        logger.info("=== GPU Status Update ===");
-                        for (GPUInfo info : gpuInfos) {
-                            logger.info(info.toString());
+                        // Verbose output
+                        if (verbose) {
+                            logger.info("=== GPU Status Update ===");
+                            for (GPUInfo info : gpuInfos) {
+                                logger.info(info.toString());
+                            }
+                            logger.info("");
                         }
-                        logger.info("");
-                    }
 
-                    // Callback notification
-                    if (callback != null) {
-                        callback.onGPUUpdate(gpuInfos, timestamp);
+                        // Callback notification
+                        if (callback != null) {
+                            callback.onGPUUpdate(gpuInfos, timestamp);
+                        }
                     }
                 }
 
