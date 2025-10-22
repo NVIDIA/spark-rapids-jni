@@ -91,11 +91,11 @@ public class NVMLMonitor {
         }
 
         // Initialize lifecycle stats for all GPUs
-        GPUInfo[] initialInfo = NVML.getAllGPUInfo();
-        for (int i = 0; i < initialInfo.length; i++) {
-            GPUInfo info = initialInfo[i];
-            if (info.deviceInfo != null) {
-                lifecycleStats.put(i, new GPULifecycleStats(info.deviceInfo.name));
+        NVMLResult<GPUInfo>[] initialResults = NVML.getAllGPUInfo();
+        for (int i = 0; i < initialResults.length; i++) {
+            NVMLResult<GPUInfo> result = initialResults[i];
+            if (result.isSuccess() && result.getData() != null && result.getData().deviceInfo != null) {
+                lifecycleStats.put(i, new GPULifecycleStats(result.getData().deviceInfo.name));
             }
         }
 

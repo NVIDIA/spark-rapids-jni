@@ -563,35 +563,45 @@ Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetAllGPUInfo(JNIEnv* env, jclass
   unsigned int deviceCount = 0;
   nvmlReturn_t result      = nvmlDeviceGetCount(&deviceCount);
 
-  if (result != NVML_SUCCESS || deviceCount == 0) {
-    // Return empty array
-    jclass gpuInfoClass = env->FindClass(NVML_CLASS_PATH "GPUInfo");
-    if (gpuInfoClass == nullptr) { return nullptr; }
-    return env->NewObjectArray(0, gpuInfoClass, nullptr);
+  if (result != NVML_SUCCESS) {
+    // Return empty array on error
+    jclass nvmlResultClass = env->FindClass(NVML_CLASS_PATH "NVMLResult");
+    if (nvmlResultClass == nullptr) { return nullptr; }
+    return env->NewObjectArray(0, nvmlResultClass, nullptr);
   }
 
-  // Create array
-  jclass gpuInfoClass = env->FindClass(NVML_CLASS_PATH "GPUInfo");
-  if (gpuInfoClass == nullptr) { return nullptr; }
+  // Create array of NVMLResult objects
+  jclass nvmlResultClass = env->FindClass(NVML_CLASS_PATH "NVMLResult");
+  if (nvmlResultClass == nullptr) { return nullptr; }
 
-  jobjectArray gpuInfoArray =
-    env->NewObjectArray(static_cast<jsize>(deviceCount), gpuInfoClass, nullptr);
-  if (gpuInfoArray == nullptr) { return nullptr; }
+  jobjectArray resultArray =
+    env->NewObjectArray(static_cast<jsize>(deviceCount), nvmlResultClass, nullptr);
+  if (resultArray == nullptr) { return nullptr; }
 
-  // Fill array with GPU info
+  // Fill array with individual NVMLResult objects for each GPU
   for (unsigned int i = 0; i < deviceCount; i++) {
     nvmlDevice_t device;
-    nvmlReturn_t result = nvmlDeviceGetHandleByIndex(i, &device);
-    if (result == NVML_SUCCESS) {
-      NVMLResult gpuInfoResult = populate_gpu_info_from_device(env, device);
-      if (gpuInfoResult.data != nullptr) {
-        env->SetObjectArrayElement(gpuInfoArray, static_cast<jsize>(i), gpuInfoResult.data);
-        env->DeleteLocalRef(gpuInfoResult.data);
-      }
+    nvmlReturn_t deviceResult = nvmlDeviceGetHandleByIndex(i, &device);
+
+    NVMLResult cppResult;
+    if (deviceResult == NVML_SUCCESS) {
+      // Successfully got device handle, try to populate GPU info
+      cppResult = populate_gpu_info_from_device(env, device);
+    } else {
+      // Failed to get device handle
+      cppResult.returnCode = deviceResult;
+      cppResult.data       = nullptr;
+    }
+
+    // Create Java NVMLResult object and add to array
+    jobject javaResult = create_nvml_result(env, cppResult);
+    if (javaResult != nullptr) {
+      env->SetObjectArrayElement(resultArray, static_cast<jsize>(i), javaResult);
+      env->DeleteLocalRef(javaResult);
     }
   }
 
-  return gpuInfoArray;
+  return resultArray;
 }
 
 // Individual info JNI functions using device handles

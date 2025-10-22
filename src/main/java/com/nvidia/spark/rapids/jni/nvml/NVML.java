@@ -40,7 +40,7 @@ public class NVML {
     
     // Coarse-grained native methods
     private static native NVMLResult<GPUInfo> nvmlGetGPUInfo(long deviceHandle);
-    private static native GPUInfo[] nvmlGetAllGPUInfo();
+    private static native NVMLResult<GPUInfo>[] nvmlGetAllGPUInfo();
 
     // Fine-grained native methods
     private static native NVMLResult<GPUDeviceInfo> nvmlGetDeviceInfo(long deviceHandle);
@@ -144,16 +144,16 @@ public class NVML {
     /**
      * Get GPU information for all devices
      */
-    public static GPUInfo[] getAllGPUInfo() {
+    public static NVMLResult<GPUInfo>[] getAllGPUInfo() {
         if (!isAvailable()) {
-            return new GPUInfo[0];
+            return new NVMLResult[0];
         }
 
         try {
             return nvmlGetAllGPUInfo();
         } catch (Exception e) {
             logger.error("Error getting GPU info for all devices: " + e.getMessage());
-            return new GPUInfo[0];
+            return new NVMLResult[0];
         }
     }
 
