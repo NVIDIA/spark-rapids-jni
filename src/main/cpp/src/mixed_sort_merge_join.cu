@@ -491,7 +491,7 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(cudf::table_view 
                   thrust::counting_iterator<cudf::size_type>(left_num_rows),
                   left_has_match.begin(),
                   result.begin(),
-                  thrust::logical_not<bool>());
+                  cuda::std::logical_not<bool>());
 
   return result;
 }
@@ -533,8 +533,7 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
-                         cudf::has_nested_nulls(left_conditional) ||
+  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
@@ -621,8 +620,7 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
-                         cudf::has_nested_nulls(left_conditional) ||
+  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
