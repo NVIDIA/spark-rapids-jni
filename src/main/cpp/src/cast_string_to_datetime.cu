@@ -227,7 +227,8 @@ __device__ time_zone parse_tz_from_sign(
         // parse minute
         m_digits = parse_digits(ptr, pos, end_pos, minute, /*max_digits*/ 2);
         if (m_digits == 0 || (is_spark_320 && m_digits == 1)) {
-          // [+-]h[h]: without digits following, or Spark 320 not supports [+-]h[h]:m
+          // [+-]h[h]: without digits following,
+          // or Spark 320 does not support [+-]h[h]:m
           return make_invalid_tz();
         } else {
           // [+-]h[h]:m[m]
@@ -713,36 +714,33 @@ struct parse_timestamp_string_fn {
   // inputs
   cudf::column_device_view d_strings;
   cudf::size_type default_tz_index;
-  bool is_default_tz_dst;
   int64_t default_epoch_day;
   // current seconds since epoch, used to calculate the date in just time string
   int64_t current_seconds_since_epoch;
+  // STRUCT<tz_name: string, index_to_tz_info_table: int>
+  cudf::column_device_view tz_name_to_index_map;
+  // Fixed offset transitions in the timezone table
+  // Column type is LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
+  cudf::detail::lists_column_device_view fixed_transitions;
+  // DST rules in the timezone table
+  // column type is LIST<INT>, if it's DST, 12 integers defines two rules
+  cudf::detail::lists_column_device_view dst_rules;
 
-  // STRUCT<tz_name: string, index_to_transition_table: int, is_DST: int8>
-  cudf::column_device_view tz_info;
-
-  // The list column of transitions to figure out the correct offset
-  // to adjust the timestamp. The type of the values in this column is
-  // LIST<STRUCT<utcInstant: int64, tzInstant: int64, utcOffset: int32>>.
-  cudf::detail::lists_column_device_view transitions;
-
+  // outputs
   // parsed result types: not supported, invalid, success
   uint8_t* result_types;
-
   // parsed timestamp in UTC timezone
   int64_t* ts_seconds;
   int32_t* ts_microseconds;
-
   // parsed timezone info
   uint8_t* tz_types;
   int32_t* tz_fixed_offsets;
-  uint8_t* is_DSTs;
   int32_t* tz_indices;
 
   __device__ void operator()(cudf::size_type const idx) const
   {
-    // No need to check null for the `str` element
-    // Because get element on null will return empty string and then result in invalid
+    // No need to check null for the `str` element, because get element on
+    // null will return empty string and then result in invalid
     auto const str = d_strings.element<cudf::string_view>(idx);
 
     unsigned char const* str_ptr     = reinterpret_cast<unsigned char const*>(str.data());
@@ -769,7 +767,6 @@ struct parse_timestamp_string_fn {
     ts_microseconds[idx]  = microseconds;
     tz_types[idx]         = static_cast<uint8_t>(tz.type);
     tz_fixed_offsets[idx] = tz.fixed_offset;
-    is_DSTs[idx]          = 0;
     tz_indices[idx]       = -1;
 
     if (result_type != result_type::SUCCESS) {
@@ -782,20 +779,22 @@ struct parse_timestamp_string_fn {
       // use the default timezone index
       tz_types[idx]   = static_cast<uint8_t>(TZ_TYPE::OTHER_TZ);
       tz_indices[idx] = default_tz_index;
-      is_DSTs[idx]    = is_default_tz_dst;
       if (just_time == TS_TYPE::JUST_TIME) {
         // use the default epoch days when the timezone is not specified
-        // the `default_epoch_day` is from Java code: LocalDate.now(default_time_zone).toEpochDay()
+        // the `default_epoch_day` is from Java code:
+        // LocalDate.now(default_time_zone).toEpochDay()
         ts_seconds[idx] = seconds + (default_epoch_day * 24L * 3600L);
       }
     } else if (tz.type == TZ_TYPE::FIXED_TZ) {
       if (just_time == TS_TYPE::JUST_TIME) {
         // Step 1: Get the current date in the timezone
-        // in order to get the correct local date, rebase from utc timezone to local timezone
-        // e.g.: current UTC time is 2025-01-01T23:00:00, tz offsets is +01:00, then current date
-        // is: 2025-01-01T23:00:00 + 01:00 = 2025-01-02T00:00:00
+        // in order to get the correct local date, rebase from utc timezone to
+        // local timezone e.g.: current UTC time is 2025-01-01T23:00:00, tz
+        // offsets is +01:00, then current date is: 2025-01-01T23:00:00 + 01:00
+        // = 2025-01-02T00:00:00
         auto rebased = current_seconds_since_epoch + tz.fixed_offset;
-        // This is to get the seconds for the date part with discarding the time part
+        // This is to get the seconds for the date part with discarding the time
+        // part
         auto rebased_days_of_local_date = rebased / (24L * 3600L);
 
         // Step 2: add date part to the seconds
@@ -803,13 +802,12 @@ struct parse_timestamp_string_fn {
       }
     } else if (tz.type == TZ_TYPE::OTHER_TZ) {
       /**
-       * If tz type is OTHER_TZ, binary search in the `tz_info` to get the timezone index and
-       * get if TZ is DST. If not found, set the result type to invalid.
+       * If tz type is OTHER_TZ, binary search in the `tz_name_to_index_map` to get the
+       * timezone index. If not found, set the result type to invalid.
        * If the string is just time, use the current date in the timezone.
        */
-      auto const tz_col                  = tz_info.child(0);
-      auto const index_in_transition_col = tz_info.child(1);
-      auto const is_DST_col              = tz_info.child(2);
+      auto const tz_col                  = tz_name_to_index_map.child(0);
+      auto const index_in_transition_col = tz_name_to_index_map.child(1);
 
       auto const tzs_begin = thrust::make_transform_iterator(
         thrust::make_counting_iterator(0),
@@ -826,23 +824,20 @@ struct parse_timestamp_string_fn {
           static_cast<cudf::size_type>(cuda::std::distance(tzs_begin, it));
         // update tz index
         tz_indices[idx] = index_in_transition_col.element<int32_t>(tz_idx_in_table);
-        if (is_DST_col.element<uint8_t>(tz_idx_in_table)) {
-          // update is DST
-          is_DSTs[idx] = 1;
-        }
 
         if (just_time == TS_TYPE::JUST_TIME) {
-          // get current date in the the timezone, equvalent to Java code: LocalDate.now(zoneId)
-          // E.g.:
+          // get current date in the timezone, equivalent to Java code:
+          // LocalDate.now(zoneId) E.g.:
           //   LocalDate.now("America/Los_Angeles") = 2025-05-21,
           //   at the same time:
           //   LocalDate.now("Asia/Shanghai")       = 2025-05-22
 
-          // Step 1: rebase `current_seconds_since_epoch` from utc timezone to local timezone
-          // to get the current date
+          // Step 1: rebase `current_seconds_since_epoch` from utc timezone to
+          // local timezone to get the current date
           auto rebased_seconds = spark_rapids_jni::convert_timestamp<cudf::timestamp_s>(
             cudf::timestamp_s{cudf::duration_s{current_seconds_since_epoch}},
-            transitions,
+            fixed_transitions,
+            dst_rules,
             tz_indices[idx],
             /* to_utc */ false);
 
@@ -858,7 +853,6 @@ struct parse_timestamp_string_fn {
         // not found tz, update result_type to invalid
         result_types[idx] = static_cast<uint8_t>(result_type::INVALID);
         tz_indices[idx]   = -1;
-        is_DSTs[idx]      = 0;
       }
     } else if (tz.type == TZ_TYPE::INVALID_TZ) {
       cudf_assert(result_type == result_type::INVALID);
@@ -870,22 +864,21 @@ struct parse_timestamp_string_fn {
 };
 
 /**
- * Parse strings to an intermediate struct column with 7 sub-columns.
+ * Parse strings to an intermediate struct column with 6 sub-columns.
  */
 std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& input,
                                                cudf::size_type default_tz_index,
-                                               bool is_default_tz_dst,
                                                int64_t default_epoch_day,
-                                               cudf::column_view const& tz_info,
-                                               cudf::table_view const& transitions,
+                                               cudf::column_view const& tz_name_to_index_map,
+                                               cudf::table_view const& tz_info_table,
                                                bool is_spark_320,
                                                bool is_spark_400_or_later_or_db_14_3_or_later,
                                                rmm::cuda_stream_view stream,
                                                rmm::device_async_resource_ref mr)
 {
-  auto const num_rows  = input.size();
-  auto const d_input   = cudf::column_device_view::create(input.parent(), stream);
-  auto const d_tz_info = cudf::column_device_view::create(tz_info, stream);
+  auto const num_rows            = input.size();
+  auto const d_input             = cudf::column_device_view::create(input.parent(), stream);
+  auto const d_name_to_index_map = cudf::column_device_view::create(tz_name_to_index_map, stream);
 
   // the follow saves parsed result
   auto parsed_result_type_col = cudf::make_fixed_width_column(
@@ -900,19 +893,22 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   auto parsed_tz_fixed_offset_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::INT32}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
   // if tz type is other, use this column to store index to transition table
-  auto is_DST_tz_col = cudf::make_fixed_width_column(
-    cudf::data_type{cudf::type_id::UINT8}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
   auto parsed_tz_index_col = cudf::make_fixed_width_column(
     cudf::data_type{cudf::type_id::INT32}, num_rows, cudf::mask_state::UNALLOCATED, stream, mr);
 
-  // Get current seconds since epoch, used to calculate the date in just time string
+  // Get current seconds since epoch, used to calculate the date in just time
+  // string
   auto duration = std::chrono::system_clock::now().time_since_epoch();
   int64_t current_seconds_since_epoch =
     std::chrono::duration_cast<std::chrono::seconds>(duration).count();
 
   // get the fixed transitions
-  auto const ft_cdv_ptr        = cudf::column_device_view::create(transitions.column(0), stream);
+  auto const ft_cdv_ptr        = cudf::column_device_view::create(tz_info_table.column(0), stream);
   auto const fixed_transitions = cudf::detail::lists_column_device_view{*ft_cdv_ptr};
+
+  // get the DST rules
+  auto const dst_cdv_ptr = cudf::column_device_view::create(tz_info_table.column(1), stream);
+  auto const dst_rules   = cudf::detail::lists_column_device_view{*dst_cdv_ptr};
 
   thrust::for_each_n(
     rmm::exec_policy_nosync(stream),
@@ -922,17 +918,16 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
                               is_spark_400_or_later_or_db_14_3_or_later,
                               *d_input,
                               default_tz_index,
-                              is_default_tz_dst,
                               default_epoch_day,
                               current_seconds_since_epoch,
-                              *d_tz_info,
+                              *d_name_to_index_map,
                               fixed_transitions,
+                              dst_rules,
                               parsed_result_type_col->mutable_view().begin<uint8_t>(),
                               parsed_utc_seconds_col->mutable_view().begin<int64_t>(),
                               parsed_utc_microseconds_col->mutable_view().begin<int32_t>(),
                               parsed_tz_type_col->mutable_view().begin<uint8_t>(),
                               parsed_tz_fixed_offset_col->mutable_view().begin<int32_t>(),
-                              is_DST_tz_col->mutable_view().begin<uint8_t>(),
                               parsed_tz_index_col->mutable_view().begin<int32_t>()});
 
   std::vector<std::unique_ptr<cudf::column>> output_columns;
@@ -941,16 +936,20 @@ std::unique_ptr<cudf::column> parse_ts_strings(cudf::strings_column_view const& 
   output_columns.emplace_back(std::move(parsed_utc_microseconds_col));
   output_columns.emplace_back(std::move(parsed_tz_type_col));
   output_columns.emplace_back(std::move(parsed_tz_fixed_offset_col));
-  output_columns.emplace_back(std::move(is_DST_tz_col));
   output_columns.emplace_back(std::move(parsed_tz_index_col));
 
-  return make_structs_column(
-    num_rows, std::move(output_columns), /* null_count */ 0, rmm::device_buffer(), stream, mr);
+  return make_structs_column(num_rows,
+                             std::move(output_columns),
+                             /* null_count */ 0,
+                             rmm::device_buffer(),
+                             stream,
+                             mr);
 }
 
 /**
  * Parse date string to year, month, day.
- * Note: Spark date supports max 7 digits year, Spark timestamp supports max 6 digits year.
+ * Note: Spark date supports max 7 digits year, Spark timestamp supports max 6
+ * digits year.
  */
 __device__ bool parse_date(unsigned char const* const ptr,
                            unsigned char const* const ptr_end,
@@ -1110,10 +1109,9 @@ std::unique_ptr<cudf::column> parse_to_date(cudf::strings_column_view const& inp
 std::unique_ptr<cudf::column> parse_timestamp_strings(
   cudf::strings_column_view const& input,
   cudf::size_type default_tz_index,
-  bool is_default_tz_dst,
   int64_t default_epoch_day,
-  cudf::column_view const& tz_info,
-  cudf::table_view const& transitions,
+  cudf::column_view const& tz_name_to_index_map,
+  cudf::table_view const& tz_info_table,
   spark_rapids_jni::spark_system const& spark_system,
   rmm::cuda_stream_view stream,
   rmm::device_async_resource_ref mr)
@@ -1124,10 +1122,9 @@ std::unique_ptr<cudf::column> parse_timestamp_strings(
 
   return parse_ts_strings(input,
                           default_tz_index,
-                          is_default_tz_dst,
                           default_epoch_day,
-                          tz_info,
-                          transitions,
+                          tz_name_to_index_map,
+                          tz_info_table,
                           is_spark_320,
                           is_spark_400_or_later_or_db_14_3_or_later,
                           stream,

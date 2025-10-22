@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -83,6 +83,14 @@ class TimeZoneTest : public cudf::test::BaseFixture {
       2, offsets.release(), struct_column.release(), null_count, std::move(null_mask));
     auto columns = std::vector<std::unique_ptr<cudf::column>>{};
     columns.push_back(std::move(list_column));
+
+    // make empty DST list<int> column, it means all timezones are non-DST
+    auto dst_child   = int32_col({});
+    auto dst_offsets = cudf::test::fixed_width_column_wrapper<cudf::size_type>{0, 0, 0};
+    auto dst_col     = cudf::make_lists_column(
+      2, dst_offsets.release(), dst_child.release(), 0, rmm::device_buffer{});
+    columns.push_back(std::move(dst_col));
+
     return std::make_unique<cudf::table>(std::move(columns));
   }
 };

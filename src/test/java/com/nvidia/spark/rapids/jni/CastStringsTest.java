@@ -439,9 +439,14 @@ public class CastStringsTest {
     return HostColumnVector.fromStructs(type, data).copyToDevice();
   }
 
+  private static final Version SPARK_320_VERSION =
+      new Version(SparkPlatformType.VANILLA_SPARK, 3, 2, 0);
+  private static final Version SPARK_330_VERSION =
+      new Version(SparkPlatformType.VANILLA_SPARK, 3, 3, 0);
+
   @Test
   void castStringToTimestampFirstPhaseJustTimeTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     long defaultEpochDay = 1;
     long secondsOfEpochDay = defaultEpochDay * 24 * 60 * 60;
     List<List<Object>> list = new ArrayList<>();
@@ -457,41 +462,41 @@ public class CastStringsTest {
     // - TZ index: 0 CTT, 1 JST, 2 PST
 
     // valid time
-    list.add(Arrays.asList("T00", 0, 0L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList(" T1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T1:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList(" T01:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList(" T1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("T00", 0, 0L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList(" T1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("T01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("T1:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList(" T01:02", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList(" T1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("T01:02:03", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList(" \r\n\tT23:17:50 \r\n\t", 0, 83870L + secondsOfEpochDay, 0, 2, 0, 1));
 
     // valid time: begin with not T
-    list.add(Arrays.asList("01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("01:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("01:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("1:2", 0, 3720L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("01:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 1));
+    list.add(Arrays.asList("1:2:3", 0, 3723L + secondsOfEpochDay, 0, 2, 0, 1));
 
     // invalid time
-    list.add(Arrays.asList("Tx", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T000:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:022", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:02:", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:02:x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:02:003", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T123", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T12345", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("T00:02:003", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("Tx", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T000:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:022", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:02:", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:02:x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:02:003", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T123", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T12345", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("T00:02:003", 1, 0L, 0, 0, 0, -1));
 
     // invalid time: time leading by sign
-    list.add(Arrays.asList("+00:00:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("-00:00:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("+T00:00:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("-T00:00:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("+00:00:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("-00:00:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("+T00:00:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("-T00:00:00", 1, 0L, 0, 0, 0, -1));
 
     List<String> input = new ArrayList<>(list.size());
     List<Byte> expected_return_type = new ArrayList<>(list.size());
@@ -499,7 +504,6 @@ public class CastStringsTest {
     List<Integer> expected_utc_microseconds = new ArrayList<>(list.size());
     List<Byte> expected_tz_type = new ArrayList<>(list.size());
     List<Integer> expected_tz_offset = new ArrayList<>(list.size());
-    List<Byte> expected_tz_is_dst = new ArrayList<>(list.size());
     List<Integer> expected_tz_index = new ArrayList<>(list.size());
 
     for (List<Object> row : list) {
@@ -509,36 +513,32 @@ public class CastStringsTest {
       expected_utc_microseconds.add(Integer.parseInt(row.get(3).toString()));
       expected_tz_type.add(Byte.parseByte(row.get(4).toString()));
       expected_tz_offset.add(Integer.parseInt(row.get(5).toString()));
-      expected_tz_is_dst.add(Byte.parseByte(row.get(6).toString()));
-      expected_tz_index.add(Integer.parseInt(row.get(7).toString()));
+      expected_tz_index.add(Integer.parseInt(row.get(6).toString()));
     }
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
-        Table transitions = GpuTimeZoneDB.getTransitions();
+        Table transitions = GpuTimeZoneDB.getTimezoneInfo();
         ColumnVector result = CastStrings.parseTimestampStrings(
             inputCv,
             1,
-            /* is default tz DST */ false,
             defaultEpochDay,
             tzInfo,
             transitions,
-            /* is spark 320 */ false);
+            SPARK_330_VERSION);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
         ColumnVector expectedUtcTsMicro = ColumnVector.fromBoxedInts(expected_utc_microseconds.toArray(new Integer[0]));
         ColumnVector expectedTzType = ColumnVector.fromBoxedUnsignedBytes(expected_tz_type.toArray(new Byte[0]));
         ColumnVector expectedTzOffset = ColumnVector.fromBoxedInts(expected_tz_offset.toArray(new Integer[0]));
-        ColumnVector expectedTzIsDst = ColumnVector.fromBoxedUnsignedBytes(expected_tz_is_dst.toArray(new Byte[0]));
         ColumnVector expectedTzIndex = ColumnVector.fromBoxedInts(expected_tz_index.toArray(new Integer[0]))) {
       AssertUtils.assertColumnsAreEqual(expectedReturnType, result.getChildColumnView(0));
       AssertUtils.assertColumnsAreEqual(expectedUtcTs, result.getChildColumnView(1));
       AssertUtils.assertColumnsAreEqual(expectedUtcTsMicro, result.getChildColumnView(2));
       AssertUtils.assertColumnsAreEqual(expectedTzType, result.getChildColumnView(3));
       AssertUtils.assertColumnsAreEqual(expectedTzOffset, result.getChildColumnView(4));
-      AssertUtils.assertColumnsAreEqual(expectedTzIsDst, result.getChildColumnView(5));
-      AssertUtils.assertColumnsAreEqual(expectedTzIndex, result.getChildColumnView(6));
+      AssertUtils.assertColumnsAreEqual(expectedTzIndex, result.getChildColumnView(5));
     }
   }
 
@@ -551,7 +551,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampJustTimeWithFixedTzTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     ZoneId eightHours = ZoneId.of("+08:00");
@@ -591,7 +591,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ false, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -607,7 +607,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampJustTimeWithOtherTzTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     ZoneId pstTZ = ZoneId.of("America/Los_Angeles");
@@ -647,7 +647,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ false, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -656,7 +656,7 @@ public class CastStringsTest {
 
   @Test
   void castStringToTimestampFirstPhaseTest() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     List<List<Object>> list = new ArrayList<>();
     // make a dummy epoch day, this test case does not test just time.
     long defaultEpochDay = 1;
@@ -670,178 +670,177 @@ public class CastStringsTest {
     // - Timezone offset for fixed type, only applies to fixed type
     // - Timezone is DST, only applies to other type
     // - Timezone index to `GpuTimeZoneDB.transitions` table
-    list.add(Arrays.asList("2023-11-05T03:04:55 +00:00", 0, 1699153495L, 0, 1, 0, 0, -1)); // row 0
-    list.add(Arrays.asList("2023-11-05 03:04:55 +01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 -01:2", 0, 1699153495L, 0, 1, -(3600 * 1 + 60 * 2), 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
+    list.add(Arrays.asList("2023-11-05T03:04:55 +00:00", 0, 1699153495L, 0, 1, 0, -1)); // row 0
+    list.add(Arrays.asList("2023-11-05 03:04:55 +01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 -01:2", 0, 1699153495L, 0, 1, -(3600 * 1 + 60 * 2), -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 +10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 +10", 0, 1699153495L, 0, 1, 3600 * 10, 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 +10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 +10", 0, 1699153495L, 0, 1, 3600 * 10, -1));
 
-    list.add(Arrays.asList("2023-11-05T03:04:55 UT+00:00", 0, 1699153495L, 0, 1, 0, 0, -1)); // rwo 10
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+01:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT-10:59:03", 0, 1699153495L, 0, 1, -(3600 * 10 + 60 * 59 + 3), 0,
-        -1));
+    list.add(Arrays.asList("2023-11-05T03:04:55 UT+00:00", 0, 1699153495L, 0, 1, 0, -1)); // rwo 10
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+01:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT-10:59:03", 0, 1699153495L, 0, 1, -(3600 * 10 + 60 * 59 + 3), -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 UT+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+10", 0, 1699153495L, 0, 1, 3600 * 10, 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 UT+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+10", 0, 1699153495L, 0, 1, 3600 * 10, -1));
 
-    list.add(Arrays.asList("2023-11-05T03:04:55 UTC+00:00", 0, 1699153495L, 0, 1, 0, 0, -1)); // row 20
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+01:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
+    list.add(Arrays.asList("2023-11-05T03:04:55 UTC+00:00", 0, 1699153495L, 0, 1, 0, -1)); // row 20
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+01:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 UTC+10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 UTC+10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 UTC+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTC-10", 0, 1699153495L, 0, 1, -(3600 * 10), 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 UTC+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTC-10", 0, 1699153495L, 0, 1, -(3600 * 10), -1));
 
-    list.add(Arrays.asList("2023-11-05T03:04:55 GMT+00:00", 0, 1699153495L, 0, 1, 0, 0, -1)); // row 30
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-01:2", 0, 1699153495L, 0, 1, -(3600 * 1 + 60 * 2), 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
+    list.add(Arrays.asList("2023-11-05T03:04:55 GMT+00:00", 0, 1699153495L, 0, 1, 0, -1)); // row 30
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+01:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1:02", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-01:2", 0, 1699153495L, 0, 1, -(3600 * 1 + 60 * 2), -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1:2", 0, 1699153495L, 0, 1, 3600 * 1 + 60 * 2, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+10:59", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 GMT+10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 GMT+10:59:03", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
     list.add(
-        Arrays.asList("2023-11-05 03:04:55 GMT+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+10", 0, 1699153495L, 0, 1, 3600 * 10, 0, -1));
+        Arrays.asList("2023-11-05 03:04:55 GMT+105903", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59 + 3, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+1059", 0, 1699153495L, 0, 1, 3600 * 10 + 60 * 59, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+10", 0, 1699153495L, 0, 1, 3600 * 10, -1));
 
-    list.add(Arrays.asList("2023-11-05T03:04:55.123456789 PST", 0, 1699153495L, 123456L, 2, 0, 1, 2)); // row 40
-    list.add(Arrays.asList("2023-11-05 03:04:55.123456 PST", 0, 1699153495L, 123456L, 2, 0, 1, 2));
-    list.add(Arrays.asList("2023-11-05T03:04:55 CTT", 0, 1699153495L, 0, 2, 0, 0, 0));
-    list.add(Arrays.asList("2023-11-05 03:04:55 JST", 0, 1699153495L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 PST", 0, 1699153495L, 0, 2, 0, 1, 2));
+    list.add(Arrays.asList("2023-11-05T03:04:55.123456789 PST", 0, 1699153495L, 123456L, 2, 0, 2)); // row 40
+    list.add(Arrays.asList("2023-11-05 03:04:55.123456 PST", 0, 1699153495L, 123456L, 2, 0, 2));
+    list.add(Arrays.asList("2023-11-05T03:04:55 CTT", 0, 1699153495L, 0, 2, 0, 0));
+    list.add(Arrays.asList("2023-11-05 03:04:55 JST", 0, 1699153495L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 PST", 0, 1699153495L, 0, 2, 0, 2));
 
     // use default timezone: index is 1
-    list.add(Arrays.asList("2023-11-05 03:04:55", 0, 1699153495L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-11-05", 0, 1699142400L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-11", 0, 1698796800L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023", 0, 1672531200L, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("2023-11-05 03:04:55", 0, 1699153495L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-11-05", 0, 1699142400L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-11", 0, 1698796800L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023", 0, 1672531200L, 0, 2, 0, 1));
 
-    list.add(Arrays.asList("12345", 0, 327403382400L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-1-1", 0, 1672531200L, 0, 2, 0, 0, 1)); // row 50
-    list.add(Arrays.asList("2023-1-01", 0, 1672531200L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-01-1", 0, 1672531200L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-01-01", 0, 1672531200L, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("12345", 0, 327403382400L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-1-1", 0, 1672531200L, 0, 2, 0, 1)); // row 50
+    list.add(Arrays.asList("2023-1-01", 0, 1672531200L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-01-1", 0, 1672531200L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-01-01", 0, 1672531200L, 0, 2, 0, 1));
 
     // test leap year
-    list.add(Arrays.asList("2028-02-29", 0, 1835395200L, 0, 2, 0, 0, 1));
-    list.add(Arrays.asList("2023-01-01 00:00:00Z", 0, 1672531200L, 0, 1, 0, 0, -1));
-    list.add(Arrays.asList("2023-01-01 00:00:00 Z", 0, 1672531200L, 0, 1, 0, 0, -1));
+    list.add(Arrays.asList("2028-02-29", 0, 1835395200L, 0, 2, 0, 1));
+    list.add(Arrays.asList("2023-01-01 00:00:00Z", 0, 1672531200L, 0, 1, 0, -1));
+    list.add(Arrays.asList("2023-01-01 00:00:00 Z", 0, 1672531200L, 0, 1, 0, -1));
     // special case GMT0
-    list.add(Arrays.asList("2023-01-01 00:00:00 GMT0", 0, 1672531200L, 0, 1, 0, 0, -1));
+    list.add(Arrays.asList("2023-01-01 00:00:00 GMT0", 0, 1672531200L, 0, 1, 0, -1));
 
     // ################################################
     // ############ Below is invalid cases ############
     // ################################################
     // empty
-    list.add(Arrays.asList("", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("  ", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("  ", 1, 0L, 0, 0, 0, -1));
 
     // test non leap year and day is 29
-    list.add(Arrays.asList(" -2025-2-29 ", 1, 0L, 0, 0, 0, 0, -1)); // row 60
+    list.add(Arrays.asList(" -2025-2-29 ", 1, 0L, 0, 0, 0, -1)); // row 60
     // non-existence tz, result is invalid, but keeps tz type is other
-    list.add(Arrays.asList(" 2023-11-05 03:04:55 non-existence-tz ", 1, 1699153495L, 0, 2, 0, 0, -1));
+    list.add(Arrays.asList(" 2023-11-05 03:04:55 non-existence-tz ", 1, 1699153495L, 0, 2, 0, -1));
 
     // invalid month
-    list.add(Arrays.asList("-2025-13-1", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("-2025-99-1", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("-2025-13-1", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("-2025-99-1", 1, 0L, 0, 0, 0, -1));
 
     // invalid day
-    list.add(Arrays.asList("-2025-01-32", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("-2025-01-99", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("-2025-01-32", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("-2025-01-99", 1, 0L, 0, 0, 0, -1));
 
     // invalid hour
-    list.add(Arrays.asList("2000-01-01 24:00:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 99:00:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 24:00:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 99:00:00", 1, 0L, 0, 0, 0, -1));
 
     // invalid minute
-    list.add(Arrays.asList("2000-01-01 00:60:00", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:61:00", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:60:00", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:61:00", 1, 0L, 0, 0, 0, -1));
 
     // invalid second
-    list.add(Arrays.asList("2000-01-01 00:00:60", 1, 0L, 0, 0, 0, 0, -1)); // row 70
-    list.add(Arrays.asList("2000-01-01 00:00:61", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:60", 1, 0L, 0, 0, 0, -1)); // row 70
+    list.add(Arrays.asList("2000-01-01 00:00:61", 1, 0L, 0, 0, 0, -1));
 
     // invalid date
-    list.add(Arrays.asList("x2025", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("12", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("123", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("1234567", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-123", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-12x", 1, 0L, 0, 0, 0, 0, -1)); // row 80
-    list.add(Arrays.asList("2200-01-", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-01-x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-01-11x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-01-113", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-03-25T", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-03-25 x", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("2200-03-25Tx", 1, 0L, 0, 0, 0, 0, -1));
+    list.add(Arrays.asList("x2025", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("12", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("123", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("1234567", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-123", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-12x", 1, 0L, 0, 0, 0, -1)); // row 80
+    list.add(Arrays.asList("2200-01-", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-01-x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-01-11x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-01-113", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-03-25T", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-03-25 x", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("2200-03-25Tx", 1, 0L, 0, 0, 0, -1));
 
     // invalid TZs
-    list.add(Arrays.asList("2000-01-01 00:00:00 +", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 -X", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +07:", 1, 0L, 0, 3, 0, 0, -1)); // row 90
-    list.add(Arrays.asList("2000-01-01 00:00:00 +09:x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:1", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:12x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +01x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +0102x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +010203x", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +111", 1, 0L, 0, 3, 0, 0, -1)); // row 100
-    list.add(Arrays.asList("2000-01-01 00:00:00 +11111", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 +1x", 1, 0L, 0, 3, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 -X", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +07:", 1, 0L, 0, 3, 0, -1)); // row 90
+    list.add(Arrays.asList("2000-01-01 00:00:00 +09:x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:1", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +15:07:12x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +01x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +0102x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +010203x", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +111", 1, 0L, 0, 3, 0, -1)); // row 100
+    list.add(Arrays.asList("2000-01-01 00:00:00 +11111", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +1x", 1, 0L, 0, 3, 0, -1));
     // exceeds the max value 18 hours
-    list.add(Arrays.asList("2000-01-01 00:00:00 +180001", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 -180001", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 -08:1:08", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2000-01-01 00:00:00 -8:1:08", 1, 0L, 0, 3, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 +180001", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 -180001", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 -08:1:08", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 -8:1:08", 1, 0L, 0, 3, 0, -1));
     // U is invalid tz
-    list.add(Arrays.asList("2000-01-01 00:00:00 U", 1, 0L, 0, 3, 0, 0, -1));
+    list.add(Arrays.asList("2000-01-01 00:00:00 U", 1, 0L, 0, 3, 0, -1));
     // Result is invalid, although ts is not zero
-    list.add(Arrays.asList("2023-11-05 03:04:55 Ux", 1, 1699153495L, 0, 2, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTx", 1, 1699153495L, 0, 2, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UTCx", 1, 1699153495L, 0, 2, 0, 0, -1)); // row 110
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT+", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT-08:1:08", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 UT-8:1:08", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 Gx", 1, 1699153495L, 0, 2, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMTx", 1, 1699153495L, 0, 2, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-08:1:08", 1, 0L, 0, 3, 0, 0, -1));
-    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-8:1:08", 1, 0L, 0, 3, 0, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 Ux", 1, 1699153495L, 0, 2, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTx", 1, 1699153495L, 0, 2, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UTCx", 1, 1699153495L, 0, 2, 0, -1)); // row 110
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT+", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT-08:1:08", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 UT-8:1:08", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 Gx", 1, 1699153495L, 0, 2, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMTx", 1, 1699153495L, 0, 2, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT+", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-08:1:08", 1, 0L, 0, 3, 0, -1));
+    list.add(Arrays.asList("2023-11-05 03:04:55 GMT-8:1:08", 1, 0L, 0, 3, 0, -1));
 
     // invalid year: e.g. abs(year) > 30,000
-    list.add(Arrays.asList("300001-01-01", 1, 0L, 0, 0, 0, 0, -1));
-    list.add(Arrays.asList("-300001-01-01", 1, 0L, 0, 0, 0, 0, -1)); // row 120
+    list.add(Arrays.asList("300001-01-01", 1, 0L, 0, 0, 0, -1));
+    list.add(Arrays.asList("-300001-01-01", 1, 0L, 0, 0, 0, -1)); // row 120
 
     // ################################################
     // ############ Below is valid case ############
     // ################################################
     // although input exceeds max Spark year, but the intermidiate can hold it.
     // only years not in range [-300000, 300000] are invalid
-    list.add(Arrays.asList("296271-05-22", 0, 9287254713600L, 0, 2, 0, 0, 1));
+    list.add(Arrays.asList("296271-05-22", 0, 9287254713600L, 0, 2, 0, 1));
 
     List<String> input = new ArrayList<>(list.size());
     List<Byte> expected_return_type = new ArrayList<>(list.size());
@@ -849,7 +848,6 @@ public class CastStringsTest {
     List<Integer> expected_utc_microseconds = new ArrayList<>(list.size());
     List<Byte> expected_tz_type = new ArrayList<>(list.size());
     List<Integer> expected_tz_offset = new ArrayList<>(list.size());
-    List<Byte> expected_tz_is_dst = new ArrayList<>(list.size());
     List<Integer> expected_tz_index = new ArrayList<>(list.size());
 
     for (List<Object> row : list) {
@@ -859,42 +857,38 @@ public class CastStringsTest {
       expected_utc_microseconds.add(Integer.parseInt(row.get(3).toString()));
       expected_tz_type.add(Byte.parseByte(row.get(4).toString()));
       expected_tz_offset.add(Integer.parseInt(row.get(5).toString()));
-      expected_tz_is_dst.add(Byte.parseByte(row.get(6).toString()));
-      expected_tz_index.add(Integer.parseInt(row.get(7).toString()));
+      expected_tz_index.add(Integer.parseInt(row.get(6).toString()));
     }
 
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector tzInfo = getTimezoneInfoMock(); // mock timezone info
-        Table transitions = GpuTimeZoneDB.getTransitions();
+        Table transitions = GpuTimeZoneDB.getTimezoneInfo();
         ColumnVector result = CastStrings.parseTimestampStrings(
             inputCv,
             1,
-            /* is default tz DST */ false,
             defaultEpochDay,
             tzInfo,
             transitions,
-            /* is spark 320 */ false);
+            SPARK_330_VERSION);
         ColumnVector expectedReturnType = ColumnVector
             .fromBoxedUnsignedBytes(expected_return_type.toArray(new Byte[0]));
         ColumnVector expectedUtcTs = ColumnVector.fromBoxedLongs(expected_utc_seconds.toArray(new Long[0]));
         ColumnVector expectedUtcTsMicro = ColumnVector.fromBoxedInts(expected_utc_microseconds.toArray(new Integer[0]));
         ColumnVector expectedTzType = ColumnVector.fromBoxedUnsignedBytes(expected_tz_type.toArray(new Byte[0]));
         ColumnVector expectedTzOffset = ColumnVector.fromBoxedInts(expected_tz_offset.toArray(new Integer[0]));
-        ColumnVector expectedTzIsDst = ColumnVector.fromBoxedUnsignedBytes(expected_tz_is_dst.toArray(new Byte[0]));
         ColumnVector expectedTzIndex = ColumnVector.fromBoxedInts(expected_tz_index.toArray(new Integer[0]))) {
       AssertUtils.assertColumnsAreEqual(expectedReturnType, result.getChildColumnView(0));
       AssertUtils.assertColumnsAreEqual(expectedUtcTs, result.getChildColumnView(1));
       AssertUtils.assertColumnsAreEqual(expectedUtcTsMicro, result.getChildColumnView(2));
       AssertUtils.assertColumnsAreEqual(expectedTzType, result.getChildColumnView(3));
       AssertUtils.assertColumnsAreEqual(expectedTzOffset, result.getChildColumnView(4));
-      AssertUtils.assertColumnsAreEqual(expectedTzIsDst, result.getChildColumnView(5));
-      AssertUtils.assertColumnsAreEqual(expectedTzIndex, result.getChildColumnView(6));
+      AssertUtils.assertColumnsAreEqual(expectedTzIndex, result.getChildColumnView(5));
     }
   }
 
   @Test
-  void castStringToTimestampOnCpu() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampHasYearAfter2200() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -938,7 +932,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ false, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -946,7 +940,7 @@ public class CastStringsTest {
     // 2. test ansi mode true, has large year and has DST
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
 
@@ -967,7 +961,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -985,7 +979,7 @@ public class CastStringsTest {
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */false, SPARK_330_VERSION);
         HostColumnVector hcv = actual.copyToHost();) {
       // this test may happen at mid-night, so the date may be different    
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
@@ -1005,7 +999,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
 
@@ -1020,14 +1014,14 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
   }
 
   @Test
-  void castStringToTimestampOnGpu() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestamp() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -1071,7 +1065,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ false, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -1080,7 +1074,7 @@ public class CastStringsTest {
     // 2. test ansi mode true
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
 
@@ -1100,7 +1094,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -1118,7 +1112,7 @@ public class CastStringsTest {
     long days = LocalDate.now().toEpochDay();
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ false);
+            inputCv, "Z", /* ansi */ false, SPARK_330_VERSION);
         HostColumnVector hcv = actual.copyToHost();) {
       long expectedTs1 = (days * 24 * 3600 + 1) * 1000000L;
       long expectedTs2 = ((days + 1) * 24 * 3600 + 1) * 1000000L;
@@ -1136,7 +1130,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
 
@@ -1150,7 +1144,7 @@ public class CastStringsTest {
     }
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ true, /* is spark 320 */ false)) {
+            inputCv, "Z", /* ansi */ true, SPARK_330_VERSION)) {
       Assertions.assertNull(actual);
     }
   }
@@ -1214,7 +1208,7 @@ public class CastStringsTest {
    */
   @Test
   void castStringToTimestampUseNonUTCDefaultTimezone() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     // 1. test fallback to cpu: has year > 2200 and has DST
@@ -1229,7 +1223,7 @@ public class CastStringsTest {
             inputCv,
             "America/Los_Angeles", // non-UTC default timezone
             /* ansi */ false,
-            /* is spark 320 */ false);
+            SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors1)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
@@ -1243,15 +1237,15 @@ public class CastStringsTest {
             inputCv,
             "America/Los_Angeles", // non-UTC default timezone
             /* ansi */ false,
-            /* is spark 320 */ false);
+            SPARK_330_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(micors2)) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
     }
   }
 
   @Test
-  void castStringToTimestampOnGpuForSpark320() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampForSpark320() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     Instant ins1 = Instant.parse("2023-11-05T03:04:55Z");
@@ -1287,7 +1281,7 @@ public class CastStringsTest {
     try (ColumnVector inputCv = ColumnVector.fromStrings(input.toArray(new String[0]));
         // test spark 320
         ColumnVector actual = CastStrings.toTimestamp(
-            inputCv, "Z", /* ansi */ false, /* is spark 320 */ true);
+            inputCv, "Z", /* ansi */ false, SPARK_320_VERSION);
         ColumnVector expected = ColumnVector.timestampMicroSecondsFromBoxedLongs(
             expectedTS.toArray(new Long[0]))) {
       AssertUtils.assertColumnsAreEqual(expected, actual);
@@ -1299,8 +1293,8 @@ public class CastStringsTest {
    * Refer to https://github.com/NVIDIA/spark-rapids-jni/issues/3401
    */
   @Test
-  void castStringToTimestampOnGpuForSpark400PlusDB14_3Plus() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+  void castStringToTimestampForSpark400PlusDB14_3Plus() {
+    GpuTimeZoneDB.cacheDatabase();
     GpuTimeZoneDB.verifyDatabaseCached();
 
     List<List<Object>> list = new ArrayList<>();
