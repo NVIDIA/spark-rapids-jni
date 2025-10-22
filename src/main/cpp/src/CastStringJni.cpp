@@ -288,18 +288,17 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
   jclass,
   jlong input_column,
   int default_timezone_index,
-  bool is_default_timezone_dst,
   long default_epoch_day,
-  jlong timezone_info_column,
-  jlong transitions_table,
+  jlong tz_name_to_index_map,
+  jlong timezone_info_table,
   int platform,
   int majorVersion,
   int minorVersion,
   int patchVersion)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  JNI_NULL_CHECK(env, timezone_info_column, "timezone info column is null", 0);
-  JNI_NULL_CHECK(env, transitions_table, "transitions table is null", 0);
+  JNI_NULL_CHECK(env, tz_name_to_index_map, "timezone name to index column is null", 0);
+  JNI_NULL_CHECK(env, timezone_info_table, "timezone info table is null", 0);
 
   JNI_TRY
   {
@@ -307,17 +306,16 @@ Java_com_nvidia_spark_rapids_jni_CastStrings_parseTimestampStringsToIntermediate
 
     auto const input_view =
       cudf::strings_column_view(*reinterpret_cast<cudf::column_view const*>(input_column));
-    auto const* tz_info_view = reinterpret_cast<cudf::column_view const*>(timezone_info_column);
-    auto const* transitions  = reinterpret_cast<cudf::table_view const*>(transitions_table);
+    auto const* tz_name_to_index = reinterpret_cast<cudf::column_view const*>(tz_name_to_index_map);
+    auto const* timezone_info    = reinterpret_cast<cudf::table_view const*>(timezone_info_table);
     auto const spark_system =
       spark_rapids_jni::spark_system(platform, majorVersion, minorVersion, patchVersion);
     return cudf::jni::release_as_jlong(
       spark_rapids_jni::parse_timestamp_strings(input_view,
                                                 default_timezone_index,
-                                                is_default_timezone_dst,
                                                 default_epoch_day,
-                                                *tz_info_view,
-                                                *transitions,
+                                                *tz_name_to_index,
+                                                *timezone_info,
                                                 spark_system));
   }
   JNI_CATCH(env, 0);

@@ -16,14 +16,22 @@
 
 package com.nvidia.spark.rapids.jni;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.zone.ZoneOffsetTransition;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.rapids.cudf.ColumnVector;
+import ai.rapids.cudf.HostColumnVector;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,7 +41,7 @@ import org.junit.jupiter.api.Test;
 public class TimeZoneTest {
   @BeforeAll
   static void cacheTimezoneDatabase() {
-    GpuTimeZoneDB.cacheDatabase(2200);
+    GpuTimeZoneDB.cacheDatabase();
   }
   
   @AfterAll
@@ -54,8 +62,6 @@ public class TimeZoneTest {
     assertEquals(shanghai.getRules().getTransitions().size() + 1, transitions.size());
     transitions = GpuTimeZoneDB.getHostTransitions("America/Los_Angeles");
     assertNotNull(transitions);
-    // storing up to year 2200, years 2000-2200 have DST
-    assert(transitions.size() > 400);
   }
   
   @Test
@@ -90,44 +96,78 @@ public class TimeZoneTest {
 
   @Test
   void convertToUtcSecondsTestTzRules() {
-    try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
-          -1262289600L,
-          -908866800L,
-          -908869500L,
-          -888829200L,
-          -888828300L,
-          -868822000L,
-          -25825600L,
-          -23125600L,
-          -20122000L,
-          -28800L,
-          1699542834L,
-          2299542834L,
-          568008000L
+    try (
+        ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
+            -1262289600L,
+            -908866800L,
+            -908869500L,
+            -888829200L,
+            -888828300L,
+            -868822000L,
+            -25825600L,
+            -23125600L,
+            -20122000L,
+            -28800L,
+            1699542834L,
+            2299542834L,
+            568008000L,
+            1741482000L, // 2025-03-09 01:00:00, gap begin - 1 hour
+            1741485599L, // 2025-03-09 01:59:59, gap begin - 1s
+            1741485600L, // 2025-03-09 02:00:00, gap begin
+            1741485601L, // 2025-03-09 02:00:01, gap begin + 1s
+            1741489199L, // 2025-03-09 02:59:59, gap begin + 1 hour - 1s
+            1741489200L, // 2025-03-09 02:00:00, gap end = gap begin + 1 hour
+            1741489201L, // 2025-03-09 03:00:01, gap end + 1s
+            1741492800L, // 2025-03-09 04:00:00, gap end + 1 hour
+            1762045200L, // 2025-11-02 01:00:00, overlap begin - 1 hour
+            1762048799L, // 2025-11-02 01:59:59, overlap begin - 1s
+            1762048800L, // 2025-11-02 02:00:00, overlap begin
+            1762048801L, // 2025-11-02 02:00:01, overlap begin + 1s
+            1762052399L, // 2025-11-02 02:59:59, overlap begin + 1 hour - 1s
+            1762052400L, // 2025-11-02 03:00:00, overlap end = overlap begin + 1 hour
+            1762052401L, // 2025-11-02 03:00:01, overlap end + 1s
+            1762056000L // 2025-11-02 04:00:00, overlap end + 1 hour
         );
         ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
-          -1262260800L,
-          -908838000L,
-          -908840700L,
-          -888800400L,
-          -888799500L,
-          -868796800L,
-          -25796800L,
-          -23096800L,
-          -20096800L,
-          0L,
-          1699571634L,
-          2299571634L,
-          568036800L
+            -1262260800L,
+            -908838000L,
+            -908840700L,
+            -888800400L,
+            -888799500L,
+            -868796800L,
+            -25796800L,
+            -23096800L,
+            -20096800L,
+            0L,
+            1699571634L,
+            2299571634L,
+            568036800L,
+            1741510800L, // 2025-03-09T09:00:00Z, diff -8 hours
+            1741514399L, // 2025-03-09T09:59:59Z, diff -8 hours
+            1741514400L, // 2025-03-09T10:00:00Z, diff -8 hours
+            1741514401L, // 2025-03-09T10:00:01Z, diff -8 hours
+            1741517999L, // 2025-03-09T10:59:59Z, diff -8 hours
+            1741514400L, // 2025-03-09T10:00:00Z, diff -7 hours
+            1741514401L, // 2025-03-09T10:00:01Z, diff -7 hours
+            1741518000L, // 2025-03-09T11:00:00Z, diff -7 hours
+            1762070400L, // 2025-11-02T08:00:00Z, diff -7 hours
+            1762073999L, // 2025-11-02T08:59:59Z, diff -7 hours
+            1762077600L, // 2025-11-02T10:00:00Z, diff -8 hours
+            1762077601L, // 2025-11-02T10:00:01Z, diff -8 hours
+            1762081199L, // 2025-11-02T10:59:59Z, diff -8 hours
+            1762081200L, // 2025-11-02T11:00:00Z, diff -8 hours
+            1762081201L, // 2025-11-02T11:00:01Z, diff -8 hours
+            1762084800L // 2025-11-02T12:00:00Z, diff -8 hours
         );
         ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
-          ZoneId.of("US/Pacific"))) {
+            ZoneId.of("US/Pacific"))) {
       assertColumnsAreEqual(expected, actual);
     }
   }
 
+  // has a year > 2200, still runs on GPU.
   @Test
-  void convertToUtcSecondsTzRulesCpuFallbackTest() {
+  void convertToUtcSecondsTzRulesBigThan2200year() {
     try (ColumnVector input = ColumnVector.timestampSecondsFromBoxedLongs(
           -1262289600L,
           -908866800L,
@@ -142,7 +182,7 @@ public class TimeZoneTest {
           1699542834L,
           2299542834L,
           568008000L,
-          11684584557L,
+          11684584557L, // Timestamp for the year 2340.
           16820549757L
         );
         ColumnVector expected = ColumnVector.timestampSecondsFromBoxedLongs(
@@ -183,7 +223,7 @@ public class TimeZoneTest {
   }
 
   @Test
-  void convertToUtcMicroSecondsTzRulesNullFallbackTest() {
+  void convertToUtcMicroSecondsTzRulesNulls() {
     try (ColumnVector input = ColumnVector.timestampMicroSecondsFromBoxedLongs(
           null,
           null,
@@ -378,7 +418,7 @@ public class TimeZoneTest {
     }
   }
 
-    @Test
+  @Test
   void nonNonNormalizedTimezone() {
     GpuTimeZoneDB.verifyDatabaseCached();
     List transitions;
@@ -389,5 +429,139 @@ public class TimeZoneTest {
     transitions = GpuTimeZoneDB.getHostTransitions("Z");
     assertNotNull(transitions);
   }
-  
+
+  private static long toUtcOnCpu(long epochSeconds, ZoneId zid) {
+    return Instant.ofEpochSecond(epochSeconds).atZone(ZoneOffset.UTC).toLocalDateTime().atZone(zid)
+        .toInstant().getEpochSecond();
+  }
+
+  private static long fromUtcOnCpu(long epochSeconds, ZoneId zid) {
+    return Instant.ofEpochSecond(epochSeconds).atZone(zid).toLocalDateTime().atZone(ZoneOffset.UTC)
+        .toInstant().getEpochSecond();
+  }
+
+  /**
+   * test `Australia/Sydney` and `America/Los_Angeles` timezones.
+   * Australia/Sydney: the start rule is overlap, the end rule is gap.
+   * America/Los_Angeles(PST): the start rule is gap, the end rule is overlap.
+   */
+  @Test
+  void convertToUtcSecondsCompareToJava() {
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
+    long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
+        .toEpochSecond(ZoneOffset.UTC);
+    long max = LocalDateTime.of(9999, 12, 31, 23, 59, 59)
+        .toEpochSecond(ZoneOffset.UTC);
+
+    // use today as the random seed so we get different values each day
+    Random rng = new Random(LocalDate.now().toEpochDay());
+    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney", "PST")) {
+      ZoneId zid = ZoneId.of(tz, ZoneId.SHORT_IDS);
+
+      int num_rows = 10 * 1024;
+      long[] seconds = new long[num_rows];
+      for (int i = 0; i < seconds.length; ++i) {
+        // range is years from 0001 to 9999
+        seconds[i] = min + (long) (rng.nextDouble() * (max - min));
+      }
+
+      long[] expectedSeconds = new long[num_rows];
+      for (int i = 0; i < expectedSeconds.length; ++i) {
+        expectedSeconds[i] = toUtcOnCpu(seconds[i], zid);
+      }
+
+      try (ColumnVector input = ColumnVector.timestampSecondsFromLongs(seconds);
+          ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input, zid);
+          ColumnVector expected = ColumnVector.timestampSecondsFromLongs(expectedSeconds)) {
+
+        assertColumnsAreEqual(expected, actual);
+      }
+    }
+  }
+
+  @Test
+  void convertFromUtcSecondsSydneyTest() {
+    // DST rules:
+    // Overlap: UTC time at 2025-04-05T16:00:00Z, offset change from +11 to +10
+    // Gap: UTC time at 2025-10-04T16:00:00Z, offset change from +10 to +11
+    ZoneId zid = ZoneId.of("Australia/Sydney");
+    ZoneOffsetTransition overlap = zid.getRules().getTransitionRules().get(0).createTransition(2025);
+    ZoneOffsetTransition gap = zid.getRules().getTransitionRules().get(1).createTransition(2025);
+
+    // 2025-04-05T16:00:00Z is the overlap time
+    long epochOverlap2025 = overlap.getInstant().getEpochSecond();
+    // 2025-10-04T16:00:00Z is the gap time
+    long epochGap2025 = gap.getInstant().getEpochSecond();
+    try (
+        ColumnVector input = ColumnVector.timestampSecondsFromLongs(
+            epochOverlap2025 - 3601, // overlap begin - hour - 1s
+            epochOverlap2025 - 3600, // overlap begin - hour
+            epochOverlap2025 - 3600 + 1, // overlap begin - hour + 1s
+            epochOverlap2025 - 1, // overlap begin - 1s
+            epochOverlap2025, // overlap begin
+            epochOverlap2025 + 1, // overlap begin + 1s
+            epochOverlap2025 + 3600 - 1, // overlap begin + hour - 1s
+            epochOverlap2025 + 3600, // overlap begin + hour
+            epochOverlap2025 + 3600 + 1, // overlap begin + hour + 1s
+
+            epochGap2025 - 3601, // gap begin - hour - 1s
+            epochGap2025 - 3600, // gap begin - hour
+            epochGap2025 - 3600 + 1, // gap begin - hour + 1s
+            epochGap2025 - 1, // gap begin - 1s
+            epochGap2025, // gap begin
+            epochGap2025 + 1, // gap begin + 1s
+            epochGap2025 + 3600 - 1, // gap begin + hour - 1s
+            epochGap2025 + 3600, // gap begin + hour
+            epochGap2025 + 3600 + 1 // gap begin + hour + 1s
+        );
+        HostColumnVector input_hcv = input.copyToHost();
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input, zid);
+        HostColumnVector actual_hcv = actual.copyToHost()) {
+
+      for (int i = 0; i < input.getRowCount(); ++i) {
+        Long inputVal = input_hcv.getLong(i);
+        Long actualVal = actual_hcv.getLong(i);
+        long expectedVal = fromUtcOnCpu(inputVal, zid);
+        assertEquals(expectedVal, actualVal.longValue(), "diff at row " + i);
+      }
+    }
+  }
+
+  @Test
+  void convertFromUtcSecondsCompareToJava() {
+    GpuTimeZoneDB.verifyDatabaseCached();
+
+    // test time range: (0001-01-01 00:00:00, 9999-12-31 23:59:59)
+    long min = LocalDateTime.of(1, 1, 1, 0, 0, 0)
+        .toEpochSecond(ZoneOffset.UTC);
+    long max = LocalDateTime.of(9999, 12, 31, 23, 59, 59)
+        .toEpochSecond(ZoneOffset.UTC);
+
+    // use today as the random seed so we get different values each day
+    Random rng = new Random(LocalDate.now().toEpochDay());
+    for (String tz : Arrays.asList("America/Los_Angeles", "Australia/Sydney", "PST")) {
+      ZoneId zid = ZoneId.of(tz, ZoneId.SHORT_IDS);
+
+      int num_rows = 10 * 1024;
+      long[] seconds = new long[num_rows];
+      for (int i = 0; i < seconds.length; ++i) {
+        // range is years from 0001 to 9999
+        seconds[i] = min + (long) (rng.nextDouble() * (max - min));
+      }
+
+      long[] expectedSeconds = new long[num_rows];
+      for (int i = 0; i < expectedSeconds.length; ++i) {
+        expectedSeconds[i] = fromUtcOnCpu(seconds[i], zid);
+      }
+
+      try (ColumnVector input = ColumnVector.timestampSecondsFromLongs(seconds);
+          ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input, zid);
+          ColumnVector expected = ColumnVector.timestampSecondsFromLongs(expectedSeconds)) {
+
+        assertColumnsAreEqual(expected, actual);
+      }
+    }
+  }
 }

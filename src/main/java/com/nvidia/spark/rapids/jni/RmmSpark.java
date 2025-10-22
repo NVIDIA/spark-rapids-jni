@@ -532,6 +532,22 @@ public class RmmSpark {
   }
 
   /**
+   * Function used to remove task metrics.
+   * 
+   * Use this after a task is complete, and metrics have been reported to
+   * clean up any metric related state
+   * 
+   * @param taskId the id of the task to remove metrics for.
+   */
+  public static void removeTaskMetrics(long taskId) {
+    synchronized (Rmm.class) {
+      if (sra != null && sra.isOpen()) {
+         sra.removeTaskMetrics(taskId);
+      }
+    }
+  }
+
+  /**
    * Get the number of retry exceptions that were thrown and reset the metric.
    * @param taskId the id of the task to get the metric for.
    * @return the number of times it was thrown or 0 if in the UNKNOWN state.

@@ -18,7 +18,7 @@ name: auto-merge HEAD to BASE
 on:
   pull_request_target:
     branches:
-      - branch-*
+      - release/*
     types: [closed]
 
 jobs:
