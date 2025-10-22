@@ -39,19 +39,19 @@ public class NVML {
     private static native long nvmlGetDeviceHandleFromUUID(byte[] uuid);
     
     // Coarse-grained native methods
-    private static native GPUInfo nvmlGetGPUInfo(long deviceHandle);
+    private static native NVMLResult<GPUInfo> nvmlGetGPUInfo(long deviceHandle);
     private static native GPUInfo[] nvmlGetAllGPUInfo();
 
     // Fine-grained native methods
-    private static native GPUDeviceInfo nvmlGetDeviceInfo(long deviceHandle);
-    private static native GPUUtilizationInfo nvmlGetUtilizationInfo(long deviceHandle);
-    private static native GPUMemoryInfo nvmlGetMemoryInfo(long deviceHandle);
-    private static native GPUTemperatureInfo nvmlGetTemperatureInfo(long deviceHandle);
-    private static native GPUPowerInfo nvmlGetPowerInfo(long deviceHandle);
-    private static native GPUClockInfo nvmlGetClockInfo(long deviceHandle);
-    private static native GPUHardwareInfo nvmlGetHardwareInfo(long deviceHandle);
-    private static native GPUPCIeInfo nvmlGetPCIeInfo(long deviceHandle);
-    private static native GPUECCInfo nvmlGetECCInfo(long deviceHandle);
+    private static native NVMLResult<GPUDeviceInfo> nvmlGetDeviceInfo(long deviceHandle);
+    private static native NVMLResult<GPUUtilizationInfo> nvmlGetUtilizationInfo(long deviceHandle);
+    private static native NVMLResult<GPUMemoryInfo> nvmlGetMemoryInfo(long deviceHandle);
+    private static native NVMLResult<GPUTemperatureInfo> nvmlGetTemperatureInfo(long deviceHandle);
+    private static native NVMLResult<GPUPowerInfo> nvmlGetPowerInfo(long deviceHandle);
+    private static native NVMLResult<GPUClockInfo> nvmlGetClockInfo(long deviceHandle);
+    private static native NVMLResult<GPUHardwareInfo> nvmlGetHardwareInfo(long deviceHandle);
+    private static native NVMLResult<GPUPCIeInfo> nvmlGetPCIeInfo(long deviceHandle);
+    private static native NVMLResult<GPUECCInfo> nvmlGetECCInfo(long deviceHandle);
 
     // Initialization state
     private static boolean nvmlInitialized = false;
@@ -160,16 +160,16 @@ public class NVML {
     /**
      * Get GPU information using device handle
      */
-    private static GPUInfo getGPUInfo(long deviceHandle) {
+    private static NVMLResult<GPUInfo> getGPUInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetGPUInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting GPU info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -177,10 +177,10 @@ public class NVML {
      * Get GPU information for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUInfo getGPUInfo(byte[] uuid) {
+    public static NVMLResult<GPUInfo> getGPUInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         return getGPUInfo(handle);
@@ -189,16 +189,16 @@ public class NVML {
     /**
      * Get device info using device handle
      */
-    private static GPUDeviceInfo getDeviceInfo(long deviceHandle) {
+    private static NVMLResult<GPUDeviceInfo> getDeviceInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetDeviceInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting device info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -206,10 +206,10 @@ public class NVML {
      * Get device info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUDeviceInfo getDeviceInfo(byte[] uuid) {
+    public static NVMLResult<GPUDeviceInfo> getDeviceInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         return getDeviceInfo(handle);
@@ -218,16 +218,16 @@ public class NVML {
     /**
      * Get utilization info using device handle
      */
-    private static GPUUtilizationInfo getUtilizationInfo(long deviceHandle) {
+    private static NVMLResult<GPUUtilizationInfo> getUtilizationInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetUtilizationInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting utilization info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -235,10 +235,10 @@ public class NVML {
      * Get utilization info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUUtilizationInfo getUtilizationInfo(byte[] uuid) {
+    public static NVMLResult<GPUUtilizationInfo> getUtilizationInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         return getUtilizationInfo(handle);
@@ -247,16 +247,16 @@ public class NVML {
     /**
      * Get memory info using device handle
      */
-    private static GPUMemoryInfo getMemoryInfo(long deviceHandle) {
+    private static NVMLResult<GPUMemoryInfo> getMemoryInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetMemoryInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting memory info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -264,10 +264,10 @@ public class NVML {
      * Get memory info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUMemoryInfo getMemoryInfo(byte[] uuid) {
+    public static NVMLResult<GPUMemoryInfo> getMemoryInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         return getMemoryInfo(handle);
@@ -276,16 +276,16 @@ public class NVML {
     /**
      * Get temperature info using device handle
      */
-    private static GPUTemperatureInfo getTemperatureInfo(long deviceHandle) {
+    private static NVMLResult<GPUTemperatureInfo> getTemperatureInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetTemperatureInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting temperature info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -293,10 +293,10 @@ public class NVML {
      * Get temperature info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUTemperatureInfo getTemperatureInfo(byte[] uuid) {
+    public static NVMLResult<GPUTemperatureInfo> getTemperatureInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         return getTemperatureInfo(handle);
@@ -305,16 +305,16 @@ public class NVML {
     /**
      * Get power info using device handle
      */
-    private static GPUPowerInfo getPowerInfo(long deviceHandle) {
+    private static NVMLResult<GPUPowerInfo> getPowerInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetPowerInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting power info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -322,10 +322,10 @@ public class NVML {
      * Get power info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUPowerInfo getPowerInfo(byte[] uuid) {
+    public static NVMLResult<GPUPowerInfo> getPowerInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
         return getPowerInfo(handle);
     }
@@ -333,16 +333,16 @@ public class NVML {
     /**
      * Get clock info using device handle
      */
-    private static GPUClockInfo getClockInfo(long deviceHandle) {
+    private static NVMLResult<GPUClockInfo> getClockInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetClockInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting clock info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -350,10 +350,10 @@ public class NVML {
      * Get clock info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUClockInfo getClockInfo(byte[] uuid) {
+    public static NVMLResult<GPUClockInfo> getClockInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
         return getClockInfo(handle);
     }
@@ -361,16 +361,16 @@ public class NVML {
     /**
      * Get hardware info using device handle
      */
-    private static GPUHardwareInfo getHardwareInfo(long deviceHandle) {
+    private static NVMLResult<GPUHardwareInfo> getHardwareInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetHardwareInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting hardware info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -378,10 +378,10 @@ public class NVML {
      * Get hardware info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUHardwareInfo getHardwareInfo(byte[] uuid) {
+    public static NVMLResult<GPUHardwareInfo> getHardwareInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
         return getHardwareInfo(handle);
     }
@@ -389,16 +389,16 @@ public class NVML {
     /**
      * Get PCIe info using device handle
      */
-    private static GPUPCIeInfo getPCIeInfo(long deviceHandle) {
+    private static NVMLResult<GPUPCIeInfo> getPCIeInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetPCIeInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting PCIe info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -406,10 +406,10 @@ public class NVML {
      * Get PCIe info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUPCIeInfo getPCIeInfo(byte[] uuid) {
+    public static NVMLResult<GPUPCIeInfo> getPCIeInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
         return getPCIeInfo(handle);
     }
@@ -417,16 +417,16 @@ public class NVML {
     /**
      * Get ECC info using device handle
      */
-    private static GPUECCInfo getECCInfo(long deviceHandle) {
+    private static NVMLResult<GPUECCInfo> getECCInfo(long deviceHandle) {
         if (!isAvailable()) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
 
         try {
             return nvmlGetECCInfo(deviceHandle);
         } catch (Exception e) {
             logger.error("Error getting ECC info for device handle {}: {}", deviceHandle, e.getMessage());
-            return null;
+            return new NVMLResult<>(-1, null);
         }
     }
 
@@ -434,10 +434,10 @@ public class NVML {
      * Get ECC info for specified GPU UUID
      * @param uuid GPU UUID as byte array (same format as Cuda.getGpuUuid())
      */
-    public static GPUECCInfo getECCInfo(byte[] uuid) {
+    public static NVMLResult<GPUECCInfo> getECCInfo(byte[] uuid) {
         long handle = getDeviceHandle(uuid);
         if (handle == 0) {
-            return null;
+            return new NVMLResult<>(-1, null);
         }
         return getECCInfo(handle);
     }
