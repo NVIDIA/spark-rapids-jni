@@ -453,20 +453,24 @@ NVMLResult populate_gpu_info_from_device(JNIEnv* env, nvmlDevice_t device)
   jfieldID eccInfoField =
     env->GetFieldID(gpuInfoClass, "eccInfo", "L" NVML_CLASS_PATH "GPUECCInfo;");
 
-  if (deviceResult.data != nullptr)
+  if (deviceResult.returnCode == NVML_SUCCESS)
     env->SetObjectField(gpuInfo, deviceInfoField, deviceResult.data);
-  if (utilizationResult.data != nullptr)
+  if (utilizationResult.returnCode == NVML_SUCCESS)
     env->SetObjectField(gpuInfo, utilizationInfoField, utilizationResult.data);
-  if (memoryResult.data != nullptr)
+  if (memoryResult.returnCode == NVML_SUCCESS)
     env->SetObjectField(gpuInfo, memoryInfoField, memoryResult.data);
-  if (temperatureResult.data != nullptr)
+  if (temperatureResult.returnCode == NVML_SUCCESS)
     env->SetObjectField(gpuInfo, temperatureInfoField, temperatureResult.data);
-  if (powerResult.data != nullptr) env->SetObjectField(gpuInfo, powerInfoField, powerResult.data);
-  if (clockResult.data != nullptr) env->SetObjectField(gpuInfo, clockInfoField, clockResult.data);
-  if (hardwareResult.data != nullptr)
+  if (powerResult.returnCode == NVML_SUCCESS)
+    env->SetObjectField(gpuInfo, powerInfoField, powerResult.data);
+  if (clockResult.returnCode == NVML_SUCCESS)
+    env->SetObjectField(gpuInfo, clockInfoField, clockResult.data);
+  if (hardwareResult.returnCode == NVML_SUCCESS)
     env->SetObjectField(gpuInfo, hardwareInfoField, hardwareResult.data);
-  if (pcieResult.data != nullptr) env->SetObjectField(gpuInfo, pcieInfoField, pcieResult.data);
-  if (eccResult.data != nullptr) env->SetObjectField(gpuInfo, eccInfoField, eccResult.data);
+  if (pcieResult.returnCode == NVML_SUCCESS)
+    env->SetObjectField(gpuInfo, pcieInfoField, pcieResult.data);
+  if (eccResult.returnCode == NVML_SUCCESS)
+    env->SetObjectField(gpuInfo, eccInfoField, eccResult.data);
 
   return result;
 }
