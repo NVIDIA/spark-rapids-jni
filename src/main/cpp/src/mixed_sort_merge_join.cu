@@ -533,8 +533,8 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
-                         cudf::has_nested_nulls(right_conditional);
+  auto const has_nulls =
+    cudf::has_nested_nulls(left_conditional) || cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
   auto const parser = cudf::ast::detail::expression_parser{binary_predicate,
@@ -620,8 +620,8 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
-                         cudf::has_nested_nulls(right_conditional);
+  auto const has_nulls =
+    cudf::has_nested_nulls(left_conditional) || cudf::has_nested_nulls(right_conditional);
 
   // Parse the AST expression (intermediate)
   auto const parser = cudf::ast::detail::expression_parser{binary_predicate,
