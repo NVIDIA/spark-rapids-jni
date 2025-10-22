@@ -94,7 +94,7 @@ public class NVMLMonitor {
         NVMLResult<GPUInfo>[] initialResults = NVML.getAllGPUInfo();
         for (int i = 0; i < initialResults.length; i++) {
             NVMLResult<GPUInfo> result = initialResults[i];
-            if (result.isSuccess() && result.getData() != null && result.getData().deviceInfo != null) {
+            if (result.getData() != null && result.getData().deviceInfo != null) {
                 lifecycleStats.put(i, new GPULifecycleStats(result.getData().deviceInfo.name));
             }
         }
@@ -158,9 +158,9 @@ public class NVMLMonitor {
                     // Extract successful GPUInfo objects
                     List<GPUInfo> successfulInfos = new ArrayList<>();
                     for (NVMLResult<GPUInfo> result : results) {
-                        if (result.isSuccess() && result.getData() != null) {
-                            successfulInfos.add(result.getData());
-                        }
+                        // We will still add nulls to the list to maintain the same index for the lifecycle stats
+                        // but they will be ignored in the stats update.
+                        successfulInfos.add(result.getData());
                     }
                     GPUInfo[] gpuInfos = successfulInfos.toArray(new GPUInfo[0]);
 
@@ -170,7 +170,7 @@ public class NVMLMonitor {
                         // Update lifecycle statistics
                         for (int i = 0; i < gpuInfos.length; i++) {
                             GPUInfo info = gpuInfos[i];
-                            if (info.deviceInfo != null) {
+                            if (info != null && info.deviceInfo != null) {
                                 GPULifecycleStats stats = lifecycleStats.get(i);
                                 if (stats != null) {
                                     stats.addSample(info);
