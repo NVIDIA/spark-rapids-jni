@@ -43,7 +43,7 @@ ARG CMAKE_ARCH=x86_64
 ### Install basic requirements
 # pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-11 gcc-toolset-${TOOLSET_VERSION} python39 \
-    zlib-devel tar wget patch ninja-build git zip && \
+    zlib-devel tar wget patch ninja-build git zip java-1.8.0-openjdk-devel && \
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
 
@@ -53,7 +53,6 @@ ARG MAVEN_URL=https://archive.apache.org/dist/maven/maven-3/3.6.3/binaries/
 RUN wget --quiet ${MAVEN_URL}/apache-maven-3.6.3-bin.tar.gz -P /usr/local && \
     tar xzvf $MAVEN_HOME-bin.tar.gz -C /usr/local && \
     rm -f $MAVEN_HOME-bin.tar.gz
-ENV PATH="$MAVEN_HOME/bin:${PATH}"
 
 # Enable the gcc-toolset by default for bash shell if DEV_BUILD is ON
 RUN if [ "$DEV_BUILD" = "ON" ]; then \
@@ -98,6 +97,9 @@ RUN cd /usr/local && wget --quiet https://archives.boost.io/release/1.79.0/sourc
   ./b2 install --prefix=/usr/local --with-filesystem --with-system && \
    cd /usr/local && \
    rm -rf boost_1_79_0
+
+ENV JAVA_HOME "/usr/lib/jvm/java-1.8.0-openjdk"
+ENV PATH="$MAVEN_HOME/bin:${PATH}"
 
 # disable cuda container constraints to allow running w/ elder drivers on data-center GPUs
 ENV NVIDIA_DISABLE_REQUIRE="true"
