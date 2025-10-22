@@ -43,7 +43,7 @@ ARG CMAKE_ARCH=x86_64
 ### Install basic requirements
 # pin urllib3<2.0 for https://github.com/psf/requests/issues/6432
 RUN dnf --enablerepo=powertools install -y scl-utils gcc-toolset-11 gcc-toolset-${TOOLSET_VERSION} python39 \
-    zlib-devel maven tar wget patch ninja-build git zip && \
+    zlib-devel tar wget patch ninja-build git zip && \
   alternatives --set python /usr/bin/python3 && \
   python -m pip install requests 'urllib3<2.0'
 
@@ -64,6 +64,13 @@ RUN cd /usr/local && wget --quiet https://github.com/Kitware/CMake/releases/down
 
 # Make version-less alias for external reference such as when cmake is called by an IDE outside of the container
 RUN ln -s /usr/local/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/cmake /usr/local/bin/cmake
+
+# install maven 3.6.3+
+ENV MAVEN_HOME "/usr/local/apache-maven-3.6.3"
+ARG MAVEN_URL=https://archive.apache.org/dist/maven/maven-3/3.6.3/binaries/
+RUN wget ${MAVEN_URL}/apache-maven-3.6.3-bin.tar.gz -P /usr/local && \
+    tar xzvf $MAVEN_HOME-bin.tar.gz -C /usr/local && \
+    rm -f $MAVEN_HOME-bin.tar.gz
 
 # ccache for interactive builds
 RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/ccache-${CCACHE_VERSION}.tar.gz && \

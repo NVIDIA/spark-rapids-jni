@@ -158,11 +158,18 @@ git --no-pager diff --name-only HEAD \$BASE -- ${PREMERGE_DOCKERFILE} || true"""
                             PREMERGE_TAG_CU13 = "rockylinux8-blossom-dev-${BUILD_TAG}-cu13"
                             IMAGE_PREMERGE_CU12 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU12}"
                             IMAGE_PREMERGE_CU13 = "${ARTIFACTORY_NAME}/sw-spark-docker-local/plugin-jni:${PREMERGE_TAG_CU13}"
+
+                            def urmMaven = "${common.urmURL}/artifactory/sw-spark-maven/org/apache/maven/apache-maven/3.6.3/"
                             docker.build(IMAGE_PREMERGE_CU12,
-                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 .")
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU12 " +
+                                    "--build-arg MAVEN_URL=${urmMaven} " +
+                                    ".")
                             uploadDocker(IMAGE_PREMERGE_CU12)
                             docker.build(IMAGE_PREMERGE_CU13,
-                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 --build-arg CUDA_VERSION=13.0.1 .")
+                                "--network=host -f ${PREMERGE_DOCKERFILE} -t $IMAGE_PREMERGE_CU13 " +
+                                    "--build-arg MAVEN_URL=${urmMaven} " +
+                                    "--build-arg CUDA_VERSION=13.0.1 " +
+                                    ".")
                             uploadDocker(IMAGE_PREMERGE_CU13)
                         }
                     }
