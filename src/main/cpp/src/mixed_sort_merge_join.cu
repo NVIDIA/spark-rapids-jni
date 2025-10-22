@@ -20,6 +20,7 @@
 #include <cudf/ast/detail/expression_parser.hpp>
 #include <cudf/ast/expressions.hpp>
 #include <cudf/column/column_factories.hpp>
+#include <cudf/detail/utilities/grid_1d.cuh>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/join/sort_merge_join.hpp>
 #include <cudf/table/table.hpp>
@@ -68,7 +69,7 @@ __global__ void filter_join_indices_kernel(
   bool* __restrict__ keep_mask)
 {
   extern __shared__ char raw_intermediate_storage[];
-  intermediate_storage_type<has_nulls>* intermediate_storage =
+  auto intermediate_storage =
     reinterpret_cast<intermediate_storage_type<has_nulls>*>(raw_intermediate_storage);
   auto thread_intermediate_storage =
     &intermediate_storage[threadIdx.x * device_expression_data.num_intermediates];
@@ -76,8 +77,8 @@ __global__ void filter_join_indices_kernel(
   auto evaluator = cudf::ast::detail::expression_evaluator<has_nulls>(
     left_table, right_table, device_expression_data);
 
-  cudf::thread_index_type const idx    = blockIdx.x * blockDim.x + threadIdx.x;
-  cudf::thread_index_type const stride = blockDim.x * gridDim.x;
+  auto const idx    = cudf::detail::grid_1d::global_thread_id();
+  auto const stride = cudf::detail::grid_1d::grid_stride();
 
   for (cudf::thread_index_type i = idx; i < num_pairs; i += stride) {
     auto output_dest                = cudf::ast::detail::value_expression_result<bool, has_nulls>();
@@ -118,7 +119,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
   }
 
   // Create a boolean mask for indices to keep
-  auto keep_mask = rmm::device_uvector<bool>(num_pairs, stream, mr);
+  auto keep_mask = rmm::device_uvector<bool>(num_pairs, stream, cudf::get_current_device_resource_ref());
 
   // Launch kernel to evaluate expression for each pair with dynamic shared memory sizing
   int current_device = 0;
@@ -136,7 +137,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
     if (max_by_shmem > 0) {
       // Prefer multiples of warp size (32)
       int const rounded = (max_by_shmem / 32) * 32;
-      block_size        = std::max(32, std::min(256, rounded > 0 ? rounded : max_by_shmem));
+      block_size        = std::max(32, std::min(block_size, rounded > 0 ? rounded : max_by_shmem));
     } else {
       block_size = 32;  // minimal reasonable size
     }
@@ -158,7 +159,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
 
   // Count the number of true values in the mask
   auto const num_matches =
-    thrust::count(rmm::exec_policy_nosync(stream), keep_mask.begin(), keep_mask.end(), true);
+    thrust::count(rmm::exec_policy(stream), keep_mask.begin(), keep_mask.end(), true);
 
   // Allocate output vectors
   auto out_left_indices  = rmm::device_uvector<cudf::size_type>(num_matches, stream, mr);
@@ -175,7 +176,7 @@ filter_by_conditional_impl(rmm::device_uvector<cudf::size_type>& left_indices,
                   input_iter + num_pairs,
                   keep_mask.begin(),
                   output_iter,
-                  [] __device__(bool x) { return x; });
+                  cuda::std::identity{});
 
   return {std::move(out_left_indices), std::move(out_right_indices)};
 }
@@ -242,9 +243,8 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
   CUDF_FUNC_RANGE();
 
   // Create a boolean mask to track which left rows have matches
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
-  thrust::fill(
-    rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
+  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
+  CUDF_CUDA_TRY(cudaMemsetAsync(left_has_match.data(), 0, left_has_match.size(), stream.value()));
 
   // Mark left rows that have matches
   thrust::for_each(rmm::exec_policy_nosync(stream),
@@ -280,7 +280,7 @@ add_left_unmatched_rows(rmm::device_uvector<cudf::size_type>& left_indices,
                   thrust::counting_iterator<cudf::size_type>(left_num_rows),
                   left_has_match.begin(),
                   unmatched_iter,
-                  thrust::logical_not<bool>());
+                  cuda::std::logical_not<bool>());
 
   // Fill corresponding right indices with out-of-bounds values (null markers)
   thrust::fill(rmm::exec_policy_nosync(stream),
@@ -354,7 +354,6 @@ sort_merge_inner_join(cudf::table_view const& left_keys,
   auto [left_indices, right_indices] = join_obj.inner_join(left_keys, is_left_sorted, stream, mr);
 
   // Return the raw device_uvectors (RVO will handle the move)
-  stream.synchronize();
   return {std::move(*left_indices), std::move(*right_indices)};
 }
 
@@ -384,23 +383,21 @@ sort_merge_left_join(cudf::table_view const& left_keys,
                  right_indices.end(),
                  right_keys.num_rows());
 
-    stream.synchronize();
     return {std::move(left_indices), std::move(right_indices)};
   }
 
-  // Perform sort-merge inner join on equality keys
+  // Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_keys, is_right_sorted, compare_nulls, stream);
   auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_keys, is_left_sorted, stream, mr);
+    join_obj.inner_join(left_keys, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
-  // Add back left rows with no matches
+  // Add back left rows with no matches (final result)
   auto result = add_left_unmatched_rows(*equality_left_indices,
                                         *equality_right_indices,
                                         left_keys.num_rows(),
                                         right_keys.num_rows(),
                                         stream,
                                         mr);
-  stream.synchronize();
   return result;
 }
 
@@ -421,19 +418,18 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_semi_join(cudf::table_view 
   // Handle empty right table case - no matches
   if (right_keys.num_rows() == 0) { return rmm::device_uvector<cudf::size_type>(0, stream, mr); }
 
-  // Perform sort-merge inner join on equality keys
+  // Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_keys, is_right_sorted, compare_nulls, stream);
   auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_keys, is_left_sorted, stream, mr);
+    join_obj.inner_join(left_keys, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // If no equality matches, return empty result
   if (equality_left_indices->size() == 0) {
     return rmm::device_uvector<cudf::size_type>(0, stream, mr);
   }
 
-  // Extract unique left indices
+  // Extract unique left indices (final result)
   auto result = extract_unique_left_indices(*equality_left_indices, stream, mr);
-  stream.synchronize();
   return result;
 }
 
@@ -457,16 +453,15 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(cudf::table_view 
   if (right_keys.num_rows() == 0) {
     auto result = rmm::device_uvector<cudf::size_type>(left_num_rows, stream, mr);
     thrust::sequence(rmm::exec_policy_nosync(stream), result.begin(), result.end());
-    stream.synchronize();
     return result;
   }
 
-  // Get left semi join result (rows that DO match)
+  // Get left semi join result (rows that DO match) - intermediate
   auto semi_indices = sort_merge_left_semi_join(
-    left_keys, right_keys, is_left_sorted, is_right_sorted, compare_nulls, stream, mr);
+    left_keys, right_keys, is_left_sorted, is_right_sorted, compare_nulls, stream, cudf::get_current_device_resource_ref());
 
-  // Find complement - rows that DON'T match
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
+  // Find complement - rows that DON'T match (intermediate)
+  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
   thrust::fill(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
@@ -490,7 +485,6 @@ rmm::device_uvector<cudf::size_type> sort_merge_left_anti_join(cudf::table_view 
                   result.begin(),
                   thrust::logical_not<bool>());
 
-  stream.synchronize();
   return result;
 }
 
@@ -535,16 +529,16 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
                          cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
-  // Parse the AST expression
+  // Parse the AST expression (intermediate)
   auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, mr};
+    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
-  // Step 1: Perform sort-merge join on equality keys
+  // Step 1: Perform sort-merge join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
   auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, mr);
+    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // If no equality matches, return empty result
   if (equality_left_indices->size() == 0) {
@@ -555,7 +549,7 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
   auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
-  // Step 2: Filter by conditional expression
+  // Step 2: Filter by conditional expression (final result)
   auto result = filter_by_conditional(*equality_left_indices,
                                       *equality_right_indices,
                                       *left_table,
@@ -565,7 +559,6 @@ mixed_sort_merge_inner_join(cudf::table_view const& left_equality,
                                       has_nulls,
                                       stream,
                                       mr);
-  stream.synchronize();
   return result;
 }
 
@@ -612,7 +605,6 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
                  right_indices.end(),
                  right_equality.num_rows());
 
-    stream.synchronize();
     return {std::move(left_indices), std::move(right_indices)};
   }
 
@@ -621,22 +613,22 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
                          cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
-  // Parse the AST expression
+  // Parse the AST expression (intermediate)
   auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, mr};
+    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
-  // Step 1: Perform sort-merge inner join on equality keys
+  // Step 1: Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
   auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, mr);
+    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // Create device views of conditional tables
   auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
-  // Step 2: Filter by conditional expression
+  // Step 2: Filter by conditional expression (intermediate result)
   auto [filtered_left_indices, filtered_right_indices] =
     filter_by_conditional(*equality_left_indices,
                           *equality_right_indices,
@@ -646,16 +638,15 @@ mixed_sort_merge_left_join(cudf::table_view const& left_equality,
                           parser.device_expression_data.num_intermediates,
                           has_nulls,
                           stream,
-                          mr);
+                          cudf::get_current_device_resource_ref());
 
-  // Step 3: Add back left rows with no matches
+  // Step 3: Add back left rows with no matches (final result)
   auto result = add_left_unmatched_rows(filtered_left_indices,
                                         filtered_right_indices,
                                         left_equality.num_rows(),
                                         right_equality.num_rows(),
                                         stream,
                                         mr);
-  stream.synchronize();
   return result;
 }
 
@@ -697,20 +688,19 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_semi_join(
   }
 
   // Check for nulls in conditional columns (top-level and nested)
-  auto const has_nulls = cudf::has_nulls(left_conditional) || cudf::has_nulls(right_conditional) ||
-                         cudf::has_nested_nulls(left_conditional) ||
+  auto const has_nulls = cudf::has_nested_nulls(left_conditional) ||
                          cudf::has_nested_nulls(right_conditional);
 
-  // Parse the AST expression
+  // Parse the AST expression (intermediate)
   auto const parser = cudf::ast::detail::expression_parser{
-    binary_predicate, left_conditional, right_conditional, has_nulls, stream, mr};
+    binary_predicate, left_conditional, right_conditional, has_nulls, stream, cudf::get_current_device_resource_ref()};
   CUDF_EXPECTS(parser.output_type().id() == cudf::type_id::BOOL8,
                "The expression must produce a boolean output.");
 
-  // Step 1: Perform sort-merge inner join on equality keys
+  // Step 1: Perform sort-merge inner join on equality keys (intermediate result)
   cudf::sort_merge_join join_obj(right_equality, is_right_sorted, compare_nulls, stream);
   auto [equality_left_indices, equality_right_indices] =
-    join_obj.inner_join(left_equality, is_left_sorted, stream, mr);
+    join_obj.inner_join(left_equality, is_left_sorted, stream, cudf::get_current_device_resource_ref());
 
   // If no equality matches, return empty result
   if (equality_left_indices->size() == 0) {
@@ -721,7 +711,7 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_semi_join(
   auto left_table  = cudf::table_device_view::create(left_conditional, stream);
   auto right_table = cudf::table_device_view::create(right_conditional, stream);
 
-  // Step 2: Filter by conditional expression
+  // Step 2: Filter by conditional expression (intermediate result)
   auto [filtered_left_indices, filtered_right_indices] =
     filter_by_conditional(*equality_left_indices,
                           *equality_right_indices,
@@ -731,11 +721,10 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_semi_join(
                           parser.device_expression_data.num_intermediates,
                           has_nulls,
                           stream,
-                          mr);
+                          cudf::get_current_device_resource_ref());
 
-  // Step 3: Extract unique left indices
+  // Step 3: Extract unique left indices (final result)
   auto result = extract_unique_left_indices(filtered_left_indices, stream, mr);
-  stream.synchronize();
   return result;
 }
 
@@ -777,11 +766,10 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
   if (right_equality.num_rows() == 0) {
     auto result = rmm::device_uvector<cudf::size_type>(left_num_rows, stream, mr);
     thrust::sequence(rmm::exec_policy_nosync(stream), result.begin(), result.end());
-    stream.synchronize();
     return result;
   }
 
-  // Step 1: Get left semi join result (rows that DO match)
+  // Step 1: Get left semi join result (rows that DO match) - intermediate
   auto semi_indices = mixed_sort_merge_left_semi_join(left_equality,
                                                       right_equality,
                                                       left_conditional,
@@ -791,10 +779,10 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
                                                       is_right_sorted,
                                                       compare_nulls,
                                                       stream,
-                                                      mr);
+                                                      cudf::get_current_device_resource_ref());
 
-  // Step 2: Find complement - rows that DON'T match
-  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, mr);
+  // Step 2: Find complement - rows that DON'T match (intermediate)
+  auto left_has_match = rmm::device_uvector<bool>(left_num_rows, stream, cudf::get_current_device_resource_ref());
   thrust::fill(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
@@ -818,7 +806,6 @@ rmm::device_uvector<cudf::size_type> mixed_sort_merge_left_anti_join(
                   result.begin(),
                   thrust::logical_not<bool>());
 
-  stream.synchronize();
   return result;
 }
 
