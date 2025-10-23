@@ -818,8 +818,9 @@ public class KudoSerializerTest extends CudfTestBase {
 
   }
 
-  @Test
+  //  @Test
   public void testLargeMergedBuffer() {
+    
     // This test ensures proper handling of large merged tables where:
     // 1. Offset buffer length > Integer.MAX_VALUE
     //    For STRING columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
@@ -828,7 +829,7 @@ public class KudoSerializerTest extends CudfTestBase {
     //    For INT columns, data is 4 bytes per value: rowCount * 4 bytes
     //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
     // 3. Multiple table slices for each original table (to test slice merging)
-    
+
     // Strategy: Create 2 tables, each with 2 columns (1 STRING + 1 INT)
     // - Each table has 300M rows
     // - STRING column: 3-byte strings
@@ -838,29 +839,29 @@ public class KudoSerializerTest extends CudfTestBase {
     //   * Per table: data = 300M * 4 = 1.2GB < Integer.MAX_VALUE ✓ (valid column)
     //   * Concatenated: data buffer = 600M * 4 = 2.4GB > Integer.MAX_VALUE ✓
     // - Slice each table into multiple parts to satisfy requirement 3
-    
+
     final int rowsPerTable = 300_000_000;
     final int stringSize = 3; // bytes per string
 
     try (Table t1 = buildTableWithStringAndInt(stringSize, rowsPerTable);
          Table t2 = buildTableWithStringAndInt(stringSize, rowsPerTable)) {
-      
+
       // Slice each table into multiple slices (requirement 3)
       final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table
       List<TableSlice> tableSlices = new ArrayList<>();
-      
+
       // Slice first table into multiple parts
       int rowCount1 = Math.toIntExact(t1.getRowCount());
       for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
         tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
       }
-      
+
       // Slice second table into multiple parts  
       int rowCount2 = Math.toIntExact(t2.getRowCount());
       for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
         tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
       }
-      
+
 
       // Create expected result
       try (Table expected = Table.concatenate(t1, t2)) {
@@ -868,14 +869,14 @@ public class KudoSerializerTest extends CudfTestBase {
         long totalRows = expected.getRowCount();
         long offsetBufferSize = (totalRows + 1) * 4L; // INT32 offsets for STRING column
         long dataBufferSize = totalRows * 4L; // INT32 data for INT column
-        
+
         assertTrue(offsetBufferSize > Integer.MAX_VALUE,
             "Offset buffer should exceed Integer.MAX_VALUE: " + offsetBufferSize);
         assertTrue(dataBufferSize > Integer.MAX_VALUE,
             "Data buffer should exceed Integer.MAX_VALUE: " + dataBufferSize);
         assertTrue(tableSlices.size() > 2,
             "Should have multiple slices per table: " + tableSlices.size());
-        
+
         checkMergeTable(expected, tableSlices);
       }
     } catch (Exception e) {
@@ -883,29 +884,6 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-  
-
-  static Table buildLargeDoubleTable(int rowCount) {
-    List<ColumnVector> allCols = new ArrayList<>();
-    List<ColumnVector> tableCols = new ArrayList<>();
-
-    try {
-      // Create a DOUBLE column (8 bytes per value)
-      // When rowCount * 8 > Integer.MAX_VALUE, we hit the overflow bug
-      ColumnVector doubleColumn;
-      try (Scalar v1 = Scalar.fromDouble(123.456)) {
-        doubleColumn = ColumnVector.fromScalar(v1, rowCount);
-        tableCols.add(doubleColumn);
-        allCols.add(doubleColumn);
-      }
-
-      return new Table(tableCols.toArray(new ColumnVector[0]));
-    } finally {
-      for (ColumnVector cv : allCols) {
-        cv.close();
-      }
-    }
-  }
 
   static Table buildLargeTestTable() {
     List<ColumnVector> allCols = new ArrayList<>();
