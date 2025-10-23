@@ -702,6 +702,13 @@
           <include>LICENSE</include>
         </includes>
       </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+          <!-- Include all files -->
+          <include>**/*</include>
+        </includes>
+      </resource>
     </resources>
   </build>
 </project>
