@@ -818,36 +818,16 @@ public class KudoSerializerTest extends CudfTestBase {
 
   }
 
-  //  @Test
+  @Test
   public void testLargeMergedBuffer() {
-    
-    // This test ensures proper handling of large merged tables where:
-    // 1. Offset buffer length > Integer.MAX_VALUE
-    //    For STRING columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
-    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
-    // 2. Data buffer length > Integer.MAX_VALUE  
-    //    For INT columns, data is 4 bytes per value: rowCount * 4 bytes
-    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
-    // 3. Multiple table slices for each original table (to test slice merging)
-
-    // Strategy: Create 2 tables, each with 2 columns (1 STRING + 1 INT)
-    // - Each table has 300M rows
-    // - STRING column: 3-byte strings
-    //   * Per table: last offset = 300M * 3 = 900M < Integer.MAX_VALUE ✓ (valid column)
-    //   * Concatenated: offset buffer = (600M + 1) * 4 = 2.4GB > Integer.MAX_VALUE ✓
-    // - INT column: 4 bytes per value
-    //   * Per table: data = 300M * 4 = 1.2GB < Integer.MAX_VALUE ✓ (valid column)
-    //   * Concatenated: data buffer = 600M * 4 = 2.4GB > Integer.MAX_VALUE ✓
-    // - Slice each table into multiple parts to satisfy requirement 3
-
-    final int rowsPerTable = 300_000_000;
-    final int stringSize = 3; // bytes per string
+    final int rowsPerTable = 280_000_000;
+    final int stringSize = 1; // bytes per string
 
     try (Table t1 = buildTableWithStringAndInt(stringSize, rowsPerTable);
          Table t2 = buildTableWithStringAndInt(stringSize, rowsPerTable)) {
 
       // Slice each table into multiple slices (requirement 3)
-      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table
+      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table (last slice has 30M rows)
       List<TableSlice> tableSlices = new ArrayList<>();
 
       // Slice first table into multiple parts
