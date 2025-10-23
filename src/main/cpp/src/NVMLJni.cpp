@@ -46,17 +46,17 @@ jobject create_nvml_result(JNIEnv* env, nvml_result const& cpp_result)
   jmethodID constructor = env->GetMethodID(nvml_result_class, "<init>", "()V");
   if (constructor == nullptr) return nullptr;
 
-  jobject nvml_result = env->NewObject(nvml_result_class, constructor);
-  if (nvml_result == nullptr) return nullptr;
+  jobject java_nvml_result = env->NewObject(nvml_result_class, constructor);
+  if (java_nvml_result == nullptr) return nullptr;
 
   // Set the return code and data fields directly
   jfieldID return_code_field = env->GetFieldID(nvml_result_class, "returnCode", "I");
   jfieldID data_field        = env->GetFieldID(nvml_result_class, "data", "Ljava/lang/Object;");
 
-  env->SetIntField(nvml_result, return_code_field, static_cast<jint>(cpp_result.return_code));
-  env->SetObjectField(nvml_result, data_field, cpp_result.data);
+  env->SetIntField(java_nvml_result, return_code_field, static_cast<jint>(cpp_result.return_code));
+  env->SetObjectField(java_nvml_result, data_field, cpp_result.data);
 
-  return nvml_result;
+  return java_nvml_result;
 }
 
 jobject create_object(JNIEnv* env, char const* class_name, char const* constructor_signature)
