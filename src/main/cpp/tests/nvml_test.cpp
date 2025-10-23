@@ -158,8 +158,8 @@ TEST_F(NVMLTest, NVMLDeviceGetNumGpuCores_Succeeds)
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
-  unsigned int numCores;
-  nvmlReturn_t result = nvmlDeviceGetNumGpuCores(device, &numCores);
+  unsigned int num_cores;
+  nvmlReturn_t result = nvmlDeviceGetNumGpuCores(device, &num_cores);
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
@@ -168,8 +168,8 @@ TEST_F(NVMLTest, NVMLDeviceGetPerformanceState_Succeeds)
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
-  nvmlPstates_t pState;
-  nvmlReturn_t result = nvmlDeviceGetPerformanceState(device, &pState);
+  nvmlPstates_t p_state;
+  nvmlReturn_t result = nvmlDeviceGetPerformanceState(device, &p_state);
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }
 
@@ -208,9 +208,9 @@ TEST_F(NVMLTest, NVMLDeviceGetTotalEccErrors_SingleBit_Succeeds)
   nvmlDevice_t device = getFirstDevice();
   ASSERT_NE(device, nullptr) << "No NVML devices available";
 
-  unsigned long long eccCount;
+  unsigned long long ecc_count;
   nvmlReturn_t result =
-    nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+    nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &ecc_count);
   // ECC error reporting may not be supported on all GPUs
   EXPECT_TRUE(result == NVML_SUCCESS || result == NVML_ERROR_NOT_SUPPORTED);
 }

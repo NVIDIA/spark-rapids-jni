@@ -567,8 +567,7 @@ Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetAllGPUInfo(JNIEnv* env, jclass
       cpp_result = populate_gpu_info_from_device(env, device);
     } else {
       // Failed to get device handle
-      cpp_result.return_code = device_result;
-      cpp_result.data        = nullptr;
+      cpp_result = nvml_result{device_result, nullptr};
     }
 
     // Create Java nvml_result object and add to array
