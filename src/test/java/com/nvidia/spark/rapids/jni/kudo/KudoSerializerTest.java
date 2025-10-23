@@ -820,14 +820,40 @@ public class KudoSerializerTest extends CudfTestBase {
 
   @Test
   public void testLargeMergedBuffer() {
-    final int rowsPerTable = 280_000_000;
+    // This test ensures proper handling of large merged tables where:
+    // 1. Offset buffer length > Integer.MAX_VALUE
+    //    For STRING columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 2. Data buffer length > Integer.MAX_VALUE
+    //    For INT columns, data is 4 bytes per value: rowCount * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 3. Multiple table slices for each original table (to test slice merging)
+    //
+    // Strategy: Create 2 tables, each with 2 columns (1 STRING + 1 INT)
+    // - Minimum total rows needed: 537M (to exceed Integer.MAX_VALUE for both buffers)
+    // - Each table: 269M rows (total 538M rows)
+    // - STRING column: 1-byte strings
+    //   * Per table: last offset = 269M * 1 = 269M < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: offset buffer = (538M + 1) * 4 = 2.152GB > Integer.MAX_VALUE ✓
+    // - INT column: 4 bytes per value
+    //   * Per table: data = 269M * 4 = 1.076GB < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: data buffer = 538M * 4 = 2.152GB > Integer.MAX_VALUE ✓
+    //
+    // Memory usage (peak when t1, t2, and expected all exist):
+    // - Per table: 269M * 1 byte (string data) + (269M + 1) * 4 (offsets) + 269M * 4 (int data)
+    //            ≈ 269M + 1.076GB + 1.076GB ≈ 2.42GB
+    // - Concatenated table: 538M * 1 + (538M + 1) * 4 + 538M * 4 ≈ 4.84GB
+    // - Total peak: 2 * 2.42GB + 4.84GB ≈ 9.68GB < 10GB ✓
+    // - Concatenated table: 4.84GB ≈ 4.8GB ✓
+
+    final int rowsPerTable = 269_000_000;
     final int stringSize = 1; // bytes per string
 
     try (Table t1 = buildTableWithStringAndInt(stringSize, rowsPerTable);
          Table t2 = buildTableWithStringAndInt(stringSize, rowsPerTable)) {
 
       // Slice each table into multiple slices (requirement 3)
-      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table (last slice has 30M rows)
+      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table (last slice has 19M rows)
       List<TableSlice> tableSlices = new ArrayList<>();
 
       // Slice first table into multiple parts
@@ -836,12 +862,11 @@ public class KudoSerializerTest extends CudfTestBase {
         tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
       }
 
-      // Slice second table into multiple parts  
+      // Slice second table into multiple parts
       int rowCount2 = Math.toIntExact(t2.getRowCount());
       for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
         tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
       }
-
 
       // Create expected result
       try (Table expected = Table.concatenate(t1, t2)) {
