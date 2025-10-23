@@ -1070,67 +1070,6 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-  static Table buildLargeStringTableForMerge(int stringSize, int rowCount) {
-    List<ColumnVector> allCols = new ArrayList<>();
-    List<ColumnVector> tableCols = new ArrayList<>();
-
-    try {
-      // Create a string of specified size by repeating characters
-      StringBuilder sb = new StringBuilder(stringSize);
-      for (int i = 0; i < stringSize; i++) {
-        sb.append((char)('A' + (i % 26))); // Cycle through A-Z
-      }
-      String largeString = sb.toString();
-      
-      // Create string column using fromScalar which is more memory efficient
-      // than creating a large array for massive row counts
-      ColumnVector stringColumn;
-      try (Scalar stringScalar = Scalar.fromString(largeString)) {
-        stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
-        tableCols.add(stringColumn);
-        allCols.add(stringColumn);
-      }
-
-      return new Table(tableCols.toArray(new ColumnVector[0]));
-    } finally {
-      for (ColumnVector cv : allCols) {
-        cv.close();
-      }
-    }
-  }
-
-  static Table buildMultiColumnStringTable(int numColumns, int stringSize, int rowCount) {
-    List<ColumnVector> allCols = new ArrayList<>();
-    List<ColumnVector> tableCols = new ArrayList<>();
-
-    try {
-      // Create numColumns STRING columns, each with rowCount rows of stringSize bytes
-      for (int col = 0; col < numColumns; col++) {
-        // Create a string of specified size, varying the pattern per column
-        StringBuilder sb = new StringBuilder(stringSize);
-        for (int i = 0; i < stringSize; i++) {
-          // Use different starting character for each column to add variety
-          sb.append((char)('A' + ((i + col) % 26)));
-        }
-        String columnString = sb.toString();
-        
-        // Create string column using fromScalar for memory efficiency
-        ColumnVector stringColumn;
-        try (Scalar stringScalar = Scalar.fromString(columnString)) {
-          stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
-          tableCols.add(stringColumn);
-          allCols.add(stringColumn);
-        }
-      }
-
-      return new Table(tableCols.toArray(new ColumnVector[0]));
-    } finally {
-      for (ColumnVector cv : allCols) {
-        cv.close();
-      }
-    }
-  }
-
   static Table buildTableWithStringAndInt(int stringSize, int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
