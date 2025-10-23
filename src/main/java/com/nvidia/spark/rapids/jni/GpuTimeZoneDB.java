@@ -24,8 +24,6 @@ import ai.rapids.cudf.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -40,111 +38,7 @@ import java.util.Comparator;
 import java.util.concurrent.Executors;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.TimeZone;
-
-/**
- * Used to hold timezone info read from `java.util.TimeZone`
- * This class is used for ORC timezone conversion.
- * Other regular timezone conversion, it uses `java.time.ZoneId` APIs.
- */
-class OrcTimezoneInfo {
-
-  private static final String ORC_TZ_FILE = "timezone_info_for_orc.csv";
-
-  int rawOffset;
-  long[] transitions;
-  int[] offsets;
-
-  /**
-   * Reads the ORC timezone info from a file. The file is generated from
-   * `sun.util.calendar.ZoneInfo` via reflection. Because ZoneInfo is not
-   * Java public API, e.g.: Oracle JDKs have a different package name.
-   * We cannot use it directly, so we dump the info to a file.
-   * The file is generated from OpenJDK 8. So for newer JDKs, some timezones
-   * are missing.
-   *
-   * @return a map from timezone ID to OrcTimezoneInfo
-   */
-  static Map<String, OrcTimezoneInfo> readOrcTzInfo() {
-    try {
-      String path = GpuTimeZoneDB.class.getClassLoader().getResource(ORC_TZ_FILE).getPath();
-      Map<String, OrcTimezoneInfo> map = new HashMap<>();
-
-      List<String> lines = Files.readAllLines(Paths.get(path));
-
-      for (String line : lines) {
-        String[] entries = line.split(",");
-        if (entries.length < 2) {
-          throw new IllegalArgumentException("Invalid line: " + line);
-        }
-        String id = entries[0];
-        String key = entries[1];
-        String value = entries.length > 2 ? entries[2] : null;
-        OrcTimezoneInfo info = map.computeIfAbsent(id, k -> new OrcTimezoneInfo());
-        switch (key) {
-          case "rawOffset":
-            info.setRawOffset(value);
-            break;
-          case "transitions":
-            info.setTransitions(value);
-            break;
-          case "offsets":
-            info.setOffsets(value);
-            break;
-          default:
-            throw new IllegalArgumentException("Unknown key: " + key);
-        }
-
-        map.put(id, info);
-      }
-
-      return map;
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to read ORC timezone info from " + ORC_TZ_FILE, e);
-    }
-  }
-
-  /**
-   * Sets the raw offset.
-   *
-   * @param rawOffset raw offset
-   */
-  public void setRawOffset(String rawOffset) {
-    this.rawOffset = Integer.parseInt(rawOffset);
-  }
-
-  /**
-   * Gets the transitions from a '_' separated string.
-   *
-   * @param transitions the transitions string
-   */
-  public void setTransitions(String transitions) {
-    if (transitions != null && !transitions.isEmpty()) {
-      String[] ss = transitions.split("_");
-      this.transitions = new long[ss.length];
-      for (int i = 0; i < ss.length; i++) {
-        this.transitions[i] = Long.parseLong(ss[i]);
-      }
-    }
-  }
-
-  /**
-   * Gets the offsets from a '_' separated string.
-   *
-   * @param offsets the offsets string
-   */
-  public void setOffsets(String offsets) {
-    if (offsets != null && !offsets.isEmpty()) {
-      String[] ss = offsets.split("_");
-      this.offsets = new int[ss.length];
-      for (int i = 0; i < ss.length; i++) {
-        this.offsets[i] = Integer.parseInt(ss[i]);
-      }
-    }
-  }
-}
 
 /**
  * Gpu timezone utility.
@@ -200,8 +94,6 @@ public class GpuTimeZoneDB {
    * The tz_name column contains both normalized and non-normalized tz names.
    */
   private static volatile HostColumnVector tzNameToIndexMap;
-
-  private static Map<String, OrcTimezoneInfo> orcTzInfoMap;
 
   /**
    * This is deprecated, will be removed.
@@ -473,7 +365,7 @@ public class GpuTimeZoneDB {
             });
 
             // collect DST rules
-            if (dstTransitionRules.size() != 0 && dstTransitionRules.size() != 2) {
+            if (!dstTransitionRules.isEmpty() && dstTransitionRules.size() != 2) {
               // Checked all the timezones, the size of DST rules for a timezone is 2.
               throw new IllegalStateException("DST rules size is not 2.");
             }
@@ -517,7 +409,6 @@ public class GpuTimeZoneDB {
       fixedTransitions = HostColumnVector.fromLists(transitionType,
           masterTransitions.toArray(new List[0]));
       dstRules = HostColumnVector.fromLists(getDstDataType(), masterDsts.toArray(new List[0]));
-      orcTzInfoMap = OrcTimezoneInfo.readOrcTzInfo();
       tzNameToIndexMap = getTzNameToIndexMap(sortedTimeZones, zoneIdToTable);
     } catch (Exception e) {
       throw new IllegalStateException("load timezone DB cache failed!", e);
@@ -626,9 +517,16 @@ public class GpuTimeZoneDB {
    * Convert the intermediate result of casting string to timestamp.
    * This is used for casting string with timezone to timestamp.
    *
-   * @param invalidCv if the parsing from string to timestamp is valid
-   * @param tsCv      long column with UTC microseconds parsed from string
-   * @param tzIndexCv the index to the timezone transition table
+   * @param invalid            if the parsing from string to timestamp is valid
+   * @param input_seconds      long column with UTC seconds part parsed from string
+   *                           E.g.: for string '2025-01-01 00:00:00.123456',
+   *                           the input seconds is from '2025-01-01 00:00:00'
+   * @param input_microseconds int column with UTC microseconds part parsed from string
+   *                           E.g.: for string '2025-01-01 00:00:00.123456',
+   *                           the input microseconds is from '.123456'
+   * @param tzType             fixed offset or other type, e.g.: fixed offset type +01:02:03
+   * @param tzOffset           if `tzType` is fixed, it stores the parsed offset in seconds.
+   * @param tzIndex            the index to the timezone info table
    * @return timestamp column in microseconds
    */
   public static ColumnVector fromTimestampToUtcTimestampWithTzCv(
@@ -653,15 +551,6 @@ public class GpuTimeZoneDB {
   public static boolean isDST(String timezone) {
     ZoneId zoneId = ZoneId.of(timezone, ZoneId.SHORT_IDS);
     return !zoneId.getRules().getTransitionRules().isEmpty();
-  }
-
-  private static OrcTimezoneInfo getInfoForUtilTZ(String tzId) {
-    OrcTimezoneInfo orcTzInfo = orcTzInfoMap.get(tzId);
-    if (orcTzInfo == null) {
-      throw new IllegalArgumentException("Cannot find ORC timezone info for timezone: " + tzId);
-    }
-
-    return orcTzInfo;
   }
 
   private static ColumnVector getTransitionsForUtilTZ(OrcTimezoneInfo info) {
@@ -693,8 +582,8 @@ public class GpuTimeZoneDB {
    * Only for testing purpose.
    * Get all supported timezones for ORC timezone conversion.
    */
-  static Set<String> getOrcSupportedTimezones() {
-    return orcTzInfoMap.keySet();
+  static List<String> getOrcSupportedTimezones() {
+    return OrcTimezoneInfo.getAllTimezoneIds();
   }
 
   /**
@@ -711,10 +600,9 @@ public class GpuTimeZoneDB {
    * `SerializationUtils.convertBetweenTimezones` gets offset between timezones.
    * This function does the same thing and then apply the offset to get the
    * final timestamps.
-   * For more details, refer to link:
-   * https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/
-   * java/org/apache/orc/impl/SerializationUtils.java#L1440
-   * 
+   * For more details, refer to:
+   * <a href="https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/java/org/apache/orc/impl/SerializationUtils.java#L1440">link</a>
+   *
    * @param input          input timestamp column in microseconds.
    * @param writerTimezone writer timezone, it's from ORC stripe metadata.
    * @param readerTimezone reader timezone, it's from current JVM default
@@ -732,8 +620,8 @@ public class GpuTimeZoneDB {
     }
 
     // get timezone info from `java.util.TimeZone`
-    OrcTimezoneInfo writerTzInfo = getInfoForUtilTZ(writerTimezone);
-    OrcTimezoneInfo readerTzInfo = getInfoForUtilTZ(readerTimezone);
+    OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
+    OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
     try (Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
         Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
 
