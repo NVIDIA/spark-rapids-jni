@@ -818,13 +818,30 @@ public class KudoSerializerTest extends CudfTestBase {
 
   }
 
-//  @Test
+  @Test
   public void testLargeOffsetBuffer() {
-    final int rowsPerTable = 269_000_000;
-    final int stringSize = 1; // bytes per string
+    // This test ensures proper handling of large offset buffers where:
+    // 1. Offset buffer length > Integer.MAX_VALUE
+    //    For LIST columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 2. Multiple table slices for each original table (to test slice merging)
+    //
+    // Strategy: Create 2 tables with LIST<BYTE> column
+    // - Each table: 269M rows (total 538M rows)
+    // - LIST<BYTE> column: 1 byte per list element
+    //   * Per table: last offset = 269M * 1 = 269M < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: offset buffer = (538M + 1) * 4 = 2.152GB > Integer.MAX_VALUE ✓
+    //
+    // Memory usage (concatenated table):
+    // - List data: 538M * 1 byte = 538MB
+    // - List offsets: (538M + 1) * 4 = 2.152GB
+    // - Total: ~2.7GB < 3.2GB ✓
 
-    try (Table t1 = buildTableWithString(stringSize, rowsPerTable);
-         Table t2 = buildTableWithString(stringSize, rowsPerTable)) {
+    final int rowsPerTable = 269_000_000;
+    final int listSize = 1; // number of bytes per list
+
+    try (Table t1 = buildTableWithByteList(listSize, rowsPerTable);
+         Table t2 = buildTableWithByteList(listSize, rowsPerTable)) {
 
       // Slice each table into multiple slices (requirement 2)
       final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table
@@ -846,7 +863,7 @@ public class KudoSerializerTest extends CudfTestBase {
       try (Table expected = Table.concatenate(t1, t2)) {
         // Verify requirements are met:
         long totalRows = expected.getRowCount();
-        long offsetBufferSize = (totalRows + 1) * 4L; // INT32 offsets for STRING column
+        long offsetBufferSize = (totalRows + 1) * 4L; // INT32 offsets for LIST column
 
         assertTrue(offsetBufferSize > Integer.MAX_VALUE,
             "Offset buffer should exceed Integer.MAX_VALUE: " + offsetBufferSize);
@@ -1080,24 +1097,30 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-  static Table buildTableWithString(int stringSize, int rowCount) {
+  static Table buildTableWithByteList(int listSize, int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
     List<ColumnVector> tableCols = new ArrayList<>();
 
     try {
-      // Create a STRING column
-      StringBuilder sb = new StringBuilder(stringSize);
-      for (int i = 0; i < stringSize; i++) {
-        sb.append((char)('A' + (i % 26)));
+      // Create child data (BYTE column) - total size = rowCount * listSize
+      ColumnVector childData;
+      try (Scalar byteScalar = Scalar.fromByte((byte) 42)) {
+        childData = ColumnVector.fromScalar(byteScalar, rowCount * listSize);
+        allCols.add(childData);
       }
-      String str = sb.toString();
-      
-      ColumnVector stringColumn;
-      try (Scalar stringScalar = Scalar.fromString(str)) {
-        stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
-        tableCols.add(stringColumn);
-        allCols.add(stringColumn);
+
+      // Create offsets for LIST column - each list has 'listSize' elements
+      ColumnVector offsets;
+      try (Scalar zero = Scalar.fromInt(0);
+           Scalar step = Scalar.fromInt(listSize)) {
+        offsets = ColumnVector.sequence(zero, step, rowCount + 1);
+        allCols.add(offsets);
       }
+
+      // Create LIST column from child data and offsets
+      ColumnVector listColumn = childData.makeListFromOffsets(rowCount, offsets);
+      tableCols.add(listColumn);
+      allCols.add(listColumn);
 
       return new Table(tableCols.toArray(new ColumnVector[0]));
     } finally {
