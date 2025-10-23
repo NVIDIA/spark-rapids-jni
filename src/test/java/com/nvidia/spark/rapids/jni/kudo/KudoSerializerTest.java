@@ -697,6 +697,8 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
+  // This test ensures that we can serialize and deserialize tables whose total size
+  // exceeds Integer.MAX_VALUE
   @Test
   public void testSerializeAndDeserializeLargeTable() {
     try(Table t1 = buildLargeTestTable();
@@ -817,35 +819,71 @@ public class KudoSerializerTest extends CudfTestBase {
   }
 
   @Test
-  public void testDataBufferLengthOverflow() {
-    // This tests MergedInfoCalc.java line 200: rowCount[curColIdx] * primitiveType.getType().getSizeInBytes()
-    // For DOUBLE type (8 bytes), we need total merged rows > 268,435,455 to trigger overflow
-    // Integer.MAX_VALUE = 2,147,483,647
-    // 2,147,483,647 / 8 = 268,435,455.875
+  public void testLargeMergedBuffer() {
+    // This test ensures proper handling of large merged tables where:
+    // 1. Offset buffer length > Integer.MAX_VALUE
+    //    For STRING columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 2. Data buffer length > Integer.MAX_VALUE  
+    //    For INT columns, data is 4 bytes per value: rowCount * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 3. Multiple table slices for each original table (to test slice merging)
     
-    // Strategy: Create 2 tables, each with 150M rows (individually OK: 150M * 8 = 1.2B < Integer.MAX_VALUE)
-    // When merged together: 300M * 8 = 2.4B > Integer.MAX_VALUE, causing overflow
-    final int rowsPerTable = 150_000_000;
+    // Strategy: Create 2 tables, each with 2 columns (1 STRING + 1 INT)
+    // - Each table has 300M rows
+    // - STRING column: 3-byte strings
+    //   * Per table: last offset = 300M * 3 = 900M < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: offset buffer = (600M + 1) * 4 = 2.4GB > Integer.MAX_VALUE ✓
+    // - INT column: 4 bytes per value
+    //   * Per table: data = 300M * 4 = 1.2GB < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: data buffer = 600M * 4 = 2.4GB > Integer.MAX_VALUE ✓
+    // - Slice each table into multiple parts to satisfy requirement 3
+    
+    final int rowsPerTable = 300_000_000;
+    final int stringSize = 3; // bytes per string
 
-    try (Table t1 = buildLargeDoubleTable(rowsPerTable);
-         Table t2 = buildLargeDoubleTable(rowsPerTable)) {
+    try (Table t1 = buildTableWithStringAndInt(stringSize, rowsPerTable);
+         Table t2 = buildTableWithStringAndInt(stringSize, rowsPerTable)) {
       
+      // Slice each table into multiple slices (requirement 3)
+      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table
       List<TableSlice> tableSlices = new ArrayList<>();
-      // Each table is serialized as a single slice (no slicing within each table)
-      tableSlices.add(new TableSlice(0, rowsPerTable, t1));
-      tableSlices.add(new TableSlice(0, rowsPerTable, t2));
+      
+      // Slice first table into multiple parts
+      int rowCount1 = Math.toIntExact(t1.getRowCount());
+      for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+      }
+      
+      // Slice second table into multiple parts  
+      int rowCount2 = Math.toIntExact(t2.getRowCount());
+      for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+      }
+      
 
-      // Create expected result: total 300M rows
+      // Create expected result
       try (Table expected = Table.concatenate(t1, t2)) {
-        // Before the fix, merging throws IllegalArgumentException with message about negative dataBufferLen
-        // The overflow happens in MergedInfoCalc when calculating total buffer sizes
-        // After the fix, this should succeed
+        // Verify all three requirements are met:
+        long totalRows = expected.getRowCount();
+        long offsetBufferSize = (totalRows + 1) * 4L; // INT32 offsets for STRING column
+        long dataBufferSize = totalRows * 4L; // INT32 data for INT column
+        
+        assertTrue(offsetBufferSize > Integer.MAX_VALUE,
+            "Offset buffer should exceed Integer.MAX_VALUE: " + offsetBufferSize);
+        assertTrue(dataBufferSize > Integer.MAX_VALUE,
+            "Data buffer should exceed Integer.MAX_VALUE: " + dataBufferSize);
+        assertTrue(tableSlices.size() > 2,
+            "Should have multiple slices per table: " + tableSlices.size());
+        
         checkMergeTable(expected, tableSlices);
       }
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
+
+  
 
   static Table buildLargeDoubleTable(int rowCount) {
     List<ColumnVector> allCols = new ArrayList<>();
@@ -1023,6 +1061,102 @@ public class KudoSerializerTest extends CudfTestBase {
       ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
       tableCols.add(stringColumn);
       allCols.add(stringColumn);
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildLargeStringTableForMerge(int stringSize, int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a string of specified size by repeating characters
+      StringBuilder sb = new StringBuilder(stringSize);
+      for (int i = 0; i < stringSize; i++) {
+        sb.append((char)('A' + (i % 26))); // Cycle through A-Z
+      }
+      String largeString = sb.toString();
+      
+      // Create string column using fromScalar which is more memory efficient
+      // than creating a large array for massive row counts
+      ColumnVector stringColumn;
+      try (Scalar stringScalar = Scalar.fromString(largeString)) {
+        stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
+        tableCols.add(stringColumn);
+        allCols.add(stringColumn);
+      }
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildMultiColumnStringTable(int numColumns, int stringSize, int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create numColumns STRING columns, each with rowCount rows of stringSize bytes
+      for (int col = 0; col < numColumns; col++) {
+        // Create a string of specified size, varying the pattern per column
+        StringBuilder sb = new StringBuilder(stringSize);
+        for (int i = 0; i < stringSize; i++) {
+          // Use different starting character for each column to add variety
+          sb.append((char)('A' + ((i + col) % 26)));
+        }
+        String columnString = sb.toString();
+        
+        // Create string column using fromScalar for memory efficiency
+        ColumnVector stringColumn;
+        try (Scalar stringScalar = Scalar.fromString(columnString)) {
+          stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
+          tableCols.add(stringColumn);
+          allCols.add(stringColumn);
+        }
+      }
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildTableWithStringAndInt(int stringSize, int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a STRING column - for large offset buffer
+      StringBuilder sb = new StringBuilder(stringSize);
+      for (int i = 0; i < stringSize; i++) {
+        sb.append((char)('A' + (i % 26)));
+      }
+      String str = sb.toString();
+      
+      ColumnVector stringColumn;
+      try (Scalar stringScalar = Scalar.fromString(str)) {
+        stringColumn = ColumnVector.fromScalar(stringScalar, rowCount);
+        tableCols.add(stringColumn);
+        allCols.add(stringColumn);
+      }
+
+      // Create an INT column - for large data buffer
+      ColumnVector intColumn;
+      try (Scalar intScalar = Scalar.fromInt(42)) {
+        intColumn = ColumnVector.fromScalar(intScalar, rowCount);
+        tableCols.add(intColumn);
+        allCols.add(intColumn);
+      }
 
       return new Table(tableCols.toArray(new ColumnVector[0]));
     } finally {
