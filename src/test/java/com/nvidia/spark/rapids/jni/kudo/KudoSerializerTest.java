@@ -818,7 +818,7 @@ public class KudoSerializerTest extends CudfTestBase {
 
   }
 
-  @Test
+//  @Test
   public void testLargeOffsetBuffer() {
     final int rowsPerTable = 269_000_000;
     final int stringSize = 1; // bytes per string
@@ -860,7 +860,7 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
-//  @Test
+  @Test
   public void testLargeDataBuffer() {
     // This test ensures proper handling of large data buffers where:
     // 1. Data buffer length > Integer.MAX_VALUE
