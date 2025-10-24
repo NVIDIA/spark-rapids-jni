@@ -31,8 +31,14 @@ import java.time.zone.ZoneOffsetTransition;
 import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.concurrent.Executors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.TimeZone;
 
 /**
  * Gpu timezone utility.
@@ -359,7 +365,7 @@ public class GpuTimeZoneDB {
             });
 
             // collect DST rules
-            if (dstTransitionRules.size() != 0 && dstTransitionRules.size() != 2) {
+            if (!dstTransitionRules.isEmpty() && dstTransitionRules.size() != 2) {
               // Checked all the timezones, the size of DST rules for a timezone is 2.
               throw new IllegalStateException("DST rules size is not 2.");
             }
@@ -511,9 +517,16 @@ public class GpuTimeZoneDB {
    * Convert the intermediate result of casting string to timestamp.
    * This is used for casting string with timezone to timestamp.
    *
-   * @param invalidCv if the parsing from string to timestamp is valid
-   * @param tsCv      long column with UTC microseconds parsed from string
-   * @param tzIndexCv the index to the timezone transition table
+   * @param invalid            if the parsing from string to timestamp is valid
+   * @param input_seconds      long column with UTC seconds part parsed from string
+   *                           E.g.: for string '2025-01-01 00:00:00.123456',
+   *                           the input seconds is from '2025-01-01 00:00:00'
+   * @param input_microseconds int column with UTC microseconds part parsed from string
+   *                           E.g.: for string '2025-01-01 00:00:00.123456',
+   *                           the input microseconds is from '.123456'
+   * @param tzType             fixed offset or other type, e.g.: fixed offset type +01:02:03
+   * @param tzOffset           if `tzType` is fixed, it stores the parsed offset in seconds.
+   * @param tzIndex            the index to the timezone info table
    * @return timestamp column in microseconds
    */
   public static ColumnVector fromTimestampToUtcTimestampWithTzCv(
@@ -540,6 +553,90 @@ public class GpuTimeZoneDB {
     return !zoneId.getRules().getTransitionRules().isEmpty();
   }
 
+  private static ColumnVector getTransitionsForUtilTZ(OrcTimezoneInfo info) {
+    try (HostColumnVector hcv = HostColumnVector.fromLongs(info.transitions)) {
+      return hcv.copyToDevice();
+    }
+  }
+
+  private static ColumnVector getOffsetsForUtilTZ(OrcTimezoneInfo info) {
+    try (HostColumnVector hcv = HostColumnVector.fromInts(info.offsets)) {
+      return hcv.copyToDevice();
+    }
+  }
+
+  private static Table getTableForUtilTZ(OrcTimezoneInfo info) {
+    if (info.transitions == null) {
+      // fixed offset timezone
+      return null;
+    }
+    try (ColumnVector trans = getTransitionsForUtilTZ(info);
+        ColumnVector offsets = getOffsetsForUtilTZ(info)) {
+      return new Table(trans, offsets);
+    } catch (Exception e) {
+      throw new IllegalStateException("get timezone info for Orc failed!", e);
+    }
+  }
+
+  /**
+   * Only for testing purpose.
+   * Get all supported timezones for ORC timezone conversion.
+   */
+  static List<String> getOrcSupportedTimezones() {
+    return OrcTimezoneInfo.getAllTimezoneIds();
+  }
+
+  /**
+   * Does the given timezone have Daylight Saving Time(DST) rules.
+   */
+  private static boolean hasDaylightSavingTime(String timezoneId) {
+    ZoneId zoneId = ZoneId.of(timezoneId, ZoneId.SHORT_IDS);
+    return !zoneId.getRules().getTransitionRules().isEmpty();
+  }
+
+  /**
+   * Convert timestamps between writer/reader timezones for ORC reading.
+   * Similar to `org.apache.orc.impl.SerializationUtils.convertBetweenTimezones`.
+   * `SerializationUtils.convertBetweenTimezones` gets offset between timezones.
+   * This function does the same thing and then apply the offset to get the
+   * final timestamps.
+   * For more details, refer to:
+   * <a href="https://github.com/apache/orc/blob/rel/release-1.9.1/java/core/src/java/org/apache/orc/impl/SerializationUtils.java#L1440">link</a>
+   *
+   * @param input          input timestamp column in microseconds.
+   * @param writerTimezone writer timezone, it's from ORC stripe metadata.
+   * @param readerTimezone reader timezone, it's from current JVM default
+   *                       timezone.
+   * @return timestamp column in microseconds after converting between timezones
+   */
+  public static ColumnVector convertOrcTimezones(
+      ColumnVector input,
+      String writerTimezone,
+      String readerTimezone) {
+    // Does not support DST timezone now, just throw exception.
+    if (hasDaylightSavingTime(writerTimezone) ||
+        hasDaylightSavingTime(readerTimezone)) {
+      throw new UnsupportedOperationException("Daylight Saving Time is not supported now.");
+    }
+
+    // get timezone info from `java.util.TimeZone`
+    OrcTimezoneInfo writerTzInfo = OrcTimezoneInfo.get(writerTimezone);
+    OrcTimezoneInfo readerTzInfo = OrcTimezoneInfo.get(readerTimezone);
+    try (Table writerTzInfoTable = getTableForUtilTZ(writerTzInfo);
+        Table readerTzInfoTable = getTableForUtilTZ(readerTzInfo)) {
+
+      // convert between timezones
+      return new ColumnVector(convertOrcTimezones(
+          input.getNativeView(),
+          writerTzInfoTable != null ? writerTzInfoTable.getNativeView() : 0L,
+          writerTzInfo.rawOffset,
+          readerTzInfoTable != null ? readerTzInfoTable.getNativeView() : 0L,
+          readerTzInfo.rawOffset));
+    } catch (Exception e) {
+      throw new IllegalStateException("convert between timezones failed!", e);
+    }
+  }
+
   private static native long convertTimestampColumnToUTC(long input, long timezoneInfo, int tzIndex);
 
   private static native long convertUTCTimestampColumnToTimeZone(long input, long timezoneInfo, int tzIndex);
@@ -548,4 +645,10 @@ public class GpuTimeZoneDB {
       long input_seconds, long input_microseconds, long invalid, long tzType,
       long tzOffset, long timezoneInfo, long tzIndex);
 
+  private static native long convertOrcTimezones(
+      long input,
+      long writerTzInfoTable,
+      int writerTzRawOffset,
+      long readerTzInfoTable,
+      int readerTzRawOffset);
 }

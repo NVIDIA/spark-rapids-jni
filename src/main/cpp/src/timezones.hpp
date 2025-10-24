@@ -100,4 +100,30 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
 
+/**
+ * @brief Convert between ORC writer timezone and reader timezone.
+ *
+ * If `writer_tz_info_table` is nullptr, it means the writer timezone is fixed offset.
+ * If `reader_tz_info_table` is nullptr, it means the reader timezone is fixed offset.
+ *
+ * @param input The input timestamp column in microseconds.
+ * @param writer_tz_info_table The writer timezone table which contains a transition column and a
+ * timezone index column both in milliseconds.
+ * @param writer_raw_offset the raw offset in seconds.
+ * @param reader_tz_info_table The reader timezone table which contains a transition column and a
+ * timezone index column both in milliseconds.
+ * @param reader_raw_offset the raw offset in seconds.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned timestamp column's memory
+ * @return a column of timestamps rebased between writer and reader timezones.
+ */
+std::unique_ptr<cudf::column> convert_orc_writer_reader_timezones(
+  cudf::column_view const& input,
+  cudf::table_view const* writer_tz_info_table,
+  cudf::size_type writer_raw_offset,
+  cudf::table_view const* reader_tz_info_table,
+  cudf::size_type reader_raw_offset,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
 }  // namespace spark_rapids_jni
