@@ -36,7 +36,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     // Total data len in gpu, which accounts for 64 byte alignment
     private long totalDataLen;
     private final boolean[] hasNull;
-    private final int[] rowCount;
+    private final long[] rowCount;
     private final long[] dataLen;
 
     // Column offset in gpu device buffer, it has one field for each flattened column
@@ -50,7 +50,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         int columnCount = tables[0].getHeader().getNumColumns();
         this.hasNull = new boolean[columnCount];
         initHasNull();
-        this.rowCount = new int[columnCount];
+        this.rowCount = new long[columnCount];
         this.dataLen = new long[columnCount];
         this.columnOffsets = new ColumnOffsetInfo[columnCount];
     }
@@ -73,7 +73,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         return kudoTables;
     }
 
-    public int[] getRowCount() {
+    public long[] getRowCount() {
         return rowCount;
     }
 
@@ -81,7 +81,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
     public String toString() {
         return "MergedInfoCalc{" +
                 "totalDataLen=" + totalDataLen +
-                ", columnOffsets=" + columnOffsets +
+                ", columnOffsets=" + Arrays.toString(columnOffsets) +
                 ", hasNull=" + Arrays.toString(hasNull) +
                 ", rowCount=" + Arrays.toString(rowCount) +
                 ", dataLen=" + Arrays.toString(dataLen) +
@@ -153,7 +153,7 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         long offsetBufferLen = 0;
         if (rowCount[curColIdx] > 0) {
             offsetOffset = totalDataLen;
-            offsetBufferLen = padFor64byteAlignment((rowCount[curColIdx] + 1) * Integer.BYTES);
+            offsetBufferLen = padFor64byteAlignment((long) (rowCount[curColIdx] + 1) * Integer.BYTES);
             totalDataLen += offsetBufferLen;
         }
 
@@ -189,17 +189,18 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
         if (rowCount[curColIdx] > 0) {
             if (primitiveType.getType().hasOffsets()) {
                 offsetOffset = totalDataLen;
-                offsetBufferLen = padFor64byteAlignment((rowCount[curColIdx] + 1) * Integer.BYTES);
+                offsetBufferLen = padFor64byteAlignment(
+                    (rowCount[curColIdx] + 1) * Integer.BYTES);
                 totalDataLen += offsetBufferLen;
 
                 dataOffset = totalDataLen;
                 dataBufferLen = padFor64byteAlignment(dataLen[curColIdx]);
-                totalDataLen += dataBufferLen;
             } else {
                 dataOffset = totalDataLen;
-                dataBufferLen = padFor64byteAlignment(rowCount[curColIdx] * primitiveType.getType().getSizeInBytes());
-                totalDataLen += dataBufferLen;
+                dataBufferLen = padFor64byteAlignment(
+                    rowCount[curColIdx] * primitiveType.getType().getSizeInBytes());
             }
+            totalDataLen += dataBufferLen;
         }
 
         columnOffsets[curColIdx] = new ColumnOffsetInfo(validityOffset, validityBufferLen,
@@ -245,11 +246,13 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
 
             if (sliceInfo.getRowCount() > 0) {
                 int startOffset = table.getBuffer().getInt(bufferOffset);
-                int endOffset = table.getBuffer().getInt(bufferOffset + sliceInfo.getRowCount() * Integer.BYTES);
+                int endOffset = table.getBuffer().getInt(bufferOffset +
+                    (long) sliceInfo.getRowCount() * Integer.BYTES);
                 SliceInfo nextSliceInfo = new SliceInfo(startOffset, endOffset - startOffset);
                 sliceInfos.addLast(nextSliceInfo);
 
-                bufferOffset += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+                bufferOffset += padForHostAlignment(
+                    (long) (sliceInfo.getRowCount() + 1) * Integer.BYTES);
             } else {
                 sliceInfos.addLast(new SliceInfo(0, 0));
             }
@@ -270,9 +273,11 @@ class MergedInfoCalc implements SimpleSchemaVisitor {
                 // string type
                 if (sliceInfo.getRowCount() > 0) {
                     int startOffset = table.getBuffer().getInt(bufferOffset);
-                    int endOffset = table.getBuffer().getInt(bufferOffset + sliceInfo.getRowCount() * Integer.BYTES);
+                    int endOffset = table.getBuffer().getInt(bufferOffset +
+                        (long) sliceInfo.getRowCount() * Integer.BYTES);
                     dataLen[curColIdx] += (endOffset - startOffset);
-                    bufferOffset += padForHostAlignment((sliceInfo.getRowCount() + 1) * Integer.BYTES);
+                    bufferOffset += padForHostAlignment(
+                        (long) (sliceInfo.getRowCount() + 1) * Integer.BYTES);
                 }
             }
             // We don't need to update data len for non string primitive type
