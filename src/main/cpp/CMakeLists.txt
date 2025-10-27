@@ -189,6 +189,9 @@ add_library(
   src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
   src/CaseWhenJni.cpp
+  src/AverageExampleUDFJni.cpp
+  src/average_example.cu
+  src/average_example_host_udf.cpp
   src/CastStringJni.cpp
   src/DateTimeUtilsJni.cpp
   src/DecimalUtilsJni.cpp
