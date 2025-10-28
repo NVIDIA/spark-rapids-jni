@@ -207,6 +207,7 @@ add_library(
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/NVMLJni.cpp
+  src/nvml_dynamic_loader.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp

@@ -17,136 +17,19 @@
 #include <jni.h>
 #include <nvml.h>
 #include <stdio.h>
-#include <dlfcn.h>
 
 #include <cstdint>
+
+#include "nvml_dynamic_loader.hpp"
 
 // NVML JNI implementation with comprehensive GPU metrics for Spark Rapids
 
 #define NVML_CLASS_PATH "com/nvidia/spark/rapids/jni/nvml/"
 
-// Dynamic loading of NVML library
+// Global NVML loader instance
 namespace {
-void* nvml_handle = nullptr;
 
-// Function pointer types for NVML functions
-typedef nvmlReturn_t (*nvmlInit_func)();
-typedef nvmlReturn_t (*nvmlShutdown_func)();
-typedef nvmlReturn_t (*nvmlDeviceGetCount_func)(unsigned int* deviceCount);
-typedef nvmlReturn_t (*nvmlDeviceGetHandleByIndex_func)(unsigned int index, nvmlDevice_t* device);
-typedef nvmlReturn_t (*nvmlDeviceGetHandleByUUID_func)(const char* uuid, nvmlDevice_t* device);
-typedef nvmlReturn_t (*nvmlDeviceGetName_func)(nvmlDevice_t device, char* name, unsigned int length);
-typedef nvmlReturn_t (*nvmlDeviceGetBrand_func)(nvmlDevice_t device, nvmlBrandType_t* type);
-typedef nvmlReturn_t (*nvmlDeviceGetUtilizationRates_func)(nvmlDevice_t device, nvmlUtilization_t* utilization);
-typedef nvmlReturn_t (*nvmlDeviceGetMemoryInfo_func)(nvmlDevice_t device, nvmlMemory_t* memory);
-typedef nvmlReturn_t (*nvmlDeviceGetTemperature_func)(nvmlDevice_t device, nvmlTemperatureSensors_t sensorType, unsigned int* temp);
-typedef nvmlReturn_t (*nvmlDeviceGetPowerUsage_func)(nvmlDevice_t device, unsigned int* power);
-typedef nvmlReturn_t (*nvmlDeviceGetPowerManagementLimit_func)(nvmlDevice_t device, unsigned int* limit);
-typedef nvmlReturn_t (*nvmlDeviceGetClockInfo_func)(nvmlDevice_t device, nvmlClockType_t type, unsigned int* clock);
-typedef nvmlReturn_t (*nvmlDeviceGetNumGpuCores_func)(nvmlDevice_t device, unsigned int* numCores);
-typedef nvmlReturn_t (*nvmlDeviceGetPerformanceState_func)(nvmlDevice_t device, nvmlPstates_t* pState);
-typedef nvmlReturn_t (*nvmlDeviceGetFanSpeed_func)(nvmlDevice_t device, unsigned int* speed);
-typedef nvmlReturn_t (*nvmlDeviceGetCurrPcieLinkGeneration_func)(nvmlDevice_t device, unsigned int* linkGen);
-typedef nvmlReturn_t (*nvmlDeviceGetCurrPcieLinkWidth_func)(nvmlDevice_t device, unsigned int* linkWidth);
-typedef nvmlReturn_t (*nvmlDeviceGetTotalEccErrors_func)(nvmlDevice_t device, nvmlMemoryErrorType_t errorType, nvmlEccCounterType_t counterType, unsigned long long* eccCounts);
-
-// Function pointers
-nvmlInit_func _nvmlInit = nullptr;
-nvmlShutdown_func _nvmlShutdown = nullptr;
-nvmlDeviceGetCount_func _nvmlDeviceGetCount = nullptr;
-nvmlDeviceGetHandleByIndex_func _nvmlDeviceGetHandleByIndex = nullptr;
-nvmlDeviceGetHandleByUUID_func _nvmlDeviceGetHandleByUUID = nullptr;
-nvmlDeviceGetName_func _nvmlDeviceGetName = nullptr;
-nvmlDeviceGetBrand_func _nvmlDeviceGetBrand = nullptr;
-nvmlDeviceGetUtilizationRates_func _nvmlDeviceGetUtilizationRates = nullptr;
-nvmlDeviceGetMemoryInfo_func _nvmlDeviceGetMemoryInfo = nullptr;
-nvmlDeviceGetTemperature_func _nvmlDeviceGetTemperature = nullptr;
-nvmlDeviceGetPowerUsage_func _nvmlDeviceGetPowerUsage = nullptr;
-nvmlDeviceGetPowerManagementLimit_func _nvmlDeviceGetPowerManagementLimit = nullptr;
-nvmlDeviceGetClockInfo_func _nvmlDeviceGetClockInfo = nullptr;
-nvmlDeviceGetNumGpuCores_func _nvmlDeviceGetNumGpuCores = nullptr;
-nvmlDeviceGetPerformanceState_func _nvmlDeviceGetPerformanceState = nullptr;
-nvmlDeviceGetFanSpeed_func _nvmlDeviceGetFanSpeed = nullptr;
-nvmlDeviceGetCurrPcieLinkGeneration_func _nvmlDeviceGetCurrPcieLinkGeneration = nullptr;
-nvmlDeviceGetCurrPcieLinkWidth_func _nvmlDeviceGetCurrPcieLinkWidth = nullptr;
-nvmlDeviceGetTotalEccErrors_func _nvmlDeviceGetTotalEccErrors = nullptr;
-
-// Initialize NVML library dynamically
-bool initialize_nvml() {
-  if (nvml_handle != nullptr) {
-    return true; // Already initialized
-  }
-
-  // Try to load the NVML library
-  nvml_handle = dlopen("libnvidia-ml.so.1", RTLD_LAZY);
-  if (nvml_handle == nullptr) {
-    fprintf(stderr, "Failed to load NVML library: %s\n", dlerror());
-    return false;
-  }
-
-  // Load function pointers
-  _nvmlInit = (nvmlInit_func)dlsym(nvml_handle, "nvmlInit");
-  _nvmlShutdown = (nvmlShutdown_func)dlsym(nvml_handle, "nvmlShutdown");
-  _nvmlDeviceGetCount = (nvmlDeviceGetCount_func)dlsym(nvml_handle, "nvmlDeviceGetCount");
-  _nvmlDeviceGetHandleByIndex = (nvmlDeviceGetHandleByIndex_func)dlsym(nvml_handle, "nvmlDeviceGetHandleByIndex");
-  _nvmlDeviceGetHandleByUUID = (nvmlDeviceGetHandleByUUID_func)dlsym(nvml_handle, "nvmlDeviceGetHandleByUUID");
-  _nvmlDeviceGetName = (nvmlDeviceGetName_func)dlsym(nvml_handle, "nvmlDeviceGetName");
-  _nvmlDeviceGetBrand = (nvmlDeviceGetBrand_func)dlsym(nvml_handle, "nvmlDeviceGetBrand");
-  _nvmlDeviceGetUtilizationRates = (nvmlDeviceGetUtilizationRates_func)dlsym(nvml_handle, "nvmlDeviceGetUtilizationRates");
-  _nvmlDeviceGetMemoryInfo = (nvmlDeviceGetMemoryInfo_func)dlsym(nvml_handle, "nvmlDeviceGetMemoryInfo");
-  _nvmlDeviceGetTemperature = (nvmlDeviceGetTemperature_func)dlsym(nvml_handle, "nvmlDeviceGetTemperature");
-  _nvmlDeviceGetPowerUsage = (nvmlDeviceGetPowerUsage_func)dlsym(nvml_handle, "nvmlDeviceGetPowerUsage");
-  _nvmlDeviceGetPowerManagementLimit = (nvmlDeviceGetPowerManagementLimit_func)dlsym(nvml_handle, "nvmlDeviceGetPowerManagementLimit");
-  _nvmlDeviceGetClockInfo = (nvmlDeviceGetClockInfo_func)dlsym(nvml_handle, "nvmlDeviceGetClockInfo");
-  _nvmlDeviceGetNumGpuCores = (nvmlDeviceGetNumGpuCores_func)dlsym(nvml_handle, "nvmlDeviceGetNumGpuCores");
-  _nvmlDeviceGetPerformanceState = (nvmlDeviceGetPerformanceState_func)dlsym(nvml_handle, "nvmlDeviceGetPerformanceState");
-  _nvmlDeviceGetFanSpeed = (nvmlDeviceGetFanSpeed_func)dlsym(nvml_handle, "nvmlDeviceGetFanSpeed");
-  _nvmlDeviceGetCurrPcieLinkGeneration = (nvmlDeviceGetCurrPcieLinkGeneration_func)dlsym(nvml_handle, "nvmlDeviceGetCurrPcieLinkGeneration");
-  _nvmlDeviceGetCurrPcieLinkWidth = (nvmlDeviceGetCurrPcieLinkWidth_func)dlsym(nvml_handle, "nvmlDeviceGetCurrPcieLinkWidth");
-  _nvmlDeviceGetTotalEccErrors = (nvmlDeviceGetTotalEccErrors_func)dlsym(nvml_handle, "nvmlDeviceGetTotalEccErrors");
-
-  // Check if all functions were loaded successfully
-  if (!_nvmlInit || !_nvmlShutdown || !_nvmlDeviceGetCount || !_nvmlDeviceGetHandleByIndex ||
-      !_nvmlDeviceGetHandleByUUID || !_nvmlDeviceGetName || !_nvmlDeviceGetBrand ||
-      !_nvmlDeviceGetUtilizationRates || !_nvmlDeviceGetMemoryInfo || !_nvmlDeviceGetTemperature ||
-      !_nvmlDeviceGetPowerUsage || !_nvmlDeviceGetPowerManagementLimit || !_nvmlDeviceGetClockInfo ||
-      !_nvmlDeviceGetNumGpuCores || !_nvmlDeviceGetPerformanceState || !_nvmlDeviceGetFanSpeed ||
-      !_nvmlDeviceGetCurrPcieLinkGeneration || !_nvmlDeviceGetCurrPcieLinkWidth || !_nvmlDeviceGetTotalEccErrors) {
-    fprintf(stderr, "Failed to load one or more NVML functions\n");
-    dlclose(nvml_handle);
-    nvml_handle = nullptr;
-    return false;
-  }
-
-  return true;
-}
-
-// Cleanup NVML library
-void cleanup_nvml() {
-  if (nvml_handle != nullptr) {
-    dlclose(nvml_handle);
-    nvml_handle = nullptr;
-    _nvmlInit = nullptr;
-    _nvmlShutdown = nullptr;
-    _nvmlDeviceGetCount = nullptr;
-    _nvmlDeviceGetHandleByIndex = nullptr;
-    _nvmlDeviceGetHandleByUUID = nullptr;
-    _nvmlDeviceGetName = nullptr;
-    _nvmlDeviceGetBrand = nullptr;
-    _nvmlDeviceGetUtilizationRates = nullptr;
-    _nvmlDeviceGetMemoryInfo = nullptr;
-    _nvmlDeviceGetTemperature = nullptr;
-    _nvmlDeviceGetPowerUsage = nullptr;
-    _nvmlDeviceGetPowerManagementLimit = nullptr;
-    _nvmlDeviceGetClockInfo = nullptr;
-    _nvmlDeviceGetNumGpuCores = nullptr;
-    _nvmlDeviceGetPerformanceState = nullptr;
-    _nvmlDeviceGetFanSpeed = nullptr;
-    _nvmlDeviceGetCurrPcieLinkGeneration = nullptr;
-    _nvmlDeviceGetCurrPcieLinkWidth = nullptr;
-    _nvmlDeviceGetTotalEccErrors = nullptr;
-  }
-}
+NVMLDynamicLoader nvml;
 
 } // anonymous namespace
 
@@ -209,7 +92,7 @@ nvml_result populate_device_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID brand_field = env->GetFieldID(device_info_class, "brand", "Ljava/lang/String;");
 
   char name[NVML_DEVICE_NAME_BUFFER_SIZE];
-  auto return_code = _nvmlDeviceGetName(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
+  auto return_code = nvml.device_get_name(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
   result           = nvml_result(return_code, device_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -219,7 +102,7 @@ nvml_result populate_device_info(JNIEnv* env, nvmlDevice_t device)
   }
 
   nvmlBrandType_t brand_type;
-  auto brand_return_code = _nvmlDeviceGetBrand(device, &brand_type);
+  auto brand_return_code = nvml.device_get_brand(device, &brand_type);
   if (brand_return_code == NVML_SUCCESS) {
     char brand[50];
     snprintf(brand, sizeof(brand), "Brand_%d", static_cast<int>(brand_type));
@@ -244,7 +127,7 @@ nvml_result populate_utilization_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID mem_util_field = env->GetFieldID(utilization_info_class, "memoryUtilization", "I");
 
   nvmlUtilization_t utilization;
-  auto return_code = _nvmlDeviceGetUtilizationRates(device, &utilization);
+  auto return_code = nvml.device_get_utilization_rates(device, &utilization);
   result           = nvml_result(return_code, utilization_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -269,7 +152,7 @@ nvml_result populate_memory_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID mem_free_field  = env->GetFieldID(memory_info_class, "memoryFreeMB", "J");
 
   nvmlMemory_t memory;
-  auto return_code = _nvmlDeviceGetMemoryInfo(device, &memory);
+  auto return_code = nvml.device_get_memory_info(device, &memory);
   result           = nvml_result(return_code, memory_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -294,7 +177,7 @@ nvml_result populate_temperature_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID temp_gpu_field = env->GetFieldID(temperature_info_class, "temperatureGpu", "I");
 
   unsigned int temp;
-  auto return_code = _nvmlDeviceGetTemperature(device, NVML_TEMPERATURE_GPU, &temp);
+  auto return_code = nvml.device_get_temperature(device, NVML_TEMPERATURE_GPU, &temp);
   result           = nvml_result(return_code, temperature_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -317,14 +200,14 @@ nvml_result populate_power_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID power_limit_field = env->GetFieldID(power_info_class, "powerLimitW", "I");
 
   unsigned int power;
-  auto return_code = _nvmlDeviceGetPowerUsage(device, &power);
+  auto return_code = nvml.device_get_power_usage(device, &power);
   result           = nvml_result(return_code, power_info);
 
   if (return_code == NVML_SUCCESS) {
     env->SetIntField(power_info, power_usage_field, static_cast<jint>(power / 1000));  // mW to W
   }
 
-  auto limit_return_code = _nvmlDeviceGetPowerManagementLimit(device, &power);
+  auto limit_return_code = nvml.device_get_power_management_limit(device, &power);
   if (limit_return_code == NVML_SUCCESS) {
     env->SetIntField(power_info, power_limit_field, static_cast<jint>(power / 1000));  // mW to W
   }
@@ -346,19 +229,19 @@ nvml_result populate_clock_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID sm_clock_field       = env->GetFieldID(clock_info_class, "smClockMHz", "I");
 
   unsigned int clock;
-  auto return_code = _nvmlDeviceGetClockInfo(device, NVML_CLOCK_GRAPHICS, &clock);
+  auto return_code = nvml.device_get_clock_info(device, NVML_CLOCK_GRAPHICS, &clock);
   result           = nvml_result(return_code, clock_info);
 
   if (return_code == NVML_SUCCESS) {
     env->SetIntField(clock_info, graphics_clock_field, static_cast<jint>(clock));
   }
 
-  auto mem_return_code = _nvmlDeviceGetClockInfo(device, NVML_CLOCK_MEM, &clock);
+  auto mem_return_code = nvml.device_get_clock_info(device, NVML_CLOCK_MEM, &clock);
   if (mem_return_code == NVML_SUCCESS) {
     env->SetIntField(clock_info, memory_clock_field, static_cast<jint>(clock));
   }
 
-  auto sm_return_code = _nvmlDeviceGetClockInfo(device, NVML_CLOCK_SM, &clock);
+  auto sm_return_code = nvml.device_get_clock_info(device, NVML_CLOCK_SM, &clock);
   if (sm_return_code == NVML_SUCCESS) {
     env->SetIntField(clock_info, sm_clock_field, static_cast<jint>(clock));
   }
@@ -380,7 +263,7 @@ nvml_result populate_hardware_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID fan_speed_field         = env->GetFieldID(hardware_info_class, "fanSpeedPercent", "I");
 
   unsigned int sm_count = 0;
-  auto return_code      = _nvmlDeviceGetNumGpuCores(device, &sm_count);
+  auto return_code      = nvml.device_get_num_gpu_cores(device, &sm_count);
   result                = nvml_result(return_code, hardware_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -388,13 +271,13 @@ nvml_result populate_hardware_info(JNIEnv* env, nvmlDevice_t device)
   }
 
   nvmlPstates_t p_state;
-  auto pstate_return_code = _nvmlDeviceGetPerformanceState(device, &p_state);
+  auto pstate_return_code = nvml.device_get_performance_state(device, &p_state);
   if (pstate_return_code == NVML_SUCCESS) {
     env->SetIntField(hardware_info, performance_state_field, static_cast<jint>(p_state));
   }
 
   unsigned int fan_speed;
-  auto fan_return_code = _nvmlDeviceGetFanSpeed(device, &fan_speed);
+  auto fan_return_code = nvml.device_get_fan_speed(device, &fan_speed);
   if (fan_return_code == NVML_SUCCESS) {
     env->SetIntField(hardware_info, fan_speed_field, static_cast<jint>(fan_speed));
   }
@@ -415,7 +298,7 @@ nvml_result populate_pcie_info(JNIEnv* env, nvmlDevice_t device)
   jfieldID pcie_link_width_field = env->GetFieldID(pcie_info_class, "pcieLinkWidth", "I");
 
   unsigned int link_gen;
-  auto return_code = _nvmlDeviceGetCurrPcieLinkGeneration(device, &link_gen);
+  auto return_code = nvml.device_get_curr_pcie_link_generation(device, &link_gen);
   result           = nvml_result(return_code, pcie_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -423,7 +306,7 @@ nvml_result populate_pcie_info(JNIEnv* env, nvmlDevice_t device)
   }
 
   unsigned int link_width;
-  auto width_return_code = _nvmlDeviceGetCurrPcieLinkWidth(device, &link_width);
+  auto width_return_code = nvml.device_get_curr_pcie_link_width(device, &link_width);
   if (width_return_code == NVML_SUCCESS) {
     env->SetIntField(pcie_info, pcie_link_width_field, static_cast<jint>(link_width));
   }
@@ -445,7 +328,7 @@ nvml_result populate_ecc_info(JNIEnv* env, nvmlDevice_t device)
 
   unsigned long long eccCount;
   auto return_code =
-    _nvmlDeviceGetTotalEccErrors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+    nvml.device_get_total_ecc_errors(device, NVML_SINGLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
   result = nvml_result(return_code, ecc_info);
 
   if (return_code == NVML_SUCCESS) {
@@ -453,7 +336,7 @@ nvml_result populate_ecc_info(JNIEnv* env, nvmlDevice_t device)
   }
 
   auto double_bit_return_code =
-    _nvmlDeviceGetTotalEccErrors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
+    nvml.device_get_total_ecc_errors(device, NVML_DOUBLE_BIT_ECC, NVML_VOLATILE_ECC, &eccCount);
   if (double_bit_return_code == NVML_SUCCESS) {
     env->SetLongField(ecc_info, ecc_double_bit_field, static_cast<jlong>(eccCount));
   }
@@ -583,28 +466,28 @@ JNIEXPORT jboolean JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlInit(J
                                                                                jclass cls)
 {
   // Initialize dynamic loading of NVML library
-  if (!initialize_nvml()) {
+  if (!nvml.initialize()) {
     return JNI_FALSE;
   }
 
-  nvmlReturn_t result = _nvmlInit();
+  nvmlReturn_t result = nvml.init();
   return (result == NVML_SUCCESS) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlShutdown(JNIEnv* env,
                                                                                jclass cls)
 {
-  if (_nvmlShutdown) {
-    _nvmlShutdown();
+  if (nvml.shutdown) {
+    nvml.shutdown();
   }
-  cleanup_nvml();
+  nvml.cleanup();
 }
 
 JNIEXPORT jint JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDeviceCount(JNIEnv* env,
                                                                                      jclass cls)
 {
   unsigned int device_count = 0;
-  nvmlReturn_t result       = _nvmlDeviceGetCount(&device_count);
+  nvmlReturn_t result       = nvml.device_get_count(&device_count);
 
   if (result != NVML_SUCCESS) { return -1; }
 
@@ -650,7 +533,7 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetDevice
 
   // Get device handle by UUID string
   nvmlDevice_t device;
-  nvmlReturn_t nvml_error = _nvmlDeviceGetHandleByUUID(uuid_str, &device);
+  nvmlReturn_t nvml_error = nvml.device_get_handle_by_UUID(uuid_str, &device);
 
   if (nvml_error != NVML_SUCCESS) { return 0; }
 
@@ -673,7 +556,7 @@ Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetAllGPUInfo(JNIEnv* env, jclass
 {
   // Get device count
   unsigned int device_count = 0;
-  nvmlReturn_t result       = _nvmlDeviceGetCount(&device_count);
+  nvmlReturn_t result       = nvml.device_get_count(&device_count);
 
   if (result != NVML_SUCCESS) {
     // Return empty array on error
@@ -693,7 +576,7 @@ Java_com_nvidia_spark_rapids_jni_nvml_NVML_nvmlGetAllGPUInfo(JNIEnv* env, jclass
   // Fill array with individual nvml_result objects for each GPU
   for (unsigned int i = 0; i < device_count; i++) {
     nvmlDevice_t device;
-    nvmlReturn_t device_result = _nvmlDeviceGetHandleByIndex(i, &device);
+    nvmlReturn_t device_result = nvml.device_get_handle_by_index(i, &device);
 
     nvml_result cpp_result;
     if (device_result == NVML_SUCCESS) {
