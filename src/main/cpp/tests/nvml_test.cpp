@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
+#include "../src/nvml_dynamic_loader.hpp"
+
 #include <cuda_runtime.h>
 
 #include <gtest/gtest.h>
 #include <nvml.h>
 
-#include "../src/nvml_dynamic_loader.hpp"
-
 // Dynamic loading of NVML library for testing
 namespace {
 
-NVMLDynamicLoader nvml;
+NVML_dynamic_loader nvml;
 
-} // anonymous namespace
+}  // anonymous namespace
 
 class NVMLTest : public ::testing::Test {
  protected:
@@ -43,9 +43,7 @@ class NVMLTest : public ::testing::Test {
   void TearDown() override
   {
     // Shutdown NVML if it was initialized
-    if (nvml_result == NVML_SUCCESS && nvml.shutdown) {
-      nvml.shutdown();
-    }
+    if (nvml_result == NVML_SUCCESS && nvml.shutdown) { nvml.shutdown(); }
     nvml.cleanup();
   }
 
@@ -60,15 +58,11 @@ class NVMLTest : public ::testing::Test {
 
     unsigned int deviceCount = 0;
     nvmlReturn_t result      = nvml.device_get_count(&deviceCount);
-    if (result != NVML_SUCCESS || deviceCount == 0) {
-      return nullptr;
-    }
+    if (result != NVML_SUCCESS || deviceCount == 0) { return nullptr; }
 
     nvmlDevice_t device;
     result = nvml.device_get_handle_by_index(0, &device);
-    if (result != NVML_SUCCESS) {
-      return nullptr;
-    }
+    if (result != NVML_SUCCESS) { return nullptr; }
 
     return device;
   }
