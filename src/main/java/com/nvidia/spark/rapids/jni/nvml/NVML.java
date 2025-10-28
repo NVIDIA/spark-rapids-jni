@@ -56,6 +56,7 @@ public class NVML {
     // Initialization state
     private static boolean nvmlInitialized = false;
     private static boolean nativeLibraryLoaded = false;
+    private static boolean initializationAttempted = false;
 
     /**
      * Initialize NVML library
@@ -64,6 +65,13 @@ public class NVML {
         if (nvmlInitialized) {
             return true;
         }
+
+        // If initialization was already attempted and failed, don't try again
+        if (initializationAttempted) {
+            return false;
+        }
+
+        initializationAttempted = true;
 
         try {
             if (nvmlInit()) {
@@ -89,6 +97,7 @@ public class NVML {
             try {
                 nvmlShutdown();
                 nvmlInitialized = false;
+                initializationAttempted = false; // Allow re-initialization after shutdown
             } catch (UnsatisfiedLinkError e) {
                 logger.error("Error during NVML shutdown: " + e.getMessage());
             }
