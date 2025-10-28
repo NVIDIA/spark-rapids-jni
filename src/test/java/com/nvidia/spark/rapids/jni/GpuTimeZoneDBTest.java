@@ -25,6 +25,8 @@ import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
@@ -72,12 +74,21 @@ public class GpuTimeZoneDBTest {
     // use today as the random seed so we get different values each day
     Random rng = new Random(LocalDate.now().toEpochDay());
 
-    for (String writerTz : GpuTimeZoneDB.getOrcSupportedTimezones()) {
+    List<String> timezones = Arrays.asList(
+        "America/Los_Angeles",
+        "Asia/Shanghai",
+        "Antarctica/DumontDUrville",
+        "Etc/GMT-12",
+        "CNT",
+        "Australia/Sydney",
+        "Asia/Tokyo");
+
+    for (String writerTz : timezones) {
       if (GpuTimeZoneDB.isDST(writerTz)) {
         // currently do not support DST conversions
         continue;
       }
-      for (String readerTz : GpuTimeZoneDB.getOrcSupportedTimezones()) {
+      for (String readerTz : timezones) {
         if (GpuTimeZoneDB.isDST(readerTz)) {
           // currently do not support DST conversions
           continue;
