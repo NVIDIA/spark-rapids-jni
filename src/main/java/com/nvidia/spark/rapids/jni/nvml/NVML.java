@@ -25,9 +25,6 @@ import org.slf4j.LoggerFactory;
  * This class provides direct access to NVML functionality without any monitoring logic.
  */
 public class NVML {
-    static {
-        NativeDepsLoader.loadNativeDeps();
-    }
 
     private static final Logger logger = LoggerFactory.getLogger(NVML.class);
 
@@ -58,17 +55,29 @@ public class NVML {
     private static boolean nativeLibraryLoaded = false;
 
     /**
-     * Initialize NVML library
+     * Initialize NVML library and load native dependencies
      */
     public static synchronized boolean initialize() {
         if (nvmlInitialized) {
             return true;
         }
 
+        // Load the native library first
+        if (!nativeLibraryLoaded) {
+            logger.debug("Loading NVML native library...");
+            nativeLibraryLoaded = NativeDepsLoader.loadOptionalNativeDeps(new String[]{"nvmljni"});
+            logger.debug("NVML library loading result: {}", nativeLibraryLoaded);
+
+            if (!nativeLibraryLoaded) {
+                logger.debug("Failed to load NVML native library");
+                return false;
+            }
+        }
+
+        // Now initialize NVML
         try {
             if (nvmlInit()) {
                 nvmlInitialized = true;
-                nativeLibraryLoaded = true;
                 return true;
             } else {
                 logger.error("Failed to initialize NVML");
@@ -76,7 +85,6 @@ public class NVML {
             }
         } catch (UnsatisfiedLinkError e) {
             logger.error("NVML JNI not available: " + e.getMessage());
-            nativeLibraryLoaded = false;
             return false;
         }
     }
@@ -96,7 +104,8 @@ public class NVML {
     }
 
     /**
-     * Check if NVML is available and initialized
+     * Check if NVML is available and has been successfully initialized.
+     * Note: Call initialize() first to load native libraries and initialize NVML.
      */
     public static boolean isAvailable() {
         return nvmlInitialized && nativeLibraryLoaded;
