@@ -69,7 +69,7 @@ public class NVML {
             logger.debug("NVML library loading result: {}", nativeLibraryLoaded);
 
             if (!nativeLibraryLoaded) {
-                logger.debug("Failed to load NVML native library");
+                logger.warn("Failed to load NVML native library");
                 return false;
             }
         }
