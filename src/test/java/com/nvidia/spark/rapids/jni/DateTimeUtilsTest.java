@@ -18,6 +18,13 @@ package com.nvidia.spark.rapids.jni;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.Random;
+
 import org.junit.jupiter.api.Test;
 
 import ai.rapids.cudf.ColumnVector;
@@ -144,6 +151,119 @@ public class DateTimeUtilsTest {
             null,
             1584178381000000L);
         ColumnVector result = DateTimeUtils.truncate(input, format)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  // =========== CPU date utils for validation, block begin ===========
+  // copied from Iceberg org.apache.iceberg.util.DateTimeUtil
+  private static final OffsetDateTime EPOCH = Instant.ofEpochSecond(0).atOffset(ZoneOffset.UTC);
+  private static final LocalDate EPOCH_DAY = EPOCH.toLocalDate();
+
+  private static int daysToYearsOnCpu(int days) {
+    return convertDaysOnCpu(days, ChronoUnit.YEARS);
+  }
+
+  private static int daysToMonthsOnCpu(int days) {
+    return convertDaysOnCpu(days, ChronoUnit.MONTHS);
+  }
+
+  private static int convertDaysOnCpu(int days, ChronoUnit granularity) {
+    if (days >= 0) {
+      LocalDate date = EPOCH_DAY.plusDays(days);
+      return (int) granularity.between(EPOCH_DAY, date);
+    } else {
+      // add 1 day to the value to account for the case where there is exactly 1 unit
+      // between the
+      // date and epoch because the result will always be decremented.
+      LocalDate date = EPOCH_DAY.plusDays(days + 1);
+      return (int) granularity.between(EPOCH_DAY, date) - 1;
+    }
+  }
+  // =========== CPU date utils for validation: block end ===========
+
+  @Test
+  void computeYearDiffTest() {
+    // basic test
+    try (
+        ColumnVector input = ColumnVector.timestampDaysFromBoxedInts(
+            -50,
+            -500,
+            null,
+            50,
+            500,
+            null);
+        ColumnVector expected = ColumnVector.fromBoxedInts(
+            -1,
+            -2,
+            null,
+            0,
+            1,
+            null);
+        ColumnVector result = DateTimeUtils.computeYearDiff(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+
+    // random test
+    // use current day as seed
+    long seed = LocalDate.now().toEpochDay();
+    Random random = new Random(seed);
+    int numRows = 1024;
+    int[] days = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      days[i] = random.nextInt();
+    }
+    int[] expectedValues = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      expectedValues[i] = daysToYearsOnCpu(days[i]);
+    }
+    try (
+        ColumnVector input = ColumnVector.daysFromInts(days);
+        ColumnVector expected = ColumnVector.fromInts(expectedValues);
+        ColumnVector result = DateTimeUtils.computeYearDiff(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
+
+  @Test
+  void computeMonthDiffTest() {
+    // basic test
+    try (
+        ColumnVector input = ColumnVector.timestampDaysFromBoxedInts(
+            -50,
+            -500,
+            null,
+            50,
+            500,
+            null);
+        ColumnVector expected = ColumnVector.fromBoxedInts(
+            -2,
+            -17,
+            null,
+            1,
+            16,
+            null);
+        ColumnVector result = DateTimeUtils.computeMonthDiff(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+
+    // random test
+    // use current day as seed
+    long seed = LocalDate.now().toEpochDay();
+    Random random = new Random(seed);
+    int numRows = 1024;
+    int[] days = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      days[i] = random.nextInt();
+    }
+    int[] expectedValues = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      expectedValues[i] = daysToMonthsOnCpu(days[i]);
+    }
+    try (
+        ColumnVector input = ColumnVector.daysFromInts(days);
+        ColumnVector expected = ColumnVector.fromInts(expectedValues);
+        ColumnVector result = DateTimeUtils.computeMonthDiff(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
