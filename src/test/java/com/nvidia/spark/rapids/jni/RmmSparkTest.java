@@ -369,7 +369,7 @@ public class RmmSparkTest {
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
       assertEquals(1, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(0, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
-      assertEquals(ALIGNMENT, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
+      assertEquals(100, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
       RmmSpark.blockThreadUntilReady();
 
       // Allocate something small and verify that it works...
@@ -383,7 +383,7 @@ public class RmmSparkTest {
       assertThrows(GpuSplitAndRetryOOM.class, () -> Rmm.alloc(100).close());
       assertEquals(0, RmmSpark.getAndResetNumRetryThrow(taskid));
       assertEquals(1, RmmSpark.getAndResetNumSplitRetryThrow(taskid));
-      assertEquals(ALIGNMENT, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
+      assertEquals(100, RmmSpark.getAndResetGpuMaxMemoryAllocated(taskid));
 
       // Verify that injecting OOM does not cause the block to actually happen
       assertEquals(RmmSparkThreadState.THREAD_RUNNING, RmmSpark.getStateOf(threadId));
