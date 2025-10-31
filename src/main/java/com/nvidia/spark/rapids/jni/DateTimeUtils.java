@@ -129,6 +129,30 @@ public class DateTimeUtils {
     return new ColumnVector(computeMonthDiff(date.getNativeView()));
   }
 
+  /**
+   * Calculates the difference in months between the epoch month (1970-01) and the
+   * given date column. E.g.: for date '1971-02-01', the result would be 13:
+   * (1 year and 1 month after epoch month)
+   *
+   * @param date The input date column.
+   * @return A column of type INT32 containing the month differences from epoch.
+   */
+  public static ColumnVector computeDayDiff(ColumnView date) {
+    return new ColumnVector(computeDayDiff(date.getNativeView()));
+  }
+
+  /**
+   * Calculates the difference in months between the epoch month (1970-01) and the
+   * given date column. E.g.: for date '1971-02-01', the result would be 13:
+   * (1 year and 1 month after epoch month)
+   *
+   * @param date The input date column.
+   * @return A column of type INT32 containing the month differences from epoch.
+   */
+  public static ColumnVector computeHourDiff(ColumnView date) {
+    return new ColumnVector(computeHourDiff(date.getNativeView()));
+  }
+
   private static native long rebaseGregorianToJulian(long nativeHandle);
 
   private static native long rebaseJulianToGregorian(long nativeHandle);
@@ -140,4 +164,8 @@ public class DateTimeUtils {
   private static native long computeYearDiff(long nativeHandle);
 
   private static native long computeMonthDiff(long nativeHandle);
+
+  private static native long computeDayDiff(long nativeHandle);
+
+  private static native long computeHourDiff(long nativeHandle);
 }

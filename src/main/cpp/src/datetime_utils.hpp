@@ -68,4 +68,15 @@ std::unique_ptr<cudf::column> compute_month_diff(
   cudf::column_view const& date_input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+std::unique_ptr<cudf::column> compute_day_diff(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
+std::unique_ptr<cudf::column> compute_hour_diff(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+
 }  // namespace spark_rapids_jni

@@ -115,4 +115,36 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_computeMo
   JNI_CATCH(env, 0);
 }
 
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_computeDayDiff(JNIEnv* env,
+                                                                                      jclass,
+                                                                                      jlong input)
+{
+  JNI_NULL_CHECK(env, input, "input column is null", 0);
+
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(input);
+    auto output         = spark_rapids_jni::compute_day_diff(*input_cv);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  JNI_CATCH(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_DateTimeUtils_computeHourDiff(JNIEnv* env,
+                                                                                       jclass,
+                                                                                       jlong input)
+{
+  JNI_NULL_CHECK(env, input, "input column is null", 0);
+
+  JNI_TRY
+  {
+    cudf::jni::auto_set_device(env);
+    auto const input_cv = reinterpret_cast<cudf::column_view const*>(input);
+    auto output         = spark_rapids_jni::compute_hour_diff(*input_cv);
+    return reinterpret_cast<jlong>(output.release());
+  }
+  JNI_CATCH(env, 0);
+}
+
 }  // extern "C"
