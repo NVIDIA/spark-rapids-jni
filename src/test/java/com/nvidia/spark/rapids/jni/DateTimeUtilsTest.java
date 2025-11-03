@@ -159,6 +159,7 @@ public class DateTimeUtilsTest {
   // copied from Iceberg org.apache.iceberg.util.DateTimeUtil
   private static final OffsetDateTime EPOCH = Instant.ofEpochSecond(0).atOffset(ZoneOffset.UTC);
   private static final LocalDate EPOCH_DAY = EPOCH.toLocalDate();
+  private static final long MICROS_PER_SECOND = 1_000_000L;
 
   private static int daysToYearsOnCpu(int days) {
     return convertDaysOnCpu(days, ChronoUnit.YEARS);
@@ -180,6 +181,42 @@ public class DateTimeUtilsTest {
       return (int) granularity.between(EPOCH_DAY, date) - 1;
     }
   }
+
+  private static int microsToYearsOnCpu(long micros) {
+    return convertMicros(micros, ChronoUnit.YEARS);
+  }
+
+  private static int microsToMonthsOnCpu(long micros) {
+    return convertMicros(micros, ChronoUnit.MONTHS);
+  }
+
+  private static int microsToDaysOnCpu(long micros) {
+    return convertMicros(micros, ChronoUnit.DAYS);
+  }
+
+  private static int microsToHoursOnCpu(long micros) {
+    return convertMicros(micros, ChronoUnit.HOURS);
+  }
+
+  private static int convertMicros(long micros, ChronoUnit granularity) {
+    if (micros >= 0) {
+      long epochSecond = Math.floorDiv(micros, MICROS_PER_SECOND);
+      long nanoAdjustment = Math.floorMod(micros, MICROS_PER_SECOND) * 1000;
+      return (int) granularity.between(EPOCH, toOffsetDateTime(epochSecond, nanoAdjustment));
+    } else {
+      // add 1 micro to the value to account for the case where there is exactly 1
+      // unit between
+      // the timestamp and epoch because the result will always be decremented.
+      long epochSecond = Math.floorDiv(micros, MICROS_PER_SECOND);
+      long nanoAdjustment = Math.floorMod(micros + 1, MICROS_PER_SECOND) * 1000;
+      return (int) granularity.between(EPOCH, toOffsetDateTime(epochSecond, nanoAdjustment)) - 1;
+    }
+  }
+
+  private static OffsetDateTime toOffsetDateTime(long epochSecond, long nanoAdjustment) {
+    return Instant.ofEpochSecond(epochSecond, nanoAdjustment).atOffset(ZoneOffset.UTC);
+  }
+
   // =========== CPU date utils for validation: block end ===========
 
   @Test
@@ -204,24 +241,31 @@ public class DateTimeUtilsTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // random test
-    // use current day as seed
+    // random test, use current day as seed
     long seed = LocalDate.now().toEpochDay();
     Random random = new Random(seed);
     int numRows = 1024;
     int[] days = new int[numRows];
+    long[] micros = new long[numRows];
     for (int i = 0; i < numRows; ++i) {
       days[i] = random.nextInt();
+      micros[i] = random.nextLong();
     }
-    int[] expectedValues = new int[numRows];
+    int[] expectedValues1 = new int[numRows];
+    int[] expectedValues2 = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
-      expectedValues[i] = daysToYearsOnCpu(days[i]);
+      expectedValues1[i] = daysToYearsOnCpu(days[i]);
+      expectedValues2[i] = microsToYearsOnCpu(micros[i]);
     }
     try (
-        ColumnVector input = ColumnVector.daysFromInts(days);
-        ColumnVector expected = ColumnVector.fromInts(expectedValues);
-        ColumnVector result = DateTimeUtils.computeYearDiff(input)) {
-      assertColumnsAreEqual(expected, result);
+        ColumnVector input1 = ColumnVector.daysFromInts(days);
+        ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
+        ColumnVector result1 = DateTimeUtils.computeYearDiff(input1);
+        ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
+        ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
+        ColumnVector result2 = DateTimeUtils.computeYearDiff(input2)) {
+      assertColumnsAreEqual(expected1, result1);
+      assertColumnsAreEqual(expected2, result2);
     }
   }
 
@@ -247,23 +291,82 @@ public class DateTimeUtilsTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // random test
-    // use current day as seed
+    // random test, use current day as seed
     long seed = LocalDate.now().toEpochDay();
     Random random = new Random(seed);
     int numRows = 1024;
     int[] days = new int[numRows];
+    long[] micros = new long[numRows];
     for (int i = 0; i < numRows; ++i) {
       days[i] = random.nextInt();
+      micros[i] = random.nextLong();
+    }
+    int[] expectedValues1 = new int[numRows];
+    int[] expectedValues2 = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      expectedValues1[i] = daysToMonthsOnCpu(days[i]);
+      expectedValues2[i] = microsToMonthsOnCpu(micros[i]);
+    }
+    try (
+        ColumnVector input1 = ColumnVector.daysFromInts(days);
+        ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
+        ColumnVector result1 = DateTimeUtils.computeMonthDiff(input1);
+        ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
+        ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
+        ColumnVector result2 = DateTimeUtils.computeMonthDiff(input2)) {
+      assertColumnsAreEqual(expected1, result1);
+      assertColumnsAreEqual(expected2, result2);
+    }
+  }
+
+  @Test
+  void computeDaysDiffTest() {
+    // random test, use current day as seed
+    long seed = LocalDate.now().toEpochDay();
+    Random random = new Random(seed);
+    int numRows = 1024;
+    int[] days = new int[numRows];
+    long[] micros = new long[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      days[i] = random.nextInt();
+      micros[i] = random.nextLong();
+    }
+    int[] expectedValues1 = new int[numRows];
+    int[] expectedValues2 = new int[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      expectedValues1[i] = days[i]; // do nothing, days to days
+      expectedValues2[i] = microsToDaysOnCpu(micros[i]);
+    }
+    try (
+        ColumnVector input1 = ColumnVector.daysFromInts(days);
+        ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
+        ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
+        ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
+        ColumnVector resultOfDate = DateTimeUtils.computeDayDiff(input1);
+        ColumnVector resultOfMicros = DateTimeUtils.computeDayDiff(input2)) {
+      assertColumnsAreEqual(expected1, resultOfDate);
+      assertColumnsAreEqual(expected2, resultOfMicros);
+    }
+  }
+
+  @Test
+  void computeHoursDiffTest() {
+    // random test, use current day as seed
+    long seed = LocalDate.now().toEpochDay();
+    Random random = new Random(seed);
+    int numRows = 1024;
+    long[] micros = new long[numRows];
+    for (int i = 0; i < numRows; ++i) {
+      micros[i] = random.nextLong();
     }
     int[] expectedValues = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
-      expectedValues[i] = daysToMonthsOnCpu(days[i]);
+      expectedValues[i] = microsToHoursOnCpu(micros[i]);
     }
     try (
-        ColumnVector input = ColumnVector.daysFromInts(days);
+        ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(micros);
         ColumnVector expected = ColumnVector.fromInts(expectedValues);
-        ColumnVector result = DateTimeUtils.computeMonthDiff(input)) {
+        ColumnVector result = DateTimeUtils.computeHourDiff(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }

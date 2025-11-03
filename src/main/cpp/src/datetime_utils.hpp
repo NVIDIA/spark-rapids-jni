@@ -42,38 +42,60 @@ std::unique_ptr<cudf::column> truncate(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Calculates the difference in years between the epoch year (1970) and the given date column.
- * E.g.: for date '1971-01-01', the result would be 1: (1 year after epoch year)
+ * @brief Calculates the difference in years between the epoch year (1970) and the
+ * given date/timestamp column. E.g.: for date '1971-01-01', the result would be 1:
+ * (1 year after epoch year)
  *
- * @param date The input date column.
+ * @param input The input date/timestamp column.
  * @param stream The CUDA stream to use for device memory operations and kernel launches.
  * @param mr Device memory resource to use for allocations.
  * @return A column of type INT32 containing the year differences from epoch.
  */
 std::unique_ptr<cudf::column> compute_year_diff(
-  cudf::column_view const& date_input,
+  cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * Calculates the difference in months between the epoch month (1970-01) and the given date column.
- * E.g.: for date '1971-02-01', the result would be 13: (1 year and 1 month after epoch month)
+ * @brief Calculates the difference in months between the epoch month (1970-01) and the
+ * given date/timestamp column. E.g.: for date '1971-02-01', the result would be 13:
+ * (1 year and 1 month after epoch month)
  *
- * @param date The input date column.
+ * @param input The input date/timestamp column.
  * @param stream The CUDA stream to use for device memory operations and kernel launches.
  * @param mr Device memory resource to use for allocations.
  * @return A column of type INT32 containing the month differences from epoch.
  */
 std::unique_ptr<cudf::column> compute_month_diff(
-  cudf::column_view const& date_input,
+  cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
+/**
+ * @brief Calculates the difference in days between the epoch month (1970-01) and the
+ * given date/timestamp column. E.g.: for date '1970-01-21', the result would be 20:
+ * (20 days after epoch day)
+ *
+ * @param input The input date/timestamp column.
+ * @param stream The CUDA stream to use for device memory operations and kernel launches.
+ * @param mr Device memory resource to use for allocations.
+ * @return A column of type INT32 containing the day differences from epoch.
+ */
 std::unique_ptr<cudf::column> compute_day_diff(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
+/**
+ * Calculates the difference in hours between the epoch hour (1970-01-01T00:00:00)
+ * and the given timestamp column. E.g.: for timestamp '1970-01-01 01:00:00',
+ * the result would be 1 (1 hour after epoch hour)
+ *
+ * @param timestamp The input timestamp column.
+ * @param stream The CUDA stream to use for device memory operations and kernel launches.
+ * @param mr Device memory resource to use for allocations.
+ * @return A column of type INT32 containing the hour differences from epoch.
+ */
 std::unique_ptr<cudf::column> compute_hour_diff(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),

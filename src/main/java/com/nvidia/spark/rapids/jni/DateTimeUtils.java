@@ -105,52 +105,68 @@ public class DateTimeUtils {
     return new ColumnVector(truncateWithScalarFormat(datetime.getNativeView(), format));
   }
 
+  private static void checkTimestampOrDate(ColumnView input) {
+    DType type = input.getType();
+    if (type.getTypeId() != DType.DTypeEnum.TIMESTAMP_MICROSECONDS &&
+        type.getTypeId() != DType.DTypeEnum.TIMESTAMP_DAYS) {
+      throw new IllegalArgumentException("Input column must be of type " +
+          "TIMESTAMP_MICROSECONDS or TIMESTAMP_DAYS");
+    }
+  }
+
   /**
    * Calculates the difference in years between the epoch year (1970) and the
-   * given date column. E.g.: for date '1971-01-01', the result would be 1:
-   * (1 year after epoch year)
+   * given date/timestamp column. E.g.: for date '1971-01-01', the result would be
+   * 1: (1 year after epoch year)
    *
-   * @param date The input date column.
+   * @param input The input date/timestamp column.
    * @return A column of type INT32 containing the year differences from epoch.
    */
-  public static ColumnVector computeYearDiff(ColumnView date) {
-    return new ColumnVector(computeYearDiff(date.getNativeView()));
+  public static ColumnVector computeYearDiff(ColumnView input) {
+    checkTimestampOrDate(input);
+    return new ColumnVector(computeYearDiff(input.getNativeView()));
   }
 
   /**
    * Calculates the difference in months between the epoch month (1970-01) and the
-   * given date column. E.g.: for date '1971-02-01', the result would be 13:
-   * (1 year and 1 month after epoch month)
+   * given date/timestamp column. E.g.: for date '1971-02-01', the result would be
+   * 13: (1 year and 1 month after epoch month)
    *
-   * @param date The input date column.
+   * @param input The input date/timestamp column.
    * @return A column of type INT32 containing the month differences from epoch.
    */
-  public static ColumnVector computeMonthDiff(ColumnView date) {
-    return new ColumnVector(computeMonthDiff(date.getNativeView()));
+  public static ColumnVector computeMonthDiff(ColumnView input) {
+    checkTimestampOrDate(input);
+    return new ColumnVector(computeMonthDiff(input.getNativeView()));
   }
 
   /**
-   * Calculates the difference in months between the epoch month (1970-01) and the
-   * given date column. E.g.: for date '1971-02-01', the result would be 13:
-   * (1 year and 1 month after epoch month)
+   * Calculates the difference in days between the epoch month (1970-01) and the
+   * given date/timestamp column. E.g.: for date '1970-01-21', the result would be
+   * 20: (20 days after epoch day)
    *
-   * @param date The input date column.
-   * @return A column of type INT32 containing the month differences from epoch.
+   * @param input The input date/timestamp column.
+   * @return A column of type INT32 containing the day differences from epoch.
    */
-  public static ColumnVector computeDayDiff(ColumnView date) {
-    return new ColumnVector(computeDayDiff(date.getNativeView()));
+  public static ColumnVector computeDayDiff(ColumnView input) {
+    checkTimestampOrDate(input);
+    return new ColumnVector(computeDayDiff(input.getNativeView()));
   }
 
   /**
-   * Calculates the difference in months between the epoch month (1970-01) and the
-   * given date column. E.g.: for date '1971-02-01', the result would be 13:
-   * (1 year and 1 month after epoch month)
+   * Calculates the difference in hours between the epoch hour
+   * (1970-01-01T00:00:00) and the given timestamp column.
+   * E.g.: for timestamp '1970-01-01 01:00:00', the result would be 1
+   * (1 hour after epoch hour)
    *
-   * @param date The input date column.
-   * @return A column of type INT32 containing the month differences from epoch.
+   * @param timestamp The input timestamp column.
+   * @return A column of type INT32 containing the hour differences from epoch.
    */
-  public static ColumnVector computeHourDiff(ColumnView date) {
-    return new ColumnVector(computeHourDiff(date.getNativeView()));
+  public static ColumnVector computeHourDiff(ColumnView input) {
+    if (input.getType().getTypeId() != DType.DTypeEnum.TIMESTAMP_MICROSECONDS) {
+      throw new IllegalArgumentException("Input column must be of type TIMESTAMP_MICROSECONDS");
+    }
+    return new ColumnVector(computeHourDiff(input.getNativeView()));
   }
 
   private static native long rebaseGregorianToJulian(long nativeHandle);
