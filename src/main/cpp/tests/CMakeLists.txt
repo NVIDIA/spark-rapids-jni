@@ -127,6 +127,3 @@ ConfigureTest(CONV
 
 ConfigureTest(MULTIPLY
     multiply.cpp)
-
-ConfigureTest(AVERAGE_EXAMPLE
-    average_example.cu)
