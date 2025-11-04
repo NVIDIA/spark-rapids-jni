@@ -21,6 +21,8 @@ import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmWrappingDeviceMemoryResource;
+
+import org.apache.hadoop.mapreduce.lib.jobcontrol.JobControl.ThreadState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,7 +110,7 @@ public class SparkResourceAdaptor
    * @param taskId the task ID this thread is associated with.
    */
   public void startDedicatedTaskThread(long threadId, long taskId) {
-    log.info("startDedicatedTaskThread: threadId: {}, task id: {}",
+    log.debug("startDedicatedTaskThread: threadId: {}, task id: {}",
         threadId, taskId
     );
     startDedicatedTaskThread(getHandle(), threadId, taskId);
@@ -127,7 +129,7 @@ public class SparkResourceAdaptor
     // protections that we normally have from RmmSpark. So we synchronize this
     // method and verify that the handle is still good before we call into native code.
     if (isOpen()) {
-      checkAndBreakDeadlocks(getHandle());
+      checkAndBreakDeadlocks(getHandle(), ThreadStateRegistry.blockedThreadIds());
     }
   }
 
@@ -142,7 +144,7 @@ public class SparkResourceAdaptor
    */
   public void poolThreadWorkingOnTasks(boolean isForShuffle, long threadId, long[] taskIds) {
     if (taskIds.length > 0) {
-      log.info("poolThreadWorkingOnTasks: threadId: {}, task id: {}",
+      log.debug("poolThreadWorkingOnTasks: threadId: {}, task id: {}",
           threadId, Arrays.toString(taskIds)
       );
       poolThreadWorkingOnTasks(getHandle(), isForShuffle, threadId, taskIds);
@@ -393,7 +395,7 @@ public class SparkResourceAdaptor
   private static native long getTotalBlockedOrLostTime(long handle, long taskId);
   private static native void startRetryBlock(long handle, long threadId);
   private static native void endRetryBlock(long handle, long threadId);
-  private static native void checkAndBreakDeadlocks(long handle);
+  private static native void checkAndBreakDeadlocks(long handle, long[] blockedThreadIds);
   private static native boolean preCpuAlloc(long handle, long amount, boolean blocking);
   private static native void postCpuAllocSuccess(long handle, long ptr, long amount,
                                                  boolean blocking, boolean wasRecursive);
