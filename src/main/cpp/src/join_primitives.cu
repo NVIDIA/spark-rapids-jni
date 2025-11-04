@@ -484,7 +484,9 @@ rmm::device_uvector<cudf::size_type> make_semi(
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    left_indices.begin(),
                    left_indices.end(),
-                   [left_has_match = left_has_match.data()] __device__(cudf::size_type idx) {
+                   [left_has_match = left_has_match.data(),
+                    left_table_size] __device__(cudf::size_type idx) {
+                     if (idx < 0 || idx >= left_table_size) { return; }
                      left_has_match[idx] = true;
                    });
 
@@ -521,7 +523,9 @@ rmm::device_uvector<cudf::size_type> make_anti(
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    left_indices.begin(),
                    left_indices.end(),
-                   [left_has_match = left_has_match.data()] __device__(cudf::size_type idx) {
+                   [left_has_match = left_has_match.data(),
+                    left_table_size] __device__(cudf::size_type idx) {
+                     if (idx < 0 || idx >= left_table_size) { return; }
                      left_has_match[idx] = true;
                    });
 

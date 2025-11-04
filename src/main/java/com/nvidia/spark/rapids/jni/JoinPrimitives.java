@@ -178,15 +178,15 @@ public class JoinPrimitives {
    */
   public static GatherMap[] makeLeftOuter(GatherMap leftGatherMap,
                                          GatherMap rightGatherMap,
-                                         long leftTableSize,
-                                         long rightTableSize) {
+                                         int leftTableSize,
+                                         int rightTableSize) {
     long[] result = nativeMakeLeftOuter(
       leftGatherMap.getBufferAddress(),
       leftGatherMap.getBufferLength(),
       rightGatherMap.getBufferAddress(),
       rightGatherMap.getBufferLength(),
-      (int)leftTableSize,
-      (int)rightTableSize);
+      leftTableSize,
+      rightTableSize);
     
     return gatherMapsFromJNI(result);
   }
@@ -212,15 +212,15 @@ public class JoinPrimitives {
    */
   public static GatherMap[] makeFullOuter(GatherMap leftGatherMap,
                                           GatherMap rightGatherMap,
-                                          long leftTableSize,
-                                          long rightTableSize) {
+                                          int leftTableSize,
+                                          int rightTableSize) {
     long[] result = nativeMakeFullOuter(
       leftGatherMap.getBufferAddress(),
       leftGatherMap.getBufferLength(),
       rightGatherMap.getBufferAddress(),
       rightGatherMap.getBufferLength(),
-      (int)leftTableSize,
-      (int)rightTableSize);
+      leftTableSize,
+      rightTableSize);
     
     return gatherMapsFromJNI(result);
   }
@@ -245,11 +245,11 @@ public class JoinPrimitives {
    * @param tableSize Number of rows in the table that the indices are from
    * @return A GatherMap of unique indices
    */
-  public static GatherMap makeSemi(GatherMap gatherMap, long tableSize) {
+  public static GatherMap makeSemi(GatherMap gatherMap, int tableSize) {
     long[] result = nativeMakeSemi(
       gatherMap.getBufferAddress(),
       gatherMap.getBufferLength(),
-      (int)tableSize);
+      tableSize);
     
     return gatherMapFromJNI(result[1], result[0], result[2]);
   }
@@ -270,11 +270,11 @@ public class JoinPrimitives {
    * @return A GatherMap of unmatched indices
    */
   public static GatherMap makeAnti(GatherMap gatherMap,
-                                   long tableSize) {
+                                   int tableSize) {
     long[] result = nativeMakeAnti(
       gatherMap.getBufferAddress(),
       gatherMap.getBufferLength(),
-      (int)tableSize);
+      tableSize);
     
     return gatherMapFromJNI(result[1], result[0], result[2]);
   }
@@ -300,11 +300,11 @@ public class JoinPrimitives {
    * @return Boolean ColumnVector where true indicates row was matched
    */
   public static ColumnVector getMatchedRows(GatherMap gatherMap,
-                                            long tableSize) {
+                                            int tableSize) {
     return new ColumnVector(nativeGetMatchedRows(
       gatherMap.getBufferAddress(),
       gatherMap.getBufferLength(),
-      (int)tableSize));
+      tableSize));
   }
 
   // =============================================================================

@@ -225,8 +225,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.sortMergeInnerJoin(
           leftTable, rightTable, false, false, true);
@@ -255,8 +255,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
@@ -282,8 +282,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.sortMergeInnerJoin(
           leftTable, rightTable, false, false, false);
@@ -309,8 +309,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, false);
@@ -335,8 +335,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.sortMergeInnerJoin(
           leftTable, rightTable, false, false, true);
@@ -380,8 +380,8 @@ public class JoinPrimitivesTest {
          Table rightTable = new Table(rightData);
          CompiledExpression condition = expr.compile()) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       // First get gather maps from equality join
       GatherMap[] equalityMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -424,8 +424,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       // Get inner join result
       GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -434,7 +434,7 @@ public class JoinPrimitivesTest {
       try {
         // Make it left outer
         GatherMap[] outerMaps = JoinPrimitives.makeLeftOuter(
-            innerMaps[0], innerMaps[1], (int)leftSize, (int)rightSize);
+            innerMaps[0], innerMaps[1], leftSize, rightSize);
 
         try {
           // Expected: (0,null), (1,0), (2,1), (3,null)
@@ -467,8 +467,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       // Get inner join result
       GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -477,7 +477,7 @@ public class JoinPrimitivesTest {
       try {
         // Make it right outer by swapping: makeLeftOuter(right, left, rightSize, leftSize)
         GatherMap[] outerMaps = JoinPrimitives.makeLeftOuter(
-            innerMaps[1], innerMaps[0], (int)rightSize, (int)leftSize);
+            innerMaps[1], innerMaps[0], rightSize, leftSize);
 
         try {
           // Expected: (0,1), (1,2), (2,null) - right/left indices
@@ -509,8 +509,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       // Get inner join result
       GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -519,7 +519,7 @@ public class JoinPrimitivesTest {
       try {
         // Make it full outer
         GatherMap[] outerMaps = JoinPrimitives.makeFullOuter(
-            innerMaps[0], innerMaps[1], (int)leftSize, (int)rightSize);
+            innerMaps[0], innerMaps[1], leftSize, rightSize);
 
         try {
           // Expected: (0,0), (1,null), (null,1)
@@ -555,7 +555,7 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
 
       // Get inner join result (will have duplicates)
       GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -586,7 +586,7 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
 
       // Get inner join result
       GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -596,7 +596,7 @@ public class JoinPrimitivesTest {
         // Make it semi first (only needs left gather map)
         try (GatherMap semiMap = JoinPrimitives.makeSemi(innerMaps[0], leftSize)) {
           // Then make it anti
-          try (GatherMap antiMap = JoinPrimitives.makeAnti(semiMap, (int)leftSize)) {
+          try (GatherMap antiMap = JoinPrimitives.makeAnti(semiMap, leftSize)) {
             Set<Integer> expected = new HashSet<>(Arrays.asList(0, 3));
             assertGatherMapIndices(antiMap, leftSize, expected, "Anti join");
           }
@@ -718,8 +718,8 @@ public class JoinPrimitivesTest {
          Table rightDataTable = new Table(rightData);
          CompiledExpression condition = expr.compile()) {
 
-      long leftSize = leftDataTable.getRowCount();
-      long rightSize = rightDataTable.getRowCount();
+      int leftSize = (int) leftDataTable.getRowCount();
+      int rightSize = (int) rightDataTable.getRowCount();
 
       // Step 1: Equality join
       GatherMap[] equalityMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -766,8 +766,8 @@ public class JoinPrimitivesTest {
          Table rightDataTable = new Table(rightData);
          CompiledExpression condition = expr.compile()) {
 
-      long leftSize = leftDataTable.getRowCount();
-      long rightSize = rightDataTable.getRowCount();
+      int leftSize = (int) leftDataTable.getRowCount();
+      int rightSize = (int) rightDataTable.getRowCount();
 
       // Step 1: Equality join
       GatherMap[] equalityMaps = JoinPrimitives.sortMergeInnerJoin(
@@ -781,7 +781,7 @@ public class JoinPrimitivesTest {
         try {
           // Step 3: Make left outer
           GatherMap[] leftOuterMaps = JoinPrimitives.makeLeftOuter(
-              filteredMaps[0], filteredMaps[1], (int)leftSize, (int)rightSize);
+              filteredMaps[0], filteredMaps[1], leftSize, rightSize);
 
           try {
             // Expected: (0,0) matches from AST, plus (1,null) and (2,null) unmatched left rows
@@ -821,8 +821,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.sortMergeInnerJoin(
           leftTable, rightTable, false, false, true);
@@ -847,8 +847,8 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] gatherMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
@@ -878,8 +878,8 @@ public class JoinPrimitivesTest {
          Table rightTable = new Table(rightKeys);
          CompiledExpression condition = expr.compile()) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       // First get empty gather maps
       GatherMap[] emptyMaps = JoinPrimitives.hashInnerJoin(
@@ -915,15 +915,15 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] emptyMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
 
       try {
         GatherMap[] leftOuterMaps = JoinPrimitives.makeLeftOuter(
-            emptyMaps[0], emptyMaps[1], (int)leftSize, (int)rightSize);
+            emptyMaps[0], emptyMaps[1], leftSize, rightSize);
 
         try {
           // Expected: all left rows with null right indices (0,null), (1,null), (2,null)
@@ -952,15 +952,15 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
-      long rightSize = rightTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
 
       GatherMap[] emptyMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
 
       try {
         GatherMap[] fullOuterMaps = JoinPrimitives.makeFullOuter(
-            emptyMaps[0], emptyMaps[1], (int)leftSize, (int)rightSize);
+            emptyMaps[0], emptyMaps[1], leftSize, rightSize);
 
         try {
           // Expected: (0,null), (1,null), (null,0), (null,1), (null,2)
@@ -990,7 +990,7 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
 
       GatherMap[] emptyMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
@@ -1017,13 +1017,13 @@ public class JoinPrimitivesTest {
          Table leftTable = new Table(leftKeys);
          Table rightTable = new Table(rightKeys)) {
 
-      long leftSize = leftTable.getRowCount();
+      int leftSize = (int) leftTable.getRowCount();
 
       GatherMap[] emptyMaps = JoinPrimitives.hashInnerJoin(
           leftTable, rightTable, true);
 
       try {
-        try (GatherMap antiMap = JoinPrimitives.makeAnti(emptyMaps[0], (int)leftSize)) {
+        try (GatherMap antiMap = JoinPrimitives.makeAnti(emptyMaps[0], leftSize)) {
           // No matches, so anti should return all left rows
           Set<Integer> expected = new HashSet<>(Arrays.asList(0, 1, 2));
           assertGatherMapIndices(antiMap, leftSize, expected, "Anti from empty inner join");
@@ -1100,6 +1100,93 @@ public class JoinPrimitivesTest {
             assertTrue(matchedHost.getBoolean(1));   // 1 matches (second occurrence)
             assertTrue(matchedHost.getBoolean(2));   // 2 matches
             assertFalse(matchedHost.getBoolean(3));  // 3 doesn't match
+          }
+        }
+      } finally {
+        for (GatherMap gm : innerMaps) {
+          if (gm != null) gm.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void testMakeSemiWithSentinelValues() {
+    // Test that makeSemi properly handles sentinel values (bounds checking)
+    // When making left outer, unmatched right indices get sentinel values
+    // If we accidentally pass right gather map to makeSemi, it should handle sentinels gracefully
+
+    try (ColumnVector leftKeys = ColumnVector.fromInts(0, 1, 2);
+         ColumnVector rightKeys = ColumnVector.fromInts(0);
+         Table leftTable = new Table(leftKeys);
+         Table rightTable = new Table(rightKeys)) {
+
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
+
+      GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
+          leftTable, rightTable, false, false, true);
+
+      try {
+        GatherMap[] outerMaps = JoinPrimitives.makeLeftOuter(
+            innerMaps[0], innerMaps[1], leftSize, rightSize);
+
+        try {
+          // outerMaps[1] (right indices) will contain sentinel values for unmatched rows
+          // This tests that makeSemi handles out-of-bounds sentinel values correctly
+          try (GatherMap semiResult = JoinPrimitives.makeSemi(outerMaps[1], rightSize)) {
+            // Should only include valid right index 0, ignoring sentinel values
+            assertEquals(1, semiResult.getRowCount(), 
+                "Semi join should only include valid (non-sentinel) indices");
+            
+            try (HostColumnVector semiHost = semiResult.toColumnView(0, 1).copyToHost()) {
+              assertEquals(0, semiHost.getInt(0), "Should have right index 0");
+            }
+          }
+        } finally {
+          for (GatherMap gm : outerMaps) {
+            if (gm != null) gm.close();
+          }
+        }
+      } finally {
+        for (GatherMap gm : innerMaps) {
+          if (gm != null) gm.close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void testMakeAntiWithSentinelValues() {
+    // Test that makeAnti properly handles sentinel values (bounds checking)
+    // Similar to testMakeSemiWithSentinelValues but for anti join
+
+    try (ColumnVector leftKeys = ColumnVector.fromInts(0, 1, 2);
+         ColumnVector rightKeys = ColumnVector.fromInts(0);
+         Table leftTable = new Table(leftKeys);
+         Table rightTable = new Table(rightKeys)) {
+
+      int leftSize = (int) leftTable.getRowCount();
+      int rightSize = (int) rightTable.getRowCount();
+
+      GatherMap[] innerMaps = JoinPrimitives.sortMergeInnerJoin(
+          leftTable, rightTable, false, false, true);
+
+      try {
+        GatherMap[] outerMaps = JoinPrimitives.makeLeftOuter(
+            innerMaps[0], innerMaps[1], leftSize, rightSize);
+
+        try {
+          // outerMaps[1] (right indices) will contain sentinel values for unmatched rows
+          // This tests that makeAnti handles out-of-bounds sentinel values correctly
+          try (GatherMap antiResult = JoinPrimitives.makeAnti(outerMaps[1], rightSize)) {
+            // Should return empty since right index 0 is matched (ignoring sentinels)
+            assertEquals(0, antiResult.getRowCount(), 
+                "Anti join should return empty when all valid indices are matched");
+          }
+        } finally {
+          for (GatherMap gm : outerMaps) {
+            if (gm != null) gm.close();
           }
         }
       } finally {
