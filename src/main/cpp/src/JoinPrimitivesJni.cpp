@@ -70,13 +70,13 @@ jlongArray gather_single_map_to_java(JNIEnv* env, rmm::device_uvector<cudf::size
 /**
  * @brief Wrap a device buffer address and length as a device_span (zero-copy)
  * This does not take ownership of the buffer or copy any data
- * 
+ *
  * @param buffer_address Device buffer address (must be nullptr if and only if buffer_length is 0)
  * @param buffer_length Buffer length in bytes
  * @return device_span providing a view of the buffer (empty if buffer_length is 0)
  */
-cudf::device_span<cudf::size_type const> wrap_buffer_as_span(
-  void* buffer_address, size_t buffer_length)
+cudf::device_span<cudf::size_type const> wrap_buffer_as_span(void* buffer_address,
+                                                             size_t buffer_length)
 {
   size_t num_elements = buffer_length / sizeof(cudf::size_type);
   return cudf::device_span<cudf::size_type const>(
@@ -92,14 +92,13 @@ extern "C" {
 // =============================================================================
 
 JNIEXPORT jlongArray JNICALL
-Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeSortMergeInnerJoin(
-  JNIEnv* env,
-  jclass,
-  jlong j_left_keys,
-  jlong j_right_keys,
-  jboolean j_is_left_sorted,
-  jboolean j_is_right_sorted,
-  jboolean j_nulls_equal)
+Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeSortMergeInnerJoin(JNIEnv* env,
+                                                                         jclass,
+                                                                         jlong j_left_keys,
+                                                                         jlong j_right_keys,
+                                                                         jboolean j_is_left_sorted,
+                                                                         jboolean j_is_right_sorted,
+                                                                         jboolean j_nulls_equal)
 {
   JNI_NULL_CHECK(env, j_left_keys, "left keys table is null", nullptr);
   JNI_NULL_CHECK(env, j_right_keys, "right keys table is null", nullptr);
@@ -165,14 +164,23 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeFilterGatherMapsByAST(
 {
   // Allow null addresses only if length is 0 (empty gather map)
   if (j_left_buffer_address == 0 && j_left_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left buffer address is null but length is non-zero",
+                  nullptr);
   }
   if (j_right_buffer_address == 0 && j_right_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "right buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "right buffer address is null but length is non-zero",
+                  nullptr);
   }
   // Verify paired gather maps have the same length
   if (j_left_buffer_length != j_right_buffer_length) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left and right gather maps must have the same length", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left and right gather maps must have the same length",
+                  nullptr);
   }
   JNI_NULL_CHECK(env, j_left_table, "left table is null", nullptr);
   JNI_NULL_CHECK(env, j_right_table, "right table is null", nullptr);
@@ -187,10 +195,10 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeFilterGatherMapsByAST(
     auto const condition   = reinterpret_cast<cudf::jni::ast::compiled_expr const*>(j_condition);
 
     // Wrap buffer addresses as device_spans (zero-copy, does not take ownership)
-    auto left_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
-    auto right_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
+    auto left_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
+    auto right_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
 
     auto result = spark_rapids_jni::filter_gather_maps_by_ast(
       left_indices, right_indices, *left_table, *right_table, condition->get_top_expression());
@@ -205,26 +213,34 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeFilterGatherMapsByAST(
 // =============================================================================
 
 JNIEXPORT jlongArray JNICALL
-Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeLeftOuter(
-  JNIEnv* env,
-  jclass,
-  jlong j_left_buffer_address,
-  jlong j_left_buffer_length,
-  jlong j_right_buffer_address,
-  jlong j_right_buffer_length,
-  jint j_left_table_size,
-  jint j_right_table_size)
+Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeLeftOuter(JNIEnv* env,
+                                                                    jclass,
+                                                                    jlong j_left_buffer_address,
+                                                                    jlong j_left_buffer_length,
+                                                                    jlong j_right_buffer_address,
+                                                                    jlong j_right_buffer_length,
+                                                                    jint j_left_table_size,
+                                                                    jint j_right_table_size)
 {
   // Allow null addresses only if length is 0 (empty gather map)
   if (j_left_buffer_address == 0 && j_left_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left buffer address is null but length is non-zero",
+                  nullptr);
   }
   if (j_right_buffer_address == 0 && j_right_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "right buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "right buffer address is null but length is non-zero",
+                  nullptr);
   }
   // Verify paired gather maps have the same length
   if (j_left_buffer_length != j_right_buffer_length) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left and right gather maps must have the same length", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left and right gather maps must have the same length",
+                  nullptr);
   }
 
   JNI_TRY
@@ -232,10 +248,10 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeLeftOuter(
     cudf::jni::auto_set_device(env);
 
     // Wrap buffer addresses as device_spans (zero-copy, does not take ownership)
-    auto left_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
-    auto right_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
+    auto left_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
+    auto right_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
 
     auto result = spark_rapids_jni::make_left_outer(
       left_indices, right_indices, j_left_table_size, j_right_table_size);
@@ -245,28 +261,35 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeLeftOuter(
   JNI_CATCH(env, nullptr);
 }
 
-
 JNIEXPORT jlongArray JNICALL
-Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeFullOuter(
-  JNIEnv* env,
-  jclass,
-  jlong j_left_buffer_address,
-  jlong j_left_buffer_length,
-  jlong j_right_buffer_address,
-  jlong j_right_buffer_length,
-  jint j_left_table_size,
-  jint j_right_table_size)
+Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeFullOuter(JNIEnv* env,
+                                                                    jclass,
+                                                                    jlong j_left_buffer_address,
+                                                                    jlong j_left_buffer_length,
+                                                                    jlong j_right_buffer_address,
+                                                                    jlong j_right_buffer_length,
+                                                                    jint j_left_table_size,
+                                                                    jint j_right_table_size)
 {
   // Allow null addresses only if length is 0 (empty gather map)
   if (j_left_buffer_address == 0 && j_left_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left buffer address is null but length is non-zero",
+                  nullptr);
   }
   if (j_right_buffer_address == 0 && j_right_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "right buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "right buffer address is null but length is non-zero",
+                  nullptr);
   }
   // Verify paired gather maps have the same length
   if (j_left_buffer_length != j_right_buffer_length) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left and right gather maps must have the same length", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left and right gather maps must have the same length",
+                  nullptr);
   }
 
   JNI_TRY
@@ -274,10 +297,10 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeFullOuter(
     cudf::jni::auto_set_device(env);
 
     // Wrap buffer addresses as device_spans (zero-copy, does not take ownership)
-    auto left_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
-    auto right_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
+    auto left_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
+    auto right_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_right_buffer_address), j_right_buffer_length);
 
     auto result = spark_rapids_jni::make_full_outer(
       left_indices, right_indices, j_left_table_size, j_right_table_size);
@@ -291,12 +314,19 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeFullOuter(
 // MAKE SEMI/ANTI JOINS
 // =============================================================================
 
-JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeSemi(
-  JNIEnv* env, jclass, jlong j_left_buffer_address, jlong j_left_buffer_length, jint j_left_table_size)
+JNIEXPORT jlongArray JNICALL
+Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeSemi(JNIEnv* env,
+                                                               jclass,
+                                                               jlong j_left_buffer_address,
+                                                               jlong j_left_buffer_length,
+                                                               jint j_left_table_size)
 {
   // Allow null address only if length is 0 (empty gather map)
   if (j_left_buffer_address == 0 && j_left_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left buffer address is null but length is non-zero",
+                  nullptr);
   }
 
   JNI_TRY
@@ -304,8 +334,8 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nat
     cudf::jni::auto_set_device(env);
 
     // Wrap buffer address as device_span (zero-copy, does not take ownership)
-    auto left_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
+    auto left_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
 
     auto result = spark_rapids_jni::make_semi(left_indices, j_left_table_size);
 
@@ -315,12 +345,18 @@ JNIEXPORT jlongArray JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nat
 }
 
 JNIEXPORT jlongArray JNICALL
-Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeAnti(
-  JNIEnv* env, jclass, jlong j_left_buffer_address, jlong j_left_buffer_length, jint j_left_table_size)
+Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeAnti(JNIEnv* env,
+                                                               jclass,
+                                                               jlong j_left_buffer_address,
+                                                               jlong j_left_buffer_length,
+                                                               jint j_left_table_size)
 {
   // Allow null address only if length is 0 (empty gather map)
   if (j_left_buffer_address == 0 && j_left_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "left buffer address is null but length is non-zero", nullptr);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "left buffer address is null but length is non-zero",
+                  nullptr);
   }
 
   JNI_TRY
@@ -328,8 +364,8 @@ Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeMakeAnti(
     cudf::jni::auto_set_device(env);
 
     // Wrap buffer address as device_span (zero-copy, does not take ownership)
-    auto left_indices = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
+    auto left_indices =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_left_buffer_address), j_left_buffer_length);
 
     auto result = spark_rapids_jni::make_anti(left_indices, j_left_table_size);
 
@@ -347,7 +383,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeGe
 {
   // Allow null address only if length is 0 (empty gather map)
   if (j_buffer_address == 0 && j_buffer_length != 0) {
-    JNI_THROW_NEW(env, cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS, "buffer address is null but length is non-zero", 0);
+    JNI_THROW_NEW(env,
+                  cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
+                  "buffer address is null but length is non-zero",
+                  0);
   }
 
   JNI_TRY
@@ -355,8 +394,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeGe
     cudf::jni::auto_set_device(env);
 
     // Wrap buffer address as device_span (zero-copy, does not take ownership)
-    auto gather_map = wrap_buffer_as_span(
-      reinterpret_cast<void*>(j_buffer_address), j_buffer_length);
+    auto gather_map =
+      wrap_buffer_as_span(reinterpret_cast<void*>(j_buffer_address), j_buffer_length);
 
     auto result = spark_rapids_jni::get_matched_rows(gather_map, j_table_size);
 
@@ -366,4 +405,3 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_JoinPrimitives_nativeGe
 }
 
 }  // extern "C"
-

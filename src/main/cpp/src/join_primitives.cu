@@ -30,8 +30,6 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
 
-#include <limits>
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
@@ -46,6 +44,8 @@
 #include <thrust/sort.h>
 #include <thrust/tuple.h>
 #include <thrust/unique.h>
+
+#include <limits>
 
 namespace spark_rapids_jni {
 
@@ -155,8 +155,8 @@ filter_by_conditional_impl(cudf::device_span<cudf::size_type const> left_indices
   auto out_right_indices = rmm::device_uvector<cudf::size_type>(num_matches, stream, mr);
 
   // Copy indices where condition is true
-  auto input_iter = thrust::make_zip_iterator(
-    thrust::make_tuple(left_indices.begin(), right_indices.begin()));
+  auto input_iter =
+    thrust::make_zip_iterator(thrust::make_tuple(left_indices.begin(), right_indices.begin()));
   auto output_iter = thrust::make_zip_iterator(
     thrust::make_tuple(out_left_indices.begin(), out_right_indices.begin()));
 
@@ -224,7 +224,7 @@ hash_inner_join(cudf::table_view const& left_keys,
 
   // Build hash join on right table, probe with left table
   // This returns (left_indices, right_indices) in the correct order
-  auto hash_join = cudf::hash_join(right_keys, compare_nulls, stream);
+  auto hash_join                   = cudf::hash_join(right_keys, compare_nulls, stream);
   auto [left_result, right_result] = hash_join.inner_join(left_keys, std::nullopt, stream, mr);
   return {std::move(*left_result), std::move(*right_result)};
 }
@@ -272,15 +272,6 @@ filter_gather_maps_by_ast(cudf::device_span<cudf::size_type const> left_indices,
   // Filter by conditional expression
   if (has_nulls) {
     return filter_by_conditional_impl<true>(left_indices,
-                                           right_indices,
-                                           *left_table_view,
-                                           *right_table_view,
-                                           parser.device_expression_data,
-                                           parser.device_expression_data.num_intermediates,
-                                           stream,
-                                           mr);
-  } else {
-    return filter_by_conditional_impl<false>(left_indices,
                                             right_indices,
                                             *left_table_view,
                                             *right_table_view,
@@ -288,6 +279,15 @@ filter_gather_maps_by_ast(cudf::device_span<cudf::size_type const> left_indices,
                                             parser.device_expression_data.num_intermediates,
                                             stream,
                                             mr);
+  } else {
+    return filter_by_conditional_impl<false>(left_indices,
+                                             right_indices,
+                                             *left_table_view,
+                                             *right_table_view,
+                                             parser.device_expression_data,
+                                             parser.device_expression_data.num_intermediates,
+                                             stream,
+                                             mr);
   }
 }
 
@@ -307,8 +307,7 @@ make_left_outer(cudf::device_span<cudf::size_type const> left_indices,
 
   CUDF_EXPECTS(left_indices.size() == right_indices.size(),
                "Left and right gather maps must have the same size");
-  CUDF_EXPECTS(left_table_size >= 0 && right_table_size >= 0,
-               "Table sizes must be non-negative");
+  CUDF_EXPECTS(left_table_size >= 0 && right_table_size >= 0, "Table sizes must be non-negative");
 
   // Create a boolean mask to track which left rows have matches
   // Note: Temporary buffers use current device resource for allocation,
@@ -318,14 +317,14 @@ make_left_outer(cudf::device_span<cudf::size_type const> left_indices,
   CUDF_CUDA_TRY(cudaMemsetAsync(left_has_match.data(), 0, left_has_match.size(), stream.value()));
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   left_indices.begin(),
-                   left_indices.end(),
-                   [left_has_match = left_has_match.data(),
-                    left_table_size] __device__(cudf::size_type idx) {
-                     if (idx < 0 || idx >= left_table_size) { return; }
-                     left_has_match[idx] = true;
-                   });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    left_indices.begin(),
+    left_indices.end(),
+    [left_has_match = left_has_match.data(), left_table_size] __device__(cudf::size_type idx) {
+      if (idx < 0 || idx >= left_table_size) { return; }
+      left_has_match[idx] = true;
+    });
 
   // Count unmatched left rows
   auto const num_unmatched = thrust::count(
@@ -365,7 +364,6 @@ make_left_outer(cudf::device_span<cudf::size_type const> left_indices,
   return {std::move(out_left_indices), std::move(out_right_indices)};
 }
 
-
 std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
 make_full_outer(cudf::device_span<cudf::size_type const> left_indices,
                 cudf::device_span<cudf::size_type const> right_indices,
@@ -378,8 +376,7 @@ make_full_outer(cudf::device_span<cudf::size_type const> left_indices,
 
   CUDF_EXPECTS(left_indices.size() == right_indices.size(),
                "Left and right gather maps must have the same size");
-  CUDF_EXPECTS(left_table_size >= 0 && right_table_size >= 0,
-               "Table sizes must be non-negative");
+  CUDF_EXPECTS(left_table_size >= 0 && right_table_size >= 0, "Table sizes must be non-negative");
 
   // Create boolean masks to track which rows have matches
   // Note: Temporary buffers use current device resource for allocation,
@@ -389,26 +386,25 @@ make_full_outer(cudf::device_span<cudf::size_type const> left_indices,
   auto right_has_match =
     rmm::device_uvector<bool>(right_table_size, stream, cudf::get_current_device_resource_ref());
   CUDF_CUDA_TRY(cudaMemsetAsync(left_has_match.data(), 0, left_has_match.size(), stream.value()));
-  CUDF_CUDA_TRY(
-    cudaMemsetAsync(right_has_match.data(), 0, right_has_match.size(), stream.value()));
+  CUDF_CUDA_TRY(cudaMemsetAsync(right_has_match.data(), 0, right_has_match.size(), stream.value()));
 
   // Mark rows that have matches
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   left_indices.begin(),
-                   left_indices.end(),
-                   [left_has_match = left_has_match.data(),
-                    left_table_size] __device__(cudf::size_type idx) {
-                     if (idx < 0 || idx >= left_table_size) { return; }
-                     left_has_match[idx] = true;
-                   });
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   right_indices.begin(),
-                   right_indices.end(),
-                   [right_has_match = right_has_match.data(),
-                    right_table_size] __device__(cudf::size_type idx) {
-                     if (idx < 0 || idx >= right_table_size) { return; }
-                     right_has_match[idx] = true;
-                   });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    left_indices.begin(),
+    left_indices.end(),
+    [left_has_match = left_has_match.data(), left_table_size] __device__(cudf::size_type idx) {
+      if (idx < 0 || idx >= left_table_size) { return; }
+      left_has_match[idx] = true;
+    });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    right_indices.begin(),
+    right_indices.end(),
+    [right_has_match = right_has_match.data(), right_table_size] __device__(cudf::size_type idx) {
+      if (idx < 0 || idx >= right_table_size) { return; }
+      right_has_match[idx] = true;
+    });
 
   // Count unmatched rows
   auto const num_left_unmatched = thrust::count(
@@ -417,7 +413,7 @@ make_full_outer(cudf::device_span<cudf::size_type const> left_indices,
     rmm::exec_policy_nosync(stream), right_has_match.begin(), right_has_match.end(), false);
 
   // Allocate output with space for matched and all unmatched
-  auto const total_size = left_indices.size() + num_left_unmatched + num_right_unmatched;
+  auto const total_size  = left_indices.size() + num_left_unmatched + num_right_unmatched;
   auto out_left_indices  = rmm::device_uvector<cudf::size_type>(total_size, stream, mr);
   auto out_right_indices = rmm::device_uvector<cudf::size_type>(total_size, stream, mr);
 
@@ -548,11 +544,10 @@ rmm::device_uvector<cudf::size_type> make_anti(
 // PARTITIONED JOIN SUPPORT
 // =============================================================================
 
-std::unique_ptr<cudf::column> get_matched_rows(
-  cudf::device_span<cudf::size_type const> gather_map,
-  cudf::size_type table_size,
-  rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> get_matched_rows(cudf::device_span<cudf::size_type const> gather_map,
+                                               cudf::size_type table_size,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -579,4 +574,3 @@ std::unique_ptr<cudf::column> get_matched_rows(
 }
 
 }  // namespace spark_rapids_jni
-

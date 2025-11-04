@@ -113,13 +113,14 @@ hash_inner_join(cudf::table_view const& left_keys,
  * @return Pair of filtered device vectors [left_indices, right_indices]
  */
 std::pair<rmm::device_uvector<cudf::size_type>, rmm::device_uvector<cudf::size_type>>
-filter_gather_maps_by_ast(cudf::device_span<cudf::size_type const> left_indices,
-                          cudf::device_span<cudf::size_type const> right_indices,
-                          cudf::table_view const& left_table,
-                          cudf::table_view const& right_table,
-                          cudf::ast::expression const& binary_predicate,
-                          rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-                          rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+filter_gather_maps_by_ast(
+  cudf::device_span<cudf::size_type const> left_indices,
+  cudf::device_span<cudf::size_type const> right_indices,
+  cudf::table_view const& left_table,
+  cudf::table_view const& right_table,
+  cudf::ast::expression const& binary_predicate,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 // =============================================================================
 // MAKE OUTER JOINS
@@ -147,7 +148,6 @@ make_left_outer(cudf::device_span<cudf::size_type const> left_indices,
                 cudf::size_type right_table_size,
                 rmm::cuda_stream_view stream      = cudf::get_default_stream(),
                 rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
 
 /**
  * @brief Convert inner join gather maps to full outer join gather maps
@@ -241,4 +241,3 @@ std::unique_ptr<cudf::column> get_matched_rows(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
-
