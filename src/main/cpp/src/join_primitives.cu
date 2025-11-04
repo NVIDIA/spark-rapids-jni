@@ -481,14 +481,14 @@ rmm::device_uvector<cudf::size_type> make_semi(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   left_indices.begin(),
-                   left_indices.end(),
-                   [left_has_match = left_has_match.data(),
-                    left_table_size] __device__(cudf::size_type idx) {
-                     if (idx < 0 || idx >= left_table_size) { return; }
-                     left_has_match[idx] = true;
-                   });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    left_indices.begin(),
+    left_indices.end(),
+    [left_has_match = left_has_match.data(), left_table_size] __device__(cudf::size_type idx) {
+      if (idx < 0 || idx >= left_table_size) { return; }
+      left_has_match[idx] = true;
+    });
 
   // Count and collect matched rows
   auto const num_matched = thrust::count(
@@ -520,14 +520,14 @@ rmm::device_uvector<cudf::size_type> make_anti(
     rmm::exec_policy_nosync(stream), left_has_match.begin(), left_has_match.end(), false);
 
   // Mark left rows that have matches
-  thrust::for_each(rmm::exec_policy_nosync(stream),
-                   left_indices.begin(),
-                   left_indices.end(),
-                   [left_has_match = left_has_match.data(),
-                    left_table_size] __device__(cudf::size_type idx) {
-                     if (idx < 0 || idx >= left_table_size) { return; }
-                     left_has_match[idx] = true;
-                   });
+  thrust::for_each(
+    rmm::exec_policy_nosync(stream),
+    left_indices.begin(),
+    left_indices.end(),
+    [left_has_match = left_has_match.data(), left_table_size] __device__(cudf::size_type idx) {
+      if (idx < 0 || idx >= left_table_size) { return; }
+      left_has_match[idx] = true;
+    });
 
   // Count and collect unmatched rows
   auto const num_unmatched = thrust::count(
