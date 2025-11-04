@@ -72,7 +72,8 @@ public class RmmSpark {
       }
       RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> eventHandler =
           new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, false);
-      sra = new SparkResourceAdaptor(eventHandler, logLocation);
+      SparkResourceAdaptor.initializeLogger(logLocation);
+      sra = new SparkResourceAdaptor(eventHandler);
       boolean success = false;
       try {
         Rmm.setCurrentDeviceResource(sra, deviceResource, false);
@@ -107,6 +108,7 @@ public class RmmSpark {
             sra.releaseWrapped();
             event.releaseWrapped();
           }
+          SparkResourceAdaptor.shutdownLogger();
         }
       }
     }

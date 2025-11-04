@@ -119,6 +119,215 @@ const char* as_str(thread_state state)
   }
 }
 
+class spark_resource_adaptor_logger {
+  public:
+   spark_resource_adaptor_logger(std::shared_ptr<spdlog::logger> logger, bool is_log_enabled) 
+     : logger(logger), is_log_enabled(is_log_enabled) {
+     logger->flush_on(spdlog::level::info);
+     logger->set_pattern("%v");
+     logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
+     logger->set_pattern("%H:%M:%S.%f,%v");
+   }
+ 
+   /**
+    * log a status change that does not involve a state transition.
+    */
+   void log_status(std::string const& op,
+                   long const thread_id,
+                   long const task_id,
+                   thread_state const state,
+                   std::string const& notes = "") const
+   {
+     auto const this_id = static_cast<long>(pthread_self());
+     logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state), notes);
+   }
+ 
+   /**
+    * log that a state transition happened.
+    */
+   void log_transition(long const thread_id,
+                       long const task_id,
+                       thread_state const from,
+                       thread_state const to,
+                       std::string const& notes = "") const
+   {
+     auto const this_id = static_cast<long>(pthread_self());
+     logger->info(
+       "TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from), as_str(to), notes);
+   }
+ 
+   /**
+    * General purpose info logging with variadic arguments
+    */
+   template<typename... Args>
+   void log_info(Args&&... args) const
+   {
+     logger->info(std::forward<Args>(args)...);
+   }
+ 
+   /**
+    * General purpose debug logging with variadic arguments
+    */
+   template<typename... Args>
+   void log_debug(Args&&... args) const
+   {
+     logger->debug(std::forward<Args>(args)...);
+   }
+ 
+  bool should_log_debug() const { return is_log_enabled && logger->should_log(spdlog::level::debug); }
+  bool should_log_info() const { return is_log_enabled && logger->should_log(spdlog::level::info); }
+  bool should_log_transition() const { return should_log_info(); }
+  bool should_log_status() const { return should_log_info(); }
+
+  void flush() {
+    logger->flush();
+  }
+
+  void shutdown() {
+    is_log_enabled = false;
+    logger.reset();
+  }
+ 
+   private:
+     std::shared_ptr<spdlog::logger> logger;
+     bool is_log_enabled;
+ };
+ 
+// Helper function to handle optional formatting
+// No arguments case
+inline std::string format_if_args() {
+  return "";
+}
+
+// Single string argument case (no formatting needed)
+inline std::string format_if_args(std::string const& str) {
+  return str;
+}
+
+inline std::string format_if_args(char const* str) {
+  return std::string(str);
+}
+
+// Multiple arguments case (needs formatting)
+template<typename... Args>
+inline std::string format_if_args(std::format_string<Args...> fmt, Args&&... args) {
+  return std::format(fmt, std::forward<Args>(args)...);
+}
+
+/**
+ * Log macros for various cases in SparkResourceAdaptorJni. 
+ * The basic idea is that we should not execute formatting, or other expensive
+ * operations if the _logger return is nullptr (deactivated, or log level is not enabled).
+ * 
+ * Some of the macros have variadic arguments, which support std::format, 
+ * where the first variadic argument is the format string, and any following string
+ * is meant to be formatted into the string, via {}.
+ */
+
+#define LOG_STATUS(op, thread_id, task_id, state, ...) \
+  do { \
+    auto _logger = get_logger_if_enabled_status(); \
+    if (_logger) { \
+      _logger->log_status(op, thread_id, task_id, state, format_if_args(__VA_ARGS__)); \
+    } \
+  } while(0)
+
+#define LOG_STATUS_CONTAINER(op, thread_id, task_id, state, lbl, container) \
+  do { \
+    auto _logger = get_logger_if_enabled_status(); \
+    if (_logger) { \
+      std::stringstream ss; \
+      ss << lbl << " "; \
+      for (const auto& item : container) { \
+        ss << item << " "; \
+      } \
+      _logger->log_status(op, thread_id, task_id, state, ss.str()); \
+    } \
+  } while(0)
+
+#define LOG_TRANSITION(thread_id, task_id, from, to, ...) \
+  do { \
+    auto _logger = get_logger_if_enabled_transition(); \
+    if (_logger) { \
+      _logger->log_transition(thread_id, task_id, from, to, format_if_args(__VA_ARGS__)); \
+    } \
+  } while(0)
+
+ #define LOG_INFO(...) \
+ do { \
+   auto _logger = get_logger_if_enabled_info(); \
+   if (_logger) { \
+     _logger->log_info(format_if_args(__VA_ARGS__)); \
+   } \
+ } while(0)
+
+#define LOG_DEBUG(...) \
+ do { \
+   auto _logger = get_logger_if_enabled_debug(); \
+   if (_logger) { \
+     _logger->log_debug(format_if_args(__VA_ARGS__)); \
+   } \
+ } while(0)
+
+// Global logger instance shared across all SparkResourceAdaptor instances
+ static std::shared_ptr<spark_resource_adaptor_logger> global_logger = nullptr;
+ static std::mutex logger_mutex;
+ 
+ /**
+  * Get the global logger if it exists and is enabled, otherwise return nullptr.
+  * This acquires the lock briefly to get a shared_ptr, then releases it.
+  */
+ inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_status() {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   if (global_logger != nullptr && global_logger->should_log_status()) {
+     return global_logger;
+   }
+   return nullptr;
+ }
+
+ inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_info() {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   if (global_logger != nullptr && global_logger->should_log_info()) {
+     return global_logger;
+   }
+   return nullptr;
+ }
+
+ inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_debug() {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   if (global_logger != nullptr && global_logger->should_log_debug()) {
+     return global_logger;
+   }
+   return nullptr;
+ }
+
+ inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_transition() {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   if (global_logger != nullptr && global_logger->should_log_transition()) {
+     return global_logger;
+   }
+   return nullptr;
+ }
+ 
+ /**
+  * Set the global logger instance.
+  */
+ void set_global_logger(std::shared_ptr<spark_resource_adaptor_logger> logger) {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   global_logger = logger;
+ }
+ 
+ void shutdown_global_logger() {
+   std::unique_lock<std::mutex> lock(logger_mutex);
+   if (global_logger != nullptr) {
+     global_logger->flush();
+     global_logger->shutdown();
+     global_logger = nullptr;
+   }
+ }
+ 
+
+
 static std::shared_ptr<spdlog::logger> make_logger(std::ostream& stream)
 {
   return std::make_shared<spdlog::logger>("SPARK_RMM",
@@ -455,17 +664,10 @@ class full_thread_state {
  */
 class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
  public:
-  spark_resource_adaptor(JNIEnv* env,
-                         rmm::mr::device_memory_resource* mr,
-                         std::shared_ptr<spdlog::logger>& logger,
-                         bool const is_log_enabled)
-    : resource{mr}, logger{logger}, is_log_enabled{is_log_enabled}
+  spark_resource_adaptor(JNIEnv* env, rmm::mr::device_memory_resource* mr)
+    : resource{mr}
   {
     if (env->GetJavaVM(&jvm) < 0) { throw std::runtime_error("GetJavaVM failed"); }
-    logger->flush_on(spdlog::level::info);
-    logger->set_pattern("%v");
-    logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
-    logger->set_pattern("%H:%M:%S.%f,%v");
   }
 
   rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
@@ -487,12 +689,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const found = threads.find(thread_id);
     if (found != threads.end()) {
       if (found->second.task_id >= 0 && found->second.task_id != task_id) {
-        if (is_log_enabled) {
-          std::stringstream ss;
-          ss << "desired task_id " << task_id;
-
-          log_status("FIXUP", thread_id, found->second.task_id, found->second.state, ss.str());
-        }
+        LOG_STATUS("FIXUP", thread_id, found->second.task_id, found->second.state,
+          "desired task_id {}", task_id);
         remove_thread_association(thread_id, found->second.task_id, lock);
       }
     }
@@ -501,15 +699,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     if (was_threads_inserted.second == false) {
       if (was_threads_inserted.first->second.state == thread_state::THREAD_REMOVE_THROW) {
         std::stringstream ss;
-        ss << "A thread " << thread_id << " is shutting down "
+        ss << "A thread " << thread_id << " is shutting down " 
            << was_threads_inserted.first->second.task_id << " vs " << task_id;
-
         auto const msg = ss.str();
-        log_status("ERROR",
-                   thread_id,
-                   was_threads_inserted.first->second.task_id,
-                   was_threads_inserted.first->second.state,
-                   msg);
+        LOG_STATUS("ERROR", 
+          thread_id, was_threads_inserted.first->second.task_id, was_threads_inserted.first->second.state,
+          msg);
         throw std::invalid_argument(msg);
       }
 
@@ -518,7 +713,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         ss << "A thread " << thread_id << " can only be dedicated to a single task."
            << was_threads_inserted.first->second.task_id << " != " << task_id;
         auto const msg = ss.str();
-        log_status("ERROR",
+        LOG_STATUS("ERROR",
                    thread_id,
                    was_threads_inserted.first->second.task_id,
                    was_threads_inserted.first->second.state,
@@ -541,7 +736,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       throw;
     }
     if (was_threads_inserted.second == true) {
-      log_transition(thread_id, task_id, thread_state::UNKNOWN, thread_state::THREAD_RUNNING);
+      LOG_TRANSITION(thread_id, task_id, thread_state::UNKNOWN, thread_state::THREAD_RUNNING);
     }
   }
 
@@ -585,7 +780,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       threads.emplace(thread_id, full_thread_state(thread_state::THREAD_RUNNING, thread_id));
     if (was_inserted.second == true) {
       was_inserted.first->second.is_for_shuffle = is_for_shuffle;
-      log_transition(thread_id, -1, thread_state::UNKNOWN, thread_state::THREAD_RUNNING);
+      LOG_TRANSITION(thread_id, -1, thread_state::UNKNOWN, thread_state::THREAD_RUNNING);
     } else if (was_inserted.first->second.task_id != -1) {
       throw std::invalid_argument("the thread is associated with a non-pool task already");
     } else if (was_inserted.first->second.state == thread_state::THREAD_REMOVE_THROW) {
@@ -606,14 +801,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     checkpoint_metrics(was_inserted.first->second);
 
     was_inserted.first->second.pool_task_ids.insert(task_ids.begin(), task_ids.end());
-    if (is_log_enabled) {
-      std::stringstream ss;
-      ss << "CURRENT IDs ";
-      for (const auto& task_id : was_inserted.first->second.pool_task_ids) {
-        ss << task_id << " ";
-      }
-      log_status("ADD_TASKS", thread_id, -1, was_inserted.first->second.state, ss.str());
-    }
+    LOG_STATUS_CONTAINER("ADD_TASKS", thread_id, -1, was_inserted.first->second.state, "CURRENT IDs", was_inserted.first->second.pool_task_ids);
   }
 
   void pool_thread_finished_for_tasks(long const thread_id,
@@ -631,14 +819,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       for (auto const& id : task_ids) {
         thread->second.pool_task_ids.erase(id);
       }
-      if (is_log_enabled) {
-        std::stringstream ss;
-        ss << "CURRENT IDs ";
-        for (const auto& id : thread->second.pool_task_ids) {
-          ss << id << " ";
-        }
-        log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str());
-      }
+      LOG_STATUS_CONTAINER("REMOVE_TASKS", thread_id, -1, thread->second.state, "CURRENT IDs", thread->second.pool_task_ids);
       if (thread->second.pool_task_ids.empty()) {
         if (remove_thread_association(thread_id, -1, lock)) {
           wake_up_threads_after_task_finishes(lock);
@@ -688,14 +869,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       auto const thread = threads.find(thread_id);
       if (thread != threads.end()) {
         if (thread->second.pool_task_ids.erase(task_id) != 0) {
-          if (is_log_enabled) {
-            std::stringstream ss;
-            ss << "CURRENT IDs ";
-            for (const auto& id : thread->second.pool_task_ids) {
-              ss << id << " ";
-            }
-            log_status("REMOVE_TASKS", thread_id, -1, thread->second.state, ss.str());
-          }
+          LOG_STATUS_CONTAINER("REMOVE_TASKS", thread_id, -1, thread->second.state, "CURRENT IDs", thread->second.pool_task_ids);
           if (thread->second.pool_task_ids.empty()) {
             run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
           }
@@ -1019,8 +1193,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
  private:
   rmm::mr::device_memory_resource* const resource;
-  std::shared_ptr<spdlog::logger> logger;  ///< spdlog logger object
-  bool const is_log_enabled;
 
   // The state mutex must be held when modifying the state of threads or tasks
   // it must never be held when calling into the child resource or after returning
@@ -1042,44 +1214,16 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   JavaVM* jvm;
 
   /**
-   * log a status change that does not involve a state transition.
-   */
-  void log_status(std::string const& op,
-                  long const thread_id,
-                  long const task_id,
-                  thread_state const state,
-                  std::string const& notes = "") const
-  {
-    auto const this_id = static_cast<long>(pthread_self());
-    logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state), notes);
-  }
-
-  /**
-   * log that a state transition happened.
-   */
-  void log_transition(long const thread_id,
-                      long const task_id,
-                      thread_state const from,
-                      thread_state const to,
-                      std::string const& notes = "") const
-  {
-    auto const this_id = static_cast<long>(pthread_self());
-    logger->info(
-      "TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from), as_str(to), notes);
-  }
-
-  /**
    * Transition to a new state. Ideally this is what is called when doing a state transition instead
    * of setting the state directly. This will log the transition and do a little bit of
    * verification.
    */
   void transition(full_thread_state& state,
-                  thread_state const new_state,
-                  std::string const& message = "")
+                  thread_state const new_state)
   {
     thread_state original = state.state;
     state.transition_to(new_state);
-    log_transition(state.thread_id, state.task_id, original, new_state, message);
+    LOG_TRANSITION(state.thread_id, state.task_id, original, new_state);
   }
 
   /**
@@ -1198,7 +1342,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           case thread_state::THREAD_BLOCKED:
           // fall through
           case thread_state::THREAD_BUFN:
-            log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+            LOG_STATUS("WAITING", thread_id, thread->second.task_id, thread->second.state);
             thread->second.before_block();
             do {
               thread->second.wake_condition->wait(lock);
@@ -1221,7 +1365,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // If that caused us to transition to a new state, then we need to adjust to it
             // appropriately...
             if (is_blocked(thread->second.state)) {
-              log_status("WAITING", thread_id, thread->second.task_id, thread->second.state);
+              LOG_STATUS("WAITING", thread_id, thread->second.task_id, thread->second.state);
               thread->second.before_block();
               do {
                 thread->second.wake_condition->wait(lock);
@@ -1238,7 +1382,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
               "rollback, split input, and retry operation", thread->second, lock);
             break;
           case thread_state::THREAD_REMOVE_THROW:
-            log_transition(
+            LOG_TRANSITION(
               thread_id, thread->second.task_id, thread->second.state, thread_state::UNKNOWN);
             // don't need to record failed time metric the thread is already gone...
             threads.erase(thread);
@@ -1246,7 +1390,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             throw std::runtime_error("thread removed while blocked");
           default:
             if (!first_time) {
-              log_status("DONE WAITING", thread_id, thread->second.task_id, thread->second.state);
+              LOG_STATUS("DONE WAITING", thread_id, thread->second.task_id, thread->second.state);
             }
             done = true;
         }
@@ -1347,7 +1491,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             ret = true;
             // fall through;
           default:
-            log_transition(thread_id,
+            LOG_TRANSITION(thread_id,
                            threads_at->second.task_id,
                            threads_at->second.state,
                            thread_state::UNKNOWN);
@@ -1420,7 +1564,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           thread->second.metrics.num_times_retry_throw++;
           std::string const op_prefix = "INJECTED_RETRY_OOM_";
           std::string const op        = op_prefix + (is_for_cpu ? "CPU" : "GPU");
-          log_status(op, thread_id, thread->second.task_id, thread->second.state);
+          LOG_STATUS(op, thread_id, thread->second.task_id, thread->second.state);
           thread->second.record_failed_retry_time();
           throw_java_exception(is_for_cpu ? CPU_RETRY_OOM_CLASS : GPU_RETRY_OOM_CLASS,
                                "injected RetryOOM");
@@ -1429,7 +1573,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
       if (thread->second.cudf_exception_injected > 0) {
         thread->second.cudf_exception_injected--;
-        log_status(
+        LOG_STATUS(
           "INJECTED_CUDF_EXCEPTION", thread_id, thread->second.task_id, thread->second.state);
         thread->second.record_failed_retry_time();
         throw_java_exception(cudf::jni::CUDF_EXCEPTION_CLASS, "injected CudfException");
@@ -1443,7 +1587,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           thread->second.metrics.num_times_split_retry_throw++;
           std::string const op_prefix = "INJECTED_SPLIT_AND_RETRY_OOM_";
           std::string const op        = op_prefix + (is_for_cpu ? "CPU" : "GPU");
-          log_status(op, thread_id, thread->second.task_id, thread->second.state);
+          LOG_STATUS(op, thread_id, thread->second.task_id, thread->second.state);
           thread->second.record_failed_retry_time();
           if (is_for_cpu) {
             throw_java_exception(CPU_SPLIT_AND_RETRY_OOM_CLASS, "injected SplitAndRetryOOM");
@@ -1503,13 +1647,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // The allocation succeeded so we are no longer doing a retry
       if (thread->second.is_retry_alloc_before_bufn) {
         thread->second.is_retry_alloc_before_bufn = false;
-
-        if (is_log_enabled) {
-          auto note = std::format(
-            "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
-            thread_id);
-          log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
-        }
+        LOG_STATUS("DETAIL", thread_id, thread->second.task_id, thread->second.state,
+          "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
+          thread_id);
       }
       switch (thread->second.state) {
         case thread_state::THREAD_ALLOC:
@@ -1782,12 +1922,17 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     }
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
-    if (ret && is_log_enabled) {
-      std::set<long> threads_key_set;
-      for (auto const& [k, v] : threads) {
-        threads_key_set.insert(k);
-      }
-      auto note = std::format(
+    if (ret) {
+      auto get_threads = [&]() { 
+        std::set<long> threads_key_set;
+        for (auto const& [k, v] : threads) {
+          threads_key_set.insert(k);
+        }
+        std::stringstream ss ;
+        ss << to_string(threads_key_set);
+        return ss.str();
+      };
+      LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN,
         "deadlock state is reached with all_task_ids: {} ({}), blocked_task_ids: {} ({}), "
         "bufn_task_ids: {} ({}), threads: {} ({})",
         to_string(all_task_ids),
@@ -1796,22 +1941,24 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         blocked_task_ids.size(),
         to_string(bufn_task_ids),
         bufn_task_ids.size(),
-        to_string(threads_key_set),
+        get_threads(),
         threads.size());
-      log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
     }
     return ret;
   }
 
   void log_all_threads_states()
   {
-    std::stringstream oss;
-    oss << "States of all threads: ";
-    for (auto it = threads.begin(); it != threads.end(); ++it) {
-      oss << it->second.to_string();
-      if (std::next(it) != threads.end()) { oss << ";"; }
-    }
-    log_status("DETAIL", -1, -1, thread_state::UNKNOWN, oss.str());
+    auto get_threads = [&]() { 
+      std::set<long> threads_key_set;
+      for (auto const& [k, v] : threads) {
+        threads_key_set.insert(k);
+      }
+      std::stringstream ss ;
+      ss << to_string(threads_key_set);
+      return ss.str();
+    };
+    LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN, "States of all threads: {}", get_threads());
   }
 
   /**
@@ -1857,12 +2004,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second.is_retry_alloc_before_bufn = true;
-            if (is_log_enabled) {
-              auto note = std::format("thread (id: {}) is_retry_alloc_before_bufn set to true",
-                                      thread_id_to_bufn);
-              log_status(
-                "DETAIL", thread_id_to_bufn, thread->second.task_id, thread->second.state, note);
-            }
+            LOG_STATUS("DETAIL", thread_id_to_bufn, thread->second.task_id, thread->second.state,
+              "thread (id: {}) is_retry_alloc_before_bufn set to true", thread_id_to_bufn);
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             log_all_threads_states();
@@ -1888,11 +2031,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       bool const all_bufn = all_task_ids.size() == bufn_task_ids.size();
 
       if (all_bufn) {
-        if (is_log_enabled) {
-          auto note = std::format("all_bufn state is reached with all_task_ids size: {}",
-                                  all_task_ids.size());
-          log_status("DETAIL", -1, -1, thread_state::UNKNOWN, note);
-        }
+        LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN,
+          "all_bufn state is reached with all_task_ids size: {}", all_task_ids.size());
         thread_priority to_wake(-1, -1);
         bool is_to_wake_set = false;
         for (auto const& [thread_id, t_state] : threads) {
@@ -1955,27 +2095,18 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           if (is_oom && thread->second.is_retry_alloc_before_bufn) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-              if (is_log_enabled) {
-                auto note = std::format(
-                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
-                  "post_alloc_failed_core",
-                  thread_id);
-                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
-              }
+              LOG_STATUS("DETAIL", thread_id, thread->second.task_id, thread->second.state,
+                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+                thread_id);
             }
             transition(thread->second, thread_state::THREAD_BUFN_THROW);
             thread->second.wake_condition->notify_all();
           } else if (is_oom && blocking) {
             if (thread->second.is_retry_alloc_before_bufn) {
               thread->second.is_retry_alloc_before_bufn = false;
-
-              if (is_log_enabled) {
-                auto note = std::format(
-                  "thread (id: {}) is_retry_alloc_before_bufn set to false in "
-                  "post_alloc_failed_core",
-                  thread_id);
-                log_status("DETAIL", thread_id, thread->second.task_id, thread->second.state, note);
-              }
+              LOG_STATUS("DETAIL", thread_id, thread->second.task_id, thread->second.state,
+                "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
+                thread_id);
             }
             transition(thread->second, thread_state::THREAD_BLOCKED);
           } else {
@@ -2028,7 +2159,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const tid    = static_cast<long>(pthread_self());
     auto const thread = threads.find(tid);
     if (thread != threads.end()) {
-      log_status("DEALLOC", tid, thread->second.task_id, thread->second.state);
+      LOG_STATUS("DEALLOC", tid, thread->second.task_id, thread->second.state);
       if (!is_for_cpu) {
         if (!thread->second.is_in_spilling) {
           thread->second.metrics.gpu_memory_active_footprint -= num_bytes;
@@ -2036,8 +2167,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
         gpu_memory_allocated_bytes -= num_bytes;
       }
     } else {
-      log_status(
-        "DEALLOC", tid, -2, thread_state::UNKNOWN, std::format("is_for_cpu: {}", is_for_cpu));
+      LOG_STATUS(
+        "DEALLOC", tid, -2, thread_state::UNKNOWN, "is_for_cpu: {}", is_for_cpu);
     }
 
     for (auto& [thread_id, t_state] : threads) {
@@ -2089,31 +2220,13 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_getCurrentThreadId(JNIEnv*
 }
 
 JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_createNewAdaptor(
-  JNIEnv* env, jclass, jlong child, jstring log_loc)
+  JNIEnv* env, jclass, jlong child)
 {
   JNI_NULL_CHECK(env, child, "child is null", 0);
   JNI_TRY
   {
     auto wrapped = reinterpret_cast<rmm::mr::device_memory_resource*>(child);
-    cudf::jni::native_jstring nlogloc(env, log_loc);
-    std::shared_ptr<spdlog::logger> logger;
-    bool is_log_enabled;
-    if (nlogloc.is_null()) {
-      logger         = make_logger();
-      is_log_enabled = false;
-    } else {
-      is_log_enabled = true;
-      std::string slog_loc(nlogloc.get());
-      if (slog_loc == "stderr") {
-        logger = make_logger(std::cerr);
-      } else if (slog_loc == "stdout") {
-        logger = make_logger(std::cout);
-      } else {
-        logger = make_logger(slog_loc);
-      }
-    }
-
-    auto ret = new spark_resource_adaptor(env, wrapped, logger, is_log_enabled);
+    auto ret = new spark_resource_adaptor(env, wrapped);
     return cudf::jni::ptr_as_jlong(ret);
   }
   JNI_CATCH(env, 0);
@@ -2529,6 +2642,48 @@ Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_spillRangeDone(JNIEnv* env
   {
     auto mr = reinterpret_cast<spark_resource_adaptor*>(ptr);
     mr->spill_range_done();
+  }
+  JNI_CATCH(env, );
+}
+
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_initializeLoggerNative(JNIEnv* env,
+                                                                               jclass,
+                                                                               jstring log_loc)
+{
+  JNI_TRY
+  {
+    cudf::jni::native_jstring nlogloc(env, log_loc);
+    std::shared_ptr<spdlog::logger> logger;
+    bool is_log_enabled;
+    
+    if (nlogloc.is_null()) {
+      logger         = make_logger();
+      is_log_enabled = false;
+    } else {
+      is_log_enabled = true;
+      std::string slog_loc(nlogloc.get());
+      if (slog_loc == "stderr") {
+        logger = make_logger(std::cerr);
+      } else if (slog_loc == "stdout") {
+        logger = make_logger(std::cout);
+      } else {
+        logger = make_logger(slog_loc);
+      }
+    }
+    
+    auto global_logger_instance = std::make_shared<spark_resource_adaptor_logger>(logger, is_log_enabled);
+    set_global_logger(global_logger_instance);
+  }
+  JNI_CATCH(env, );
+}
+
+JNIEXPORT void JNICALL
+Java_com_nvidia_spark_rapids_jni_SparkResourceAdaptor_shutdownLoggerNative(JNIEnv* env, jclass)
+{
+  JNI_TRY
+  {
+    shutdown_global_logger();
   }
   JNI_CATCH(env, );
 }
