@@ -351,6 +351,20 @@ public class DateTimeUtilsTest {
 
   @Test
   void computeHoursDiffTest() {
+    // test overflow
+    try (
+        ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(
+          Long.MAX_VALUE, // CPU will overflow without error, GPU does the same
+          Long.MIN_VALUE // CPU will overflow without error, GPU does the same
+          );
+        ColumnVector expected = ColumnVector.fromBoxedInts(
+            -1732919508, // overflow, Long.MAX gets negative value.
+            1732919507 // overflow, Long.MIN gets positive value.
+        );
+        ColumnVector result = DateTimeUtils.computeHourDiff(input)) {
+      assertColumnsAreEqual(expected, result);
+    }
+
     // random test, use current day as seed
     long seed = LocalDate.now().toEpochDay();
     Random random = new Random(seed);
