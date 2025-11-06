@@ -343,7 +343,6 @@ public class RmmSpark {
       Rmm.readLock.unlock();
     }
   }
-  }
 
   /**
    * Remove the current thread from being associated with the given task.
