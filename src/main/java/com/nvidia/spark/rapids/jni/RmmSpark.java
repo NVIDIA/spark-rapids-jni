@@ -279,7 +279,7 @@ public class RmmSpark {
    */
   public static void startRetryBlock(long threadId) {
     Rmm.readLock.lock();
-    try{
+    try {
       if (sra != null && sra.isOpen()) {
         sra.startRetryBlock(threadId);
       }
