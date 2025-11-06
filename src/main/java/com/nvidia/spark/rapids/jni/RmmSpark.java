@@ -334,7 +334,6 @@ public class RmmSpark {
    *                 (not java thread id).
    */
   public static void removeDedicatedThreadAssociation(long threadId, long taskId) {
-  public static void removeDedicatedThreadAssociation(long threadId, long taskId) {
     Rmm.readLock.lock();
     try {
       if (sra != null && sra.isOpen()) {
