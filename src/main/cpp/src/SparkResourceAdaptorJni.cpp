@@ -253,21 +253,21 @@ inline std::string format_if_args(std::format_string<Args...> fmt, Args&&... arg
     } \
   } while(0)
 
- #define LOG_INFO(...) \
- do { \
-   auto _logger = get_logger_if_enabled_info(); \
-   if (_logger) { \
-     _logger->log_info(format_if_args(__VA_ARGS__)); \
-   } \
- } while(0)
+#define LOG_INFO(...) \
+  do { \
+    auto _logger = get_logger_if_enabled_info(); \
+    if (_logger) { \
+      _logger->log_info(format_if_args(__VA_ARGS__)); \
+    } \
+  } while(0)
 
 #define LOG_DEBUG(...) \
- do { \
-   auto _logger = get_logger_if_enabled_debug(); \
-   if (_logger) { \
-     _logger->log_debug(format_if_args(__VA_ARGS__)); \
-   } \
- } while(0)
+  do { \
+    auto _logger = get_logger_if_enabled_debug(); \
+    if (_logger) { \
+      _logger->log_debug(format_if_args(__VA_ARGS__)); \
+    } \
+  } while(0)
 
 // Global logger instance shared across all SparkResourceAdaptor instances
 static std::shared_ptr<spark_resource_adaptor_logger> global_logger = nullptr;
