@@ -18,82 +18,14 @@ package com.nvidia.spark.rapids.jni.iceberg;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
-
+import org.apache.iceberg.util.DateTimeUtil;
 import ai.rapids.cudf.ColumnVector;
 
 public class IcebergDateTimeUtilTest {
-
-  // =========== CPU date utils for validation, begin ===========
-  // copied from Iceberg org.apache.iceberg.util.DateTimeUtil
-  private static final OffsetDateTime EPOCH = Instant.ofEpochSecond(0)
-      .atOffset(ZoneOffset.UTC);
-  private static final LocalDate EPOCH_DAY = EPOCH.toLocalDate();
-  private static final long MICROS_PER_SECOND = 1_000_000L;
-
-  private static int daysToYearsOnCpu(int days) {
-    return convertDaysOnCpu(days, ChronoUnit.YEARS);
-  }
-
-  private static int daysToMonthsOnCpu(int days) {
-    return convertDaysOnCpu(days, ChronoUnit.MONTHS);
-  }
-
-  private static int convertDaysOnCpu(int days, ChronoUnit granularity) {
-    if (days >= 0) {
-      LocalDate date = EPOCH_DAY.plusDays(days);
-      return (int) granularity.between(EPOCH_DAY, date);
-    } else {
-      // add 1 day to the value to account for the case where there is exactly 1 unit
-      // between the
-      // date and epoch because the result will always be decremented.
-      LocalDate date = EPOCH_DAY.plusDays(days + 1);
-      return (int) granularity.between(EPOCH_DAY, date) - 1;
-    }
-  }
-
-  private static int microsToYearsOnCpu(long micros) {
-    return convertMicros(micros, ChronoUnit.YEARS);
-  }
-
-  private static int microsToMonthsOnCpu(long micros) {
-    return convertMicros(micros, ChronoUnit.MONTHS);
-  }
-
-  private static int microsToDaysOnCpu(long micros) {
-    return convertMicros(micros, ChronoUnit.DAYS);
-  }
-
-  private static int microsToHoursOnCpu(long micros) {
-    return convertMicros(micros, ChronoUnit.HOURS);
-  }
-
-  private static int convertMicros(long micros, ChronoUnit granularity) {
-    if (micros >= 0) {
-      long epochSecond = Math.floorDiv(micros, MICROS_PER_SECOND);
-      long nanoAdjustment = Math.floorMod(micros, MICROS_PER_SECOND) * 1000;
-      return (int) granularity.between(EPOCH, toOffsetDateTime(epochSecond, nanoAdjustment));
-    } else {
-      // add 1 micro to the value to account for the case where there is exactly 1
-      // unit between
-      // the timestamp and epoch because the result will always be decremented.
-      long epochSecond = Math.floorDiv(micros, MICROS_PER_SECOND);
-      long nanoAdjustment = Math.floorMod(micros + 1, MICROS_PER_SECOND) * 1000;
-      return (int) granularity.between(EPOCH, toOffsetDateTime(epochSecond, nanoAdjustment)) - 1;
-    }
-  }
-
-  private static OffsetDateTime toOffsetDateTime(long epochSecond, long nanoAdjustment) {
-    return Instant.ofEpochSecond(epochSecond, nanoAdjustment).atOffset(ZoneOffset.UTC);
-  }
-  // =========== CPU date utils for validation: end ===========
 
   @Test
   void toYearsTest() {
@@ -117,9 +49,7 @@ public class IcebergDateTimeUtilTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // random test, use current day as seed
-    long seed = LocalDate.now().toEpochDay();
-    Random random = new Random(seed);
+    Random random = new Random();
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -130,8 +60,9 @@ public class IcebergDateTimeUtilTest {
     int[] expectedValues1 = new int[numRows];
     int[] expectedValues2 = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
-      expectedValues1[i] = daysToYearsOnCpu(days[i]);
-      expectedValues2[i] = microsToYearsOnCpu(micros[i]);
+      // run on CPU
+      expectedValues1[i] = DateTimeUtil.daysToYears(days[i]);
+      expectedValues2[i] = DateTimeUtil.microsToYears(micros[i]);
     }
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
@@ -167,9 +98,7 @@ public class IcebergDateTimeUtilTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // random test, use current day as seed
-    long seed = LocalDate.now().toEpochDay();
-    Random random = new Random(seed);
+    Random random = new Random();
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -180,8 +109,9 @@ public class IcebergDateTimeUtilTest {
     int[] expectedValues1 = new int[numRows];
     int[] expectedValues2 = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
-      expectedValues1[i] = daysToMonthsOnCpu(days[i]);
-      expectedValues2[i] = microsToMonthsOnCpu(micros[i]);
+      // run on CPU
+      expectedValues1[i] = DateTimeUtil.daysToMonths(days[i]);
+      expectedValues2[i] = DateTimeUtil.microsToMonths(micros[i]);
     }
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
@@ -197,9 +127,7 @@ public class IcebergDateTimeUtilTest {
 
   @Test
   void toDaysTest() {
-    // random test, use current day as seed
-    long seed = LocalDate.now().toEpochDay();
-    Random random = new Random(seed);
+    Random random = new Random();
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -210,8 +138,9 @@ public class IcebergDateTimeUtilTest {
     int[] expectedValues1 = new int[numRows];
     int[] expectedValues2 = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
+      // run on CPU
       expectedValues1[i] = days[i]; // do nothing, days to days
-      expectedValues2[i] = microsToDaysOnCpu(micros[i]);
+      expectedValues2[i] = DateTimeUtil.microsToDays(micros[i]);
     }
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
@@ -241,9 +170,8 @@ public class IcebergDateTimeUtilTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // random test, use current day as seed
-    long seed = LocalDate.now().toEpochDay();
-    Random random = new Random(seed);
+    // random test
+    Random random = new Random();
     int numRows = 1024;
     long[] micros = new long[numRows];
     for (int i = 0; i < numRows; ++i) {
@@ -251,7 +179,8 @@ public class IcebergDateTimeUtilTest {
     }
     int[] expectedValues = new int[numRows];
     for (int i = 0; i < numRows; ++i) {
-      expectedValues[i] = microsToHoursOnCpu(micros[i]);
+      // run on CPU
+      expectedValues[i] = DateTimeUtil.microsToHours(micros[i]);
     }
     try (
         ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(micros);
