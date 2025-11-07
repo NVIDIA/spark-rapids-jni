@@ -1939,15 +1939,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     // Now if all of the tasks are blocked, then we need to break a deadlock
     bool ret = all_task_ids.size() == blocked_task_ids.size() && !all_task_ids.empty();
     if (ret) {
-      auto get_threads = [&]() {
-        std::set<long> threads_key_set;
-        for (auto const& [k, v] : threads) {
-          threads_key_set.insert(k);
-        }
-        std::stringstream ss;
-        ss << to_string(threads_key_set);
-        return ss.str();
-      };
       LOG_STATUS("DETAIL",
                  -1,
                  -1,
@@ -1960,24 +1951,26 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                  blocked_task_ids.size(),
                  to_string(bufn_task_ids),
                  bufn_task_ids.size(),
-                 get_threads(),
+                 get_threads_string(),
                  threads.size());
     }
     return ret;
   }
 
+  std::string get_threads_string() {
+    std::set<long> threads_key_set;
+    for (auto const& [k, v] : threads) {
+      threads_key_set.insert(k);
+    }
+    std::stringstream ss;
+    ss << to_string(threads_key_set);
+    return ss.str();
+  }
+
   void log_all_threads_states()
   {
-    auto get_threads = [&]() {
-      std::set<long> threads_key_set;
-      for (auto const& [k, v] : threads) {
-        threads_key_set.insert(k);
-      }
-      std::stringstream ss;
-      ss << to_string(threads_key_set);
-      return ss.str();
-    };
-    LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN, "States of all threads: {}", get_threads());
+    LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN, 
+      "States of all threads: {}", get_threads_string());
   }
 
   /**
