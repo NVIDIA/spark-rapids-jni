@@ -270,63 +270,64 @@ inline std::string format_if_args(std::format_string<Args...> fmt, Args&&... arg
  } while(0)
 
 // Global logger instance shared across all SparkResourceAdaptor instances
- static std::shared_ptr<spark_resource_adaptor_logger> global_logger = nullptr;
- static std::mutex logger_mutex;
- 
- /**
-  * Get the global logger if it exists and is enabled, otherwise return nullptr.
-  * This acquires the lock briefly to get a shared_ptr, then releases it.
-  */
- inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_status() {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   if (global_logger != nullptr && global_logger->should_log_status()) {
-     return global_logger;
-   }
-   return nullptr;
- }
+static std::shared_ptr<spark_resource_adaptor_logger> global_logger = nullptr;
+static std::mutex logger_mutex;
 
- inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_info() {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   if (global_logger != nullptr && global_logger->should_log_info()) {
-     return global_logger;
-   }
-   return nullptr;
- }
+/**
+ * Get the global logger if it exists and is enabled, otherwise return nullptr.
+ * This acquires the lock briefly to get a shared_ptr, then releases it.
+ */
+inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_status() {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  if (global_logger != nullptr && global_logger->should_log_status()) {
+    return global_logger;
+  }
+  return nullptr;
+}
 
- inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_debug() {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   if (global_logger != nullptr && global_logger->should_log_debug()) {
-     return global_logger;
-   }
-   return nullptr;
- }
+inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_info() {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  if (global_logger != nullptr && global_logger->should_log_info()) {
+    return global_logger;
+  }
+  return nullptr;
+}
 
- inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_transition() {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   if (global_logger != nullptr && global_logger->should_log_transition()) {
-     return global_logger;
-   }
-   return nullptr;
- }
- 
- /**
-  * Set the global logger instance.
-  */
- void set_global_logger(std::shared_ptr<spark_resource_adaptor_logger> logger) {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   global_logger = logger;
- }
- 
- void shutdown_global_logger() {
-   std::unique_lock<std::mutex> lock(logger_mutex);
-   if (global_logger != nullptr) {
-     global_logger->flush();
-     global_logger->shutdown();
-     global_logger = nullptr;
-   }
- }
- 
+inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_debug() {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  if (global_logger != nullptr && global_logger->should_log_debug()) {
+    return global_logger;
+  }
+  return nullptr;
+}
 
+inline std::shared_ptr<spark_resource_adaptor_logger> get_logger_if_enabled_transition() {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  if (global_logger != nullptr && global_logger->should_log_transition()) {
+    return global_logger;
+  }
+  return nullptr;
+}
+
+/**
+ * Set the global logger instance.
+ */
+void set_global_logger(std::shared_ptr<spark_resource_adaptor_logger> logger) {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  global_logger = logger;
+}
+
+/**
+ * Shutdown the global logger instance.
+ */
+void shutdown_global_logger() {
+  std::unique_lock<std::mutex> lock(logger_mutex);
+  if (global_logger != nullptr) {
+    global_logger->flush();
+    global_logger->shutdown();
+    global_logger = nullptr;
+  }
+}
 
 static std::shared_ptr<spdlog::logger> make_logger(std::ostream& stream)
 {
