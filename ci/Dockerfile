@@ -82,7 +82,8 @@ RUN cd /tmp && wget --quiet https://github.com/ccache/ccache/releases/download/v
    rm -rf ccache-${CCACHE_VERSION}
 
 ## install a version of boost that is needed for arrow/parquet to work
-RUN cd /usr/local && wget --quiet https://archives.boost.io/release/1.79.0/source/boost_1_79_0.tar.gz && \
+RUN cd /usr/local &&  \
+  wget --quiet https://downloads.sourceforge.net/project/boost/boost/1.79.0/boost_1_79_0.tar.gz && \
   tar -xzf boost_1_79_0.tar.gz && \
   rm boost_1_79_0.tar.gz && \
   cd boost_1_79_0 && \
