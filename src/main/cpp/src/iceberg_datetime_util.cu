@@ -15,7 +15,7 @@
  */
 
 #include "datetime_utils.cuh"
-#include "datetime_utils.hpp"
+#include "iceberg_datetime_util.hpp"
 #include "integer_utils.cuh"
 
 #include <cudf/column/column_factories.hpp>
@@ -134,9 +134,9 @@ struct hour_diff_from_epoch_for_ts_fn {
   }
 };
 
-std::unique_ptr<cudf::column> compute_epoch_year_diff(cudf::column_view const& input,
-                                                      rmm::cuda_stream_view stream,
-                                                      rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> compute_to_years(cudf::column_view const& input,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
 {
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
@@ -157,13 +157,13 @@ std::unique_ptr<cudf::column> compute_epoch_year_diff(cudf::column_view const& i
                      year_diff_from_epoch_for_ts_fn{input.begin<int64_t>()});
     return result;
   } else {
-    CUDF_FAIL("Unsupported type for compute_year_diff");
+    CUDF_FAIL("Unsupported type for to_years");
   }
 }
 
-std::unique_ptr<cudf::column> compute_epoch_month_diff(cudf::column_view const& input,
-                                                       rmm::cuda_stream_view stream,
-                                                       rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> compute_to_months(cudf::column_view const& input,
+                                                rmm::cuda_stream_view stream,
+                                                rmm::device_async_resource_ref mr)
 {
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
@@ -184,13 +184,13 @@ std::unique_ptr<cudf::column> compute_epoch_month_diff(cudf::column_view const& 
                      month_diff_from_epoch_for_ts_fn{input.begin<int64_t>()});
     return result;
   } else {
-    CUDF_FAIL("Unsupported type for compute_month_diff");
+    CUDF_FAIL("Unsupported type for to_months");
   }
 }
 
-std::unique_ptr<cudf::column> compute_epoch_day_diff(cudf::column_view const& input,
-                                                     rmm::cuda_stream_view stream,
-                                                     rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> compute_to_days(cudf::column_view const& input,
+                                              rmm::cuda_stream_view stream,
+                                              rmm::device_async_resource_ref mr)
 {
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
@@ -211,12 +211,12 @@ std::unique_ptr<cudf::column> compute_epoch_day_diff(cudf::column_view const& in
                      day_diff_from_epoch_for_ts_fn{input.begin<int64_t>()});
     return result;
   } else {
-    CUDF_FAIL("Unsupported type for compute_day_diff");
+    CUDF_FAIL("Unsupported type for to_days");
   }
 }
-std::unique_ptr<cudf::column> compute_epoch_hour_diff(cudf::column_view const& input,
-                                                      rmm::cuda_stream_view stream,
-                                                      rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> compute_to_hours(cudf::column_view const& input,
+                                               rmm::cuda_stream_view stream,
+                                               rmm::device_async_resource_ref mr)
 {
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
@@ -232,42 +232,42 @@ std::unique_ptr<cudf::column> compute_epoch_hour_diff(cudf::column_view const& i
                      hour_diff_from_epoch_for_ts_fn{input.begin<int64_t>()});
     return result;
   } else {
-    CUDF_FAIL("Unsupported type for compute_hour_diff");
+    CUDF_FAIL("Unsupported type for to_hours");
   }
 }
 
 }  // anonymous namespace
 
-std::unique_ptr<cudf::column> compute_year_diff(cudf::column_view const& input,
-                                                rmm::cuda_stream_view stream,
-                                                rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> to_years(cudf::column_view const& input,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return compute_epoch_year_diff(input, stream, mr);
+  return compute_to_years(input, stream, mr);
 }
 
-std::unique_ptr<cudf::column> compute_month_diff(cudf::column_view const& input,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> to_months(cudf::column_view const& input,
+                                        rmm::cuda_stream_view stream,
+                                        rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return compute_epoch_month_diff(input, stream, mr);
+  return compute_to_months(input, stream, mr);
 }
 
-std::unique_ptr<cudf::column> compute_day_diff(cudf::column_view const& input,
-                                               rmm::cuda_stream_view stream,
-                                               rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> to_days(cudf::column_view const& input,
+                                      rmm::cuda_stream_view stream,
+                                      rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return compute_epoch_day_diff(input, stream, mr);
+  return compute_to_days(input, stream, mr);
 }
 
-std::unique_ptr<cudf::column> compute_hour_diff(cudf::column_view const& input,
-                                                rmm::cuda_stream_view stream,
-                                                rmm::device_async_resource_ref mr)
+std::unique_ptr<cudf::column> to_hours(cudf::column_view const& input,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return compute_epoch_hour_diff(input, stream, mr);
+  return compute_to_hours(input, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

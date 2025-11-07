@@ -198,6 +198,7 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
+  src/IcebergDateTimeUtilJni.cpp
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
@@ -225,7 +226,6 @@ add_library(
   src/cast_string_to_datetime.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
-  src/datetime_utils.cu
   src/decimal_utils.cu
   src/exception_with_row_index_utilities.cu
   src/format_float.cu
@@ -236,6 +236,7 @@ add_library(
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg_datetime_util.cu
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
