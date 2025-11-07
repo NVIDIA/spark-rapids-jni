@@ -1957,7 +1957,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     return ret;
   }
 
-  std::string get_threads_string() {
+  std::string get_threads_string()
+  {
     std::set<long> threads_key_set;
     for (auto const& [k, v] : threads) {
       threads_key_set.insert(k);
@@ -1969,8 +1970,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   void log_all_threads_states()
   {
-    LOG_STATUS("DETAIL", -1, -1, thread_state::UNKNOWN, 
-      "States of all threads: {}", get_threads_string());
+    LOG_STATUS(
+      "DETAIL", -1, -1, thread_state::UNKNOWN, "States of all threads: {}", get_threads_string());
   }
 
   /**
