@@ -144,10 +144,10 @@ public class IcebergDateTimeUtilTest {
     }
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
-        ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
+        ColumnVector expected1 = ColumnVector.daysFromInts(expectedValues1);
         ColumnVector result1 = IcebergDateTimeUtil.toDays(input1);
         ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
-        ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
+        ColumnVector expected2 = ColumnVector.daysFromInts(expectedValues2);
         ColumnVector result2 = IcebergDateTimeUtil.toDays(input2)) {
       assertColumnsAreEqual(expected1, result1);
       assertColumnsAreEqual(expected2, result2);

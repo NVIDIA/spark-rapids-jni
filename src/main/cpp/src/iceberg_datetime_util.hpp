@@ -58,7 +58,7 @@ std::unique_ptr<cudf::column> to_months(
  * @param input The input date/timestamp column.
  * @param stream The CUDA stream to use for device memory operations and kernel launches.
  * @param mr Device memory resource to use for allocations.
- * @return A column of type INT32 containing the day differences from epoch.
+ * @return A column of type Date.
  */
 std::unique_ptr<cudf::column> to_days(
   cudf::column_view const& input,

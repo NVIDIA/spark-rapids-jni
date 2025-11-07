@@ -192,7 +192,7 @@ std::unique_ptr<cudf::column> compute_to_days(cudf::column_view const& input,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
-  auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
+  auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::TIMESTAMP_DAYS},
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
                                               input.null_count(),

@@ -75,7 +75,7 @@ public class IcebergDateTimeUtil {
    * 20: (20 days after epoch day)
    *
    * @param input The input date/timestamp column.
-   * @return A column of type INT32 containing the day differences from epoch.
+   * @return A column of type Date.
    */
   public static ColumnVector toDays(ColumnView input) {
     checkTimestampOrDateType(input);
