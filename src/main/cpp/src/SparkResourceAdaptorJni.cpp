@@ -121,77 +121,77 @@ const char* as_str(thread_state state)
 
 class spark_resource_adaptor_logger {
   public:
-   spark_resource_adaptor_logger(std::shared_ptr<spdlog::logger> logger, bool is_log_enabled) 
-     : logger(logger), is_log_enabled(is_log_enabled) {
-     logger->flush_on(spdlog::level::info);
-     logger->set_pattern("%v");
-     logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
-     logger->set_pattern("%H:%M:%S.%f,%v");
-   }
+    spark_resource_adaptor_logger(std::shared_ptr<spdlog::logger> logger, bool is_log_enabled) 
+      : logger(logger), is_log_enabled(is_log_enabled) {
+      logger->flush_on(spdlog::level::info);
+      logger->set_pattern("%v");
+      logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
+      logger->set_pattern("%H:%M:%S.%f,%v");
+    }
  
-   /**
-    * log a status change that does not involve a state transition.
-    */
-   void log_status(std::string const& op,
-                   long const thread_id,
-                   long const task_id,
-                   thread_state const state,
-                   std::string const& notes = "") const
-   {
-     auto const this_id = static_cast<long>(pthread_self());
-     logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state), notes);
-   }
- 
-   /**
-    * log that a state transition happened.
-    */
-   void log_transition(long const thread_id,
-                       long const task_id,
-                       thread_state const from,
-                       thread_state const to,
-                       std::string const& notes = "") const
-   {
-     auto const this_id = static_cast<long>(pthread_self());
-     logger->info(
-       "TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from), as_str(to), notes);
-   }
- 
-   /**
-    * General purpose info logging with variadic arguments
-    */
-   template<typename... Args>
-   void log_info(Args&&... args) const
-   {
-     logger->info(std::forward<Args>(args)...);
-   }
- 
-   /**
-    * General purpose debug logging with variadic arguments
-    */
-   template<typename... Args>
-   void log_debug(Args&&... args) const
-   {
-     logger->debug(std::forward<Args>(args)...);
-   }
- 
-  bool should_log_debug() const { return is_log_enabled && logger->should_log(spdlog::level::debug); }
-  bool should_log_info() const { return is_log_enabled && logger->should_log(spdlog::level::info); }
-  bool should_log_transition() const { return should_log_info(); }
-  bool should_log_status() const { return should_log_info(); }
+    /**
+     * log a status change that does not involve a state transition.
+     */
+    void log_status(std::string const& op,
+        long const thread_id,
+        long const task_id,
+        thread_state const state,
+        std::string const& notes = "") const
+    {
+      auto const this_id = static_cast<long>(pthread_self());
+      logger->info("{},{},{},{},{},,{}", op, this_id, thread_id, task_id, as_str(state), notes);
+    }
 
-  void flush() {
-    logger->flush();
-  }
+    /**
+     * log that a state transition happened.
+     */
+    void log_transition(long const thread_id,
+        long const task_id,
+        thread_state const from,
+        thread_state const to,
+        std::string const& notes = "") const
+    {
+      auto const this_id = static_cast<long>(pthread_self());
+      logger->info(
+          "TRANSITION,{},{},{},{},{},{}", this_id, thread_id, task_id, as_str(from), as_str(to), notes);
+    }
 
-  void shutdown() {
-    is_log_enabled = false;
-    logger.reset();
-  }
- 
-   private:
-     std::shared_ptr<spdlog::logger> logger;
-     bool is_log_enabled;
- };
+    /**
+     * General purpose info logging with variadic arguments
+     */
+    template<typename... Args>
+      void log_info(Args&&... args) const
+      {
+        logger->info(std::forward<Args>(args)...);
+      }
+
+    /**
+     * General purpose debug logging with variadic arguments
+     */
+    template<typename... Args>
+      void log_debug(Args&&... args) const
+      {
+        logger->debug(std::forward<Args>(args)...);
+      }
+
+    bool should_log_debug() const { return is_log_enabled && logger->should_log(spdlog::level::debug); }
+    bool should_log_info() const { return is_log_enabled && logger->should_log(spdlog::level::info); }
+    bool should_log_transition() const { return should_log_info(); }
+    bool should_log_status() const { return should_log_info(); }
+
+    void flush() {
+      logger->flush();
+    }
+
+    void shutdown() {
+      is_log_enabled = false;
+      logger.reset();
+    }
+
+  private:
+    std::shared_ptr<spdlog::logger> logger;
+    bool is_log_enabled;
+};
  
 // Helper function to handle optional formatting
 // No arguments case
