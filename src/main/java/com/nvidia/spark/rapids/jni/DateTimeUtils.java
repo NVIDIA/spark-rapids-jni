@@ -105,14 +105,6 @@ public class DateTimeUtils {
     return new ColumnVector(truncateWithScalarFormat(datetime.getNativeView(), format));
   }
 
-  private static void checkTimestampOrDate(ColumnView input) {
-    DType type = input.getType();
-    if (type.getTypeId() != DType.DTypeEnum.TIMESTAMP_MICROSECONDS &&
-        type.getTypeId() != DType.DTypeEnum.TIMESTAMP_DAYS) {
-      throw new IllegalArgumentException("Input column must be of type " +
-          "TIMESTAMP_MICROSECONDS or TIMESTAMP_DAYS");
-    }
-  }
 
   private static native long rebaseGregorianToJulian(long nativeHandle);
 

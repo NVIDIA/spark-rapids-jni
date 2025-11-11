@@ -18,14 +18,22 @@ package com.nvidia.spark.rapids.jni.iceberg;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
-import java.time.LocalDate;
 import java.util.Random;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.apache.iceberg.util.DateTimeUtil;
 import ai.rapids.cudf.ColumnVector;
 
 public class IcebergDateTimeUtilTest {
+
+  private static long seed;
+
+  @BeforeAll
+  public static void init() {
+    seed = System.currentTimeMillis();
+    System.out.println("IcebergDateTimeUtilTest seed: " + seed);
+  }
 
   @Test
   void toYearsTest() {
@@ -49,7 +57,7 @@ public class IcebergDateTimeUtilTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    Random random = new Random();
+    Random random = new Random(seed);
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -98,7 +106,7 @@ public class IcebergDateTimeUtilTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    Random random = new Random();
+    Random random = new Random(seed);
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -127,7 +135,7 @@ public class IcebergDateTimeUtilTest {
 
   @Test
   void toDaysTest() {
-    Random random = new Random();
+    Random random = new Random(seed);
     int numRows = 1024;
     int[] days = new int[numRows];
     long[] micros = new long[numRows];
@@ -171,7 +179,7 @@ public class IcebergDateTimeUtilTest {
     }
 
     // random test
-    Random random = new Random();
+    Random random = new Random(seed);
     int numRows = 1024;
     long[] micros = new long[numRows];
     for (int i = 0; i < numRows; ++i) {
