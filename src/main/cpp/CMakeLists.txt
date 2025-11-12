@@ -198,6 +198,7 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
+  src/IcebergTruncateJni.cpp
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
@@ -236,6 +237,7 @@ add_library(
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg_truncate.cu
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
