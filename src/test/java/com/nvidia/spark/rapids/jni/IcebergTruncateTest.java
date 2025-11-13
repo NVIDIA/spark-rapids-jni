@@ -16,19 +16,16 @@
 
 package com.nvidia.spark.rapids.jni;
 
-import ai.rapids.cudf.HostColumnVector.*;
-
-import ai.rapids.cudf.*;
-
-import org.junit.jupiter.api.Test;
-
-import com.nvidia.spark.rapids.jni.iceberg.IcebergTruncate;
-
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
-
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
+
+import ai.rapids.cudf.*;
+import ai.rapids.cudf.HostColumnVector.*;
+import com.nvidia.spark.rapids.jni.iceberg.IcebergTruncate;
+import org.junit.jupiter.api.Test;
+
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 public class IcebergTruncateTest {
 
