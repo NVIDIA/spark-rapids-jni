@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <rmm/mr/device/device_memory_resource.hpp>
+#include <rmm/mr/device_memory_resource.hpp>
 
 #include <cudf_jni_apis.hpp>
 #include <pthread.h>
