@@ -31,28 +31,26 @@
 
 #include <thrust/tabulate.h>
 
+#include <cstdint>
+
 namespace spark_rapids_jni {
 
 namespace {
 
 /**
- * @brief Truncate an integer (int32/int64) value.
+ * @brief Truncate towards negative infinity direction for types: int32, int64 or int128
  *
  * For positive values, Iceberg truncation is: value - (value % width)
  * For negative values, this uses a floored modulo approach:
  * value - (((value % width) + width) % width)
  *
- * Example:
- * - truncate_integer(10, 5) = 0
- * - truncate_integer(10, 15) = 10
- * - truncate_integer(10, -5) = -10
- *
- * @param width Truncation width (must be positive)
- * @param value Integer value to truncate
- * @return Truncated integer value
+ * Example, width = 10:
+ * - truncate(10, 5) = 0
+ * - truncate(10, 15) = 10
+ * - truncate(10, -5) = -10
  */
 template <typename T>
-struct truncate_integer_fn {
+struct truncate_integral_fn {
   cudf::column_device_view input;
   int32_t width;
 
@@ -67,8 +65,10 @@ struct truncate_integer_fn {
   }
 };
 
+/**
+ * @brief Truncate by character for string values in UTF-8 encoding.
+ */
 struct truncate_string_fn {
-  // Input data
   // Input data
   char const* input_chars;
   cudf::size_type const* input_offsets;
@@ -131,14 +131,11 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(
-    input.type().id() == cudf::type_id::INT32 || input.type().id() == cudf::type_id::INT64,
-    "Input must be INT32 or INT64");
   CUDF_EXPECTS(width > 0, "Width must be positive");
 
   if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
 
-  auto output  = cudf::make_fixed_width_column(cudf::data_type{input.type().id()},
+  auto output  = cudf::make_fixed_width_column(input.type(),
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
                                               input.null_count(),
@@ -146,18 +143,30 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
                                               mr);
   auto d_input = cudf::column_device_view::create(input, stream);
 
-  if (input.type().id() == cudf::type_id::INT32) {
+  if (input.type().id() == cudf::type_id::INT32 || input.type().id() == cudf::type_id::DECIMAL32) {
+    // treat DECIMAL32 column as int32 column
     using T = int32_t;
     thrust::tabulate(rmm::exec_policy_nosync(stream),
                      output->mutable_view().begin<T>(),
                      output->mutable_view().end<T>(),
-                     truncate_integer_fn<T>{*d_input, width});
-  } else {
+                     truncate_integral_fn<T>{*d_input, width});
+  } else if (input.type().id() == cudf::type_id::INT64 ||
+             input.type().id() == cudf::type_id::DECIMAL64) {
+    // treat DECIMAL64 column as int64 column
     using T = int64_t;
     thrust::tabulate(rmm::exec_policy_nosync(stream),
                      output->mutable_view().begin<T>(),
                      output->mutable_view().end<T>(),
-                     truncate_integer_fn<T>{*d_input, width});
+                     truncate_integral_fn<T>{*d_input, width});
+  } else if (input.type().id() == cudf::type_id::DECIMAL128) {
+    // treat DECIMAL128 column as int128 column
+    using T = __int128_t;
+    thrust::tabulate(rmm::exec_policy_nosync(stream),
+                     output->mutable_view().begin<T>(),
+                     output->mutable_view().end<T>(),
+                     truncate_integral_fn<T>{*d_input, width});
+  } else {
+    CUDF_FAIL("Unsupported type for truncate_integral_impl");
   }
   return output;
 }
@@ -233,36 +242,6 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
                                  cudf::detail::copy_bitmask(input, stream, mr));
 }
 
-template <typename T>
-std::unique_ptr<cudf::column> truncate_decimal_32_or_64_impl(cudf::column_view const& input,
-                                                             int32_t width,
-                                                             rmm::cuda_stream_view stream,
-                                                             rmm::device_async_resource_ref mr)
-{
-  CUDF_EXPECTS(width > 0, "Width must be positive");
-  if (input.is_empty()) { return cudf::make_empty_column(input.type()); }
-  auto output  = cudf::make_fixed_width_column(input.type(),
-                                              input.size(),
-                                              cudf::detail::copy_bitmask(input, stream, mr),
-                                              input.null_count(),
-                                              stream,
-                                              mr);
-  auto d_input = cudf::column_device_view::create(input, stream);
-  thrust::tabulate(rmm::exec_policy_nosync(stream),
-                   output->mutable_view().begin<T>(),
-                   output->mutable_view().end<T>(),
-                   truncate_integer_fn<T>{*d_input, width});
-  return output;
-}
-
-std::unique_ptr<cudf::column> truncate_decimal128_impl(cudf::column_view const& input,
-                                                       int32_t width,
-                                                       rmm::cuda_stream_view stream,
-                                                       rmm::device_async_resource_ref mr)
-{
-  return nullptr;
-}
-
 }  // anonymous namespace
 
 std::unique_ptr<cudf::column> truncate_integral(cudf::column_view const& input,
@@ -290,35 +269,6 @@ std::unique_ptr<cudf::column> truncate_binary(cudf::column_view const& input,
 {
   CUDF_FUNC_RANGE();
   return truncate_binary_impl(input, length, stream, mr);
-}
-
-std::unique_ptr<cudf::column> truncate_decimal32(cudf::column_view const& input,
-                                                 int32_t width,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::DECIMAL32, "Input must be DECIMAL32");
-  return truncate_decimal_32_or_64_impl<int32_t>(input, width, stream, mr);
-}
-
-std::unique_ptr<cudf::column> truncate_decimal64(cudf::column_view const& input,
-                                                 int32_t width,
-                                                 rmm::cuda_stream_view stream,
-                                                 rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  CUDF_EXPECTS(input.type().id() == cudf::type_id::DECIMAL64, "Input must be DECIMAL64");
-  return truncate_decimal_32_or_64_impl<int64_t>(input, width, stream, mr);
-}
-
-std::unique_ptr<cudf::column> truncate_decimal128(cudf::column_view const& input,
-                                                  int32_t width,
-                                                  rmm::cuda_stream_view stream,
-                                                  rmm::device_async_resource_ref mr)
-{
-  CUDF_FUNC_RANGE();
-  return truncate_decimal128_impl(input, width, stream, mr);
 }
 
 }  // namespace spark_rapids_jni

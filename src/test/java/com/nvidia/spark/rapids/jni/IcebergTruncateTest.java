@@ -26,6 +26,7 @@ import com.nvidia.spark.rapids.jni.iceberg.IcebergTruncate;
 
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -103,16 +104,27 @@ public class IcebergTruncateTest {
     }
   }
 
-  // @Test
-  // void testTruncateDecimal128() {
-  // try (
-  // ColumnVector input = ColumnVector.decimalFromBigInt(-2, 0L, 1L, 5L, 9L, 10L,
-  // 11L, -1L, -5L, -10L, -11L, null);
-  // ColumnVector expected = ColumnVector.decimalFromBigInt(-2, 0L, 0L, 0L, 0L,
-  // 10L, 10L, -10L, -10L, -10L, -20L,
-  // null);
-  // ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-  // assertColumnsAreEqual(expected, result);
-  // }
-  // }
+  @Test
+  void testTruncateDecimal128() {
+    try (
+        ColumnVector input = ColumnVector.decimalFromBigInt(
+          -2,
+          null,
+          new BigInteger("1234"),
+          new BigInteger("1230"),
+          new BigInteger("1229"),
+          new BigInteger("5"),
+          new BigInteger("-5"));
+        ColumnVector expected = ColumnVector.decimalFromBigInt(
+          -2, 
+          null,
+          new BigInteger("1230"), 
+          new BigInteger("1230"),
+          new BigInteger("1220"),
+          new BigInteger("0"),
+          new BigInteger("-10")); 
+        ColumnVector result = IcebergTruncate.truncate(input, 10)) {
+      assertColumnsAreEqual(expected, result);
+    }
+  }
 }

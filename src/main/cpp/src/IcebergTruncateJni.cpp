@@ -35,6 +35,9 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_iceberg_IcebergTruncate
     switch (type_id) {
       case cudf::type_id::INT32:
       case cudf::type_id::INT64:
+      case cudf::type_id::DECIMAL32:
+      case cudf::type_id::DECIMAL64:
+      case cudf::type_id::DECIMAL128:
         return cudf::jni::release_as_jlong(
           spark_rapids_jni::truncate_integral(*input_cv, width, cudf::get_default_stream()));
       case cudf::type_id::STRING:
@@ -43,15 +46,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_iceberg_IcebergTruncate
       case cudf::type_id::LIST:
         return cudf::jni::release_as_jlong(
           spark_rapids_jni::truncate_binary(*input_cv, width, cudf::get_default_stream()));
-      case cudf::type_id::DECIMAL32:
-        return cudf::jni::release_as_jlong(
-          spark_rapids_jni::truncate_decimal32(*input_cv, width, cudf::get_default_stream()));
-      case cudf::type_id::DECIMAL64:
-        return cudf::jni::release_as_jlong(
-          spark_rapids_jni::truncate_decimal64(*input_cv, width, cudf::get_default_stream()));
-      case cudf::type_id::DECIMAL128:
-        return cudf::jni::release_as_jlong(
-          spark_rapids_jni::truncate_decimal128(*input_cv, width, cudf::get_default_stream()));
       default:
         JNI_THROW_NEW(
           env, "java/lang/IllegalArgumentException", "Unsupported type for truncation", 0);

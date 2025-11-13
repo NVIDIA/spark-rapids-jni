@@ -24,16 +24,26 @@
 namespace spark_rapids_jni {
 
 /**
- * @brief Truncate int32 or int64 values for Iceberg partitioning.
+ * @brief Truncate towards negative infinity direction for types: integral or decimal.
  *
- * For integer types, Iceberg truncation is: value - (value % width)
- * where width is the truncation parameter.
+ * The input type can be INT32, INT64, DECIMAL32, DECIMAL64 or DECIMAL128.
+ * Note: For DECIMAL types, the truncation is performed on the integer representation
  *
- * @param input Integer column to truncate
+ * For positive values, Iceberg truncation is: value - (value % width)
+ * For negative values, this uses a floored modulo approach:
+ * value - (((value % width) + width) % width)
+ *
+ * Example:
+ * - truncate_integer(10, 5) = 0
+ * - truncate_integer(10, 15) = 10
+ * - truncate_integer(10, -5) = -10
+ *
+ * @param input Integral or decimal column to truncate
  * @param width Truncation width
  * @param stream CUDA stream used for device memory operations
  * @param mr Device memory resource used to allocate the returned column
- * @return Truncated integer column
+ *
+ * @return Truncated integral or decimal column
  */
 std::unique_ptr<cudf::column> truncate_integral(
   cudf::column_view const& input,
@@ -42,22 +52,16 @@ std::unique_ptr<cudf::column> truncate_integral(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * @brief Truncate string values for Iceberg partitioning with proper UTF-8 handling.
+ * @brief Truncate by character for string values in UTF-8 encoding.
  *
- * This function truncates strings to the specified byte length while ensuring:
- * 1. UTF-8 multi-byte characters are not split
- * 2. Surrogate code points (U+D800 to U+DFFF) are properly handled and excluded
- * 3. The resulting string is valid UTF-8
- *
- * If a truncation point falls in the middle of a multi-byte UTF-8 character,
- * the truncation backs up to the start of that character. If a character at
- * the truncation boundary encodes a surrogate code point, it is also excluded.
+ * Note: One character may use multiple(1-4) bytes in UTF-8 encoding.
  *
  * @param input String column to truncate
- * @param length Maximum byte length for truncated strings
+ * @param length Maximum character length for truncated strings
  * @param stream CUDA stream used for device memory operations
  * @param mr Device memory resource used to allocate the returned column
- * @return Truncated string column with valid UTF-8 encoding
+ *
+ * @return Truncated string column
  */
 std::unique_ptr<cudf::column> truncate_string(
   cudf::column_view const& input,
@@ -66,57 +70,18 @@ std::unique_ptr<cudf::column> truncate_string(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
- * @brief Truncate binary values for Iceberg partitioning.
- *
- * This function truncates binary data to the specified byte length.
- * Unlike string truncation, binary truncation simply cuts at the byte boundary
- * without any special handling for character encoding.
+ * @brief Truncates binary values to the specified byte length.
  *
  * @param input Binary (list of bytes) column to truncate
  * @param length Maximum byte length for truncated binary data
  * @param stream CUDA stream used for device memory operations
  * @param mr Device memory resource used to allocate the returned column
+ *
  * @return Truncated binary column
  */
 std::unique_ptr<cudf::column> truncate_binary(
   cudf::column_view const& input,
   int32_t length,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-/**
- * @brief Truncate decimal values for Iceberg partitioning.
- *
- * This function truncates decimal values using the formula:
- * result = value - (((unscaled_value % unscaled_width) + unscaled_width) % unscaled_width)
- *
- * Supports decimal32, decimal64, and decimal128 types. The scale of the input
- * values is preserved in the output.
- *
- * For decimal types, the width parameter represents the unscaled truncation width.
- * The floored modulo approach ensures proper handling of negative decimal values.
- *
- * @param input Decimal column to truncate (decimal32, decimal64, or decimal128)
- * @param unscaled_width Unscaled truncation width as string (must be positive)
- * @param stream CUDA stream used for device memory operations
- * @param mr Device memory resource used to allocate the returned column
- * @return Truncated decimal column with the same type and scale as input
- */
-std::unique_ptr<cudf::column> truncate_decimal32(
-  cudf::column_view const& input,
-  int32_t width,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> truncate_decimal64(
-  cudf::column_view const& input,
-  int32_t width,
-  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-
-std::unique_ptr<cudf::column> truncate_decimal128(
-  cudf::column_view const& input,
-  int32_t width,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
