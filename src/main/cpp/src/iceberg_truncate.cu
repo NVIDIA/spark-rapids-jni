@@ -19,6 +19,9 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/lists/detail/lists_column_factories.hpp>
+#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/strings_column_view.hpp>
@@ -55,7 +58,10 @@ struct truncate_integer_fn {
 
   __device__ T operator()(int row_index) const
   {
-    // do not handle nulls here, because 0 input also results in 0 output
+    if (input.is_null(row_index)) {
+      return T{};  // null value
+    }
+
     T value = input.element<T>(row_index);
     return value - (((value % width) + width) % width);
   }
@@ -63,7 +69,9 @@ struct truncate_integer_fn {
 
 struct truncate_string_fn {
   // Input data
-  cudf::column_device_view d_strings;
+  // Input data
+  char const* input_chars;
+  cudf::size_type const* input_offsets;
   int32_t truncate_length;
 
   // Output buffers
@@ -73,9 +81,11 @@ struct truncate_string_fn {
 
   __device__ void operator()(cudf::size_type idx)
   {
-    auto str = d_strings.element<cudf::string_view>(idx);
+    cudf::string_view str(input_chars + input_offsets[idx],
+                          input_offsets[idx + 1] - input_offsets[idx]);
     if (!d_chars) {
       // first phase
+      // Note: one character can be multiple(1-4) bytes for UTF8 encoding
       if (str.length() < truncate_length) {
         d_sizes[idx] = str.size_bytes();
       } else {
@@ -84,8 +94,34 @@ struct truncate_string_fn {
       }
     } else {
       // second phase
-      int len = d_offsets[idx + 1] - d_offsets[idx];
-      memcpy(d_chars + d_offsets[idx], str.data(), len);
+      int out_len = d_offsets[idx + 1] - d_offsets[idx];
+      memcpy(d_chars + d_offsets[idx], str.data(), out_len);
+    }
+  }
+};
+
+struct truncate_binary_fn {
+  // Input data
+  char const* input_chars;
+  cudf::size_type const* input_offsets;
+  int32_t truncate_length;
+
+  // Output buffers
+  cudf::size_type* d_sizes;
+  char* d_chars;
+  cudf::detail::input_offsetalator d_offsets;
+
+  __device__ void operator()(cudf::size_type idx)
+  {
+    if (!d_chars) {
+      // first phase
+      int binary_len = input_offsets[idx + 1] - input_offsets[idx];
+      d_sizes[idx]   = (binary_len < truncate_length) ? binary_len : truncate_length;
+    } else {
+      // second phase
+      auto binary_ptr = input_chars + input_offsets[idx];
+      int out_len     = d_offsets[idx + 1] - d_offsets[idx];
+      memcpy(d_chars + d_offsets[idx], binary_ptr, out_len);
     }
   }
 };
@@ -134,17 +170,19 @@ std::unique_ptr<cudf::column> truncate_string_impl(cudf::column_view const& inpu
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Input must be STRING");
   CUDF_EXPECTS(length > 0, "Length must be positive");
 
-  auto const strings_count = input.size();
-  if (strings_count == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
+  auto const num_rows = input.size();
+  if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  auto const strings_col = cudf::strings_column_view(input);
-  auto const d_strings   = cudf::column_device_view::create(strings_col.parent(), stream);
-
+  cudf::strings_column_view strings_col(input);
   // Build the output strings column using the computed lengths
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
-    truncate_string_fn{*d_strings, length}, strings_count, stream, mr);
+    truncate_string_fn{
+      strings_col.chars_begin(stream), strings_col.offsets().begin<cudf::size_type>(), length},
+    num_rows,
+    stream,
+    mr);
 
-  return cudf::make_strings_column(strings_count,
+  return cudf::make_strings_column(num_rows,
                                    std::move(offsets),
                                    chars.release(),
                                    input.null_count(),
@@ -156,7 +194,42 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  return nullptr;
+  CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "Input must be LIST");
+  cudf::lists_column_view list_col(input);
+  auto const binary_col_child   = list_col.child();
+  auto const binary_col_offsets = list_col.offsets();
+  CUDF_EXPECTS(binary_col_child.type().id() == cudf::type_id::UINT8, "Input must be LIST(UINT8)");
+
+  auto const num_rows = input.size();
+  if (num_rows == 0) {
+    return cudf::lists::detail::make_empty_lists_column(
+      cudf::data_type{cudf::type_id::UINT8}, stream, mr);
+  }
+  CUDF_EXPECTS(!binary_col_child.nullable(), "Child column of binary column must be non-nullable");
+
+  // Build the output binary column using the computed lengths
+  // Binary type is list(uint8), it's similar to strings type
+  // Here we reuse the strings children building function
+  auto [new_offsets, new_chars] = cudf::strings::detail::make_strings_children(
+    truncate_binary_fn{
+      binary_col_child.begin<char>(), binary_col_offsets.begin<cudf::size_type>(), length},
+    num_rows,
+    stream,
+    mr);
+  auto new_chars_size = new_chars.size();
+
+  auto new_child =
+    std::make_unique<cudf::column>(cudf::data_type{cudf::type_id::UINT8},  // Data type
+                                   new_chars_size,                         // Number of elements
+                                   new_chars.release(),   // Transfer ownership of the buffer
+                                   rmm::device_buffer{},  // no nulls in child
+                                   0);
+
+  return cudf::make_lists_column(num_rows,
+                                 std::move(new_offsets),
+                                 std::move(new_child),
+                                 input.null_count(),
+                                 cudf::detail::copy_bitmask(input, stream, mr));
 }
 
 std::unique_ptr<cudf::column> truncate_decimal32_impl(cudf::column_view const& input,

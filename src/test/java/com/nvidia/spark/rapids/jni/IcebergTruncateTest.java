@@ -15,6 +15,7 @@
  */
 
 package com.nvidia.spark.rapids.jni;
+
 import ai.rapids.cudf.HostColumnVector.*;
 
 import ai.rapids.cudf.*;
@@ -54,37 +55,31 @@ public class IcebergTruncateTest {
   @Test
   void testTruncateString() {
     try (
-        ColumnVector input = ColumnVector.fromStrings(null, "🚀23四😁678", "中华人民共和国", null);
-        ColumnVector expected = ColumnVector.fromStrings(null, "🚀23四😁", "中华人民共", null);
+        ColumnVector input = ColumnVector.fromStrings(null, "🚀23四😁678", "中华人民共和国", "", null);
+        ColumnVector expected = ColumnVector.fromStrings(null, "🚀23四😁", "中华人民共", "", null);
         ColumnVector result = IcebergTruncate.truncate(input, 5)) {
       assertColumnsAreEqual(expected, result);
     }
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   void testTruncateBinary() {
-    try (ColumnVector input = ColumnVector.fromLists(
-        new ListType(true, new BasicType(true, DType.UINT8)),
-          Arrays.asList(1, 2, 3), // Normal case
-          Arrays.asList(11, null, 33), // Contains null
-          null, // Entire array is null
-          Collections.emptyList(), // Empty list
-          Collections.singletonList(null), // Single null
-          Arrays.asList(null, null, null), // All nulls
-          Arrays.asList(111, 222, 333));
+    try (
+        ColumnVector input = ColumnVector.fromLists(
+            new ListType(true, new BasicType(false, DType.UINT8)),
+            Arrays.asList((byte) 1, (byte) 2, (byte) 3), // Normal case
+            null, // Entire array is null
+            Arrays.asList(), // Empty list
+            Arrays.asList((byte) 11, (byte) 22, (byte) 33));
         ColumnVector expected = ColumnVector.fromLists(
-          new ListType(true, new BasicType(true, DType.UINT8)),
-          Arrays.asList(1, 2), // Normal case
-          Arrays.asList(11, null), // Contains null
-          null, // Entire array is null
-          Collections.emptyList(), // Empty list
-          Collections.singletonList(null), // Single null
-          Arrays.asList(null, null), // All nulls
-          Arrays.asList(111, 222));
-
+            new ListType(true, new BasicType(true, DType.UINT8)),
+            Arrays.asList((byte) 1, (byte) 2),
+            null, // Entire array is null
+            Collections.emptyList(), // Empty list
+            Arrays.asList((byte) 11, (byte) 22));
         ColumnVector result = IcebergTruncate.truncate(input, 2)) {
       assertColumnsAreEqual(expected, result);
     }
   }
-
 }
