@@ -32,6 +32,8 @@ import com.nvidia.spark.rapids.jni.iceberg.IcebergTruncate;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
 
 import org.apache.iceberg.util.TruncateUtil;
@@ -53,8 +55,31 @@ public class IcebergTruncateTest {
   void testTruncateInt() {
     int width = 10;
     try (
-        ColumnVector input = ColumnVector.fromBoxedInts(null, 0, 1, 5, 9, 10, 11, -1, -5, -10, -11, null);
-        ColumnVector expected = ColumnVector.fromBoxedInts(null, 0, 0, 0, 0, 10, 10, -10, -10, -10, -20, null);
+        ColumnVector input = ColumnVector.fromBoxedInts(null,
+            0,
+            1,
+            5,
+            9,
+            10,
+            11,
+            -1,
+            -5,
+            -10,
+            -11,
+            null);
+        ColumnVector expected = ColumnVector.fromBoxedInts(
+            null,
+            0,
+            0,
+            0,
+            0,
+            10,
+            10,
+            -10,
+            -10,
+            -10,
+            -20,
+            null);
         ColumnVector result = IcebergTruncate.truncate(input, width)) {
       assertColumnsAreEqual(expected, result);
     }
@@ -81,8 +106,31 @@ public class IcebergTruncateTest {
   void testTruncateLong() {
     int width = 10;
     try (
-        ColumnVector input = ColumnVector.fromBoxedLongs(null, 0L, 1L, 5L, 9L, 10L, 11L, -1L, -5L, -10L, -11L, null);
-        ColumnVector expected = ColumnVector.fromBoxedLongs(null, 0L, 0L, 0L, 0L, 10L, 10L, -10L, -10L, -10L, -20L,
+        ColumnVector input = ColumnVector.fromBoxedLongs(
+            null,
+            0L,
+            1L,
+            5L,
+            9L,
+            10L,
+            11L,
+            -1L,
+            -5L,
+            -10L,
+            -11L,
+            null);
+        ColumnVector expected = ColumnVector.fromBoxedLongs(
+            null,
+            0L,
+            0L,
+            0L,
+            0L,
+            10L,
+            10L,
+            -10L,
+            -10L,
+            -10L,
+            -20L,
             null);
         ColumnVector result = IcebergTruncate.truncate(input, width)) {
       assertColumnsAreEqual(expected, result);
@@ -110,8 +158,18 @@ public class IcebergTruncateTest {
   void testTruncateString() {
     int width = 5;
     try (
-        ColumnVector input = ColumnVector.fromStrings(null, "🚀23四😁678", "中华人民共和国", "", null);
-        ColumnVector expected = ColumnVector.fromStrings(null, "🚀23四😁", "中华人民共", "", null);
+        ColumnVector input = ColumnVector.fromStrings(
+            null,
+            "🚀23四😁678",
+            "中华人民共和国",
+            "",
+            null);
+        ColumnVector expected = ColumnVector.fromStrings(
+            null,
+            "🚀23四😁",
+            "中华人民共",
+            "",
+            null);
         ColumnVector result = IcebergTruncate.truncate(input, width)) {
       assertColumnsAreEqual(expected, result);
     }
@@ -188,63 +246,160 @@ public class IcebergTruncateTest {
     }
   }
 
+  // decimal 32 has max precision of 7
+  private static final BigInteger MIN_DECIMAL_32_VALUE = new BigInteger("-9999999");
+  private static final BigInteger MAX_DECIMAL_32_VALUE = new BigInteger("9999999");
+
+  // decimal 64 has max precision of 16
+  private static final BigInteger MIN_DECIMAL_64_VALUE = new BigInteger("-9999999999999999");
+  private static final BigInteger MAX_DECIMAL_64_VALUE = new BigInteger("9999999999999999");
+
+  // decimal 128 has max precision of 38
+  private static final BigInteger MIN_DECIMAL_128_VALUE = new BigInteger(
+      "-99999999999999999999999999999999999999");
+  private static final BigInteger MAX_DECIMAL_128_VALUE = new BigInteger(
+      "99999999999999999999999999999999999999");
+
+  private static BigInteger randomBigInteger(BigInteger min, BigInteger max, Random random) {
+    BigInteger range = max.subtract(min);
+    BigInteger randomValue = new BigInteger(range.bitLength(), random).mod(range);
+    return randomValue.add(min);
+  }
+
+  private static void compareDecimals(
+      DType.DTypeEnum decimalType,
+      BigDecimal[] expected,
+      HostColumnVector actual,
+      int numRows) {
+    int minPrecision;
+    int maxPrecision;
+    switch (decimalType) {
+      case DECIMAL32:
+        minPrecision = 1;
+        maxPrecision = 7;
+        break;
+      case DECIMAL64:
+        minPrecision = 8;
+        maxPrecision = 16;
+        break;
+      case DECIMAL128:
+        minPrecision = 17;
+        maxPrecision = 38;
+        break;
+      default:
+        throw new IllegalArgumentException("Unsupported decimal type: " + decimalType);
+    }
+
+    for (int i = 0; i < numRows; i++) {
+      if (expected[i] == null) {
+        assert actual.isNull(i);
+      } else {
+        assertTrue(expected[i].precision() >= minPrecision
+            && expected[i].precision() <= maxPrecision);
+        assertTrue(expected[i].compareTo(actual.getBigDecimal(i)) == 0);
+      }
+    }
+  }
+
   @Test
   void testTruncateDecimal32() {
     try (
-        ColumnVector input = ColumnVector.decimalFromBoxedInts(-2, null, 1234, 1230, 1229, 5, -5, null);
-        ColumnVector expected = ColumnVector.decimalFromBoxedInts(-2, null, 1230, 1230, 1220, 0, -10, null);
+        ColumnVector input = ColumnVector.decimalFromBoxedInts(-2,
+            null,
+            1234,
+            1230,
+            1229,
+            5,
+            -5,
+            null);
+        ColumnVector expected = ColumnVector.decimalFromBoxedInts(-2,
+            null,
+            1230,
+            1230,
+            1220,
+            0,
+            -10,
+            null);
         ColumnVector result = IcebergTruncate.truncate(input, 10)) {
       assertColumnsAreEqual(expected, result);
     }
 
-    // int numRows = 1024;
-    // Integer[] inputData = new Integer[numRows];
-    // BigDecimal[] expectedData = new BigDecimal[numRows];
-    // Random rand = new Random(seed);
-    // BigInteger width = new BigInteger("10");
-    // for (int i = 0; i < numRows; i++) {
-    //   int val = rand.nextInt();
-    //   inputData[i] = val;
-    //   // run on CPU to get expected value
-    //   BigDecimal v = new BigDecimal(String.valueOf(val)).setScale(2);
-    //   expectedData[i] = TruncateUtil.truncateDecimal(width, v);
-    // }
-    // try (
-    //     ColumnVector input = ColumnVector.decimalFromBoxedInts(-2, inputData);
-    //     ColumnVector expected = ColumnVector.fromDecimals(expectedData);
-    //     ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-    //   assertColumnsAreEqual(expected, result);
-    // }
+    int numRows = 1024;
+    int[] inputData = new int[numRows];
+    BigDecimal[] expectedData = new BigDecimal[numRows];
+    Random rand = new Random(seed);
+    BigInteger width = new BigInteger("10");
+    for (int i = 0; i < numRows; i++) {
+      // generate random BigInteger within range of precision 7
+      // GPU decimal32 supports precision up to 7
+      BigInteger val = randomBigInteger(MIN_DECIMAL_32_VALUE, MAX_DECIMAL_32_VALUE, rand);
+      inputData[i] = val.intValue();
+
+      // run on CPU to get expected value
+      BigDecimal v = new BigDecimal(val, 2);
+      expectedData[i] = TruncateUtil.truncateDecimal(width, v);
+    }
+
+    try (
+        ColumnVector input = ColumnVector.decimalFromInts(-2, inputData);
+        ColumnVector result = IcebergTruncate.truncate(input, 10);
+        HostColumnVector ret = result.copyToHost()) {
+
+      assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL32);
+      assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL32);
+      compareDecimals(DType.DTypeEnum.DECIMAL32, expectedData, ret, numRows);
+    }
   }
 
   @Test
   void testTruncateDecimal64() {
     try (
-        ColumnVector input = ColumnVector.decimalFromBoxedLongs(-2, null, 1234L, 1230L, 1229L, 5L, -5L, null);
-        ColumnVector expected = ColumnVector.decimalFromBoxedLongs(-2, null, 1230L, 1230L, 1220L, 0L, -10L, null);
+        ColumnVector input = ColumnVector.decimalFromBoxedLongs(
+            -2,
+            null,
+            1234L,
+            1230L,
+            1229L,
+            5L,
+            -5L,
+            null);
+        ColumnVector expected = ColumnVector.decimalFromBoxedLongs(
+            -2,
+            null,
+            1230L,
+            1230L,
+            1220L,
+            0L,
+            -10L,
+            null);
         ColumnVector result = IcebergTruncate.truncate(input, 10)) {
       assertColumnsAreEqual(expected, result);
     }
 
-    // int numRows = 1024;
-    // Long[] inputData = new Long[numRows];
-    // BigDecimal[] expectedData = new BigDecimal[numRows];
-    // Random rand = new Random(seed);
-    // BigInteger width = new BigInteger("10");
-    // for (int i = 0; i < numRows; i++) {
-    //   long val = rand.nextLong();
-    //   inputData[i] = val;
-    //   // run on CPU to get expected value
-    //   BigDecimal v = new BigDecimal(String.valueOf(val)).setScale(2);
-    //   expectedData[i] = TruncateUtil.truncateDecimal(width, v);
-    // }
+    int numRows = 1024;
+    long[] inputData = new long[numRows];
+    BigDecimal[] expectedData = new BigDecimal[numRows];
+    Random rand = new Random(seed);
+    BigInteger width = new BigInteger("10");
+    for (int i = 0; i < numRows; i++) {
+      // generate random BigInteger within range of precision 16
+      // GPU decimal128 supports precision up to 16
+      BigInteger val = randomBigInteger(MIN_DECIMAL_64_VALUE, MAX_DECIMAL_64_VALUE, rand);
+      inputData[i] = val.longValue();
+      // run on CPU to get expected value
+      BigDecimal v = new BigDecimal(val, 2);
+      expectedData[i] = TruncateUtil.truncateDecimal(width, v);
+    }
 
-    // try (
-    //     ColumnVector input = ColumnVector.decimalFromBoxedLongs(-2, inputData);
-    //     ColumnVector expected = ColumnVector.fromDecimals(expectedData);
-    //     ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-    //   assertColumnsAreEqual(expected, result);
-    // }
+    try (
+        ColumnVector input = ColumnVector.decimalFromLongs(-2, inputData);
+        ColumnVector result = IcebergTruncate.truncate(input, 10);
+        HostColumnVector ret = result.copyToHost()) {
+
+      assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL64);
+      assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL64);
+      compareDecimals(DType.DTypeEnum.DECIMAL64, expectedData, ret, numRows);
+    }
   }
 
   @Test
@@ -270,27 +425,29 @@ public class IcebergTruncateTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    // int numRows = 1024;
-    // BigInteger[] inputData = new BigInteger[numRows];
-    // BigDecimal[] expectedData = new BigDecimal[numRows];
-    // Random rand = new Random(seed);
-    // BigInteger width = new BigInteger("10");
-    // for (int i = 0; i < numRows; i++) {
-    //   // generate random BigInteger
-    //   byte[] arr = new byte[16]; // 128 bits
-    //   rand.nextBytes(arr);
-    //   BigInteger val = new BigInteger(arr);
-    //   inputData[i] = val;
-    //   // run on CPU to get expected value
-    //   BigDecimal v = new BigDecimal(String.valueOf(val)).setScale(2);
-    //   expectedData[i] = TruncateUtil.truncateDecimal(width, v);
-    // }
+    int numRows = 1024;
+    BigInteger[] inputData = new BigInteger[numRows];
+    BigDecimal[] expectedData = new BigDecimal[numRows];
+    Random rand = new Random(seed);
+    BigInteger width = new BigInteger("10");
+    for (int i = 0; i < numRows; i++) {
+      // generate random BigInteger within range of precision 38
+      // GPU decimal128 supports precision up to 38
+      // Java BigInteger can support arbitrary precision
+      BigInteger val = randomBigInteger(MIN_DECIMAL_128_VALUE, MAX_DECIMAL_128_VALUE, rand);
+      inputData[i] = val;
+      // run on CPU to get expected value
+      BigDecimal v = new BigDecimal(val, 2);
+      expectedData[i] = TruncateUtil.truncateDecimal(width, v);
+    }
 
-    // try (
-    //     ColumnVector input = ColumnVector.decimalFromBigInt(-2, inputData);
-    //     ColumnVector expected = ColumnVector.fromDecimals(expectedData);
-    //     ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-    //   assertColumnsAreEqual(expected, result);
-    // }
+    try (
+        ColumnVector input = ColumnVector.decimalFromBigInt(-2, inputData);
+        ColumnVector result = IcebergTruncate.truncate(input, 10);
+        HostColumnVector ret = result.copyToHost()) {
+      assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL128);
+      assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL128);
+      compareDecimals(DType.DTypeEnum.DECIMAL128, expectedData, ret, numRows);
+    }
   }
 }
