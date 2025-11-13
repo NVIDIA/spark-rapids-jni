@@ -202,7 +202,7 @@ public class IcebergTruncateTest {
             Arrays.asList(), // Empty list
             Arrays.asList((byte) 11, (byte) 22, (byte) 33));
         ColumnVector expected = ColumnVector.fromLists(
-            new ListType(true, new BasicType(true, DType.UINT8)),
+            new ListType(true, new BasicType(false, DType.UINT8)),
             Arrays.asList((byte) 1, (byte) 2),
             null, // Entire array is null
             Collections.emptyList(), // Empty list
@@ -239,7 +239,7 @@ public class IcebergTruncateTest {
             new ListType(true, new BasicType(false, DType.UINT8)),
             inputData);
         ColumnVector expected = ColumnVector.fromLists(
-            new ListType(true, new BasicType(true, DType.UINT8)),
+            new ListType(true, new BasicType(false, DType.UINT8)),
             expectedData);
         ColumnVector result = IcebergTruncate.truncate(input, 10)) {
       assertColumnsAreEqual(expected, result);
