@@ -138,6 +138,8 @@ std::unique_ptr<cudf::column> compute_years_from_epoch(cudf::column_view const& 
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT32}); }
+
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
@@ -165,6 +167,8 @@ std::unique_ptr<cudf::column> compute_months_from_epoch(cudf::column_view const&
                                                         rmm::cuda_stream_view stream,
                                                         rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT32}); }
+
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
@@ -192,6 +196,10 @@ std::unique_ptr<cudf::column> compute_days_from_epoch(cudf::column_view const& i
                                                       rmm::cuda_stream_view stream,
                                                       rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) {
+    return cudf::make_empty_column(cudf::data_type{cudf::type_id::TIMESTAMP_DAYS});
+  }
+
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::TIMESTAMP_DAYS},
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
@@ -214,10 +222,13 @@ std::unique_ptr<cudf::column> compute_days_from_epoch(cudf::column_view const& i
     CUDF_FAIL("Unsupported type for to_days");
   }
 }
+
 std::unique_ptr<cudf::column> compute_hours_from_epoch(cudf::column_view const& input,
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
+  if (input.is_empty()) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::INT32}); }
+
   auto result = cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::INT32},
                                               input.size(),
                                               cudf::detail::copy_bitmask(input, stream, mr),
