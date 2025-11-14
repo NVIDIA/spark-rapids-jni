@@ -53,7 +53,7 @@ public class IcebergDateTimeUtilTest {
             0,
             1,
             null);
-        ColumnVector result = IcebergDateTimeUtil.toYears(input)) {
+        ColumnVector result = IcebergDateTimeUtil.yearsFromEpoch(input)) {
       assertColumnsAreEqual(expected, result);
     }
 
@@ -75,10 +75,10 @@ public class IcebergDateTimeUtilTest {
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
         ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
-        ColumnVector result1 = IcebergDateTimeUtil.toYears(input1);
+        ColumnVector result1 = IcebergDateTimeUtil.yearsFromEpoch(input1);
         ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
         ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
-        ColumnVector result2 = IcebergDateTimeUtil.toYears(input2)) {
+        ColumnVector result2 = IcebergDateTimeUtil.yearsFromEpoch(input2)) {
       assertColumnsAreEqual(expected1, result1);
       assertColumnsAreEqual(expected2, result2);
     }
@@ -102,7 +102,7 @@ public class IcebergDateTimeUtilTest {
             1,
             16,
             null);
-        ColumnVector result = IcebergDateTimeUtil.toMonths(input)) {
+        ColumnVector result = IcebergDateTimeUtil.monthsFromEpoch(input)) {
       assertColumnsAreEqual(expected, result);
     }
 
@@ -124,10 +124,10 @@ public class IcebergDateTimeUtilTest {
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
         ColumnVector expected1 = ColumnVector.fromInts(expectedValues1);
-        ColumnVector result1 = IcebergDateTimeUtil.toMonths(input1);
+        ColumnVector result1 = IcebergDateTimeUtil.monthsFromEpoch(input1);
         ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
         ColumnVector expected2 = ColumnVector.fromInts(expectedValues2);
-        ColumnVector result2 = IcebergDateTimeUtil.toMonths(input2)) {
+        ColumnVector result2 = IcebergDateTimeUtil.monthsFromEpoch(input2)) {
       assertColumnsAreEqual(expected1, result1);
       assertColumnsAreEqual(expected2, result2);
     }
@@ -153,10 +153,10 @@ public class IcebergDateTimeUtilTest {
     try (
         ColumnVector input1 = ColumnVector.daysFromInts(days);
         ColumnVector expected1 = ColumnVector.daysFromInts(expectedValues1);
-        ColumnVector result1 = IcebergDateTimeUtil.toDays(input1);
+        ColumnVector result1 = IcebergDateTimeUtil.daysFromEpoch(input1);
         ColumnVector input2 = ColumnVector.timestampMicroSecondsFromLongs(micros);
         ColumnVector expected2 = ColumnVector.daysFromInts(expectedValues2);
-        ColumnVector result2 = IcebergDateTimeUtil.toDays(input2)) {
+        ColumnVector result2 = IcebergDateTimeUtil.daysFromEpoch(input2)) {
       assertColumnsAreEqual(expected1, result1);
       assertColumnsAreEqual(expected2, result2);
     }
@@ -174,7 +174,7 @@ public class IcebergDateTimeUtilTest {
             -1732919508, // overflow, Long.MAX gets negative value.
             1732919507 // overflow, Long.MIN gets positive value.
         );
-        ColumnVector result = IcebergDateTimeUtil.toHours(input)) {
+        ColumnVector result = IcebergDateTimeUtil.hoursFromEpoch(input)) {
       assertColumnsAreEqual(expected, result);
     }
 
@@ -193,7 +193,7 @@ public class IcebergDateTimeUtilTest {
     try (
         ColumnVector input = ColumnVector.timestampMicroSecondsFromLongs(micros);
         ColumnVector expected = ColumnVector.fromInts(expectedValues);
-        ColumnVector result = IcebergDateTimeUtil.toHours(input)) {
+        ColumnVector result = IcebergDateTimeUtil.hoursFromEpoch(input)) {
       assertColumnsAreEqual(expected, result);
     }
   }
