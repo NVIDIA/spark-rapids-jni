@@ -30,7 +30,7 @@ namespace spark_rapids_jni {
  * @param mr Device memory resource to use for allocations.
  * @return A column of type INT32 containing the year differences from epoch.
  */
-std::unique_ptr<cudf::column> to_years(
+std::unique_ptr<cudf::column> years_from_epoch(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
@@ -45,7 +45,7 @@ std::unique_ptr<cudf::column> to_years(
  * @param mr Device memory resource to use for allocations.
  * @return A column of type INT32 containing the month differences from epoch.
  */
-std::unique_ptr<cudf::column> to_months(
+std::unique_ptr<cudf::column> months_from_epoch(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
@@ -60,7 +60,7 @@ std::unique_ptr<cudf::column> to_months(
  * @param mr Device memory resource to use for allocations.
  * @return A column of type Date.
  */
-std::unique_ptr<cudf::column> to_days(
+std::unique_ptr<cudf::column> days_from_epoch(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
@@ -75,7 +75,7 @@ std::unique_ptr<cudf::column> to_days(
  * @param mr Device memory resource to use for allocations.
  * @return A column of type INT32 containing the hour differences from epoch.
  */
-std::unique_ptr<cudf::column> to_hours(
+std::unique_ptr<cudf::column> hours_from_epoch(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());

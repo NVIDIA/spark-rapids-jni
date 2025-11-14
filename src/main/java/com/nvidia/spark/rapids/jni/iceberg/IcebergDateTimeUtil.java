@@ -26,7 +26,7 @@ public class IcebergDateTimeUtil {
     NativeDepsLoader.loadNativeDeps();
   }
 
-  private static void checkTimestampOrDateType(ColumnView input) {
+  private static void assertIsMicrosOrDateType(ColumnView input) {
     DType type = input.getType();
     if (type.getTypeId() != DType.DTypeEnum.TIMESTAMP_MICROSECONDS &&
         type.getTypeId() != DType.DTypeEnum.TIMESTAMP_DAYS) {
@@ -35,7 +35,7 @@ public class IcebergDateTimeUtil {
     }
   }
 
-  private static void checkTimestampType(ColumnView input) {
+  private static void assertIsMicrosType(ColumnView input) {
     DType type = input.getType();
     if (type.getTypeId() != DType.DTypeEnum.TIMESTAMP_MICROSECONDS) {
       throw new IllegalArgumentException("Input column must be of type " +
@@ -51,9 +51,9 @@ public class IcebergDateTimeUtil {
    * @param input The input date/timestamp column.
    * @return A column of type INT32 containing the year differences from epoch.
    */
-  public static ColumnVector toYears(ColumnView input) {
-    checkTimestampOrDateType(input);
-    return new ColumnVector(toYears(input.getNativeView()));
+  public static ColumnVector yearsFromEpoch(ColumnView input) {
+    assertIsMicrosOrDateType(input);
+    return new ColumnVector(yearsFromEpoch(input.getNativeView()));
   }
 
   /**
@@ -64,9 +64,9 @@ public class IcebergDateTimeUtil {
    * @param input The input date/timestamp column.
    * @return A column of type INT32 containing the month differences from epoch.
    */
-  public static ColumnVector toMonths(ColumnView input) {
-    checkTimestampOrDateType(input);
-    return new ColumnVector(toMonths(input.getNativeView()));
+  public static ColumnVector monthsFromEpoch(ColumnView input) {
+    assertIsMicrosOrDateType(input);
+    return new ColumnVector(monthsFromEpoch(input.getNativeView()));
   }
 
   /**
@@ -77,9 +77,9 @@ public class IcebergDateTimeUtil {
    * @param input The input date/timestamp column.
    * @return A column of type Date.
    */
-  public static ColumnVector toDays(ColumnView input) {
-    checkTimestampOrDateType(input);
-    return new ColumnVector(toDays(input.getNativeView()));
+  public static ColumnVector daysFromEpoch(ColumnView input) {
+    assertIsMicrosOrDateType(input);
+    return new ColumnVector(daysFromEpoch(input.getNativeView()));
   }
 
   /**
@@ -91,16 +91,16 @@ public class IcebergDateTimeUtil {
    * @param timestamp The input timestamp column.
    * @return A column of type INT32 containing the hour differences from epoch.
    */
-  public static ColumnVector toHours(ColumnView input) {
-    checkTimestampType(input);
-    return new ColumnVector(toHours(input.getNativeView()));
+  public static ColumnVector hoursFromEpoch(ColumnView input) {
+    assertIsMicrosType(input);
+    return new ColumnVector(hoursFromEpoch(input.getNativeView()));
   }
 
-  private static native long toYears(long nativeHandle);
+  private static native long yearsFromEpoch(long nativeHandle);
 
-  private static native long toMonths(long nativeHandle);
+  private static native long monthsFromEpoch(long nativeHandle);
 
-  private static native long toDays(long nativeHandle);
+  private static native long daysFromEpoch(long nativeHandle);
 
-  private static native long toHours(long nativeHandle);
+  private static native long hoursFromEpoch(long nativeHandle);
 }
