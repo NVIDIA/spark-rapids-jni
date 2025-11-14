@@ -466,6 +466,45 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     logger->set_pattern("%v");
     logger->info("time,op,current thread,op thread,op task,from state,to state,notes");
     logger->set_pattern("%H:%M:%S.%f,%v");
+
+    jclass local_recorder = env->FindClass("ai/rapids/cudf/StackTraceRecorder");
+    if (local_recorder != nullptr) {
+      stack_trace_recorder_class = static_cast<jclass>(env->NewGlobalRef(local_recorder));
+      env->DeleteLocalRef(local_recorder);
+      if (stack_trace_recorder_class != nullptr) {
+        record_device_allocation_mid = env->GetStaticMethodID(
+          stack_trace_recorder_class, "recordDeviceAllocationFromNative", "()V");
+      }
+    }
+
+    if (record_device_allocation_mid == nullptr) {
+      logger->warn(
+        "StackTraceRecorder not available; device allocation stacks will not be recorded");
+    }
+  }
+
+  ~spark_resource_adaptor() override
+  {
+    if (stack_trace_recorder_class != nullptr) {
+      JNIEnv* env       = nullptr;
+      bool detach       = false;
+      jint const status = jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+      if (status == JNI_EDETACHED) {
+        if (jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) == 0) {
+          detach = true;
+        } else {
+          return;
+        }
+      } else if (status == JNI_EVERSION) {
+        return;
+      }
+
+      env->DeleteGlobalRef(stack_trace_recorder_class);
+      stack_trace_recorder_class   = nullptr;
+      record_device_allocation_mid = nullptr;
+
+      if (detach) { jvm->DetachCurrentThread(); }
+    }
   }
 
   rmm::mr::device_memory_resource* get_wrapped_resource() { return resource; }
@@ -1040,6 +1079,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
   std::map<long, task_metrics> task_to_metrics;
   bool shutting_down = false;
   JavaVM* jvm;
+  jclass stack_trace_recorder_class      = nullptr;
+  jmethodID record_device_allocation_mid = nullptr;
 
   /**
    * log a status change that does not involve a state transition.
@@ -1080,6 +1121,28 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     thread_state original = state.state;
     state.transition_to(new_state);
     log_transition(state.thread_id, state.task_id, original, new_state, message);
+  }
+
+  void record_device_allocation_event()
+  {
+    if (stack_trace_recorder_class == nullptr || record_device_allocation_mid == nullptr) {
+      return;
+    }
+
+    JNIEnv* env       = nullptr;
+    bool detach       = false;
+    jint const status = jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (status == JNI_EDETACHED) {
+      if (jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != 0) { return; }
+      detach = true;
+    } else if (status == JNI_EVERSION) {
+      return;
+    }
+
+    env->CallStaticVoidMethod(stack_trace_recorder_class, record_device_allocation_mid);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); }
+
+    if (detach) { jvm->DetachCurrentThread(); }
   }
 
   /**
@@ -2006,6 +2069,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       try {
         void* ret = resource->allocate(num_bytes, stream);
         post_alloc_success(tid, likely_spill, num_bytes);
+        record_device_allocation_event();
         return ret;
       } catch (rmm::out_of_memory const& e) {
         // rmm::out_of_memory is what is thrown when an allocation failed
