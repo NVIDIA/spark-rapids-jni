@@ -23,19 +23,21 @@ namespace spark_rapids_jni {
 /**
  * @brief The utilities for integer.
  */
-struct integer_utils {
-  /**
-   * @brief floor division for integer types.
-   */
-  template <typename Type>
-  __device__ static Type floor_div(Type x, Type y)
-    requires(std::is_integral_v<Type> and std::is_signed_v<Type>)
-  {
-    auto const quotient          = x / y;
-    auto const nonzero_remainder = (x % y) != 0;
-    auto const mixed_sign        = (x ^ y) < 0;
-    return quotient - mixed_sign * nonzero_remainder;
-  }
-};
+namespace integer_utils {
+
+/**
+ * @brief floor division for integer types.
+ */
+template <typename Type>
+__device__ Type floor_div(Type x, Type y)
+  requires(std::is_integral_v<Type> and std::is_signed_v<Type>)
+{
+  auto const quotient          = x / y;
+  auto const nonzero_remainder = (x % y) != 0;
+  auto const mixed_sign        = (x ^ y) < 0;
+  return quotient - mixed_sign * nonzero_remainder;
+}
+
+}  // namespace integer_utils
 
 }  // namespace spark_rapids_jni
