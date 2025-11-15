@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "integer_utils.cuh"
+
 #include <cudf/lists/list_device_view.cuh>
 #include <cudf/lists/lists_column_device_view.cuh>
 #include <cudf/types.hpp>
@@ -230,7 +232,7 @@ struct date_time_utils {
   __device__ static int32_t get_year(int64_t seconds)
   {
     constexpr int64_t seconds_per_day = 86400L;
-    int64_t days                      = seconds / seconds_per_day;
+    int64_t days                      = integer_utils::floor_div(seconds, seconds_per_day);
     int32_t year, month, day;
     to_date(days, year, month, day);
     return year;
