@@ -112,6 +112,7 @@
     <parquet.version>1.15.2</parquet.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <slf4j.version>1.7.30</slf4j.version>
+    <iceberg.version>1.6.1</iceberg.version>
     <submodule.check.skip>false</submodule.check.skip>
     <!-- This skips applying and unapplying patchs to CUDF. Be aware that if you 
     try to build the main jar without patching CUDF it could result in build
@@ -193,6 +194,12 @@
       <artifactId>hilbert-curve</artifactId>
       <version>${hilbert.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.iceberg</groupId>
+        <artifactId>iceberg-core</artifactId>
+        <version>${iceberg.version}</version>
+        <scope>test</scope>
     </dependency>
   </dependencies>
 
