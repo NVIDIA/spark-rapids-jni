@@ -29,6 +29,6 @@ jobs:
       owner: ${{ github.repository_owner }}
       repo: spark-rapids-jni
       branch: ${{ github.event.pull_request.base.ref }}
-      file_use_base: 'thirdparty/cudf thirdparty/cudf-pins'
+      file_use_base: 'thirdparty/cudf thirdparty/cudf-pins .gitmodules'
     secrets:
       token: ${{ secrets.AUTOMERGE_TOKEN }}
