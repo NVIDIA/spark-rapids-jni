@@ -70,7 +70,7 @@ public class IcebergDateTimeUtil {
   }
 
   /**
-   * Calculates the difference in days between the epoch month (1970-01) and the
+   * Calculates the difference in days between the epoch day (1970-01-01) and the
    * given date/timestamp column. E.g.: for date '1970-01-21', the result would be
    * 20: (20 days after epoch day)
    *

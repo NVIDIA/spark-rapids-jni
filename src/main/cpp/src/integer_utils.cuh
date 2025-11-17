@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <cudf/types.hpp>
+#include <type_traits>
 
 namespace spark_rapids_jni {
 

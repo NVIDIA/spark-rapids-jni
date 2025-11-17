@@ -38,9 +38,9 @@ constexpr int32_t EPOCH_MONTH = 1;
 
 constexpr int32_t MONTHS_PER_YEAR = 12;
 
-constexpr int64_t MICROS_PER_DAY = 86400L * 1000000L;
+constexpr int64_t MICROS_PER_DAY = 86400L * 1'000'000L;
 
-constexpr int64_t MICROS_PER_HOUR = 3600L * 1000000L;
+constexpr int64_t MICROS_PER_HOUR = 3600L * 1'000'000L;
 
 /**
  * @brief Functor to compute year difference between epoch and date
@@ -57,7 +57,7 @@ struct years_from_epoch_for_date_fn {
 };
 
 /**
- * @brief Functor to compute year difference between epoch and ts
+ * @brief Functor to compute year difference between epoch and ts (in microseconds)
  */
 struct years_from_epoch_for_ts_fn {
   int64_t const* tss;
@@ -77,7 +77,7 @@ struct years_from_epoch_for_ts_fn {
 struct months_from_epoch_for_date_fn {
   int32_t const* dates;
 
-  __device__ int32_t operator()(int row_index) const
+  __device__ int32_t operator()(int32_t row_index) const
   {
     int32_t year, month, day;
     spark_rapids_jni::date_time_utils::to_date(dates[row_index], year, month, day);
@@ -91,7 +91,7 @@ struct months_from_epoch_for_date_fn {
 struct months_from_epoch_for_ts_fn {
   int64_t const* tss;
 
-  __device__ int32_t operator()(int row_index) const
+  __device__ int32_t operator()(int32_t row_index) const
   {
     int days = static_cast<int>(integer_utils::floor_div(tss[row_index], MICROS_PER_DAY));
     int32_t year, month, day;
