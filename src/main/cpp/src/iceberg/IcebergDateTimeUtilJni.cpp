@@ -82,4 +82,3 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_iceberg_IcebergDateTime
 }
 
 }  // extern "C"
-
