@@ -681,22 +681,29 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     auto const found = threads.find(thread_id);
     if (found != threads.end()) {
       if (found->second->task_id >= 0 && found->second->task_id != task_id) {
-        LOG_STATUS("FIXUP", thread_id, found->second->task_id, found->second->state,
-          "desired task_id {}", task_id);
+        LOG_STATUS("FIXUP",
+                   thread_id,
+                   found->second->task_id,
+                   found->second->state,
+                   "desired task_id {}",
+                   task_id);
         remove_thread_association(thread_id, found->second->task_id, lock);
       }
     }
     auto const was_threads_inserted = threads.emplace(
-      thread_id, std::make_shared<full_thread_state>(thread_state::THREAD_RUNNING, thread_id, task_id));
+      thread_id,
+      std::make_shared<full_thread_state>(thread_state::THREAD_RUNNING, thread_id, task_id));
     if (was_threads_inserted.second == false) {
       if (was_threads_inserted.first->second->state == thread_state::THREAD_REMOVE_THROW) {
         std::stringstream ss;
-        ss << "A thread " << thread_id << " is shutting down " 
+        ss << "A thread " << thread_id << " is shutting down "
            << was_threads_inserted.first->second->task_id << " vs " << task_id;
         auto const msg = ss.str();
-        LOG_STATUS("ERROR", 
-          thread_id, was_threads_inserted.first->second->task_id, was_threads_inserted.first->second->state,
-          msg);
+        LOG_STATUS("ERROR",
+                   thread_id,
+                   was_threads_inserted.first->second->task_id,
+                   was_threads_inserted.first->second->state,
+                   msg);
         throw std::invalid_argument(msg);
       }
 
@@ -768,8 +775,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     std::unique_lock<std::mutex> lock(state_mutex);
     if (shutting_down) { throw std::runtime_error("spark_resource_adaptor is shutting down"); }
 
-    auto const was_inserted =
-      threads.emplace(thread_id, std::make_shared<full_thread_state>(thread_state::THREAD_RUNNING, thread_id));
+    auto const was_inserted = threads.emplace(
+      thread_id, std::make_shared<full_thread_state>(thread_state::THREAD_RUNNING, thread_id));
     if (was_inserted.second == true) {
       was_inserted.first->second->is_for_shuffle = is_for_shuffle;
       LOG_TRANSITION(thread_id, -1, thread_state::UNKNOWN, thread_state::THREAD_RUNNING);
@@ -793,7 +800,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     checkpoint_metrics(was_inserted.first->second);
 
     was_inserted.first->second->pool_task_ids.insert(task_ids.begin(), task_ids.end());
-    LOG_STATUS_CONTAINER("ADD_TASKS", thread_id, -1, was_inserted.first->second->state, "CURRENT IDs", was_inserted.first->second->pool_task_ids);
+    LOG_STATUS_CONTAINER("ADD_TASKS",
+                         thread_id,
+                         -1,
+                         was_inserted.first->second->state,
+                         "CURRENT IDs",
+                         was_inserted.first->second->pool_task_ids);
   }
 
   void pool_thread_finished_for_tasks(long const thread_id,
@@ -811,7 +823,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       for (auto const& id : task_ids) {
         thread->second->pool_task_ids.erase(id);
       }
-      LOG_STATUS_CONTAINER("REMOVE_TASKS", thread_id, -1, thread->second->state, "CURRENT IDs", thread->second->pool_task_ids);
+      LOG_STATUS_CONTAINER("REMOVE_TASKS",
+                           thread_id,
+                           -1,
+                           thread->second->state,
+                           "CURRENT IDs",
+                           thread->second->pool_task_ids);
       if (thread->second->pool_task_ids.empty()) {
         if (remove_thread_association(thread_id, -1, lock)) {
           wake_up_threads_after_task_finishes(lock);
@@ -861,7 +878,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       auto const thread = threads.find(thread_id);
       if (thread != threads.end()) {
         if (thread->second->pool_task_ids.erase(task_id) != 0) {
-          LOG_STATUS_CONTAINER("REMOVE_TASKS", thread_id, -1, thread->second->state, "CURRENT IDs", thread->second->pool_task_ids);
+          LOG_STATUS_CONTAINER("REMOVE_TASKS",
+                               thread_id,
+                               -1,
+                               thread->second->state,
+                               "CURRENT IDs",
+                               thread->second->pool_task_ids);
           if (thread->second->pool_task_ids.empty()) {
             run_checks = remove_thread_association(thread_id, task_id, lock) || run_checks;
           }
@@ -1210,8 +1232,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
    * of setting the state directly. This will log the transition and do a little bit of
    * verification.
    */
-  void transition(std::shared_ptr<full_thread_state> state,
-                  thread_state const new_state)
+  void transition(std::shared_ptr<full_thread_state> state, thread_state const new_state)
   {
     thread_state original = state->state;
     state->transition_to(new_state);
@@ -1639,7 +1660,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       // The allocation succeeded so we are no longer doing a retry
       if (thread->second->is_retry_alloc_before_bufn) {
         thread->second->is_retry_alloc_before_bufn = false;
-        LOG_STATUS("DETAIL", thread_id, thread->second->task_id, thread->second->state,
+        LOG_STATUS(
+          "DETAIL",
+          thread_id,
+          thread->second->task_id,
+          thread->second->state,
           "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_success_core",
           thread_id);
       }
@@ -1666,8 +1691,8 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                          thread->second->metrics.gpu_memory_max_footprint);
             }
             gpu_memory_allocated_bytes += num_bytes;
-            thread->second->metrics.gpu_max_memory_allocated =
-              std::max(thread->second->metrics.gpu_max_memory_allocated, gpu_memory_allocated_bytes);
+            thread->second->metrics.gpu_max_memory_allocated = std::max(
+              thread->second->metrics.gpu_max_memory_allocated, gpu_memory_allocated_bytes);
           }
           break;
         default: break;
@@ -1993,8 +2018,12 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
             // so if data was made spillable we will retry the
             // allocation, instead of going to BUFN.
             thread->second->is_retry_alloc_before_bufn = true;
-            LOG_STATUS("DETAIL", thread_id_to_bufn, thread->second->task_id, thread->second->state,
-              "thread (id: {}) is_retry_alloc_before_bufn set to true", thread_id_to_bufn);
+            LOG_STATUS("DETAIL",
+                       thread_id_to_bufn,
+                       thread->second->task_id,
+                       thread->second->state,
+                       "thread (id: {}) is_retry_alloc_before_bufn set to true",
+                       thread_id_to_bufn);
             transition(thread->second, thread_state::THREAD_RUNNING);
           } else {
             log_all_threads_states();
@@ -2088,7 +2117,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           if (is_oom && thread->second->is_retry_alloc_before_bufn) {
             if (thread->second->is_retry_alloc_before_bufn) {
               thread->second->is_retry_alloc_before_bufn = false;
-              LOG_STATUS("DETAIL", thread_id, thread->second->task_id, thread->second->state,
+              LOG_STATUS(
+                "DETAIL",
+                thread_id,
+                thread->second->task_id,
+                thread->second->state,
                 "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
                 thread_id);
             }
@@ -2097,7 +2130,11 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
           } else if (is_oom && blocking) {
             if (thread->second->is_retry_alloc_before_bufn) {
               thread->second->is_retry_alloc_before_bufn = false;
-              LOG_STATUS("DETAIL", thread_id, thread->second->task_id, thread->second->state,
+              LOG_STATUS(
+                "DETAIL",
+                thread_id,
+                thread->second->task_id,
+                thread->second->state,
                 "thread (id: {}) is_retry_alloc_before_bufn set to false in post_alloc_failed_core",
                 thread_id);
             }
