@@ -86,3 +86,4 @@ std::unique_ptr<cudf::column> hours_from_epoch(
   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni
+

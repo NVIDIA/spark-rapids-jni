@@ -282,3 +282,4 @@ std::unique_ptr<cudf::column> hours_from_epoch(cudf::column_view const& input,
 }
 
 }  // namespace spark_rapids_jni
+

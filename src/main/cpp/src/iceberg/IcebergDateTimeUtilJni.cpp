@@ -15,7 +15,7 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "iceberg_datetime_util.hpp"
+#include "iceberg/iceberg_datetime_util.hpp"
 
 extern "C" {
 
@@ -82,3 +82,4 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_iceberg_IcebergDateTime
 }
 
 }  // extern "C"
+

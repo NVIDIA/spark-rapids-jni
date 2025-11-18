@@ -270,3 +270,4 @@ std::unique_ptr<cudf::column> truncate_binary(cudf::column_view const& input,
 }
 
 }  // namespace spark_rapids_jni
+
