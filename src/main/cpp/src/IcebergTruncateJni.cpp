@@ -24,7 +24,6 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_iceberg_IcebergTruncate
   JNIEnv* env, jclass, jlong input_column, jint width)
 {
   JNI_NULL_CHECK(env, input_column, "input column is null", 0);
-  JNI_ARG_CHECK(env, width > 0, "width must be positive", 0);
 
   JNI_TRY
   {
