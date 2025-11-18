@@ -33,10 +33,16 @@ namespace spark_rapids_jni {
  * For negative values, this uses a floored modulo approach:
  * value - (((value % width) + width) % width)
  *
- * Example:
- * - truncate_integer(10, 5) = 0
- * - truncate_integer(10, 15) = 10
- * - truncate_integer(10, -5) = -10
+ * Examples:
+ *
+ * Integer truncation with width = 10:
+ * - truncate_integer(5, 10) = 0
+ * - truncate_integer(15, 10) = 10
+ * - truncate_integer(-5, 10) = -10
+ *
+ * Decimal truncation with width = 10:
+ * - truncate_integer(12.29, 10) = 12.20
+ * - truncate_integer(-0.05, 10) = -0.10
  *
  * @param input Integral or decimal column to truncate
  * @param width Truncation width
@@ -55,6 +61,11 @@ std::unique_ptr<cudf::column> truncate_integral(
  * @brief Truncate by character for string values in UTF-8 encoding.
  *
  * Note: One character may use multiple(1-4) bytes in UTF-8 encoding.
+ *
+ * Examples:
+ * - truncate_string("hello world", 5) = "hello"
+ * - truncate_string("你好，世界", 2) = "你好"
+ * - truncate_string("🚀23😁567", 5) = "🚀23😁5"
  *
  * @param input String column to truncate
  * @param length Maximum character length for truncated strings
