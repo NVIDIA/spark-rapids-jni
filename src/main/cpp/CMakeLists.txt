@@ -198,6 +198,7 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
+  src/IcebergDateTimeUtilJni.cpp
   src/IcebergTruncateJni.cpp
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
@@ -207,7 +208,6 @@ add_library(
   src/MapJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
-  src/NVMLJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
@@ -237,6 +237,7 @@ add_library(
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg_datetime_util.cu
   src/iceberg_truncate.cu
   src/json_utils.cu
   src/list_slice.cu
@@ -310,7 +311,6 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
-    nvidia-ml
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
@@ -324,6 +324,30 @@ add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
 target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
 add_dependencies(cudfjnistub spark_rapids_jni)
+
+# ##################################################################################################
+# * NVML JNI ---------------------------------------------------------------------------------------
+
+add_library(nvmljni SHARED src/NVMLJni.cpp)
+set_target_properties(
+  nvmljni
+  PROPERTIES BUILD_RPATH "\$ORIGIN"
+             INSTALL_RPATH "\$ORIGIN"
+             # set target compile options
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             POSITION_INDEPENDENT_CODE ON
+             INTERFACE_POSITION_INDEPENDENT_CODE ON
+)
+
+target_include_directories(
+  nvmljni
+  PRIVATE "${JNI_INCLUDE_DIRS}"
+          "${CUDAToolkit_INCLUDE_DIRS}"
+)
+
+target_link_libraries(nvmljni nvidia-ml)
 
 # ##################################################################################################
 # * cuFile JNI -------------------------------------------------------------------------------------

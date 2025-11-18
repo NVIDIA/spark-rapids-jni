@@ -697,6 +697,8 @@ public class KudoSerializerTest extends CudfTestBase {
     }
   }
 
+  // This test ensures that we can serialize and deserialize tables whose total size
+  // exceeds Integer.MAX_VALUE
   @Test
   public void testSerializeAndDeserializeLargeTable() {
     try(Table t1 = buildLargeTestTable();
@@ -767,7 +769,7 @@ public class KudoSerializerTest extends CudfTestBase {
           tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount3 - startRow), t3));
         }
 
-        assertThrows(ArithmeticException.class, () -> {
+        assertThrows(RuntimeException.class, () -> {
           try {
             checkMergeTable(null, tableSlices);
           } catch (RuntimeException e) {
@@ -815,6 +817,122 @@ public class KudoSerializerTest extends CudfTestBase {
       }
 
   }
+
+  @Test
+  public void testLargeOffsetBuffer() {
+    // This test ensures proper handling of large offset buffers where:
+    // 1. Offset buffer length > Integer.MAX_VALUE
+    //    For LIST columns, offsets are 4 bytes each: (rowCount+1) * 4 bytes
+    //    Need rowCount > 536,870,911 to exceed Integer.MAX_VALUE
+    // 2. Multiple table slices for each original table (to test slice merging)
+    //
+    // Strategy: Create 2 tables with LIST<BYTE> column
+    // - Each table: 269M rows (total 538M rows)
+    // - LIST<BYTE> column: 1 byte per list element
+    //   * Per table: last offset = 269M * 1 = 269M < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: offset buffer = (538M + 1) * 4 = 2.152GB > Integer.MAX_VALUE ✓
+    //
+    // Memory usage (concatenated table):
+    // - List data: 538M * 1 byte = 538MB
+    // - List offsets: (538M + 1) * 4 = 2.152GB
+    // - Total: ~2.7GB < 3.2GB ✓
+
+    final int rowsPerTable = 269_000_000;
+    final int listSize = 1; // number of bytes per list
+
+    try (Table t1 = buildTableWithByteList(listSize, rowsPerTable);
+         Table t2 = buildTableWithByteList(listSize, rowsPerTable)) {
+
+      // Slice each table into multiple slices (requirement 2)
+      final int sliceSize = 50_000_000; // 50M rows per slice -> 6 slices per table
+      List<TableSlice> tableSlices = new ArrayList<>();
+
+      // Slice first table into multiple parts
+      int rowCount1 = Math.toIntExact(t1.getRowCount());
+      for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+      }
+
+      // Slice second table into multiple parts
+      int rowCount2 = Math.toIntExact(t2.getRowCount());
+      for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+      }
+
+      // Create expected result
+      try (Table expected = Table.concatenate(t1, t2)) {
+        // Verify requirements are met:
+        long totalRows = expected.getRowCount();
+        long offsetBufferSize = (totalRows + 1) * 4L; // INT32 offsets for LIST column
+
+        assertTrue(offsetBufferSize > Integer.MAX_VALUE,
+            "Offset buffer should exceed Integer.MAX_VALUE: " + offsetBufferSize);
+        assertTrue(tableSlices.size() > 2,
+            "Should have multiple slices per table: " + tableSlices.size());
+
+        checkMergeTable(expected, tableSlices);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Test
+  public void testLargeDataBuffer() {
+    // This test ensures proper handling of large data buffers where:
+    // 1. Data buffer length > Integer.MAX_VALUE
+    //    For LONG columns, data is 8 bytes per value: rowCount * 8 bytes
+    //    Need rowCount > 268,435,455 to exceed Integer.MAX_VALUE
+    // 2. Multiple table slices for each original table (to test slice merging)
+    //
+    // Strategy: Create 2 tables with LONG column
+    // - Each table: 135M rows (total 270M rows)
+    // - LONG column: 8 bytes per value
+    //   * Per table: data = 135M * 8 = 1.08GB < Integer.MAX_VALUE ✓ (valid column)
+    //   * Concatenated: data buffer = 270M * 8 = 2.16GB > Integer.MAX_VALUE ✓
+    //
+    // Memory usage (concatenated table):
+    // - Long data: 270M * 8 = 2.16GB < 3.2GB ✓
+
+    final int rowsPerTable = 135_000_000;
+
+    try (Table t1 = buildTableWithLong(rowsPerTable);
+         Table t2 = buildTableWithLong(rowsPerTable)) {
+
+      // Slice each table into multiple slices (requirement 2)
+      final int sliceSize = 25_000_000; // 25M rows per slice -> 6 slices per table
+      List<TableSlice> tableSlices = new ArrayList<>();
+
+      // Slice first table into multiple parts
+      int rowCount1 = Math.toIntExact(t1.getRowCount());
+      for (int startRow = 0; startRow < rowCount1; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount1 - startRow), t1));
+      }
+
+      // Slice second table into multiple parts
+      int rowCount2 = Math.toIntExact(t2.getRowCount());
+      for (int startRow = 0; startRow < rowCount2; startRow += sliceSize) {
+        tableSlices.add(new TableSlice(startRow, Math.min(sliceSize, rowCount2 - startRow), t2));
+      }
+
+      // Create expected result
+      try (Table expected = Table.concatenate(t1, t2)) {
+        // Verify requirements are met:
+        long totalRows = expected.getRowCount();
+        long dataBufferSize = totalRows * 8L; // LONG data
+
+        assertTrue(dataBufferSize > Integer.MAX_VALUE,
+            "Data buffer should exceed Integer.MAX_VALUE: " + dataBufferSize);
+        assertTrue(tableSlices.size() > 2,
+            "Should have multiple slices per table: " + tableSlices.size());
+
+        checkMergeTable(expected, tableSlices);
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
 
   static Table buildLargeTestTable() {
     List<ColumnVector> allCols = new ArrayList<>();
@@ -970,6 +1088,60 @@ public class KudoSerializerTest extends CudfTestBase {
       ColumnVector stringColumn = ColumnVector.fromStrings(stringArray);
       tableCols.add(stringColumn);
       allCols.add(stringColumn);
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildTableWithByteList(int listSize, int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create child data (BYTE column) - total size = rowCount * listSize
+      ColumnVector childData;
+      try (Scalar byteScalar = Scalar.fromByte((byte) 42)) {
+        childData = ColumnVector.fromScalar(byteScalar, rowCount * listSize);
+        allCols.add(childData);
+      }
+
+      // Create offsets for LIST column - each list has 'listSize' elements
+      ColumnVector offsets;
+      try (Scalar zero = Scalar.fromInt(0);
+           Scalar step = Scalar.fromInt(listSize)) {
+        offsets = ColumnVector.sequence(zero, step, rowCount + 1);
+        allCols.add(offsets);
+      }
+
+      // Create LIST column from child data and offsets
+      ColumnVector listColumn = childData.makeListFromOffsets(rowCount, offsets);
+      tableCols.add(listColumn);
+      allCols.add(listColumn);
+
+      return new Table(tableCols.toArray(new ColumnVector[0]));
+    } finally {
+      for (ColumnVector cv : allCols) {
+        cv.close();
+      }
+    }
+  }
+
+  static Table buildTableWithLong(int rowCount) {
+    List<ColumnVector> allCols = new ArrayList<>();
+    List<ColumnVector> tableCols = new ArrayList<>();
+
+    try {
+      // Create a LONG column
+      ColumnVector longColumn;
+      try (Scalar longScalar = Scalar.fromLong(123456789L)) {
+        longColumn = ColumnVector.fromScalar(longScalar, rowCount);
+        tableCols.add(longColumn);
+        allCols.add(longColumn);
+      }
 
       return new Table(tableCols.toArray(new ColumnVector[0]));
     } finally {

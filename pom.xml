@@ -557,6 +557,7 @@
                     <include>libcudf.so</include>
                     <include>libcudfjni.so</include>
                     <include>libcufilejni.so</include>
+                    <include>libnvmljni.so</include>
                   </includes>
                 </resource>
                 <resource>

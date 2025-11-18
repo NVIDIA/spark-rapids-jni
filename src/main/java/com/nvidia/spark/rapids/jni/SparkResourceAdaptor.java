@@ -64,18 +64,6 @@ public class SparkResourceAdaptor
    * @param wrapped the memory resource to track allocations. This should not be reused.
    */
   public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped) {
-    this(wrapped, null);
-  }
-
-  /**
-   * Create a new tracking resource adaptor.
-   * @param wrapped the memory resource to track allocations. This should not be reused.
-   * @param logLoc the location that logs should go. "stderr" is treated as going to stderr
-   *               "stdout" is treated as going to stdout. null will disable logging and
-   *               anything else is treated as a file name.
-   */
-  public SparkResourceAdaptor(RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> wrapped,
-      String logLoc) {
     super(wrapped);
     Thread watchDog = new Thread(() -> {
       try {
@@ -88,13 +76,7 @@ public class SparkResourceAdaptor
         Thread.currentThread().interrupt();
       }
     }, "SparkResourceAdaptor WatchDog");
-    // Do a little normalization before setting up logging...
-    if ("stderr".equalsIgnoreCase(logLoc)) {
-      logLoc = "stderr";
-    } else if ("stdout".equalsIgnoreCase(logLoc)) {
-      logLoc = "stdout";
-    }
-    handle = createNewAdaptor(wrapped.getHandle(), logLoc);
+    handle = createNewAdaptor(wrapped.getHandle());
     watchDog.setDaemon(true);
     watchDog.start();
   }
@@ -354,12 +336,38 @@ public class SparkResourceAdaptor
   }
 
   /**
+   * Initialize the global logger for SparkResourceAdaptor state transitions and status changes.
+   * This should be called once before creating any SparkResourceAdaptor instances.
+   * @param logLoc the location that logs should go. "stderr" is treated as going to stderr
+   *               "stdout" is treated as going to stdout. null will disable logging and
+   *               anything else is treated as a file name.
+   */
+  public static void initializeLogger(String logLoc) {
+    // Do a little normalization before setting up logging...
+    if ("stderr".equalsIgnoreCase(logLoc)) {
+      logLoc = "stderr";
+    } else if ("stdout".equalsIgnoreCase(logLoc)) {
+      logLoc = "stdout";
+    }
+    initializeLoggerNative(logLoc);
+  }
+
+  /**
+   * Shutdown the global logger for SparkResourceAdaptor.
+   * This should be called when all SparkResourceAdaptor instances are closed and
+   * no more logging is needed.
+   */
+  public static void shutdownLogger() {
+    shutdownLoggerNative();
+  }
+
+  /**
    * Get the ID of the current thread that can be used with the other SparkResourceAdaptor APIs.
    * Don't use the java thread ID. They are not related.
    */
   public static native long getCurrentThreadId();
 
-  private native static long createNewAdaptor(long wrappedHandle, String logLoc);
+  private native static long createNewAdaptor(long wrappedHandle);
   private native static void releaseAdaptor(long handle);
   private static native void startDedicatedTaskThread(long handle, long threadId, long taskId);
   private static native void poolThreadWorkingOnTasks(long handle, boolean isForShuffle, long threadId, long[] taskIds);
@@ -394,4 +402,6 @@ public class SparkResourceAdaptor
   private static native void cpuDeallocate(long handle, long ptr, long amount);
   private static native void spillRangeStart(long handle);
   private static native void spillRangeDone(long handle);
+  private static native void initializeLoggerNative(String logLoc);
+  private static native void shutdownLoggerNative();
 }

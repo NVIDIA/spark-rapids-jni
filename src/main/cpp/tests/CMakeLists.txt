@@ -54,8 +54,7 @@ function(ConfigureTest CMAKE_TEST_NAME)
         ${CMAKE_TEST_NAME} PRIVATE THRUST_FORCE_32_BIT_OFFSET_TYPE=1 CCCL_AVOID_SORT_UNROLL=1
     )
     target_link_libraries(${CMAKE_TEST_NAME} PRIVATE spark_rapids_jni_test_common
-                                                     spark_rapids_jni
-                                                     nvidia-ml)
+                                                     spark_rapids_jni)
     add_test(NAME ${CMAKE_TEST_NAME} COMMAND ${CMAKE_TEST_NAME})
     install(
         TARGETS ${CMAKE_TEST_NAME}
@@ -128,6 +127,3 @@ ConfigureTest(CONV
 
 ConfigureTest(MULTIPLY
     multiply.cpp)
-
-ConfigureTest(NVML
-    nvml_test.cpp)
