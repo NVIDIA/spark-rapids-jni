@@ -49,6 +49,7 @@ public class IcebergTruncateTest {
   @BeforeAll
   static void setup() {
     seed = System.currentTimeMillis();
+    System.out.println("IcebergTruncateTest seed: " + seed);
   }
 
   @Test
