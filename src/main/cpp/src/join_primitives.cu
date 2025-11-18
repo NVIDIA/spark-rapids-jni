@@ -314,14 +314,13 @@ std::pair<rmm::device_uvector<bool>, cudf::size_type> compute_side_match_info(
   CUDF_CUDA_TRY(cudaMemsetAsync(has_match.data(), 0, has_match.size(), stream.value()));
 
   // Mark rows that have matches
-  thrust::for_each(
-    rmm::exec_policy_nosync(stream),
-    indices.begin(),
-    indices.end(),
-    [has_match = has_match.data(), table_size] __device__(cudf::size_type idx) {
-      if (idx < 0 || idx >= table_size) { return; }
-      has_match[idx] = true;
-    });
+  thrust::for_each(rmm::exec_policy_nosync(stream),
+                   indices.begin(),
+                   indices.end(),
+                   [has_match = has_match.data(), table_size] __device__(cudf::size_type idx) {
+                     if (idx < 0 || idx >= table_size) { return; }
+                     has_match[idx] = true;
+                   });
 
   // Count unmatched rows
   auto const num_unmatched =
@@ -333,12 +332,12 @@ std::pair<rmm::device_uvector<bool>, cudf::size_type> compute_side_match_info(
 // Helper function to populate result with unmatched rows
 // Copies unmatched rows and fills corresponding other indices with sentinel values
 void populate_outer_result(cudf::size_type table_size,
-                            rmm::device_uvector<bool> const& has_match,
-                            cudf::size_type num_unmatched,
-                            cudf::size_type unmatched_offset,
-                            rmm::device_uvector<cudf::size_type>& out_indices,
-                            rmm::device_uvector<cudf::size_type>& out_other_indices,
-                            rmm::cuda_stream_view stream)
+                           rmm::device_uvector<bool> const& has_match,
+                           cudf::size_type num_unmatched,
+                           cudf::size_type unmatched_offset,
+                           rmm::device_uvector<cudf::size_type>& out_indices,
+                           rmm::device_uvector<cudf::size_type>& out_other_indices,
+                           rmm::cuda_stream_view stream)
 {
   // Copy unmatched rows
   auto unmatched_iter = out_indices.begin() + unmatched_offset;
