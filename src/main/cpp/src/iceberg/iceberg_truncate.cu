@@ -131,6 +131,7 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
+  CUDF_EXPECTS(width != 0, "Width must not be zero");
   if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
 
   auto output  = cudf::make_fixed_width_column(input.type(),
