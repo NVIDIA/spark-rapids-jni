@@ -1361,7 +1361,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
               thread->second->wake_condition->wait(lock);
               thread = threads.find(thread_id);
             } while (thread != threads.end() && is_blocked(thread->second->state));
-            thread->second->after_block();
+            if (thread != threads.end()) {
+              thread->second->after_block();
+            }
             task_has_woken_condition.notify_all();
             break;
           case thread_state::THREAD_BUFN_THROW:
@@ -1384,7 +1386,9 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
                 thread->second->wake_condition->wait(lock);
                 thread = threads.find(thread_id);
               } while (thread != threads.end() && is_blocked(thread->second->state));
-              thread->second->after_block();
+              if (thread != threads.end()) {
+                thread->second->after_block();
+              }
               task_has_woken_condition.notify_all();
             }
             break;
