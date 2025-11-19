@@ -116,7 +116,7 @@ struct truncate_binary_fn {
     if (!d_chars) {
       // first phase
       int binary_len = input_offsets[idx + 1] - input_offsets[idx];
-      d_sizes[idx]   = (binary_len < truncate_length) ? binary_len : truncate_length;
+      d_sizes[idx]   = std::min(binary_len, truncate_length);
     } else {
       // second phase
       auto binary_ptr = input_chars + input_offsets[idx];
@@ -126,6 +126,18 @@ struct truncate_binary_fn {
   }
 };
 
+template <typename RepT>
+void truncate_integral_and_fill(std::unique_ptr<cudf::column>& output,
+                                cudf::column_device_view d_input,
+                                int32_t width,
+                                rmm::cuda_stream_view stream)
+{
+  thrust::tabulate(rmm::exec_policy_nosync(stream),
+                   output->mutable_view().begin<RepT>(),
+                   output->mutable_view().end<RepT>(),
+                   truncate_integral_fn<RepT>{d_input, width});
+}
+
 std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& input,
                                                      int32_t width,
                                                      rmm::cuda_stream_view stream,
@@ -133,37 +145,25 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
 {
   CUDF_EXPECTS(width != 0, "Width must not be zero");
   if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
-
-  auto output  = cudf::make_fixed_width_column(input.type(),
-                                              input.size(),
+  auto input_type_id       = input.type().id();
+  cudf::size_type num_rows = input.size();
+  auto output              = cudf::make_fixed_width_column(input.type(),
+                                              num_rows,
                                               cudf::detail::copy_bitmask(input, stream, mr),
                                               input.null_count(),
                                               stream,
                                               mr);
-  auto d_input = cudf::column_device_view::create(input, stream);
+  auto d_input             = cudf::column_device_view::create(input, stream);
 
-  if (input.type().id() == cudf::type_id::INT32 || input.type().id() == cudf::type_id::DECIMAL32) {
+  if (input_type_id == cudf::type_id::INT32 || input_type_id == cudf::type_id::DECIMAL32) {
     // treat DECIMAL32 column as int32 column
-    using T = int32_t;
-    thrust::tabulate(rmm::exec_policy_nosync(stream),
-                     output->mutable_view().begin<T>(),
-                     output->mutable_view().end<T>(),
-                     truncate_integral_fn<T>{*d_input, width});
-  } else if (input.type().id() == cudf::type_id::INT64 ||
-             input.type().id() == cudf::type_id::DECIMAL64) {
+    truncate_integral_and_fill<int32_t>(output, *d_input, width, stream);
+  } else if (input_type_id == cudf::type_id::INT64 || input_type_id == cudf::type_id::DECIMAL64) {
     // treat DECIMAL64 column as int64 column
-    using T = int64_t;
-    thrust::tabulate(rmm::exec_policy_nosync(stream),
-                     output->mutable_view().begin<T>(),
-                     output->mutable_view().end<T>(),
-                     truncate_integral_fn<T>{*d_input, width});
-  } else if (input.type().id() == cudf::type_id::DECIMAL128) {
+    truncate_integral_and_fill<int64_t>(output, *d_input, width, stream);
+  } else if (input_type_id == cudf::type_id::DECIMAL128) {
     // treat DECIMAL128 column as int128 column
-    using T = __int128_t;
-    thrust::tabulate(rmm::exec_policy_nosync(stream),
-                     output->mutable_view().begin<T>(),
-                     output->mutable_view().end<T>(),
-                     truncate_integral_fn<T>{*d_input, width});
+    truncate_integral_and_fill<__int128_t>(output, *d_input, width, stream);
   } else {
     CUDF_FAIL("Unsupported type for truncate_integral_impl");
   }
@@ -171,21 +171,22 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
 }
 
 std::unique_ptr<cudf::column> truncate_string_impl(cudf::column_view const& input,
-                                                   int32_t length,
+                                                   int32_t truncate_length,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
   CUDF_EXPECTS(input.type().id() == cudf::type_id::STRING, "Input must be STRING");
-  CUDF_EXPECTS(length > 0, "Length must be positive");
+  CUDF_EXPECTS(truncate_length > 0, "Length must be positive");
 
   auto const num_rows = input.size();
   if (num_rows == 0) { return cudf::make_empty_column(cudf::type_id::STRING); }
 
-  cudf::strings_column_view strings_col(input);
+  cudf::strings_column_view input_strings_view(input);
   // Build the output strings column using the computed lengths
   auto [offsets, chars] = cudf::strings::detail::make_strings_children(
-    truncate_string_fn{
-      strings_col.chars_begin(stream), strings_col.offsets().begin<cudf::size_type>(), length},
+    truncate_string_fn{input_strings_view.chars_begin(stream),
+                       input_strings_view.offsets().begin<cudf::size_type>(),
+                       truncate_length},
     num_rows,
     stream,
     mr);
@@ -198,11 +199,11 @@ std::unique_ptr<cudf::column> truncate_string_impl(cudf::column_view const& inpu
 }
 
 std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& input,
-                                                   int32_t length,
+                                                   int32_t truncate_length,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(length > 0, "Length must be positive");
+  CUDF_EXPECTS(truncate_length > 0, "Length must be positive");
   CUDF_EXPECTS(input.type().id() == cudf::type_id::LIST, "Input must be LIST");
   cudf::lists_column_view list_col(input);
   auto const binary_col_child   = list_col.child();
@@ -221,7 +222,7 @@ std::unique_ptr<cudf::column> truncate_binary_impl(cudf::column_view const& inpu
   // Here we reuse the strings children building function
   auto [new_offsets, new_chars] = cudf::strings::detail::make_strings_children(
     truncate_binary_fn{
-      binary_col_child.begin<char>(), binary_col_offsets.begin<cudf::size_type>(), length},
+      binary_col_child.begin<char>(), binary_col_offsets.begin<cudf::size_type>(), truncate_length},
     num_rows,
     stream,
     mr);
@@ -253,21 +254,21 @@ std::unique_ptr<cudf::column> truncate_integral(cudf::column_view const& input,
 }
 
 std::unique_ptr<cudf::column> truncate_string(cudf::column_view const& input,
-                                              int32_t length,
+                                              int32_t truncate_length,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return truncate_string_impl(input, length, stream, mr);
+  return truncate_string_impl(input, truncate_length, stream, mr);
 }
 
 std::unique_ptr<cudf::column> truncate_binary(cudf::column_view const& input,
-                                              int32_t length,
+                                              int32_t truncate_length,
                                               rmm::cuda_stream_view stream,
                                               rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return truncate_binary_impl(input, length, stream, mr);
+  return truncate_binary_impl(input, truncate_length, stream, mr);
 }
 
 }  // namespace spark_rapids_jni
