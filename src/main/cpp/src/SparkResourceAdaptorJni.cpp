@@ -1736,9 +1736,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     full_thread_state const& state,
     std::optional<std::unordered_set<long>> const& java_blocked_thread_ids)
   {
-    LOG_INFO("is_thread_bufn_or_above: state: {}, java_blocked_thread_ids: {}",
-             state.thread_id,
-             to_string(java_blocked_thread_ids));
     bool ret = false;
     if (state.pool_blocked) {
       ret = true;
