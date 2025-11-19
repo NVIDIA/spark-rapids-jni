@@ -2164,7 +2164,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
     while (true) {
       bool const likely_spill = pre_alloc(tid);
       try {
-        void* ret = resource->allocate(num_bytes, stream);
+        void* ret = resource->allocate(stream, num_bytes);
         post_alloc_success(tid, likely_spill, num_bytes);
         return ret;
       } catch (rmm::out_of_memory const& e) {
@@ -2227,7 +2227,7 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
 
   void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) noexcept override
   {
-    resource->deallocate(p, size, stream);
+    resource->deallocate(stream, p, size);
     // deallocate success
     if (size > 0) {
       std::unique_lock<std::mutex> lock(state_mutex);
