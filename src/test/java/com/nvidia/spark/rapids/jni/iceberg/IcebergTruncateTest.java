@@ -275,57 +275,43 @@ public class IcebergTruncateTest {
     }
   }
 
-  // decimal 32 has max precision of 7
-  private static final BigInteger MIN_DECIMAL_32_VALUE = new BigInteger("-9999999");
-  private static final BigInteger MAX_DECIMAL_32_VALUE = new BigInteger("9999999");
-
-  // decimal 64 has max precision of 16
-  private static final BigInteger MIN_DECIMAL_64_VALUE = new BigInteger("-9999999999999999");
-  private static final BigInteger MAX_DECIMAL_64_VALUE = new BigInteger("9999999999999999");
-
-  // decimal 128 has max precision of 38
-  private static final BigInteger MIN_DECIMAL_128_VALUE = new BigInteger(
-      "-99999999999999999999999999999999999999");
-  private static final BigInteger MAX_DECIMAL_128_VALUE = new BigInteger(
-      "99999999999999999999999999999999999999");
-
-  private static BigInteger randomBigInteger(BigInteger min, BigInteger max, Random random) {
-    BigInteger range = max.subtract(min);
-    BigInteger randomValue = new BigInteger(range.bitLength(), random).mod(range);
-    return randomValue.add(min);
+  private static BigInteger randomBigInteger(int length, Random random) {
+    boolean negative = random.nextBoolean();
+    StringBuilder sb = negative ? new StringBuilder("-") : new StringBuilder();
+    for (int i = 0; i < length; i++) {
+      sb.append(random.nextInt(1));
+    }
+    return new BigInteger(sb.toString());
   }
 
   private static void compareDecimals(
       DType.DTypeEnum decimalType,
-      BigDecimal[] expected,
-      HostColumnVector actual,
+      BigDecimal[] expectedValues,
+      HostColumnVector actualValues,
       int numRows) {
-    int minPrecision;
-    int maxPrecision;
+    int precision;
     switch (decimalType) {
       case DECIMAL32:
-        minPrecision = 1;
-        maxPrecision = 7;
+        precision = DType.DECIMAL32_MAX_PRECISION;
         break;
       case DECIMAL64:
-        minPrecision = 8;
-        maxPrecision = 16;
+        precision = DType.DECIMAL64_MAX_PRECISION;
         break;
-      case DECIMAL128:
-        minPrecision = 17;
-        maxPrecision = 38;
+      case DECIMAL128:  
+        precision = DType.DECIMAL128_MAX_PRECISION;
         break;
       default:
         throw new IllegalArgumentException("Unsupported decimal type: " + decimalType);
     }
 
     for (int i = 0; i < numRows; i++) {
-      if (expected[i] == null) {
-        assert actual.isNull(i);
+      if (expectedValues[i] == null) {
+        assert actualValues.isNull(i);
       } else {
-        assertTrue(expected[i].precision() >= minPrecision
-            && expected[i].precision() <= maxPrecision);
-        assertTrue(expected[i].compareTo(actual.getBigDecimal(i)) == 0);
+        BigDecimal actual = actualValues.getBigDecimal(i);
+        BigDecimal expected = expectedValues[i];
+        assertTrue(expected.precision() <= precision && actual.precision() <= precision);
+        assertTrue(expected.compareTo(actual) == 0);
       }
     }
   }
@@ -360,9 +346,8 @@ public class IcebergTruncateTest {
     Random rand = new Random(seed);
     BigInteger width = new BigInteger("10");
     for (int i = 0; i < numRows; i++) {
-      // generate random BigInteger within range of precision 7
-      // GPU decimal32 supports precision up to 7
-      BigInteger val = randomBigInteger(MIN_DECIMAL_32_VALUE, MAX_DECIMAL_32_VALUE, rand);
+      // generate random BigInteger within range of precision 9
+      BigInteger val = randomBigInteger(DType.DECIMAL32_MAX_PRECISION, rand);
       inputData[i] = val.intValue();
 
       // run on CPU to get expected value
@@ -420,9 +405,8 @@ public class IcebergTruncateTest {
     Random rand = new Random(seed);
     BigInteger width = new BigInteger("10");
     for (int i = 0; i < numRows; i++) {
-      // generate random BigInteger within range of precision 16
-      // GPU decimal128 supports precision up to 16
-      BigInteger val = randomBigInteger(MIN_DECIMAL_64_VALUE, MAX_DECIMAL_64_VALUE, rand);
+      // generate random BigInteger within range of precision 18
+      BigInteger val = randomBigInteger(DType.DECIMAL64_MAX_PRECISION, rand);
       inputData[i] = val.longValue();
       // run on CPU to get expected value
       BigDecimal v = new BigDecimal(val, 2);
@@ -476,10 +460,10 @@ public class IcebergTruncateTest {
     Random rand = new Random(seed);
     BigInteger width = new BigInteger("10");
     for (int i = 0; i < numRows; i++) {
-      // generate random BigInteger within range of precision 38
-      // GPU decimal128 supports precision up to 38
-      // Java BigInteger can support arbitrary precision
-      BigInteger val = randomBigInteger(MIN_DECIMAL_128_VALUE, MAX_DECIMAL_128_VALUE, rand);
+      // GPU decimal128 supports precision up to 38,
+      // but Java BigInteger can support arbitrary precision, so we just
+      // generate generate random BigInteger within range of precision 38
+      BigInteger val = randomBigInteger(DType.DECIMAL128_MAX_PRECISION, rand);
       inputData[i] = val;
       // run on CPU to get expected value
       BigDecimal v = new BigDecimal(val, 2);
@@ -502,4 +486,3 @@ public class IcebergTruncateTest {
     }
   }
 }
-
