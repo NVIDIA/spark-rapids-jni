@@ -21,7 +21,6 @@ import ai.rapids.cudf.NativeDepsLoader;
 import ai.rapids.cudf.RmmDeviceMemoryResource;
 import ai.rapids.cudf.RmmEventHandlerResourceAdaptor;
 import ai.rapids.cudf.RmmWrappingDeviceMemoryResource;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
