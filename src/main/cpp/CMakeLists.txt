@@ -205,6 +205,7 @@ add_library(
   src/MapZipWithUtilsJNI.cpp
   src/map_zip_with_utils.cu
   src/MapJni.cpp
+  src/JoinPrimitivesJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
   src/ParseURIJni.cpp
@@ -240,6 +241,7 @@ add_library(
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/join_primitives.cu
   src/multiply.cu
   src/murmur_hash.cu
   src/number_converter.cu
