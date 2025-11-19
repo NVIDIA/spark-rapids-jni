@@ -279,7 +279,7 @@ public class IcebergTruncateTest {
     boolean negative = random.nextBoolean();
     StringBuilder sb = negative ? new StringBuilder("-") : new StringBuilder();
     for (int i = 0; i < length; i++) {
-      sb.append(random.nextInt(1));
+      sb.append(random.nextInt(10));
     }
     return new BigInteger(sb.toString());
   }
