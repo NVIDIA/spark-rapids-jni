@@ -15,7 +15,7 @@
  */
 
 #include "cudf_jni_apis.hpp"
-#include "iceberg_datetime_util.hpp"
+#include "iceberg/iceberg_datetime_util.hpp"
 
 extern "C" {
 
