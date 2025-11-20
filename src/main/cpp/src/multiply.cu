@@ -164,8 +164,8 @@ struct multiply_no_validity_fn {
 
   __device__ void operator()(int row_idx) const
   {
-    auto const [left_value, left_valid]   = left_accessor[row_idx];
-    auto const [right_value, right_valid] = right_accessor[row_idx];
+    [[maybe_unused]] auto const [left_value, left_valid]   = left_accessor[row_idx];
+    [[maybe_unused]] auto const [right_value, right_valid] = right_accessor[row_idx];
     results[row_idx] = left_value * right_value;
   }
 };
