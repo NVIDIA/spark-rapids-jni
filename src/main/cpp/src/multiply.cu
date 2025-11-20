@@ -153,7 +153,7 @@ struct multiply_fn {
 };
 
 /**
- * @brief Functor for multiplication when both inputs are valid 
+ * @brief Functor for multiplication when both inputs are valid
  * and no overflow check is needed.
  */
 template <typename T, typename LEFT_ACCESSOR, typename RIGHT_ACCESSOR>
@@ -166,7 +166,7 @@ struct multiply_no_validity_fn {
   {
     [[maybe_unused]] auto const [left_value, left_valid]   = left_accessor[row_idx];
     [[maybe_unused]] auto const [right_value, right_valid] = right_accessor[row_idx];
-    results[row_idx] = left_value * right_value;
+    results[row_idx]                                       = left_value * right_value;
   }
 };
 
@@ -195,7 +195,7 @@ std::unique_ptr<cudf::column> multiply_impl(cudf::data_type type,
   }
 
   // Scenario B and other cases: Need validity vector
-  // For Scenario B (both_inputs_valid && check_overflow), 
+  // For Scenario B (both_inputs_valid && check_overflow),
   // we still need validity vector to track overflow
   auto validity =
     rmm::device_uvector<bool>(num_rows, stream, cudf::get_current_device_resource_ref());
