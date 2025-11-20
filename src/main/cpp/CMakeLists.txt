@@ -185,6 +185,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  # Files starting with uppercase
   src/Aggregation64Utils.cpp
   src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
@@ -198,13 +199,11 @@ add_library(
   src/HistogramJni.cpp
   src/HostTableJni.cpp
   src/HyperLogLogPlusPlusHostUDFJni.cpp
-  src/IcebergDateTimeUtilJni.cpp
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
-  src/MapZipWithUtilsJNI.cpp
-  src/map_zip_with_utils.cu
   src/MapJni.cpp
+  src/MapZipWithUtilsJNI.cpp
   src/JoinPrimitivesJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
@@ -216,6 +215,9 @@ add_library(
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/iceberg/IcebergDateTimeUtilJni.cpp
+  src/iceberg/IcebergTruncateJni.cpp
+  # Files starting with lowercase
   src/aggregation64_utils.cu
   src/bloom_filter.cu
   src/case_when.cu
@@ -223,8 +225,8 @@ add_library(
   src/cast_float_to_string.cu
   src/cast_long_to_binary_string.cu
   src/cast_string.cu
-  src/cast_string_to_float.cu
   src/cast_string_to_datetime.cu
+  src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
@@ -237,10 +239,12 @@ add_library(
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
-  src/iceberg_datetime_util.cu
+  src/iceberg/iceberg_datetime_util.cu
+  src/iceberg/iceberg_truncate.cu
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/map_zip_with_utils.cu
   src/join_primitives.cu
   src/multiply.cu
   src/murmur_hash.cu
