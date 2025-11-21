@@ -36,10 +36,12 @@
 #include <charconv>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -51,12 +53,15 @@ extern char const* Profiler_Schema;
 struct program_options {
   std::optional<std::filesystem::path> output_path;
   std::optional<std::filesystem::path> nvtxw_backend;
-  bool help       = false;
-  bool json       = false;
-  bool nvtxt      = false;
-  bool nvtxw      = false;
-  int json_indent = 2;
-  bool version    = false;
+  bool help             = false;
+  bool json             = false;
+  bool nvtxt            = false;
+  bool nvtxw            = false;
+  bool verbose          = false;
+  bool ignore_truncated = false;
+  int json_indent       = 2;
+  bool version          = false;
+  std::optional<size_t> nvtxw_chunk_records;
 };
 
 struct event {
@@ -117,7 +122,10 @@ Converts the spark-rapids profile in profile.bin into other forms.
   -o, --output=PATH         use PATH as the output filename
   -t. --nvtxt               convert to NVTXT, default output is stdout
   -w. --nvtxw               generate nsys-rep using NVTXW API
+  -v, --verbose             enable verbose logging (progress, saved segments)
   --nvtxw-backend=PATH      use PATH for the NVTXW backend library
+  --ignore-truncated        best-effort conversion when profile is truncated
+  --nvtxw-chunk-records=N   split NVTXW output after N ActivityRecords (default: disabled)
   -V, --version             print the version number
   )" << std::endl;
 }
@@ -134,10 +142,12 @@ std::pair<program_options, std::vector<std::string_view>> parse_options(
   std::string_view long_output("--output=");
   std::string_view long_json_indent("--json-indent=");
   std::string_view long_nvtxw_backend("--nvtxw-backend=");
-  bool seen_output        = false;
-  bool seen_json_indent   = false;
-  bool seen_nvtxw_backend = false;
-  auto argp               = args.begin();
+  std::string_view long_nvtxw_chunk_records("--nvtxw-chunk-records=");
+  bool seen_output              = false;
+  bool seen_json_indent         = false;
+  bool seen_nvtxw_backend       = false;
+  bool seen_nvtxw_chunk_records = false;
+  auto argp                     = args.begin();
   while (argp != args.end()) {
     if (*argp == "-o" || *argp == "--output") {
       if (seen_output) { throw std::runtime_error("output path cannot be specified twice"); }
@@ -176,6 +186,51 @@ std::pair<program_options, std::vector<std::string_view>> parse_options(
         throw std::runtime_error("missing argument for NVTXW backend path");
       } else {
         opts.nvtxw_backend = std::make_optional(*argp++);
+      }
+    } else if (*argp == "-v" || *argp == "--verbose") {
+      opts.verbose = true;
+      ++argp;
+    } else if (*argp == "--ignore-truncated") {
+      opts.ignore_truncated = true;
+      ++argp;
+    } else if (*argp == "--nvtxw-chunk-records") {
+      if (seen_nvtxw_chunk_records) {
+        throw std::runtime_error("NVTXW chunk record limit cannot be specified twice");
+      }
+      seen_nvtxw_chunk_records = true;
+      if (++argp != args.end()) {
+        size_t value    = 0;
+        auto [ptr, err] = std::from_chars(argp->data(), argp->data() + argp->size(), value);
+        if (err != std::errc() || ptr != argp->end()) {
+          throw std::runtime_error("invalid NVTXW chunk record limit");
+        }
+        if (value == 0) {
+          throw std::runtime_error("NVTXW chunk record limit must be greater than 0");
+        }
+        opts.nvtxw_chunk_records = value;
+        ++argp;
+      } else {
+        throw std::runtime_error("missing argument for NVTXW chunk record limit");
+      }
+    } else if (argp->substr(0, long_nvtxw_chunk_records.size()) == long_nvtxw_chunk_records) {
+      if (seen_nvtxw_chunk_records) {
+        throw std::runtime_error("NVTXW chunk record limit cannot be specified twice");
+      }
+      seen_nvtxw_chunk_records = true;
+      argp->remove_prefix(long_nvtxw_chunk_records.size());
+      if (argp->empty()) {
+        throw std::runtime_error("missing argument for NVTXW chunk record limit");
+      } else {
+        size_t value    = 0;
+        auto [ptr, err] = std::from_chars(argp->data(), argp->data() + argp->size(), value);
+        if (err != std::errc() || ptr != argp->end()) {
+          throw std::runtime_error("invalid NVTXW chunk record limit");
+        }
+        if (value == 0) {
+          throw std::runtime_error("NVTXW chunk record limit must be greater than 0");
+        }
+        opts.nvtxw_chunk_records = value;
+        ++argp;
       }
     } else if (*argp == "-h" || *argp == "--help") {
       opts.help = true;
@@ -277,6 +332,21 @@ std::ofstream open_output(std::filesystem::path const& path,
   return out;
 }
 
+std::filesystem::path make_nvtxw_chunk_path(std::filesystem::path const& base,
+                                            size_t index,
+                                            bool always_suffix)
+{
+  if (index == 0 && !always_suffix) { return base; }
+  auto parent = base.parent_path();
+  auto stem   = base.stem().string();
+  auto ext    = base.extension().string();
+  std::ostringstream oss;
+  oss << stem << "-part" << std::setfill('0') << std::setw(3) << index;
+  std::filesystem::path chunk = parent / oss.str();
+  if (!ext.empty()) { chunk += ext; }
+  return chunk;
+}
+
 template <typename T>
 T const* validate_fb(std::vector<char> const& fb, std::string_view const& name)
 {
@@ -308,6 +378,20 @@ void verify_profile_header(std::ifstream& in)
     std::ostringstream oss;
     oss << "unsupported profile version: " << version;
     throw std::runtime_error(oss.str());
+  }
+}
+
+void print_progress(std::ostream& out, size_t current_bytes, size_t total_bytes)
+{
+  static int last_percent = -1;
+  int percent = static_cast<int>(static_cast<double>(current_bytes) / total_bytes * 100);
+  if (percent == last_percent) { return; }
+  last_percent = percent;
+
+  // Print progress log every 10%
+  if (percent > 0 && percent % 10 == 0) {
+    out << "Processed " << percent << "% (" << (current_bytes / 1024 / 1024) << "MB / "
+        << (total_bytes / 1024 / 1024) << "MB)" << std::endl;
   }
 }
 
@@ -727,7 +811,11 @@ int convert_to_nvtxw(std::ifstream& in,
                      nvtxwInterfaceCore_t*& nvtxwInterface,
                      nvtxwSessionHandle_t& session,
                      nvtxwStreamHandle_t& stream,
-                     program_options const& opts)
+                     program_options const& opts,
+                     std::optional<size_t> max_records,
+                     size_t total_size,
+                     bool& truncated,
+                     bool& has_more_data)
 {
   nvtxwResultCode_t result = NVTXW3_RESULT_SUCCESS;
   int error_code           = 0;
@@ -744,11 +832,30 @@ int convert_to_nvtxw(std::ifstream& in,
   std::unordered_map<int, marker_start> marker_start_map;
   std::unordered_map<std::string, nvtxwStreamHandle_t> domainToStreamMap;
   size_t num_dropped_records = 0;
+  size_t records_in_chunk    = 0;
+  bool chunk_limit_reached   = false;
+  truncated                  = false;
+  has_more_data              = false;
   uint32_t api_process_id    = 0;
-  while (!in.eof()) {
-    auto fb_ptr = read_flatbuffer(in);
+  while (true) {
+    std::unique_ptr<std::vector<char>> fb_ptr;
+    if (opts.verbose && records_in_chunk % 100 == 0) {
+      auto pos = in.tellg();
+      if (pos != -1) { print_progress(std::cerr, static_cast<size_t>(pos), total_size); }
+    }
+    try {
+      fb_ptr = read_flatbuffer(in);
+    } catch (std::runtime_error const& e) {
+      if (opts.ignore_truncated && std::string_view(e.what()) == "Unexpected EOF") {
+        truncated = true;
+        in.clear();
+        break;
+      }
+      throw;
+    }
     auto records =
       validate_fb<spark_rapids_jni::profiler::ActivityRecords>(*fb_ptr, "ActivityRecords");
+    ++records_in_chunk;
     auto dropped = records->dropped();
     if (dropped != nullptr) {
       for (int i = 0; i < dropped->size(); ++i) {
@@ -1071,11 +1178,33 @@ int convert_to_nvtxw(std::ifstream& in,
         }
       }
     }
+    if (max_records && records_in_chunk >= *max_records) {
+      chunk_limit_reached = true;
+      break;
+    }
     in.peek();
+    if (in.eof()) { break; }
   }
   if (num_dropped_records) {
     std::cerr << "Warning: " << num_dropped_records
               << " records were noted as dropped in the profile" << std::endl;
+  }
+  if (!truncated && chunk_limit_reached) {
+    auto next = in.peek();
+    if (next == std::char_traits<char>::eof()) {
+      in.clear();
+      has_more_data = false;
+    } else {
+      has_more_data = true;
+      if (in.fail()) { in.clear(); }
+    }
+  } else {
+    has_more_data = false;
+  }
+  if (truncated && opts.ignore_truncated) {
+    std::cerr << std::endl;
+    std::cerr << "Warning: profile appears truncated; NVTXW output ended after " << records_in_chunk
+              << " ActivityRecords" << std::endl;
   }
   for (auto it : domainToStreamMap) {
     result = nvtxwInterface->StreamClose(it.second);
@@ -1123,12 +1252,24 @@ int main(int argc, char* argv[])
     print_version();
     return RESULT_SUCCESS;
   }
+  if (opts.nvtxw_chunk_records && !opts.nvtxw) {
+    std::cerr << "--nvtxw-chunk-records requires NVTXW output (--nvtxw)" << std::endl;
+    print_usage();
+    return RESULT_USAGE;
+  }
   if (files.size() != 1) {
     std::cerr << "Missing input file." << std::endl;
     print_usage();
     return RESULT_USAGE;
   }
-  auto input_file = files.front();
+  auto input_file        = files.front();
+  size_t input_file_size = 0;
+  try {
+    input_file_size = std::filesystem::file_size(input_file);
+  } catch (std::filesystem::filesystem_error const& e) {
+    std::cerr << "Error getting file size: " << e.what() << std::endl;
+    return RESULT_FAILURE;
+  }
   try {
     std::ifstream in(std::string(input_file), std::ios::binary | std::ios::in);
     in.exceptions(std::istream::badbit);
@@ -1149,31 +1290,58 @@ int main(int argc, char* argv[])
       }
     } else if (opts.nvtxw) {
       if (opts.output_path) {
-        void* nvtxw_module_handle            = nullptr;
-        nvtxwInterfaceCore_t* nvtxwInterface = nullptr;
-        nvtxwSessionHandle_t session;
-        nvtxwStreamHandle_t stream;
-        auto const error_code =
-          spark_rapids_jni::profiler::initialize_nvtxw(in,
-                                                       opts.output_path.value().string(),
-                                                       nvtxw_module_handle,
-                                                       nvtxwInterface,
-                                                       session,
-                                                       stream,
-                                                       opts.nvtxw_backend);
-        if (error_code == 0) {
-          int convert_error_code = convert_to_nvtxw(in, nvtxwInterface, session, stream, opts);
+        std::filesystem::path base_output = opts.output_path.value();
+        size_t chunk_index                = 0;
+        while (true) {
+          auto chunk_output =
+            make_nvtxw_chunk_path(base_output, chunk_index, opts.nvtxw_chunk_records.has_value());
+          if (std::filesystem::exists(chunk_output)) {
+            throw std::runtime_error(chunk_output.string() + " already exists");
+          }
+          void* nvtxw_module_handle            = nullptr;
+          nvtxwInterfaceCore_t* nvtxwInterface = nullptr;
+          nvtxwSessionHandle_t session;
+          nvtxwStreamHandle_t stream;
+          auto const error_code =
+            spark_rapids_jni::profiler::initialize_nvtxw(in,
+                                                         chunk_output.string(),
+                                                         nvtxw_module_handle,
+                                                         nvtxwInterface,
+                                                         session,
+                                                         stream,
+                                                         opts.nvtxw_backend);
+          if (error_code != 0) {
+            nvtxwUnload(nvtxw_module_handle);
+            return RESULT_FAILURE;
+          }
+          bool chunk_truncated   = false;
+          bool has_more_data     = false;
+          int convert_error_code = convert_to_nvtxw(in,
+                                                    nvtxwInterface,
+                                                    session,
+                                                    stream,
+                                                    opts,
+                                                    opts.nvtxw_chunk_records,
+                                                    input_file_size,
+                                                    chunk_truncated,
+                                                    has_more_data);
           if (convert_error_code != 0) {
             fprintf(stderr, "Conversion failed with error code %d\n", convert_error_code);
+            nvtxwInterface->SessionEnd(session);
+            nvtxwUnload(nvtxw_module_handle);
             return RESULT_FAILURE;
           }
           nvtxwResultCode_t result = nvtxwInterface->SessionEnd(session);
           if (result != NVTXW3_RESULT_SUCCESS) {
             fprintf(stderr, "SessionEnd failed with code %d\n", (int)result);
+            nvtxwUnload(nvtxw_module_handle);
             return RESULT_FAILURE;
           }
+          if (opts.verbose) { std::cerr << "Saved segment " << chunk_output.string() << std::endl; }
+          nvtxwUnload(nvtxw_module_handle);
+          if (!has_more_data || chunk_truncated) { break; }
+          ++chunk_index;
         }
-        nvtxwUnload(nvtxw_module_handle);
       } else {
         std::cerr << "Missing output path" << std::endl;
         print_usage();
