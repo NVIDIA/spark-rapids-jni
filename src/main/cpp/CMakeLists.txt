@@ -44,7 +44,7 @@ rapids_cuda_init_architectures(SPARK_RAPIDS_JNI)
 
 project(
   SPARK_RAPIDS_JNI
-  VERSION 25.12.00
+  VERSION 26.02.00
   LANGUAGES CXX CUDA
 )
 
@@ -185,6 +185,7 @@ set(CUDFJNI_INCLUDE_DIRS
 
 add_library(
   spark_rapids_jni SHARED
+  # Files starting with uppercase
   src/Aggregation64Utils.cpp
   src/ArithmeticJni.cpp
   src/BloomFilterJni.cpp
@@ -201,12 +202,11 @@ add_library(
   src/JSONUtilsJni.cpp
   src/KudoGpuSerializerJni.cpp
   src/ListSliceJni.cpp
-  src/MapZipWithUtilsJNI.cpp
-  src/map_zip_with_utils.cu
   src/MapJni.cpp
+  src/MapZipWithUtilsJNI.cpp
+  src/JoinPrimitivesJni.cpp
   src/NativeParquetJni.cpp
   src/NumberConverterJni.cpp
-  src/NVMLJni.cpp
   src/ParseURIJni.cpp
   src/RegexRewriteUtilsJni.cpp
   src/RowConversionJni.cpp
@@ -215,6 +215,9 @@ add_library(
   src/SubStringIndexJni.cpp
   src/TaskPriorityJni.cpp
   src/ZOrderJni.cpp
+  src/iceberg/IcebergDateTimeUtilJni.cpp
+  src/iceberg/IcebergTruncateJni.cpp
+  # Files starting with lowercase
   src/aggregation64_utils.cu
   src/bloom_filter.cu
   src/case_when.cu
@@ -222,8 +225,8 @@ add_library(
   src/cast_float_to_string.cu
   src/cast_long_to_binary_string.cu
   src/cast_string.cu
-  src/cast_string_to_float.cu
   src/cast_string_to_datetime.cu
+  src/cast_string_to_float.cu
   src/datetime_rebase.cu
   src/datetime_truncate.cu
   src/decimal_utils.cu
@@ -236,9 +239,13 @@ add_library(
   src/hive_hash.cu
   src/hyper_log_log_plus_plus.cu
   src/hyper_log_log_plus_plus_host_udf.cu
+  src/iceberg/iceberg_datetime_util.cu
+  src/iceberg/iceberg_truncate.cu
   src/json_utils.cu
   src/list_slice.cu
   src/map.cu
+  src/map_zip_with_utils.cu
+  src/join_primitives.cu
   src/multiply.cu
   src/murmur_hash.cu
   src/number_converter.cu
@@ -308,7 +315,6 @@ target_link_libraries(
     ${ARROW_LIB}
     ${PARQUET_LIB}
     ${THRIFT_LIB}
-    nvidia-ml
 )
 rapids_cuda_set_runtime(spark_rapids_jni USE_STATIC ON)
 set_target_properties(spark_rapids_jni PROPERTIES LINK_LANGUAGE "CXX")
@@ -322,6 +328,30 @@ add_library(cudfjnistub SHARED src/emptyfile.cpp)
 set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
 target_link_libraries(cudfjnistub -Wl,--no-as-needed $<TARGET_FILE:spark_rapids_jni> -Wl,--as-needed)
 add_dependencies(cudfjnistub spark_rapids_jni)
+
+# ##################################################################################################
+# * NVML JNI ---------------------------------------------------------------------------------------
+
+add_library(nvmljni SHARED src/NVMLJni.cpp)
+set_target_properties(
+  nvmljni
+  PROPERTIES BUILD_RPATH "\$ORIGIN"
+             INSTALL_RPATH "\$ORIGIN"
+             # set target compile options
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             POSITION_INDEPENDENT_CODE ON
+             INTERFACE_POSITION_INDEPENDENT_CODE ON
+)
+
+target_include_directories(
+  nvmljni
+  PRIVATE "${JNI_INCLUDE_DIRS}"
+          "${CUDAToolkit_INCLUDE_DIRS}"
+)
+
+target_link_libraries(nvmljni nvidia-ml)
 
 # ##################################################################################################
 # * cuFile JNI -------------------------------------------------------------------------------------

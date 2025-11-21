@@ -19,8 +19,8 @@ package com.nvidia.spark.rapids.jni;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
 
 /**
  * This is used to allow us to map a native thread id to a java thread so we can look at the
@@ -29,7 +29,7 @@ import java.util.HashSet;
 public class ThreadStateRegistry {
   private static final Logger LOG = LoggerFactory.getLogger(ThreadStateRegistry.class);
 
-  private static final HashMap<Long, Thread> knownThreads = new HashMap<>();
+  private static final ConcurrentHashMap<Long, Thread> knownThreads = new ConcurrentHashMap<>();
   
   private static Boolean printStackTraceCausingThreadBlocked = false;
 
@@ -41,17 +41,26 @@ public class ThreadStateRegistry {
     printStackTraceCausingThreadBlocked = false;
   }
 
-  public static synchronized void addThread(long nativeId, Thread t) {
+  public static void addThread(long nativeId, Thread t) {
     knownThreads.put(nativeId, t);
   }
 
   // Typically called from JNI
-  public static synchronized void removeThread(long threadId) {
+  public static void removeThread(long threadId) {
     knownThreads.remove(threadId);
   }
 
-  // This is likely called from JNI
-  public static synchronized boolean isThreadBlocked(long nativeId) {
+  public static long[] blockedThreadIds() {
+    ArrayList<Long> blockedThreadIds = new ArrayList<>();
+    knownThreads.forEach((nativeId, thread) -> {
+      if (isThreadBlocked(nativeId)) {
+        blockedThreadIds.add(nativeId);
+      }
+    });
+    return blockedThreadIds.stream().mapToLong(Long::longValue).toArray();
+  }
+
+  private static boolean isThreadBlocked(long nativeId) {
     Thread t = knownThreads.get(nativeId);
     if (t == null || !t.isAlive()) {
       // Dead is as good as blocked. This is mostly for tests, not so much for
