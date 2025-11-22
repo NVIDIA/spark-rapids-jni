@@ -80,7 +80,7 @@
       "git_shallow" : false,
       "git_tag" : "4bf5a9322626e95e3717e43de7616c0a256179eb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
-      "version" : "0.7.0.dev"
+      "version" : "0.7.0"
     },
     "nvcomp" : 
     {
