@@ -191,8 +191,8 @@ struct percentile_dispatcher {
     // We may always have nulls in the output due to either:
     // - Having nulls in the input, and/or,
     // - Having empty histograms.
-    auto out_validities =
-      rmm::device_uvector<int8_t>(num_histograms, stream, rmm::mr::get_current_device_resource());
+    auto out_validities = rmm::device_uvector<int8_t>(
+      num_histograms, stream, rmm::mr::get_current_device_resource_ref());
 
     auto const fill_percentile = [&](auto const sorted_validity_it) {
       auto const sorted_input_it =
@@ -307,7 +307,7 @@ std::unique_ptr<cudf::column> create_histogram_if_valid(cudf::column_view const&
     }
   }
 
-  auto const default_mr = rmm::mr::get_current_device_resource();
+  auto const default_mr = rmm::mr::get_current_device_resource_ref();
 
   // We only check if there is any row in frequencies that are negative (invalid) or zero.
   auto check_invalid_and_zero =
@@ -439,7 +439,7 @@ std::unique_ptr<cudf::column> percentile_from_histogram(cudf::column_view const&
   auto const data_col       = cudf::structs_column_view{histograms}.get_sliced_child(0);
   auto const counts_col     = cudf::structs_column_view{histograms}.get_sliced_child(1);
 
-  auto const default_mr    = rmm::mr::get_current_device_resource();
+  auto const default_mr    = rmm::mr::get_current_device_resource_ref();
   auto const d_data        = cudf::column_device_view::create(data_col, stream);
   auto const d_percentages = cudf::detail::make_device_uvector(percentages, stream, default_mr);
 

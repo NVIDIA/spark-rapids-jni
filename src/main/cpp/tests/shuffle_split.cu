@@ -128,7 +128,7 @@ auto run_split(cudf::table_view const& tbl,
                std::vector<cudf::size_type> const& remaps = {})
 {
   auto [split_data, split_metadata] = spark_rapids_jni::shuffle_split(
-    tbl, splits, cudf::get_default_stream(), rmm::mr::get_current_device_resource());
+    tbl, splits, cudf::get_default_stream(), rmm::mr::get_current_device_resource_ref());
 
   // maybe reshape the results
   if (remaps.size() > 0) {
@@ -140,14 +140,14 @@ auto run_split(cudf::table_view const& tbl,
       split_data.offsets,
       remaps,
       cudf::get_default_stream(),
-      rmm::mr::get_current_device_resource());
+      rmm::mr::get_current_device_resource_ref());
 
     auto result = spark_rapids_jni::shuffle_assemble(
       split_metadata,
       {static_cast<uint8_t*>(reshaped_data.partitions->data()), reshaped_data.partitions->size()},
       reshaped_data.offsets,
       cudf::get_default_stream(),
-      rmm::mr::get_current_device_resource());
+      rmm::mr::get_current_device_resource_ref());
 
     CUDF_TEST_EXPECT_TABLES_EQUAL(*reshaped_table, make_table_view(result));
 
@@ -159,7 +159,7 @@ auto run_split(cudf::table_view const& tbl,
     {static_cast<uint8_t*>(split_data.partitions->data()), split_data.partitions->size()},
     split_data.offsets,
     cudf::get_default_stream(),
-    rmm::mr::get_current_device_resource());
+    rmm::mr::get_current_device_resource_ref());
 
   CUDF_TEST_EXPECT_TABLES_EQUAL(tbl, make_table_view(result));
   return result;
@@ -300,7 +300,7 @@ TEST_F(ShuffleSplitTests, Lists)
                                         0,
                                         {},
                                         cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource());
+                                        rmm::mr::get_current_device_resource_ref());
 
     cudf::test::strings_column_wrapper strings1{{"", "", "", "", "", "", ""},
                                                 {0, 0, 0, 0, 0, 0, 0}};
@@ -311,7 +311,7 @@ TEST_F(ShuffleSplitTests, Lists)
                                         0,
                                         {},
                                         cudf::get_default_stream(),
-                                        rmm::mr::get_current_device_resource());
+                                        rmm::mr::get_current_device_resource_ref());
 
     cudf::table_view tbl{{*col0, *col1}};
     run_split(tbl, {});
@@ -432,7 +432,7 @@ TEST_F(ShuffleSplitTests, PurgeNulls)
 
   // manually construct a column with a non-null validity buffer to force it to appear nullable
   auto validity_buffer =
-    rmm::device_buffer{1, cudf::get_default_stream(), rmm::mr::get_current_device_resource()};
+    rmm::device_buffer{1, cudf::get_default_stream(), rmm::mr::get_current_device_resource_ref()};
   auto col = std::make_unique<cudf::column>(cudf::data_type{cudf::type_to_id<float>()},
                                             0,
                                             rmm::device_buffer{},
@@ -462,7 +462,7 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
                                       0,
                                       {},
                                       cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource());
+                                      rmm::mr::get_current_device_resource_ref());
   cudf::lists_column_view lcv(*col0);
   CUDF_EXPECTS(lcv.child().num_children() == 0, "String column is expected to have no offsets");
 
@@ -475,7 +475,7 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
                                       0,
                                       {},
                                       cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource());
+                                      rmm::mr::get_current_device_resource_ref());
 
   // list<struct<int, int>>
   cudf::test::fixed_width_column_wrapper<int> ints0{-210, 311};
@@ -491,7 +491,7 @@ TEST_F(ShuffleSplitTests, EmptyOffsets)
                                       0,
                                       {},
                                       cudf::get_default_stream(),
-                                      rmm::mr::get_current_device_resource());
+                                      rmm::mr::get_current_device_resource_ref());
 
   cudf::table_view tbl{{*col0, *col1, *col2, *col1}};
   auto result = run_split(tbl, {});

@@ -55,7 +55,7 @@ std::unique_ptr<rmm::device_buffer> bitmask_bitwise_or(
   std::transform(
     input.begin(), input.end(), h_input.begin(), [](auto mask) { return mask.data(); });
   auto d_input = cudf::detail::make_device_uvector_async(
-    h_input, stream, rmm::mr::get_current_device_resource());
+    h_input, stream, rmm::mr::get_current_device_resource_ref());
 
   std::unique_ptr<rmm::device_buffer> out =
     std::make_unique<rmm::device_buffer>(mask_size * sizeof(cudf::bitmask_type), stream, mr);

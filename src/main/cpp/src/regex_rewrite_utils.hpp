@@ -41,5 +41,5 @@ std::unique_ptr<cudf::column> literal_range_pattern(
   int const start,
   int const end,
   rmm::cuda_stream_view stream      = rmm::cuda_stream_default,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 }  // namespace spark_rapids_jni

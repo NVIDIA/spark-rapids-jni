@@ -78,7 +78,7 @@ std::unique_ptr<cudf::column> string_to_integer(
   bool ansi_mode,
   bool strip,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Convert a string column into an decimal column.
@@ -100,7 +100,7 @@ std::unique_ptr<cudf::column> string_to_decimal(
   bool ansi_mode,
   bool strip,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Convert a string column into an float column.
@@ -118,28 +118,28 @@ std::unique_ptr<cudf::column> string_to_float(
   cudf::strings_column_view const& string_col,
   bool ansi_mode,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<cudf::column> format_float(
   cudf::column_view const& input,
   int const digits,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<cudf::column> float_to_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<cudf::column> decimal_to_non_ansi_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 std::unique_ptr<cudf::column> long_to_binary_string(
   cudf::column_view const& input,
   rmm::cuda_stream_view stream,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Parse a timestamp string column into an intermediate struct column.

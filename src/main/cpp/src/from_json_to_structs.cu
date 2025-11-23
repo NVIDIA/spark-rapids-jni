@@ -811,7 +811,7 @@ std::unique_ptr<cudf::column> from_json_to_structs(cudf::strings_column_view con
                                                    rmm::device_async_resource_ref mr)
 {
   auto const [concat_input, delimiter, should_be_nullified] =
-    concat_json(input, false, stream, cudf::get_current_device_resource());
+    concat_json(input, false, stream, cudf::get_current_device_resource_ref());
   auto const [schema, schema_with_precision] =
     generate_struct_schema(col_names, num_children, types, scales, precisions);
 
