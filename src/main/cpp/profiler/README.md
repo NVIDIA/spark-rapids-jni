@@ -71,6 +71,13 @@ The output will look similar to this:
 
 If the profile file is truncated (e.g. incomplete download or crash), you can use `--ignore-truncated` to convert as much data as possible.
 
+If the input is a truncated zstd file, first uncompress it with max effort:
+```bash
+set +e
+zstd -dc broken.bin.zstd > salvaged.bin
+```
+Then process `salvaged.bin` with the converter.
+
 ### Splitting Output
 
 For very large profiles, you can split the output into multiple `.nsys-rep` files using `--nvtxw-chunk-records=N`, where `N` is the number of activity records per file. A recommended starting value is 100 if you're encountering file size limits with Nsight Systems. This option is disabled by default.
