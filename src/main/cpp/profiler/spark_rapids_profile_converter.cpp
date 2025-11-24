@@ -201,7 +201,7 @@ std::pair<program_options, std::vector<std::string_view>> parse_options(
       if (++argp != args.end()) {
         size_t value    = 0;
         auto [ptr, err] = std::from_chars(argp->data(), argp->data() + argp->size(), value);
-        if (err != std::errc() || ptr != argp->end()) {
+        if (err != std::errc() || ptr != argp->data() + argp->size()) {
           throw std::runtime_error("invalid NVTXW chunk record limit");
         }
         if (value == 0) {
@@ -223,7 +223,7 @@ std::pair<program_options, std::vector<std::string_view>> parse_options(
       } else {
         size_t value    = 0;
         auto [ptr, err] = std::from_chars(argp->data(), argp->data() + argp->size(), value);
-        if (err != std::errc() || ptr != argp->end()) {
+        if (err != std::errc() || ptr != argp->data() + argp->size()) {
           throw std::runtime_error("invalid NVTXW chunk record limit");
         }
         if (value == 0) {
@@ -381,9 +381,9 @@ void verify_profile_header(std::ifstream& in)
   }
 }
 
-void print_progress(std::ostream& out, size_t current_bytes, size_t total_bytes)
+void print_progress(std::ostream& out, size_t current_bytes, size_t total_bytes, int& last_percent)
 {
-  static int last_percent = -1;
+  if (total_bytes == 0) { return; }
   int percent = static_cast<int>(static_cast<double>(current_bytes) / total_bytes * 100);
   if (percent == last_percent) { return; }
   last_percent = percent;
@@ -837,11 +837,14 @@ int convert_to_nvtxw(std::ifstream& in,
   truncated                  = false;
   has_more_data              = false;
   uint32_t api_process_id    = 0;
+  int last_percent           = -1;
   while (true) {
     std::unique_ptr<std::vector<char>> fb_ptr;
     if (opts.verbose && records_in_chunk % 100 == 0) {
       auto pos = in.tellg();
-      if (pos != -1) { print_progress(std::cerr, static_cast<size_t>(pos), total_size); }
+      if (pos != -1) {
+        print_progress(std::cerr, static_cast<size_t>(pos), total_size, last_percent);
+      }
     }
     try {
       fb_ptr = read_flatbuffer(in);
@@ -1178,30 +1181,19 @@ int convert_to_nvtxw(std::ifstream& in,
         }
       }
     }
-    if (max_records && records_in_chunk >= *max_records) {
-      chunk_limit_reached = true;
-      break;
-    }
     in.peek();
     if (in.eof()) { break; }
+    if (max_records && records_in_chunk >= *max_records) {
+      chunk_limit_reached = true;
+      has_more_data       = true;
+      break;
+    }
   }
   if (num_dropped_records) {
     std::cerr << "Warning: " << num_dropped_records
               << " records were noted as dropped in the profile" << std::endl;
   }
-  if (!truncated && chunk_limit_reached) {
-    auto next = in.peek();
-    if (next == std::char_traits<char>::eof()) {
-      in.clear();
-      has_more_data = false;
-    } else {
-      has_more_data = true;
-      if (in.fail()) { in.clear(); }
-    }
-  } else {
-    has_more_data = false;
-  }
-  if (truncated && opts.ignore_truncated) {
+  if (truncated) {
     std::cerr << std::endl;
     std::cerr << "Warning: profile appears truncated; NVTXW output ended after " << records_in_chunk
               << " ActivityRecords" << std::endl;
@@ -1264,11 +1256,14 @@ int main(int argc, char* argv[])
   }
   auto input_file        = files.front();
   size_t input_file_size = 0;
-  try {
-    input_file_size = std::filesystem::file_size(input_file);
-  } catch (std::filesystem::filesystem_error const& e) {
-    std::cerr << "Error getting file size: " << e.what() << std::endl;
-    return RESULT_FAILURE;
+  if (opts.nvtxw && opts.verbose) {
+    try {
+      input_file_size = std::filesystem::file_size(input_file);
+    } catch (std::filesystem::filesystem_error const& e) {
+      // If file size is needed for progress, but cannot be determined, use 0 as sentinel.
+      std::cerr << "Error getting file size: " << e.what() << std::endl;
+      input_file_size = 0;
+    }
   }
   try {
     std::ifstream in(std::string(input_file), std::ios::binary | std::ios::in);
