@@ -2117,7 +2117,6 @@ class spark_resource_adaptor final : public rmm::mr::device_memory_resource {
       try {
         void* ret = resource->allocate(stream, num_bytes);
         post_alloc_success(tid, likely_spill, num_bytes);
-        record_device_allocation_event();
         return ret;
       } catch (rmm::out_of_memory const& e) {
         // rmm::out_of_memory is what is thrown when an allocation failed
