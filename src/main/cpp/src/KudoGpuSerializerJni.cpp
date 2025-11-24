@@ -34,7 +34,7 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_splitAndSerializeToDevic
     std::vector<cudf::size_type> splits = n_splits.to_vector<int>();
 
     auto [split_result, split_meta] = spark_rapids_jni::shuffle_split(
-      *table, splits, cudf::get_default_stream(), cudf::get_current_device_resource());
+      *table, splits, cudf::get_default_stream(), cudf::get_current_device_resource_ref());
 
     // The following code is ugly. We need to return two device buffers to java, but
     // there is no good way to do this. For this we return three values for each buffer.
@@ -106,8 +106,11 @@ Java_com_nvidia_spark_rapids_jni_kudo_KudoGpuSerializer_assembleFromDeviceRawNat
     }
 
     // Get shuffle assemble result from shuffle_assemble
-    auto assemble_result = shuffle_assemble(
-      meta, partitions, offsets, cudf::get_default_stream(), cudf::get_current_device_resource());
+    auto assemble_result = shuffle_assemble(meta,
+                                            partitions,
+                                            offsets,
+                                            cudf::get_default_stream(),
+                                            cudf::get_current_device_resource_ref());
 
     // Create buffer metadata
     jlong buffer_size   = static_cast<jlong>(assemble_result.shared_buffer.size());

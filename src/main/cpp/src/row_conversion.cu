@@ -223,7 +223,8 @@ build_string_row_offsets(table_view const& tbl,
                     stencil,
                     std::back_inserter(offsets_iterators),
                     cuda::std::identity{});
-    return make_device_uvector(offsets_iterators, stream, rmm::mr::get_current_device_resource());
+    return make_device_uvector(
+      offsets_iterators, stream, rmm::mr::get_current_device_resource_ref());
   }();
 
   auto const num_columns = static_cast<size_type>(d_offsets_iterators.size());
@@ -1551,11 +1552,11 @@ batch_data build_batches(size_type num_rows,
     last_row_end = row_end;
   }
 
-  return {
-    std::move(batch_row_offsets),
-    make_device_uvector_async(batch_row_boundaries, stream, rmm::mr::get_current_device_resource()),
-    std::move(batch_row_boundaries),
-    std::move(row_batches)};
+  return {std::move(batch_row_offsets),
+          make_device_uvector_async(
+            batch_row_boundaries, stream, rmm::mr::get_current_device_resource_ref()),
+          std::move(batch_row_boundaries),
+          std::move(row_batches)};
 }
 
 /**
@@ -1797,9 +1798,9 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   };
 
   auto dev_col_sizes = make_device_uvector_async(
-    column_info.column_sizes, stream, rmm::mr::get_current_device_resource());
+    column_info.column_sizes, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_col_starts = make_device_uvector_async(
-    column_info.column_starts, stream, rmm::mr::get_current_device_resource());
+    column_info.column_starts, stream, rmm::mr::get_current_device_resource_ref());
 
   // Get the pointers to the input columnar data ready
   auto const data_begin = thrust::make_transform_iterator(tbl.begin(), [](auto const& c) {
@@ -1813,9 +1814,9 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   std::vector<bitmask_type const*> input_nm(nm_begin, nm_begin + tbl.num_columns());
 
   auto dev_input_data =
-    make_device_uvector_async(input_data, stream, rmm::mr::get_current_device_resource());
+    make_device_uvector_async(input_data, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_input_nm =
-    make_device_uvector_async(input_nm, stream, rmm::mr::get_current_device_resource());
+    make_device_uvector_async(input_nm, stream, rmm::mr::get_current_device_resource_ref());
 
   // the first batch always exists unless we were sent an empty table
   auto const first_batch_size = batch_info.row_batches[0].row_count;
@@ -1878,8 +1879,8 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
   auto validity_tile_infos = detail::build_validity_tile_infos(
     tbl.num_columns(), num_rows, shmem_limit_per_tile, batch_info.row_batches);
 
-  auto dev_validity_tile_infos =
-    make_device_uvector_async(validity_tile_infos, stream, rmm::mr::get_current_device_resource());
+  auto dev_validity_tile_infos = make_device_uvector_async(
+    validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
 
   auto const validity_offset = column_info.column_starts.back();
 
@@ -1925,9 +1926,9 @@ std::vector<std::unique_ptr<column>> convert_to_rows(
       variable_data_begin, variable_data_begin + variable_width_table.num_columns());
 
     auto dev_variable_input_data = make_device_uvector_async(
-      variable_width_input_data, stream, rmm::mr::get_current_device_resource());
+      variable_width_input_data, stream, rmm::mr::get_current_device_resource_ref());
     auto dev_variable_col_output_offsets = make_device_uvector_async(
-      column_info.variable_width_column_starts, stream, rmm::mr::get_current_device_resource());
+      column_info.variable_width_column_starts, stream, rmm::mr::get_current_device_resource_ref());
 
     for (uint i = 0; i < batch_info.row_batches.size(); i++) {
       auto const batch_row_offset = batch_info.batch_row_boundaries[i];
@@ -2199,9 +2200,9 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   // fine
   CUDF_EXPECTS(size_per_row * num_rows <= child.size(), "The layout of the data appears to be off");
   auto dev_col_starts = make_device_uvector_async(
-    column_info.column_starts, stream, rmm::mr::get_current_device_resource());
+    column_info.column_starts, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_col_sizes = make_device_uvector_async(
-    column_info.column_sizes, stream, rmm::mr::get_current_device_resource());
+    column_info.column_sizes, stream, rmm::mr::get_current_device_resource_ref());
 
   // Allocate the columns we are going to write into
   std::vector<std::unique_ptr<column>> output_columns;
@@ -2231,11 +2232,11 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     if (i.id() == type_id::STRING) {
       auto const int32type = data_type(type_id::INT32);
       auto offset_col =
-        make_col(int32type, num_rows, true, stream, rmm::mr::get_current_device_resource());
+        make_col(int32type, num_rows, true, stream, rmm::mr::get_current_device_resource_ref());
       string_row_offsets.push_back(offset_col->mutable_view().data<int32_t>());
       string_row_offset_columns.emplace_back(std::move(offset_col));
       auto length_col =
-        make_col(int32type, num_rows, false, stream, rmm::mr::get_current_device_resource());
+        make_col(int32type, num_rows, false, stream, rmm::mr::get_current_device_resource_ref());
       string_lengths.push_back(length_col->mutable_view().data<int32_t>());
       string_length_columns.emplace_back(std::move(length_col));
       // placeholder
@@ -2245,10 +2246,10 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     }
   }
 
-  auto dev_string_row_offsets =
-    make_device_uvector_async(string_row_offsets, stream, rmm::mr::get_current_device_resource());
+  auto dev_string_row_offsets = make_device_uvector_async(
+    string_row_offsets, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_string_lengths =
-    make_device_uvector_async(string_lengths, stream, rmm::mr::get_current_device_resource());
+    make_device_uvector_async(string_lengths, stream, rmm::mr::get_current_device_resource_ref());
 
   // build the row_batches from the passed in list column
   std::vector<detail::row_batch> row_batches;
@@ -2256,9 +2257,9 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
     {detail::row_batch{child.size(), num_rows, device_uvector<size_type>(0, stream)}});
 
   auto dev_output_data =
-    make_device_uvector_async(output_data, stream, rmm::mr::get_current_device_resource());
+    make_device_uvector_async(output_data, stream, rmm::mr::get_current_device_resource_ref());
   auto dev_output_nm =
-    make_device_uvector_async(output_nm, stream, rmm::mr::get_current_device_resource());
+    make_device_uvector_async(output_nm, stream, rmm::mr::get_current_device_resource_ref());
 
   // only ever get a single batch when going from rows, so boundaries are 0, num_rows
   constexpr auto num_batches = 2;
@@ -2311,8 +2312,8 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
   auto validity_tile_infos =
     detail::build_validity_tile_infos(schema.size(), num_rows, shmem_limit_per_tile, row_batches);
 
-  auto dev_validity_tile_infos =
-    make_device_uvector_async(validity_tile_infos, stream, rmm::mr::get_current_device_resource());
+  auto dev_validity_tile_infos = make_device_uvector_async(
+    validity_tile_infos, stream, rmm::mr::get_current_device_resource_ref());
 
   dim3 const validity_blocks(validity_tile_infos.size());
 
@@ -2397,9 +2398,9 @@ std::unique_ptr<table> convert_from_rows(lists_column_view const& input,
       string_data_cols.push_back(std::move(string_data));
     }
     auto dev_string_col_offsets = make_device_uvector_async(
-      string_col_offset_ptrs, stream, rmm::mr::get_current_device_resource());
+      string_col_offset_ptrs, stream, rmm::mr::get_current_device_resource_ref());
     auto dev_string_data_cols = make_device_uvector_async(
-      string_data_col_ptrs, stream, rmm::mr::get_current_device_resource());
+      string_data_col_ptrs, stream, rmm::mr::get_current_device_resource_ref());
 
     dim3 const string_blocks(
       std::min(std::max(MIN_STRING_BLOCKS, num_rows / NUM_STRING_ROWS_PER_BLOCK_FROM_ROWS),
@@ -2468,9 +2469,9 @@ std::unique_ptr<table> convert_from_rows_fixed_width_optimized(lists_column_view
     CUDF_EXPECTS(size_per_row * num_rows == child.size(),
                  "The layout of the data appears to be off");
     auto dev_column_start =
-      make_device_uvector_async(column_start, stream, rmm::mr::get_current_device_resource());
+      make_device_uvector_async(column_start, stream, rmm::mr::get_current_device_resource_ref());
     auto dev_column_size =
-      make_device_uvector_async(column_size, stream, rmm::mr::get_current_device_resource());
+      make_device_uvector_async(column_size, stream, rmm::mr::get_current_device_resource_ref());
 
     // Allocate the columns we are going to write into
     std::vector<std::unique_ptr<column>> output_columns;

@@ -45,7 +45,7 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   cudf::table_view const& timezone_info,
   cudf::size_type const tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Convert input column timestamps in UTC to specified timezone
@@ -67,7 +67,7 @@ std::unique_ptr<cudf::column> convert_utc_timestamp_to_timezone(
   cudf::table_view const& timezone_info,
   cudf::size_type const tz_index,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Convert timestamps in multiple timezones to UTC.
@@ -98,7 +98,7 @@ std::unique_ptr<cudf::column> convert_timestamp_to_utc(
   cudf::table_view const& timezone_info,
   cudf::column_view const tz_indices,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource());
+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 
 /**
  * @brief Convert between ORC writer timezone and reader timezone.

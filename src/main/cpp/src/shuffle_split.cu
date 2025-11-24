@@ -860,7 +860,7 @@ std::pair<shuffle_split_result, shuffle_split_metadata> shuffle_split(
   size_t const offset_stack_size = offset_stack_partition_size * num_partitions * sizeof(size_type);
   rmm::device_buffer d_indices_and_source_info(indices_size + src_buf_info_size + offset_stack_size,
                                                stream,
-                                               rmm::mr::get_current_device_resource());
+                                               rmm::mr::get_current_device_resource_ref());
   auto* d_indices              = reinterpret_cast<size_type*>(d_indices_and_source_info.data());
   src_buf_info* d_src_buf_info = reinterpret_cast<src_buf_info*>(
     reinterpret_cast<uint8_t*>(d_indices_and_source_info.data()) + indices_size);

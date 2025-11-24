@@ -41,7 +41,7 @@ std::unique_ptr<cudf::column> murmur_hash3_32(
   cudf::table_view const& input,
   uint32_t seed                     = 0,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Computes the xxhash64 hash value of each row in the input set of columns.
@@ -57,7 +57,7 @@ std::unique_ptr<cudf::column> xxhash64(
   cudf::table_view const& input,
   int64_t seed                      = DEFAULT_XXHASH64_SEED,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 /**
  * @brief Computes the Hive hash value of each row in the input set of columns.
@@ -71,6 +71,6 @@ std::unique_ptr<cudf::column> xxhash64(
 std::unique_ptr<cudf::column> hive_hash(
   cudf::table_view const& input,
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
 }  // namespace spark_rapids_jni

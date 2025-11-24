@@ -76,7 +76,7 @@ std::unique_ptr<cudf::column> make_empty_map(rmm::cuda_stream_view stream,
 std::tuple<rmm::device_buffer, char, std::unique_ptr<cudf::column>> unify_json_strings(
   cudf::strings_column_view const& input, rmm::cuda_stream_view stream)
 {
-  auto const default_mr = cudf::get_current_device_resource();
+  auto const default_mr = cudf::get_current_device_resource_ref();
   auto [concatenated_buff, delimiter, should_be_nullified] =
     concat_json(input, /*nullify_invalid_rows*/ true, stream, default_mr);
 
@@ -737,7 +737,7 @@ std::unique_ptr<cudf::column> from_json_to_raw_map(cudf::strings_column_view con
       .unquoted_control_chars(allow_unquoted_control)
       .build(),
     stream,
-    cudf::get_current_device_resource());
+    cudf::get_current_device_resource_ref());
 
 #ifdef DEBUG_FROM_JSON
   print_debug(tokens, "Tokens", ", ", stream);

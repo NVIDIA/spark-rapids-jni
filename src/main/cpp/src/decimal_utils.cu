@@ -973,7 +973,7 @@ std::unique_ptr<cudf::table> multiply_decimal128(cudf::column_view const& a,
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1008,7 +1008,7 @@ std::unique_ptr<cudf::table> divide_decimal128(cudf::column_view const& a,
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1042,7 +1042,7 @@ std::unique_ptr<cudf::table> integer_divide_decimal128(cudf::column_view const& 
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1075,7 +1075,7 @@ std::unique_ptr<cudf::table> remainder_decimal128(cudf::column_view const& a,
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1108,7 +1108,7 @@ std::unique_ptr<cudf::table> add_decimal128(cudf::column_view const& a,
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1141,7 +1141,7 @@ std::unique_ptr<cudf::table> sub_decimal128(cudf::column_view const& a,
   auto const num_rows = a.size();
   CUDF_EXPECTS(num_rows == b.size(), "inputs have mismatched row counts");
   auto [result_null_mask, result_null_count] = cudf::detail::bitmask_and(
-    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource());
+    cudf::table_view{{a, b}}, stream, rmm::mr::get_current_device_resource_ref());
   std::vector<std::unique_ptr<cudf::column>> columns;
   // copy the null mask here, as it will be used again later
   columns.push_back(cudf::make_fixed_width_column(cudf::data_type{cudf::type_id::BOOL8},
@@ -1391,7 +1391,7 @@ std::pair<std::unique_ptr<cudf::column>, cudf::size_type> floating_point_to_deci
     output_type, input.size(), cudf::mask_state::UNALLOCATED, stream, mr);
 
   auto const decimal_places = -output_type.scale();
-  auto const default_mr     = rmm::mr::get_current_device_resource();
+  auto const default_mr     = rmm::mr::get_current_device_resource_ref();
 
   rmm::device_uvector<int8_t> validity(input.size(), stream, default_mr);
   rmm::device_scalar<cudf::size_type> failure_row_id(-1, stream, default_mr);
