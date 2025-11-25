@@ -25,11 +25,14 @@
 #include <cudf/strings/detail/strings_children.cuh>
 #include <cudf/strings/detail/utf8.hpp>
 #include <cudf/strings/strings_column_view.hpp>
+#include <cudf/unary.hpp>
 #include <cudf/utilities/error.hpp>
 
 #include <rmm/exec_policy.hpp>
 
+#include <thrust/logical.h>
 #include <thrust/tabulate.h>
+#include <thrust/transform.h>
 
 #include <cstdint>
 
@@ -39,10 +42,6 @@ namespace {
 
 /**
  * @brief Truncate towards negative infinity direction for types: int32, int64 or int128
- *
- * For positive values, Iceberg truncation is: value - (value % width)
- * For negative values, this uses a floored modulo approach:
- * value - (((value % width) + width) % width)
  *
  * Example, width = 10:
  * - truncate(10, 5) = 0
@@ -62,6 +61,37 @@ struct truncate_integral_fn {
 
     T value = input.element<T>(row_index);
     return value - (((value % width) + width) % width);
+  }
+};
+
+constexpr __int128_t min_decimal_128_value()
+{
+  constexpr int64_t high = 0x4B3B4CA85A86C47ALL;
+  constexpr int64_t low  = 0x098A223FFFFFFFFFLL;
+  return -(((__int128_t)high << 64) | (static_cast<__int128_t>(low) & 0xFFFFFFFFFFFFFFFF));
+}
+
+/**
+ * @brief Check if truncation for decimal types will cause overflow
+ *
+ * T is the underlying integral type for decimal type: int32, int64 or int128
+ */
+struct is_truncate_decimal_128_overflow_fn {
+  constexpr static __int128_t MIN = min_decimal_128_value();
+  cudf::column_device_view input;
+  int32_t width;
+
+  __device__ bool operator()(int row_index) const
+  {
+    if (input.is_null(row_index)) { return false; }
+
+    __int128_t value = input.element<__int128_t>(row_index);
+    if (value < 0) {
+      __int128_t positive_diff = ((value % width) + width) % width;
+      if (value < MIN + positive_diff) { return true; }
+    }
+
+    return false;
   }
 };
 
@@ -138,12 +168,21 @@ void truncate_integral_and_fill(std::unique_ptr<cudf::column>& output,
                    truncate_integral_fn<RepT>{d_input, width});
 }
 
+bool is_truncate_decimal_128_overflow(cudf::column_device_view input,
+                                      int32_t width,
+                                      rmm::cuda_stream_view stream)
+{
+  return thrust::any_of(rmm::exec_policy_nosync(stream),
+                        thrust::make_counting_iterator(0),
+                        thrust::make_counting_iterator(input.size()),
+                        is_truncate_decimal_128_overflow_fn{input, width});
+}
+
 std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& input,
                                                      int32_t width,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
 {
-  CUDF_EXPECTS(width != 0, "Width must not be zero");
   if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
   auto input_type_id       = input.type().id();
   cudf::size_type num_rows = input.size();
@@ -155,19 +194,71 @@ std::unique_ptr<cudf::column> truncate_integral_impl(cudf::column_view const& in
                                               mr);
   auto d_input             = cudf::column_device_view::create(input, stream);
 
-  if (input_type_id == cudf::type_id::INT32 || input_type_id == cudf::type_id::DECIMAL32) {
-    // treat DECIMAL32 column as int32 column
+  if (input_type_id == cudf::type_id::INT32) {
     truncate_integral_and_fill<int32_t>(output, *d_input, width, stream);
-  } else if (input_type_id == cudf::type_id::INT64 || input_type_id == cudf::type_id::DECIMAL64) {
-    // treat DECIMAL64 column as int64 column
+  } else if (input_type_id == cudf::type_id::INT64) {
     truncate_integral_and_fill<int64_t>(output, *d_input, width, stream);
-  } else if (input_type_id == cudf::type_id::DECIMAL128) {
-    // treat DECIMAL128 column as int128 column
-    truncate_integral_and_fill<__int128_t>(output, *d_input, width, stream);
   } else {
     CUDF_FAIL("Unsupported type for truncate_integral_impl");
   }
   return output;
+}
+
+std::unique_ptr<cudf::column> truncate_decimal_impl(cudf::column_view const& input,
+                                                    int32_t width,
+                                                    rmm::cuda_stream_view stream,
+                                                    rmm::device_async_resource_ref mr)
+{
+  if (input.is_empty()) { return cudf::make_empty_column(input.type().id()); }
+  auto input_type_id       = input.type().id();
+  cudf::size_type num_rows = input.size();
+  auto d_input             = cudf::column_device_view::create(input, stream);
+
+  if (input_type_id == cudf::type_id::DECIMAL32) {
+    // promote DECIMAL32 to DECIMAL64 to avoid overflow
+    auto promote_type     = cudf::data_type{cudf::type_id::DECIMAL64, input.type().scale()};
+    auto promoted_input   = cudf::cast(input, promote_type, stream, mr);
+    auto output           = cudf::make_fixed_width_column(promote_type,
+                                                num_rows,
+                                                cudf::detail::copy_bitmask(input, stream, mr),
+                                                input.null_count(),
+                                                stream,
+                                                mr);
+    auto d_promoted_input = cudf::column_device_view::create(*promoted_input, stream);
+    truncate_integral_and_fill<int64_t>(output, *d_promoted_input, width, stream);
+    return output;
+  } else if (input_type_id == cudf::type_id::DECIMAL64) {
+    // promote DECIMAL64 to DECIMAL128 to avoid overflow
+    auto promote_type     = cudf::data_type{cudf::type_id::DECIMAL128, input.type().scale()};
+    auto promoted_input   = cudf::cast(input, promote_type, stream, mr);
+    auto output           = cudf::make_fixed_width_column(promote_type,
+                                                num_rows,
+                                                cudf::detail::copy_bitmask(input, stream, mr),
+                                                input.null_count(),
+                                                stream,
+                                                mr);
+    auto d_promoted_input = cudf::column_device_view::create(*promoted_input, stream);
+    truncate_integral_and_fill<__int128_t>(output, *d_promoted_input, width, stream);
+    return output;
+  } else if (input_type_id == cudf::type_id::DECIMAL128) {
+    // treat DECIMAL128 column as int128 column
+    if (!is_truncate_decimal_128_overflow(*d_input, width, stream)) {
+      auto output = cudf::make_fixed_width_column(input.type(),
+                                                  num_rows,
+                                                  cudf::detail::copy_bitmask(input, stream, mr),
+                                                  input.null_count(),
+                                                  stream,
+                                                  mr);
+      truncate_integral_and_fill<__int128_t>(output, *d_input, width, stream);
+      return output;
+    } else {
+      // can not promote, throw error
+      // Note: Spark can handle, but cuDF can not, should throw runtime error here
+      CUDF_FAIL("Truncation causes overflow for DECIMAL128 type");
+    }
+  } else {
+    CUDF_FAIL("Unsupported type for truncate_decimal_impl");
+  }
 }
 
 std::unique_ptr<cudf::column> truncate_string_impl(cudf::column_view const& input,
@@ -250,7 +341,11 @@ std::unique_ptr<cudf::column> truncate_integral(cudf::column_view const& input,
                                                 rmm::device_async_resource_ref mr)
 {
   CUDF_FUNC_RANGE();
-  return truncate_integral_impl(input, width, stream, mr);
+  CUDF_EXPECTS(width > 0, "Width must be positive");
+  if (input.type().id() == cudf::type_id::INT32 || input.type().id() == cudf::type_id::INT64) {
+    return truncate_integral_impl(input, width, stream, mr);
+  }
+  return truncate_decimal_impl(input, width, stream, mr);
 }
 
 std::unique_ptr<cudf::column> truncate_string(cudf::column_view const& input,
