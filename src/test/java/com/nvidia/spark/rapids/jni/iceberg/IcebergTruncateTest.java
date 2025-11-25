@@ -386,27 +386,6 @@ public class IcebergTruncateTest {
 
   @Test
   void testTruncateDecimal32() {
-    try (
-        ColumnVector input = ColumnVector.decimalFromBoxedInts(-2,
-            null,
-            1234,
-            1230,
-            1229,
-            5,
-            -5,
-            null);
-        ColumnVector expected = ColumnVector.decimalFromBoxedInts(-2,
-            null,
-            1230,
-            1230,
-            1220,
-            0,
-            -10,
-            null);
-        ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-      assertColumnsAreEqual(expected, result);
-    }
-
     int width = 10;
     int scale = 2;
     Function<Object, Object> truncFunc = Transforms.truncate(width)
@@ -457,29 +436,6 @@ public class IcebergTruncateTest {
 
   @Test
   void testTruncateDecimal64() {
-    try (
-        ColumnVector input = ColumnVector.decimalFromBoxedLongs(
-            -2,
-            null,
-            1234L,
-            1230L,
-            1229L,
-            5L,
-            -5L,
-            null);
-        ColumnVector expected = ColumnVector.decimalFromBoxedLongs(
-            -2,
-            null,
-            1230L,
-            1230L,
-            1220L,
-            0L,
-            -10L,
-            null);
-        ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-      assertColumnsAreEqual(expected, result);
-    }
-
     int width = 10;
     int scale = 2;
     Function<Object, Object> truncFunc = Transforms.truncate(width)
@@ -531,27 +487,6 @@ public class IcebergTruncateTest {
 
   @Test
   void testTruncateDecimal128() {
-    try (
-        ColumnVector input = ColumnVector.decimalFromBigInt(
-            -2,
-            null,
-            new BigInteger("1234"),
-            new BigInteger("1230"),
-            new BigInteger("1229"),
-            new BigInteger("5"),
-            new BigInteger("-5"));
-        ColumnVector expected = ColumnVector.decimalFromBigInt(
-            -2,
-            null,
-            new BigInteger("1230"),
-            new BigInteger("1230"),
-            new BigInteger("1220"),
-            new BigInteger("0"),
-            new BigInteger("-10"));
-        ColumnVector result = IcebergTruncate.truncate(input, 10)) {
-      assertColumnsAreEqual(expected, result);
-    }
-
     int width = 10;
     int scale = 2;
     Function<Object, Object> truncFunc = Transforms.truncate(width)
