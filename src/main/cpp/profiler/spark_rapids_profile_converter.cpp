@@ -120,8 +120,8 @@ Converts the spark-rapids profile in profile.bin into other forms.
   -j, --json                convert to JSON, default output is stdout
   -i, --json-indent=INDENT  indentation to use for JSON. 0 is no indent, less than 0 also removes newlines
   -o, --output=PATH         use PATH as the output filename
-  -t. --nvtxt               convert to NVTXT, default output is stdout
-  -w. --nvtxw               generate nsys-rep using NVTXW API
+  -t, --nvtxt               convert to NVTXT, default output is stdout
+  -w, --nvtxw               generate nsys-rep using NVTXW API
   -v, --verbose             enable verbose logging (progress, saved segments)
   --nvtxw-backend=PATH      use PATH for the NVTXW backend library
   --ignore-truncated        best-effort conversion when profile is truncated
@@ -385,14 +385,13 @@ void print_progress(std::ostream& out, size_t current_bytes, size_t total_bytes,
 {
   if (total_bytes == 0) { return; }
   int percent = static_cast<int>(static_cast<double>(current_bytes) / total_bytes * 100);
-  if (percent == last_percent) { return; }
-  last_percent = percent;
 
   // Print progress log every 10%
-  if (percent > 0 && percent % 10 == 0) {
+  if (percent / 10 > last_percent / 10) {
     out << "Processed " << percent << "% (" << (current_bytes / 1024 / 1024) << "MB / "
         << (total_bytes / 1024 / 1024) << "MB)" << std::endl;
   }
+  last_percent = percent;
 }
 
 void convert_to_nsys_rep(std::ifstream& in,
@@ -833,7 +832,6 @@ int convert_to_nvtxw(std::ifstream& in,
   std::unordered_map<std::string, nvtxwStreamHandle_t> domainToStreamMap;
   size_t num_dropped_records = 0;
   size_t records_in_chunk    = 0;
-  bool chunk_limit_reached   = false;
   truncated                  = false;
   has_more_data              = false;
   uint32_t api_process_id    = 0;
@@ -1184,8 +1182,7 @@ int convert_to_nvtxw(std::ifstream& in,
     in.peek();
     if (in.eof()) { break; }
     if (max_records && records_in_chunk >= *max_records) {
-      chunk_limit_reached = true;
-      has_more_data       = true;
+      has_more_data = true;
       break;
     }
   }
