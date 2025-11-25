@@ -415,44 +415,6 @@ public class IcebergTruncateTest {
     Integer[] inputData = new Integer[numRows];
     BigDecimal[] expectedData = new BigDecimal[numRows];
     Random rand = new Random(seed);
-    for (int i = 0; i < numRows; i++) {
-      // generate random BigInteger within range of precision 9
-      BigInteger val;
-      if (i % 5 == 0) {
-        // 20% nulls
-        val = null;
-        inputData[i] = null;
-      } else {
-        val = randomBigInteger(DType.DECIMAL32_MAX_PRECISION, rand, width);
-        inputData[i] = val.intValue();
-      }
-
-      // run on CPU to get expected value
-      BigDecimal v = val == null ? null : new BigDecimal(val, scale);
-      expectedData[i] = (BigDecimal) truncFunc.apply(v);
-    }
-
-    try (
-        ColumnVector input = ColumnVector.decimalFromBoxedInts(-2, inputData);
-        ColumnVector result = IcebergTruncate.truncate(input, 10);
-        HostColumnVector ret = result.copyToHost()) {
-
-      assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL32);
-      assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL32);
-      compareDecimals(DType.DTypeEnum.DECIMAL32, expectedData, ret, numRows);
-    }
-  }
-
-  @Test
-  void testTruncateDecimal32Promote() {
-    int width = 10;
-    int scale = 2;
-    Function<Object, Object> truncFunc = Transforms.truncate(width)
-        .bind(Types.DecimalType.of(DType.DECIMAL32_MAX_PRECISION, scale));
-    int numRows = 1024;
-    Integer[] inputData = new Integer[numRows];
-    BigDecimal[] expectedData = new BigDecimal[numRows];
-    Random rand = new Random(seed);
 
     // min value for decimal 32 and width = 0
     BigInteger min = minValue(DType.DECIMAL32_MAX_PRECISION, /* width */ 0);
@@ -488,7 +450,6 @@ public class IcebergTruncateTest {
         HostColumnVector ret = result.copyToHost()) {
 
       assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL32);
-      // should promote to decimal64
       assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL64);
       compareDecimals(DType.DTypeEnum.DECIMAL64, expectedData, ret, numRows);
     }
@@ -519,45 +480,6 @@ public class IcebergTruncateTest {
       assertColumnsAreEqual(expected, result);
     }
 
-    int width = 10;
-    int scale = 2;
-    Function<Object, Object> truncFunc = Transforms.truncate(width)
-        .bind(Types.DecimalType.of(DType.DECIMAL64_MAX_PRECISION, scale));
-    int numRows = 1024;
-    Long[] inputData = new Long[numRows];
-    BigDecimal[] expectedData = new BigDecimal[numRows];
-    Random rand = new Random(seed);
-
-    for (int i = 0; i < numRows; i++) {
-      // generate random BigInteger within range of precision 18
-      BigInteger val;
-      if (i % 5 == 0) {
-        // 20% nulls
-        val = null;
-        inputData[i] = null;
-      } else {
-        val = randomBigInteger(DType.DECIMAL64_MAX_PRECISION, rand, width);
-        inputData[i] = val.longValue();
-      }
-
-      // run on CPU to get expected value
-      BigDecimal v = val == null ? null : new BigDecimal(val, scale);
-      expectedData[i] = (BigDecimal) truncFunc.apply(v);
-    }
-
-    try (
-        ColumnVector input = ColumnVector.decimalFromBoxedLongs(-2, inputData);
-        ColumnVector result = IcebergTruncate.truncate(input, 10);
-        HostColumnVector ret = result.copyToHost()) {
-
-      assertTrue(input.getType().getTypeId() == DType.DTypeEnum.DECIMAL64);
-      assertTrue(result.getType().getTypeId() == DType.DTypeEnum.DECIMAL64);
-      compareDecimals(DType.DTypeEnum.DECIMAL64, expectedData, ret, numRows);
-    }
-  }
-
-  @Test
-  void testTruncateDecimal64Promote() {
     int width = 10;
     int scale = 2;
     Function<Object, Object> truncFunc = Transforms.truncate(width)

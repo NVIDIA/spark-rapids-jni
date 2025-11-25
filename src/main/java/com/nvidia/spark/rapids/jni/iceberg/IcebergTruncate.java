@@ -26,7 +26,15 @@ public class IcebergTruncate {
   }
 
   /**
-   * Truncate integer values for Iceberg partitioning.
+   * Truncate int/long/decimal/string/binary types for Iceberg partitioning.
+   *
+   * Note: For decimal types, the result will be promoted:
+   *   decimal32 -> decimal64
+   *   decimal64 -> decimal128
+   * Because the truncation may increase the number of digits for decimal types.
+   * E.g.:
+   *   truncate(decimal(precision=9, scale=2), width=10)
+   * When value is -9,999,999.99, result is -10,000,000.00 which needs precision=11, scale=2
    *
    * For integer types, Iceberg truncation is: value - (value % width)
    * where width is the truncation parameter.
