@@ -32,10 +32,13 @@ public class IcebergTruncate {
    * where width is the truncation parameter.
    *
    * @param input Integer column to truncate
-   * @param width Truncation width
+   * @param width Truncation width, MUST be positive
    * @return Truncated integer column
    */
   public static ColumnVector truncate(ColumnView input, int width) {
+    if (width <= 0) {
+      throw new IllegalArgumentException("Truncation width must be positive");
+    }
     return new ColumnVector(truncate(input.getNativeView(), width));
   }
 
