@@ -323,7 +323,7 @@ public class IcebergTruncateTest {
 
   /**
    * Get the min value for specified precision and width.
-   * NOTE: this mothod guarantee the result after truncating will not overflow.
+   * NOTE: this method guarantee the result after truncating will not overflow.
    */
   private static BigInteger minValue(int precision, int width) {
     StringBuilder sb = new StringBuilder("-");
@@ -335,7 +335,7 @@ public class IcebergTruncateTest {
 
   /**
    * Generate a random BigInteger with specified length and width.
-   * NOTE: this mothod guarantee the result after truncating will not overflow.
+   * NOTE: this method guarantee the result after truncating will not overflow.
    */
   private static BigInteger randomBigInteger(int length, Random random, int width) {
     boolean negative = random.nextBoolean();
