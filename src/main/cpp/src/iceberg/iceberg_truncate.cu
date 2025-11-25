@@ -43,20 +43,6 @@ namespace {
 /**
  * @brief Truncate towards negative infinity direction for types: int32, int64 or int128
  *
- * Note: the OUT_TYPE is used to avoid overflow during calculation for decimal types.
- * For integer types, IN_TYPE and OUT_TYPE are the same.
- * For decimal types, IN_TYPE is the underlying integral type(int32, int64 or int128),
- * and OUT_TYPE is the promoted integral type to avoid overflow during calculation.
- *
- * E.g.:
- * `truncateInt(width 10, Integer.MIN_VALUE)` will overflow, it's the same as Iceberg does.
- * `truncateDecimal(width 10, Decimal32(-999'999'999))` should not overflow, and result in
- * Decimal64(-1'000'000'0000), in this case, IN_TYPE is int32, OUT_TYPE is int64.
- *
- * For positive values, Iceberg truncation is: value - (value % width)
- * For negative values, this uses a floored modulo approach:
- * value - (((value % width) + width) % width)
- *
  * Example, width = 10:
  * - truncate(10, 5) = 0
  * - truncate(10, 15) = 10
@@ -263,9 +249,8 @@ std::unique_ptr<cudf::column> truncate_decimal_impl(cudf::column_view const& inp
       return output;
     } else {
       // promote DECIMAL32 to DECIMAL64 to avoid overflow
-      auto promote_type   = cudf::data_type{cudf::type_id::DECIMAL64, input.type().scale()};
-      auto promoted_input = cudf::cast(input, promote_type, stream, mr);
-
+      auto promote_type     = cudf::data_type{cudf::type_id::DECIMAL64, input.type().scale()};
+      auto promoted_input   = cudf::cast(input, promote_type, stream, mr);
       auto output           = cudf::make_fixed_width_column(promote_type,
                                                   num_rows,
                                                   cudf::detail::copy_bitmask(input, stream, mr),
@@ -289,15 +274,14 @@ std::unique_ptr<cudf::column> truncate_decimal_impl(cudf::column_view const& inp
       return output;
     } else {
       // promote DECIMAL64 to DECIMAL128 to avoid overflow
-      auto promote_type   = cudf::data_type{cudf::type_id::DECIMAL128, input.type().scale()};
-      auto promoted_input = cudf::cast(input, promote_type, stream, mr);
-      auto output         = cudf::make_fixed_width_column(promote_type,
+      auto promote_type     = cudf::data_type{cudf::type_id::DECIMAL128, input.type().scale()};
+      auto promoted_input   = cudf::cast(input, promote_type, stream, mr);
+      auto output           = cudf::make_fixed_width_column(promote_type,
                                                   num_rows,
                                                   cudf::detail::copy_bitmask(input, stream, mr),
                                                   input.null_count(),
                                                   stream,
                                                   mr);
-
       auto d_promoted_input = cudf::column_device_view::create(*promoted_input, stream);
       truncate_integral_and_fill<__int128_t>(output, *d_promoted_input, width, stream);
       return output;
