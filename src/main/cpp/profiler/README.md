@@ -71,10 +71,11 @@ The output will look similar to this:
 
 If the profile file is truncated (e.g. incomplete download or crash), you can use `--ignore-truncated` to convert as much data as possible.
 
-If the input is a truncated zstd file, first uncompress it with max effort:
+If the input is a truncated zstd file, first uncompress it with max effort. Because `zstd`
+returns a non-zero status when it encounters truncation, briefly disable `set -e` (or append
+`|| true`) so the partial output is still written:
 ```bash
-set +e
-zstd -dc broken.bin.zstd > salvaged.bin
+zstd -dc broken.bin.zstd > salvaged.bin || true
 ```
 Then process `salvaged.bin` with the converter.
 

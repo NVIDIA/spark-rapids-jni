@@ -847,10 +847,13 @@ int convert_to_nvtxw(std::ifstream& in,
     try {
       fb_ptr = read_flatbuffer(in);
     } catch (std::runtime_error const& e) {
-      if (opts.ignore_truncated && std::string_view(e.what()) == "Unexpected EOF") {
-        truncated = true;
-        in.clear();
-        break;
+      if (opts.ignore_truncated) {
+        std::string_view err_msg(e.what());
+        if (err_msg.find("Unexpected EOF") != std::string_view::npos) {
+          truncated = true;
+          in.clear();
+          break;
+        }
       }
       throw;
     }
