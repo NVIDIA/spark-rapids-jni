@@ -69,10 +69,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "5e42b11c3339471c0fcb6ac69c8c53b6c933ac4d",
+      "git_tag" : "9a1f89912d8530c8826438f5a4f0ae9ae8844f93",
       "git_url" : "https://github.com/rapidsai/kvikio.git",
       "source_subdir" : "cpp",
-      "version" : "25.12"
+      "version" : "26.02"
     },
     "nanoarrow" : 
     {
@@ -80,7 +80,7 @@
       "git_shallow" : false,
       "git_tag" : "4bf5a9322626e95e3717e43de7616c0a256179eb",
       "git_url" : "https://github.com/apache/arrow-nanoarrow.git",
-      "version" : "0.7.0.dev"
+      "version" : "0.7.0"
     },
     "nvcomp" : 
     {
@@ -122,10 +122,10 @@
     {
       "always_download" : true,
       "git_shallow" : false,
-      "git_tag" : "7df294126a97d704ef98124bf618f5d3109bb878",
+      "git_tag" : "c2a1301e23923f57916e636173726a4eab2a5bff",
       "git_url" : "https://github.com/rapidsai/rmm.git",
       "source_subdir" : "cpp",
-      "version" : "25.12"
+      "version" : "26.02"
     },
     "roaring" : 
     {
