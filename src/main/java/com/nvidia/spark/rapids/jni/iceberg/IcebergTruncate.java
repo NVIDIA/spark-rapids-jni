@@ -28,25 +28,19 @@ public class IcebergTruncate {
   /**
    * Truncate int/long/decimal/string/binary types for Iceberg partitioning.
    *
-   * Note: For decimal types, the result will be promoted:
-   *   decimal32 -> decimal64
-   *   decimal64 -> decimal128
-   * Because the truncation may increase the number of digits for decimal types.
-   * E.g.:
-   *   truncate(decimal(precision=9, scale=2), width=10)
-   * When value is -9,999,999.99, result is -10,000,000.00 which needs precision=11, scale=2
+   * For integer types, result is: value - (value % width)
+   * For decimal types, result is: value - (value % width) on the underlying integer
+   * For String(UTF8 encoding) type, 
+   *   result is retaining only the first 'width' number of characters,
+   *   note that this counts characters, not bytes.
+   *   UTF8 characters have 1-4 bytes.
+   * For Binary type, result is retaining only the first 'width' number of bytes.
    *
-   * For integer types, Iceberg truncation is: value - (value % width)
-   * where width is the truncation parameter.
-   *
-   * @param input Integer column to truncate
-   * @param width Truncation width, MUST be positive
-   * @return Truncated integer column
+   * @param input int/long/decimal/string/binary column to truncate
+   * @param width Truncation width
+   * @return Truncated column
    */
   public static ColumnVector truncate(ColumnView input, int width) {
-    if (width <= 0) {
-      throw new IllegalArgumentException("Truncation width must be positive");
-    }
     return new ColumnVector(truncate(input.getNativeView(), width));
   }
 
