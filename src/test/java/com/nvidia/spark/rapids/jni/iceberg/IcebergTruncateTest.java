@@ -168,8 +168,7 @@ public class IcebergTruncateTest {
     try (
         ColumnVector input = ColumnVector.fromBoxedLongs(inputData);
         ColumnVector expected = ColumnVector.fromBoxedLongs(expectedData);
-        ColumnVector result = IcebergTruncate.truncate(input, width);
-        ColumnVector resultNegativeWidth = IcebergTruncate.truncate(input, -width)) {
+        ColumnVector result = IcebergTruncate.truncate(input, width)) {
       assertColumnsAreEqual(expected, result);
     }
   }
