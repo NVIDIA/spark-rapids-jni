@@ -26,14 +26,19 @@ public class IcebergTruncate {
   }
 
   /**
-   * Truncate integer values for Iceberg partitioning.
+   * Truncate int/long/decimal/string/binary types for Iceberg partitioning.
    *
-   * For integer types, Iceberg truncation is: value - (value % width)
-   * where width is the truncation parameter.
+   * For integer types, result is: value - (value % width)
+   * For decimal types, result is: value - (value % width) on the underlying integer
+   * For String(UTF8 encoding) type, 
+   *   result is retaining only the first 'width' number of characters,
+   *   note that this counts characters, not bytes.
+   *   UTF8 characters have 1-4 bytes.
+   * For Binary type, result is retaining only the first 'width' number of bytes.
    *
-   * @param input Integer column to truncate
+   * @param input int/long/decimal/string/binary column to truncate
    * @param width Truncation width
-   * @return Truncated integer column
+   * @return Truncated column
    */
   public static ColumnVector truncate(ColumnView input, int width) {
     return new ColumnVector(truncate(input.getNativeView(), width));
