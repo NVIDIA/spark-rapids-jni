@@ -436,7 +436,9 @@ public class CastStringsTest {
     data.add(new HostColumnVector.StructData("CTT", 0, false));
     data.add(new HostColumnVector.StructData("JST", 1, false));
     data.add(new HostColumnVector.StructData("PST", 2, true));
-    return HostColumnVector.fromStructs(type, data).copyToDevice();
+    try(HostColumnVector hcv = HostColumnVector.fromStructs(type, data)) {
+      return hcv.copyToDevice();
+    }
   }
 
   private static final Version SPARK_320_VERSION =

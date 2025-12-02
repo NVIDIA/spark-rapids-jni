@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -113,16 +113,21 @@ public class BloomFilterTest {
       BloomFilter.put(bloomFilterA, colA);
       BloomFilter.put(bloomFilterB, colB);
       BloomFilter.put(bloomFilterC, colC);
-      
-      ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
-                                                       ColumnVector.fromScalar(bloomFilterB, 1),
-                                                       ColumnVector.fromScalar(bloomFilterC, 1));
 
-      try(ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
-          ColumnVector expected = ColumnVector.fromBooleans(true, true, true, false, false, true, false, false, true, true, true, true);
-          Scalar merged = BloomFilter.merge(premerge);
-          ColumnVector result = BloomFilter.probe(merged, probe)){
-          AssertUtils.assertColumnsAreEqual(expected, result);
+      try (ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
+           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
+           ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1)) {
+
+        try (ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC)) {
+          try (ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99,
+                  65535, 0, -100, -200, -300, -400);
+               ColumnVector expected = ColumnVector.fromBooleans(true, true, true,
+                  false, false, true, false, false, true, true, true, true);
+              Scalar merged = BloomFilter.merge(premerge);
+              ColumnVector result = BloomFilter.probe(merged, probe)) {
+            AssertUtils.assertColumnsAreEqual(expected, result);
+          }
+        }
       }
     }
   }
@@ -137,9 +142,8 @@ public class BloomFilterTest {
 
       BloomFilter.put(bloomFilter, colA);
 
-      ColumnVector premerge = ColumnVector.fromScalar(bloomFilter, 1);
-
-      try(ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
+      try(ColumnVector premerge = ColumnVector.fromScalar(bloomFilter, 1);
+          ColumnVector probe = ColumnVector.fromLongs(-9, 200, 300, 6000, -2546, 99, 65535, 0, -100, -200, -300, -400);
           ColumnVector expected = ColumnVector.fromBooleans(true, false, false, false, false, true, false, false, false, false, false, false);
           Scalar merged = BloomFilter.merge(premerge);
           ColumnVector result = BloomFilter.probe(merged, probe)){
@@ -165,9 +169,10 @@ public class BloomFilterTest {
       try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
            Scalar bloomFilterB = BloomFilter.create(4, 1024);
            Scalar bloomFilterC = BloomFilter.create(4, 1024);
-           ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
-                                                            ColumnVector.fromScalar(bloomFilterB, 1),
-                                                            ColumnVector.fromScalar(bloomFilterC, 1));
+           ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
+           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
+           ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
+           ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC);
            Scalar merged = BloomFilter.merge(premerge)){}
     });
 
@@ -176,9 +181,10 @@ public class BloomFilterTest {
       try (Scalar bloomFilterA = BloomFilter.create(3, 1024);
            Scalar bloomFilterB = BloomFilter.create(3, 1024);
            Scalar bloomFilterC = BloomFilter.create(3, 2048);
-           ColumnVector premerge = ColumnVector.concatenate(ColumnVector.fromScalar(bloomFilterA, 1),
-                                                            ColumnVector.fromScalar(bloomFilterB, 1),
-                                                            ColumnVector.fromScalar(bloomFilterC, 1));
+           ColumnVector bloomA = ColumnVector.fromScalar(bloomFilterA, 1);
+           ColumnVector bloomB = ColumnVector.fromScalar(bloomFilterB, 1);
+           ColumnVector bloomC = ColumnVector.fromScalar(bloomFilterC, 1);
+           ColumnVector premerge = ColumnVector.concatenate(bloomA, bloomB, bloomC);
            Scalar merged = BloomFilter.merge(premerge)){}
     });
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,23 +53,25 @@ public class GpuSubstringIndexUtilsTest {
             tb2.column("大千世界大千世界");
             tb2.column("www||apache||org");
 
-            Scalar dotScalar = Scalar.fromString(".");
-            Scalar cnChar = Scalar.fromString("千");
-            Scalar verticalBar = Scalar.fromString("||");
-            Scalar[] delimiterArray = new Scalar[]{dotScalar, dotScalar, dotScalar, dotScalar,dotScalar, dotScalar, dotScalar, dotScalar, cnChar, verticalBar};
-            int[] countArray = new int[]{3, 2, 1, 0, -1, -2, -3, -2, 2, 2};
-            List<ColumnVector> result = new ArrayList<>();
-            try (Table origTable = tb2.build()){
-                for(int i = 0; i < origTable.getNumberOfColumns(); i++){
-                    ColumnVector string_col = origTable.getColumn(i);
-                    result.add(GpuSubstringIndexUtils.substringIndex(string_col, delimiterArray[i], countArray[i]));
+            try (Scalar dotScalar = Scalar.fromString(".");
+                 Scalar cnChar = Scalar.fromString("千");
+                 Scalar verticalBar = Scalar.fromString("||")) {
+                Scalar[] delimiterArray = new Scalar[] { dotScalar, dotScalar, dotScalar, dotScalar, dotScalar,
+                        dotScalar, dotScalar, dotScalar, cnChar, verticalBar };
+                int[] countArray = new int[] { 3, 2, 1, 0, -1, -2, -3, -2, 2, 2 };
+                List<ColumnVector> result = new ArrayList<>();
+                try (Table origTable = tb2.build()) {
+                    for (int i = 0; i < origTable.getNumberOfColumns(); i++) {
+                        ColumnVector string_col = origTable.getColumn(i);
+                        result.add(GpuSubstringIndexUtils.substringIndex(string_col, delimiterArray[i], countArray[i]));
+                    }
+                    try (Table result_tbl = new Table(
+                            result.toArray(new ColumnVector[result.size()]))) {
+                        AssertUtils.assertTablesAreEqual(expected, result_tbl);
+                    }
+                } finally {
+                    result.forEach(ColumnVector::close);
                 }
-                try (Table result_tbl = new Table(
-                        result.toArray(new ColumnVector[result.size()]))){
-                    AssertUtils.assertTablesAreEqual(expected, result_tbl);
-                }
-            }finally {
-                result.forEach(ColumnVector::close);
             }
         }
     }
