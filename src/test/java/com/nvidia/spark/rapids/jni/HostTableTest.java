@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2024, NVIDIA CORPORATION.
+ *  Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -33,8 +33,9 @@ public class HostTableTest {
   public void testRoundTripSync() {
     try (Table expected = buildTable()) {
       try (HostTable ht = HostTable.fromTable(expected, Cuda.DEFAULT_STREAM)) {
-        Table actual = ht.toTable(Cuda.DEFAULT_STREAM);
-        AssertUtils.assertTablesAreEqual(expected, actual);
+        try (Table actual = ht.toTable(Cuda.DEFAULT_STREAM)) {
+          AssertUtils.assertTablesAreEqual(expected, actual);
+        }
       }
     }
   }
@@ -43,8 +44,9 @@ public class HostTableTest {
   public void testRoundTripSyncDefault() {
     try (Table expected = buildTable()) {
       try (HostTable ht = HostTable.fromTable(expected)) {
-        Table actual = ht.toTable();
-        AssertUtils.assertTablesAreEqual(expected, actual);
+        try (Table actual = ht.toTable()) {
+          AssertUtils.assertTablesAreEqual(expected, actual);
+        }
       }
     }
   }
@@ -62,8 +64,9 @@ public class HostTableTest {
   private void testRoundTripAsync(Table expected) {
     try (Table t = expected) {
       try (HostTable ht = HostTable.fromTableAsync(t, Cuda.DEFAULT_STREAM)) {
-        Table actual = ht.toTableAsync(Cuda.DEFAULT_STREAM);
-        AssertUtils.assertTablesAreEqual(expected, actual);
+        try (Table actual = ht.toTableAsync(Cuda.DEFAULT_STREAM)) {
+          AssertUtils.assertTablesAreEqual(expected, actual);
+        }
       }
     }
   }
