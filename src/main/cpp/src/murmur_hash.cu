@@ -65,27 +65,6 @@ class murmur_device_row_hasher {
   friend class cudf::detail::row::hash::row_hasher;  ///< Allow row_hasher to access private
                                                      ///< members.
 
- public:
-  /**
-   * @brief Return the hash value of a row in the given table.
-   *
-   * @param row_index The row index to compute the hash value of
-   * @return The hash value of the row
-   */
-  __device__ auto operator()(cudf::size_type row_index) const noexcept
-  {
-    return cudf::detail::accumulate(
-      _table.begin(),
-      _table.end(),
-      _seed,
-      cuda::proclaim_return_type<murmur_hash_value_type>(
-        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
-          return cudf::type_dispatcher(
-            column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
-        }));
-  }
-
- private:
   /**
    * @brief Computes the hash value of an element in the given column.
    *
@@ -99,12 +78,13 @@ class murmur_device_row_hasher {
   template <template <typename> class hash_fn>
   class element_hasher_adapter {
    public:
-    __device__ element_hasher_adapter(Nullate check_nulls, uint32_t seed) noexcept
+    using hash_functor = cudf::detail::row::hash::element_hasher<hash_fn, Nullate>;
+    using result_type  = typename hash_functor::result_type;
+
+    __device__ element_hasher_adapter(Nullate check_nulls, result_type seed) noexcept
       : _check_nulls(check_nulls), _seed(seed)
     {
     }
-
-    using hash_functor = cudf::detail::row::hash::element_hasher<hash_fn, Nullate>;
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ murmur_hash_value_type operator()(cudf::column_device_view const& col,
@@ -142,9 +122,32 @@ class murmur_device_row_hasher {
     }
 
     Nullate const _check_nulls;  ///< Whether to check for nulls
-    uint32_t const _seed;        ///< The seed to use for hashing, also returned for null elements
+    result_type const _seed;     ///< The seed to use for hashing, also returned for null elements
   };
 
+  using result_type = typename element_hasher_adapter<hash_function>::result_type;
+
+ public:
+  /**
+   * @brief Return the hash value of a row in the given table.
+   *
+   * @param row_index The row index to compute the hash value of
+   * @return The hash value of the row
+   */
+  __device__ auto operator()(cudf::size_type row_index) const noexcept
+  {
+    return cudf::detail::accumulate(
+      _table.begin(),
+      _table.end(),
+      _seed,
+      cuda::proclaim_return_type<murmur_hash_value_type>(
+        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
+          return cudf::type_dispatcher(
+            column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
+        }));
+  }
+
+ private:
   CUDF_HOST_DEVICE murmur_device_row_hasher(Nullate check_nulls,
                                             cudf::table_device_view t,
                                             uint32_t seed = cudf::DEFAULT_HASH_SEED) noexcept
@@ -157,7 +160,7 @@ class murmur_device_row_hasher {
 
   Nullate const _check_nulls;
   cudf::table_device_view const _table;
-  uint32_t const _seed;
+  result_type const _seed;
 };
 
 void check_hash_compatibility(cudf::table_view const& input)
