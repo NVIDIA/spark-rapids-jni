@@ -99,12 +99,13 @@ class murmur_device_row_hasher {
   template <template <typename> class hash_fn>
   class element_hasher_adapter {
    public:
-    __device__ element_hasher_adapter(Nullate check_nulls, uint32_t seed) noexcept
+    using hash_functor = cudf::detail::row::hash::element_hasher<hash_fn, Nullate>;
+    using result_type  = typename hash_functor::result_type;
+
+    __device__ element_hasher_adapter(Nullate check_nulls, result_type seed) noexcept
       : _check_nulls(check_nulls), _seed(seed)
     {
     }
-
-    using hash_functor = cudf::detail::row::hash::element_hasher<hash_fn, Nullate>;
 
     template <typename T, CUDF_ENABLE_IF(not cudf::is_nested<T>())>
     __device__ murmur_hash_value_type operator()(cudf::column_device_view const& col,
@@ -142,12 +143,14 @@ class murmur_device_row_hasher {
     }
 
     Nullate const _check_nulls;  ///< Whether to check for nulls
-    uint32_t const _seed;        ///< The seed to use for hashing, also returned for null elements
+    result_type const _seed;     ///< The seed to use for hashing, also returned for null elements
   };
+
+  using result_type = typename element_hasher_adapter<hash_function>::result_type;
 
   CUDF_HOST_DEVICE murmur_device_row_hasher(Nullate check_nulls,
                                             cudf::table_device_view t,
-                                            uint32_t seed = cudf::DEFAULT_HASH_SEED) noexcept
+                                            result_type seed = cudf::DEFAULT_HASH_SEED) noexcept
     : _check_nulls{check_nulls}, _table{t}, _seed(seed)
   {
     // Error out if passed an unsupported hash_function
@@ -157,7 +160,7 @@ class murmur_device_row_hasher {
 
   Nullate const _check_nulls;
   cudf::table_device_view const _table;
-  uint32_t const _seed;
+  result_type const _seed;
 };
 
 void check_hash_compatibility(cudf::table_view const& input)
