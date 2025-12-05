@@ -65,6 +65,27 @@ class murmur_device_row_hasher {
   friend class cudf::detail::row::hash::row_hasher;  ///< Allow row_hasher to access private
                                                      ///< members.
 
+ public:
+  /**
+   * @brief Return the hash value of a row in the given table.
+   *
+   * @param row_index The row index to compute the hash value of
+   * @return The hash value of the row
+   */
+  __device__ auto operator()(cudf::size_type row_index) const noexcept
+  {
+    return cudf::detail::accumulate(
+      _table.begin(),
+      _table.end(),
+      _seed,
+      cuda::proclaim_return_type<murmur_hash_value_type>(
+        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
+          return cudf::type_dispatcher(
+            column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
+        }));
+  }
+
+ private:
   /**
    * @brief Computes the hash value of an element in the given column.
    *
@@ -127,30 +148,9 @@ class murmur_device_row_hasher {
 
   using result_type = typename element_hasher_adapter<hash_function>::result_type;
 
- public:
-  /**
-   * @brief Return the hash value of a row in the given table.
-   *
-   * @param row_index The row index to compute the hash value of
-   * @return The hash value of the row
-   */
-  __device__ auto operator()(cudf::size_type row_index) const noexcept
-  {
-    return cudf::detail::accumulate(
-      _table.begin(),
-      _table.end(),
-      _seed,
-      cuda::proclaim_return_type<murmur_hash_value_type>(
-        [row_index, nulls = this->_check_nulls] __device__(auto hash, auto column) {
-          return cudf::type_dispatcher(
-            column.type(), element_hasher_adapter<hash_function>{nulls, hash}, column, row_index);
-        }));
-  }
-
- private:
   CUDF_HOST_DEVICE murmur_device_row_hasher(Nullate check_nulls,
                                             cudf::table_device_view t,
-                                            uint32_t seed = cudf::DEFAULT_HASH_SEED) noexcept
+                                            result_type seed = cudf::DEFAULT_HASH_SEED) noexcept
     : _check_nulls{check_nulls}, _table{t}, _seed(seed)
   {
     // Error out if passed an unsupported hash_function
