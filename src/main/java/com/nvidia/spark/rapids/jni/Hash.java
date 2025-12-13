@@ -102,6 +102,10 @@ public class Hash {
     return new ColumnVector(hiveHash(columnViews));
   }
 
+  public static ColumnVector sha224NullsPreserved(ColumnView column) {
+    return new ColumnVector(sha224NullsPreserved(column.getNativeView()));
+  }
+
   private static native int getMaxStackDepth();
 
   private static native long murmurHash32(int seed, long[] viewHandles) throws CudfException;
@@ -109,4 +113,6 @@ public class Hash {
   private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
 
   private static native long hiveHash(long[] viewHandles) throws CudfException;
+
+  private static native long sha224NullsPreserved(long columnHandle) throws CudfException;
 }

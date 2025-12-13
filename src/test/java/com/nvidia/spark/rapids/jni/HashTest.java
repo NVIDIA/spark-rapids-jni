@@ -874,4 +874,20 @@ public class HashTest {
       assertThrows(CudfException.class, () -> Hash.hiveHash(new ColumnView[]{nestedResult}));
     }
   }
+
+  @Test
+  void testSha224NullsPreserved() {
+    try (ColumnVector strings = ColumnVector.fromStrings(
+      "",
+          "0",
+          "A 56 character string to test message padding algorithm.",
+          "A 63 character string to test message padding algorithm, again.",
+          "A 64 character string to test message padding algorithm, again!!",
+          "A very long (greater than 128 bytes/char string) to execute a multi hash-step data point in " +
+          "the hash function being tested. This string needed to be longer.",
+          "All work and no play makes Jack a dull boy");
+         ColumnVector result = Hash.sha224NullsPreserved(strings);
+         ColumnVector expected = ColumnVector.fromStrings(97, 2056, 745239896, 2112075710, 0, 0)) {
+    }
+  }
 }
