@@ -52,7 +52,7 @@ public class RmmSpark {
    * the future it is likely to change.
    */
   public static void setEventHandler(RmmEventHandler handler) throws RmmException {
-    setEventHandler(handler, null);
+    setEventHandler(handler, null, false);
   }
 
   /**
@@ -65,6 +65,22 @@ public class RmmSpark {
    *                    is treated as a file.
    */
   public static void setEventHandler(RmmEventHandler handler, String logLocation) throws RmmException {
+    setEventHandler(handler, logLocation, false);
+  }
+
+  /**
+   * Set the event handler in a way that Spark wants it. For now this is the same as RMM, but in
+   * the future it is likely to change.
+   * @param handler the handler to set
+   * @param logLocation the location where you want spark state transitions. Alloc and free logging
+   *                    is handled separately when setting up RMM. "stderr" or "stdout" are treated
+   *                    as `std::cerr` and `std::cout` respectively in native code. Anything else
+   *                    is treated as a file.
+   * @param enableDebug if true, enable debug callbacks (onAllocated, onDeallocated) in the handler.
+   *                    Note: enabling debug mode may impact performance.
+   */
+  public static void setEventHandler(RmmEventHandler handler, String logLocation,
+      boolean enableDebug) throws RmmException {
     // synchronize with RMM not RmmSpark to stay in sync with Rmm itself.
     Rmm.writeLock.lock();
     try {
@@ -83,7 +99,7 @@ public class RmmSpark {
         throw new RuntimeException("A tracker must be set for the event handler to work");
       }
       RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> eventHandler =
-          new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, false);
+          new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, enableDebug);
       SparkResourceAdaptor.initializeLogger(logLocation);
       sra = new SparkResourceAdaptor(eventHandler);
       boolean success = false;
