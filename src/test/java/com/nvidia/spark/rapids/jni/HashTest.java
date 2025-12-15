@@ -878,16 +878,38 @@ public class HashTest {
   @Test
   void testSha224NullsPreserved() {
     try (ColumnVector strings = ColumnVector.fromStrings(
-      "",
+          null,
+          "",
           "0",
           "A 56 character string to test message padding algorithm.",
           "A 63 character string to test message padding algorithm, again.",
           "A 64 character string to test message padding algorithm, again!!",
           "A very long (greater than 128 bytes/char string) to execute a multi hash-step data point in " +
           "the hash function being tested. This string needed to be longer.",
-          "All work and no play makes Jack a dull boy");
+          "All work and no play makes Jack a dull boy",
+          "",
+          "Multi-byte characters: é¼³⅝",
+          "(!\"#$%&'()*+,-./0123456789:;<=>?@[\\]^_`{|}~)"
+         );
          ColumnVector result = Hash.sha224NullsPreserved(strings);
-         ColumnVector expected = ColumnVector.fromStrings(97, 2056, 745239896, 2112075710, 0, 0)) {
+         ColumnVector expected = ColumnVector.fromStrings(
+          null,
+          "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f",
+          "dfd5f9139a820075df69d7895015360b76d0360f3d4b77a845689614",
+          "5d1ed8373987e403482cefe1662a63fa3076c0a5331d141f41654bbe",
+          "0662c91000b99de7a20c89097dd62f59120398d52499497489ccff95",
+          "f9ea303770699483f3e53263b32a3b3c876d1b8808ce84df4b8ca1c4",
+          "2da6cd4bdaa0a99fd7236cd5507c52e12328e71192e83b32d2f110f9",
+          "e7d0adb165079efc6c6343112f8b154aa3644ca6326f658aaa0f8e4a",
+          "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f",
+          "6c728722ae8eafd058672bd92958199ff3a5a129e8c076752f7650f8",
+          "c8d920ee451f1bdf35deb72dae3adbc3d72a848697d164857b928c57"
+        )) {
+      // Outputs can be verified on the shell with:
+      // ```bash
+      // echo -n "input string" | sha224sum
+      // ```
+      assertColumnsAreEqual(expected, result);
     }
   }
 }
