@@ -875,23 +875,25 @@ public class HashTest {
     }
   }
 
+  private static final String[] sha2TestInputStrings = {
+    null,
+    "",
+    "0",
+    "A 56 character string to test message padding algorithm.",
+    "A 63 character string to test message padding algorithm, again.",
+    "A 64 character string to test message padding algorithm, again!!",
+    "A very long (greater than 128 bytes/char string) to execute a multi hash-step data point in " +
+    "the hash function being tested. This string needed to be longer.",
+    "All work and no play makes Jack a dull boy",
+    "",
+    "Multi-byte characters: é¼³⅝",
+    "(!\"#$%&'()*+,-./0123456789:;<=>?@[\\]^_`{|}~)" // All the special characters.
+  };
+
   @Test
   void testSha224NullsPreserved() {
-    try (ColumnVector strings = ColumnVector.fromStrings(
-          null,
-          "",
-          "0",
-          "A 56 character string to test message padding algorithm.",
-          "A 63 character string to test message padding algorithm, again.",
-          "A 64 character string to test message padding algorithm, again!!",
-          "A very long (greater than 128 bytes/char string) to execute a multi hash-step data point in " +
-          "the hash function being tested. This string needed to be longer.",
-          "All work and no play makes Jack a dull boy",
-          "",
-          "Multi-byte characters: é¼³⅝",
-          "(!\"#$%&'()*+,-./0123456789:;<=>?@[\\]^_`{|}~)"
-         );
-         ColumnVector result = Hash.sha224NullsPreserved(strings);
+    try (ColumnVector inputStrings = ColumnVector.fromStrings(sha2TestInputStrings);
+         ColumnVector result = Hash.sha224NullsPreserved(inputStrings);
          ColumnVector expected = ColumnVector.fromStrings(
           null,
           "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f",
