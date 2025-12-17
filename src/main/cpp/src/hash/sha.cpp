@@ -20,24 +20,63 @@
 #include <cudf/copying.hpp>
 #include <cudf/hashing.hpp>
 
-namespace spark_rapids_jni { // TODO: Add namespace hash.
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/resource_ref.hpp>
 
-// TODO: Generalize.
-std::unique_ptr<cudf::column> sha224_nulls_preserved(cudf::column_view const& input,
-                                                     rmm::cuda_stream_view stream,
-                                                     rmm::device_async_resource_ref mr) {
-  if (input.is_empty()) {
-    return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING});
-  }
+namespace {
+using HashFunction = std::unique_ptr<cudf::column> (*)(cudf::table_view const&,
+                                                       rmm::cuda_stream_view,
+                                                       rmm::device_async_resource_ref);
+
+std::unique_ptr<cudf::column> sha_impl(HashFunction hash_function,
+                                       cudf::column_view const& input,
+                                       rmm::cuda_stream_view stream,
+                                       rmm::device_async_resource_ref mr)
+{
+  if (input.is_empty()) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   if (input.has_nulls()) {
-    auto hash_from_cudf = cudf::hashing::sha224(cudf::table_view{{input}}, stream); // TODO: std::forward.
+    auto hash_from_cudf =
+      hash_function(cudf::table_view{{input}}, stream, cudf::get_current_device_resource_ref());
     hash_from_cudf->set_null_mask(cudf::copy_bitmask(input, stream), input.null_count());
     return cudf::purge_nonempty_nulls(*hash_from_cudf, stream, mr);
-  }
-  else {
-    return cudf::hashing::sha224(cudf::table_view{{input}}, stream, mr);
+  } else {
+    return hash_function(cudf::table_view{{input}}, stream, mr);
   }
 }
-  
-}  // namespace spark_rapids_jni;
+}  // namespace
+
+namespace spark_rapids_jni {
+
+// TODO: Add namespace hash.
+// TODO: Move other hash functions to this namespace.
+// TODO: Move sha1 to this namespace.
+
+std::unique_ptr<cudf::column> sha224_nulls_preserved(cudf::column_view const& input,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
+{
+  return sha_impl(cudf::hashing::sha224, input, stream, mr);
+}
+
+std::unique_ptr<cudf::column> sha256_nulls_preserved(cudf::column_view const& input,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
+{
+  return sha_impl(cudf::hashing::sha256, input, stream, mr);
+}
+
+std::unique_ptr<cudf::column> sha384_nulls_preserved(cudf::column_view const& input,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
+{
+  return sha_impl(cudf::hashing::sha384, input, stream, mr);
+}
+
+std::unique_ptr<cudf::column> sha512_nulls_preserved(cudf::column_view const& input,
+                                                     rmm::cuda_stream_view stream,
+                                                     rmm::device_async_resource_ref mr)
+{
+  return sha_impl(cudf::hashing::sha512, input, stream, mr);
+}
+}  // namespace spark_rapids_jni

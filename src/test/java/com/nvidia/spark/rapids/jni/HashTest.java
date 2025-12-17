@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.function.Function;
 
 import static ai.rapids.cudf.AssertUtils.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -918,13 +919,12 @@ public class HashTest {
     return outputStrings;
   }
 
-  @Test
-  void testSha224NullsPreserved() {
+  private void testSha2Impl(Function<ColumnView, ColumnVector> hashFunction, String algo) {
     try (ColumnVector inputStrings = ColumnVector.fromStrings(sha2TestInputStrings);
-         ColumnVector result = Hash.sha224NullsPreserved(inputStrings);
+         ColumnVector result = hashFunction.apply(inputStrings);
          ColumnVector expectedOnCpu = 
-           ColumnVector.fromStrings(computeSha2OnCpu(sha2TestInputStrings, "SHA-224"))) {
-      // Outputs can be verified on the shell with:
+           ColumnVector.fromStrings(computeSha2OnCpu(sha2TestInputStrings, algo))) {
+      // Outputs can be verified on the shell with `sha224sum` or equivalent:
       // ```bash
       // echo -n "input string" | sha224sum
       // ```
@@ -933,5 +933,25 @@ public class HashTest {
     catch (NoSuchAlgorithmException e) {
       org.junit.jupiter.api.Assertions.fail("Unexpected failure: " + e.getMessage());
     }
+  }
+
+  @Test
+  void testSha224NullsPreserved() {
+    testSha2Impl(Hash::sha224NullsPreserved, "SHA-224");
+  }
+
+  @Test
+  void testSha256NullsPreserved() {
+    testSha2Impl(Hash::sha256NullsPreserved, "SHA-256");
+  }
+  
+  @Test
+  void testSha384NullsPreserved() {
+    testSha2Impl(Hash::sha384NullsPreserved, "SHA-384");
+  }
+
+  @Test
+  void testSha512NullsPreserved() {
+    testSha2Impl(Hash::sha512NullsPreserved, "SHA-512");
   }
 }
