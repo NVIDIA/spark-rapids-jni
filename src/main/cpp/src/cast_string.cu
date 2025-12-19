@@ -29,6 +29,7 @@
 #include <cooperative_groups.h>
 #include <cub/warp/warp_reduce.cuh>
 #include <cuda/std/optional>
+#include <thrust/pair.h>
 
 using namespace cudf;
 
