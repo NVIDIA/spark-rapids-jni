@@ -163,16 +163,16 @@ std::unique_ptr<column> indices_of(
   // This tells us how many values we need to compare against for each key
   auto search_key_to_num_search_values = thrust::make_transform_iterator(
     thrust::make_counting_iterator(0),
-    [values_sizes = values_sizes->view().begin<size_type>(),
-     keys_labels  = keys_labels->view().begin<size_type>(),
-     values_nulls = values_nulls->view().begin<bool>(),
-     num_keys] __device__(auto const idx) {
+    cuda::proclaim_return_type<size_type>([values_sizes = values_sizes->view().begin<size_type>(),
+                                           keys_labels  = keys_labels->view().begin<size_type>(),
+                                           values_nulls = values_nulls->view().begin<bool>(),
+                                           num_keys] __device__(auto const idx) {
       if (idx < num_keys) {
         auto keys_label = keys_labels[idx];
         return values_nulls[keys_label] ? 0 : values_sizes[keys_label];
       }
       return 0;
-    });
+    }));
 
   // Calculate cumulative offsets for the associated list sizes
   // This gives us the starting position for each key's value comparisons
@@ -187,17 +187,19 @@ std::unique_ptr<column> indices_of(
   // For each list row in search_keys, we need: number_of_keys * number_of_values comparisons
   auto total_compares_per_row = thrust::make_transform_iterator(
     thrust::make_counting_iterator(0),
-    [keys_sizes   = keys_sizes->view().begin<size_type>(),
-     values_sizes = values_sizes->view().begin<size_type>(),
-     num_lists,
-     keys_nulls   = keys_nulls->view().begin<bool>(),
-     values_nulls = values_nulls->view().begin<bool>()] __device__(auto const offset_val) {
-      if (offset_val >= num_lists) return 0;
-      if (keys_nulls[offset_val] || values_nulls[offset_val])
-        return 0;
-      else
-        return keys_sizes[offset_val] * values_sizes[offset_val];
-    });
+    cuda::proclaim_return_type<size_type>(
+      [keys_sizes   = keys_sizes->view().begin<size_type>(),
+       values_sizes = values_sizes->view().begin<size_type>(),
+       num_lists,
+       keys_nulls   = keys_nulls->view().begin<bool>(),
+       values_nulls = values_nulls->view().begin<bool>()] __device__(auto const offset_val) {
+        if (offset_val >= num_lists) { return 0; }
+        if (keys_nulls[offset_val] || values_nulls[offset_val]) {
+          return 0;
+        } else {
+          return keys_sizes[offset_val] * values_sizes[offset_val];
+        }
+      }));
   // Sum up all comparisons across all rows
   auto const total_compares = thrust::reduce(
     rmm::exec_policy(stream), total_compares_per_row, total_compares_per_row + num_lists);
@@ -218,7 +220,8 @@ std::unique_ptr<column> indices_of(
     !thrust::any_of(rmm::exec_policy(stream),
                     d_total_compares_offsets,
                     d_total_compares_offsets + num_lists + 1,
-                    [] __device__(auto const total_compares) { return total_compares < 0; }),
+                    cuda::proclaim_return_type<bool>(
+                      [] __device__(auto const total_compares) { return total_compares < 0; })),
     "Input Maps are too large to process");
 
   // Create an index array that maps each comparison to its corresponding key
