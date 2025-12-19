@@ -504,10 +504,6 @@ std::unique_ptr<column> convert_timestamp(column_view const& input,
 {
   auto const type = input.type().id();
 
-  // Although Spark only supports microsecond precision for TimestampType,
-  // allowing nanoseconds. This is for users who want to leverage the JNI
-  // to convert timestamps but are not storing the resultant type as Timestamp
-  // (rather, e.g. as string) and want to preserve nanosecond precision.
   switch (type) {
     case cudf::type_id::TIMESTAMP_SECONDS:
       return convert_timestamp_tz<cudf::timestamp_s>(
@@ -519,6 +515,9 @@ std::unique_ptr<column> convert_timestamp(column_view const& input,
       return convert_timestamp_tz<cudf::timestamp_us>(
         input, transitions, tz_index, to_utc, stream, mr);
     case cudf::type_id::TIMESTAMP_NANOSECONDS:
+      // Nanoseconds supported for users who need sub-microsecond precision
+      // (e.g., when storing the resultant timestamp as string rather than
+      // Spark TimestampType).
       return convert_timestamp_tz<cudf::timestamp_ns>(
         input, transitions, tz_index, to_utc, stream, mr);
     default: CUDF_FAIL("Unsupported timestamp unit for timezone conversion");
