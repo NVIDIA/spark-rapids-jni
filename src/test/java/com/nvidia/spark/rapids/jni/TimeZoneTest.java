@@ -419,6 +419,66 @@ public class TimeZoneTest {
   }
 
   @Test
+  void convertToUtcNanoSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262260800000000000L,
+          -908838000000000000L,
+          -908840700000000000L,
+          -888800400000000000L,
+          -888799500000000000L,
+          -888796800000000000L,
+          0L,
+          1699571634312000000L,
+          568036800000000000L
+        );
+        ColumnVector expected = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262289600000000000L,
+          -908870400000000000L,
+          -908869500000000000L,
+          -888832800000000000L,
+          -888831900000000000L,
+          -888825600000000000L,
+          -28800000000000L,
+          1699542834312000000L,
+          568008000000000000L
+        );
+        ColumnVector actual = GpuTimeZoneDB.fromTimestampToUtcTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
+  void convertFromUtcNanoSecondsTest() {
+    try (ColumnVector input = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262289600000000000L,
+          -908870400000000000L,
+          -908869500000000000L,
+          -888832800000000000L,
+          -888831900000000000L,
+          -888825600000000000L,
+          0L,
+          1699542834312000000L,
+          568008000000000000L,
+          null);
+        ColumnVector expected = ColumnVector.timestampNanoSecondsFromBoxedLongs(
+          -1262260800000000000L,
+          -908838000000000000L,
+          -908837100000000000L,
+          -888800400000000000L,
+          -888799500000000000L,
+          -888796800000000000L,
+          28800000000000L,
+          1699571634312000000L,
+          568036800000000000L,
+          null);
+        ColumnVector actual = GpuTimeZoneDB.fromUtcTimestampToTimestamp(input,
+          ZoneId.of("Asia/Shanghai"))) {
+      assertColumnsAreEqual(expected, actual);
+    }
+  }
+
+  @Test
   void nonNonNormalizedTimezone() {
     GpuTimeZoneDB.verifyDatabaseCached();
     List transitions;
