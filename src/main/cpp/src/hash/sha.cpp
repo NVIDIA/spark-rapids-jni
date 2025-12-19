@@ -36,11 +36,14 @@ std::unique_ptr<cudf::column> sha_impl(HashFunction hash_function,
   if (input.is_empty()) { return cudf::make_empty_column(cudf::data_type{cudf::type_id::STRING}); }
 
   if (input.has_nulls()) {
+    // Using the tmp memory resource, because `hash_from_cudf` is a temporary column
+    // that will be re-copied when purged of non-empty nulls.
     auto hash_from_cudf =
       hash_function(cudf::table_view{{input}}, stream, cudf::get_current_device_resource_ref());
     hash_from_cudf->set_null_mask(cudf::copy_bitmask(input, stream), input.null_count());
     return cudf::purge_nonempty_nulls(*hash_from_cudf, stream, mr);
   } else {
+    // Using the provided memory resource, because `hash_from_cudf` is not a temporary.
     return hash_function(cudf::table_view{{input}}, stream, mr);
   }
 }
