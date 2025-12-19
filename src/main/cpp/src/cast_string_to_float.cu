@@ -28,6 +28,7 @@
 #include <rmm/resource_ref.hpp>
 
 #include <cub/warp/warp_reduce.cuh>
+#include <thrust/pair.h>
 
 using namespace cudf;
 

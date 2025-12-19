@@ -36,6 +36,7 @@
 
 #include <cuda/functional>
 #include <cuda/std/optional>
+#include <thrust/pair.h>
 #include <thrust/tabulate.h>
 
 #include <memory>
