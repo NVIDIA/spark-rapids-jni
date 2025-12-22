@@ -104,8 +104,12 @@ public class Hash {
   }
   
   private static void validateColumnForSha2(ColumnView column) {
-    assert column != null : "SHA-2 hashing requires a non-null column";
-    assert column.getType().equals(DType.STRING) : "SHA-2 hashing requires a string column";
+    if (column == null) {
+      throw new IllegalArgumentException("SHA-2 hashing requires a non-null column");
+    }
+    if (!column.getType().equals(DType.STRING)) {
+      throw new IllegalArgumentException("SHA-2 hashing requires a string column");
+    }
   }
 
   public static ColumnVector sha224NullsPreserved(ColumnView column) {
