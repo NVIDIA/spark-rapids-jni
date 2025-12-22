@@ -112,21 +112,49 @@ public class Hash {
     }
   }
 
+  /**
+   * Create a new vector containing the SHA-224 hash of each row in the input column
+   * Differs from cudf::hashing::sha224 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
   public static ColumnVector sha224NullsPreserved(ColumnView column) {
     validateColumnForSha2(column);
     return new ColumnVector(sha224NullsPreserved(column.getNativeView()));
   }
 
+  /**
+   * Create a new vector containing the SHA-256 hash of each row in the input column
+   * Differs from cudf::hashing::sha256 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
   public static ColumnVector sha256NullsPreserved(ColumnView column) {
     validateColumnForSha2(column);
     return new ColumnVector(sha256NullsPreserved(column.getNativeView()));
   }
 
+  /**
+   * Create a new vector containing the SHA-384 hash of each row in the input column
+   * Differs from cudf::hashing::sha384 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
   public static ColumnVector sha384NullsPreserved(ColumnView column) {
     validateColumnForSha2(column);
     return new ColumnVector(sha384NullsPreserved(column.getNativeView()));
   }
 
+  /**
+   * Create a new vector containing the SHA-512 hash of each row in the input column
+   * Differs from cudf::hashing::sha512 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
   public static ColumnVector sha512NullsPreserved(ColumnView column) {
     validateColumnForSha2(column);
     return new ColumnVector(sha512NullsPreserved(column.getNativeView()));
