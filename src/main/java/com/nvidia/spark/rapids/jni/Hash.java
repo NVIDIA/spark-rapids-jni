@@ -19,6 +19,7 @@ package com.nvidia.spark.rapids.jni;
 import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.ColumnView;
 import ai.rapids.cudf.CudfException;
+import ai.rapids.cudf.DType;
 import ai.rapids.cudf.NativeDepsLoader;
 
 public class Hash {
@@ -101,6 +102,63 @@ public class Hash {
     }
     return new ColumnVector(hiveHash(columnViews));
   }
+  
+  private static void validateColumnForSha2(ColumnView column) {
+    if (column == null) {
+      throw new IllegalArgumentException("SHA-2 hashing requires a non-null column");
+    }
+    if (!column.getType().equals(DType.STRING)) {
+      throw new IllegalArgumentException("SHA-2 hashing requires a string column");
+    }
+  }
+
+  /**
+   * Create a new vector containing the SHA-224 hash of each row in the input column
+   * Differs from cudf::hashing::sha224 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
+  public static ColumnVector sha224NullsPreserved(ColumnView column) {
+    validateColumnForSha2(column);
+    return new ColumnVector(sha224NullsPreserved(column.getNativeView()));
+  }
+
+  /**
+   * Create a new vector containing the SHA-256 hash of each row in the input column
+   * Differs from cudf::hashing::sha256 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
+  public static ColumnVector sha256NullsPreserved(ColumnView column) {
+    validateColumnForSha2(column);
+    return new ColumnVector(sha256NullsPreserved(column.getNativeView()));
+  }
+
+  /**
+   * Create a new vector containing the SHA-384 hash of each row in the input column
+   * Differs from cudf::hashing::sha384 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
+  public static ColumnVector sha384NullsPreserved(ColumnView column) {
+    validateColumnForSha2(column);
+    return new ColumnVector(sha384NullsPreserved(column.getNativeView()));
+  }
+
+  /**
+   * Create a new vector containing the SHA-512 hash of each row in the input column
+   * Differs from cudf::hashing::sha512 in that it returns null output rows for null input rows.
+   *
+   * @param column the column to hash
+   * @return the new ColumnVector of strings representing each row's hash value.
+   */
+  public static ColumnVector sha512NullsPreserved(ColumnView column) {
+    validateColumnForSha2(column);
+    return new ColumnVector(sha512NullsPreserved(column.getNativeView()));
+  }
 
   private static native int getMaxStackDepth();
 
@@ -109,4 +167,10 @@ public class Hash {
   private static native long xxhash64(long seed, long[] viewHandles) throws CudfException;
 
   private static native long hiveHash(long[] viewHandles) throws CudfException;
+
+  // Native methods for SHA-2 hashing.
+  private static native long sha224NullsPreserved(long columnHandle) throws CudfException;
+  private static native long sha256NullsPreserved(long columnHandle) throws CudfException;
+  private static native long sha384NullsPreserved(long columnHandle) throws CudfException;
+  private static native long sha512NullsPreserved(long columnHandle) throws CudfException;
 }

@@ -23,8 +23,12 @@ import ai.rapids.cudf.DType;
 import ai.rapids.cudf.HostColumnVector.*;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.function.Function;
 
 import static ai.rapids.cudf.AssertUtils.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -873,5 +877,81 @@ public class HashTest {
          ColumnView nestedResult = ColumnView.makeStructView(structs6);) {
       assertThrows(CudfException.class, () -> Hash.hiveHash(new ColumnView[]{nestedResult}));
     }
+  }
+
+  private static final String[] sha2TestInputStrings = {
+    null,
+    "",
+    "0",
+    "A 56 character string to test message padding algorithm.",
+    "A 63 character string to test message padding algorithm, again.",
+    "A 64 character string to test message padding algorithm, again!!",
+    "A very long (greater than 128 bytes/char string) to execute a multi hash-step data point in " +
+    "the hash function being tested. This string needed to be longer.",
+    "All work and no play makes Jack a dull boy",
+    "",
+    "Multi-byte characters: é¼³⅝",
+    "(!\"#$%&'()*+,-./0123456789:;<=>?@[\\]^_`{|}~)" // All the special characters.
+  };
+
+  private static String[] computeSha2OnCpu(String[] inputStrings, String algoString) 
+    throws NoSuchAlgorithmException {
+    MessageDigest digest = MessageDigest.getInstance(algoString);
+    String[] outputStrings = new String[inputStrings.length];
+    StringBuilder hexString = new StringBuilder();
+    for (int i = 0; i < inputStrings.length; i++) {
+      if (inputStrings[i] == null) {
+        outputStrings[i] = null; // The key difference between CUDF and Spark.
+      }
+      else {
+        hexString.setLength(0);
+        byte[] hashBytes = digest.digest(inputStrings[i].getBytes(StandardCharsets.UTF_8));
+        for (byte b : hashBytes) {
+          String hex = Integer.toHexString(0xff & b);
+          if (hex.length() == 1) {
+            hexString.append('0');
+          }
+          hexString.append(hex);
+        }
+        outputStrings[i] = hexString.toString();
+      }
+    }
+    return outputStrings;
+  }
+
+  private void testSha2Impl(Function<ColumnView, ColumnVector> hashFunction, String algo) {
+    try (ColumnVector inputStrings = ColumnVector.fromStrings(sha2TestInputStrings);
+         ColumnVector result = hashFunction.apply(inputStrings);
+         ColumnVector expectedOnCpu = 
+           ColumnVector.fromStrings(computeSha2OnCpu(sha2TestInputStrings, algo))) {
+      // Outputs can be verified on the shell with `sha224sum` or equivalent:
+      // ```bash
+      // echo -n "input string" | sha224sum
+      // ```
+      assertColumnsAreEqual(expectedOnCpu, result);
+    }
+    catch (NoSuchAlgorithmException e) {
+      org.junit.jupiter.api.Assertions.fail("Unexpected failure: " + e.getMessage());
+    }
+  }
+
+  @Test
+  void testSha224NullsPreserved() {
+    testSha2Impl(Hash::sha224NullsPreserved, "SHA-224");
+  }
+
+  @Test
+  void testSha256NullsPreserved() {
+    testSha2Impl(Hash::sha256NullsPreserved, "SHA-256");
+  }
+  
+  @Test
+  void testSha384NullsPreserved() {
+    testSha2Impl(Hash::sha384NullsPreserved, "SHA-384");
+  }
+
+  @Test
+  void testSha512NullsPreserved() {
+    testSha2Impl(Hash::sha512NullsPreserved, "SHA-512");
   }
 }

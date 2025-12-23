@@ -73,4 +73,64 @@ std::unique_ptr<cudf::column> hive_hash(
   rmm::cuda_stream_view stream      = cudf::get_default_stream(),
   rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
 
+/**
+ * @brief Computes the SHA-224 hash value of each row in the input set of columns.
+ * Differs from cudf::hashing::sha224 in that it returns null output rows for null input rows.
+ *
+ * @param input The column to hash
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> sha224_nulls_preserved(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+
+/**
+ * @brief Computes the SHA-256 hash value of each row in the input set of columns.
+ * Differs from cudf::hashing::sha256 in that it returns null output rows for null input rows.
+ *
+ * @param input The column to hash
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> sha256_nulls_preserved(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+
+/**
+ * @brief Computes the SHA-384 hash value of each row in the input set of columns.
+ * Differs from cudf::hashing::sha384 in that it returns null output rows for null input rows.
+ *
+ * @param input The column to hash
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> sha384_nulls_preserved(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+
+/**
+ * @brief Computes the SHA-512 hash value of each row in the input set of columns.
+ * Differs from cudf::hashing::sha512 in that it returns null output rows for null input rows.
+ *
+ * @param input The column to hash
+ * @param stream CUDA stream used for device memory operations and kernel launches
+ * @param mr Device memory resource used to allocate the returned column's device memory
+ *
+ * @returns A column where each row is the hash of a column from the input.
+ */
+std::unique_ptr<cudf::column> sha512_nulls_preserved(
+  cudf::column_view const& input,
+  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
+  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref());
+
 }  // namespace spark_rapids_jni
