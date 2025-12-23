@@ -26,7 +26,8 @@
 namespace spark_rapids_jni {
 
 /**
- * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT column.
+ * Decode protobuf messages (one message per row) from a LIST<INT8/UINT8> column into a STRUCT
+ * column.
  *
  * This is intentionally limited to "simple types" (top-level scalar fields).
  *
@@ -44,6 +45,3 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   std::vector<cudf::data_type> const& out_types);
 
 }  // namespace spark_rapids_jni
-
-
-

@@ -16,12 +16,12 @@
 
 #include "protobuf_simple.hpp"
 
-#include <cudf/column/column_factories.hpp>
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/valid_if.cuh>
-#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/lists/lists_column_device_view.cuh>
+#include <cudf/lists/lists_column_view.hpp>
 #include <cudf/strings/detail/strings_column_factories.cuh>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
@@ -41,10 +41,13 @@ constexpr int WT_64BIT  = 1;
 constexpr int WT_LEN    = 2;
 constexpr int WT_32BIT  = 5;
 
-__device__ inline bool read_varint(uint8_t const* cur, uint8_t const* end, uint64_t& out, int& bytes)
+__device__ inline bool read_varint(uint8_t const* cur,
+                                   uint8_t const* end,
+                                   uint64_t& out,
+                                   int& bytes)
 {
-  out   = 0;
-  bytes = 0;
+  out       = 0;
+  bytes     = 0;
   int shift = 0;
   while (cur < end && bytes < 10) {
     uint8_t b = *cur++;
@@ -56,7 +59,10 @@ __device__ inline bool read_varint(uint8_t const* cur, uint8_t const* end, uint6
   return false;
 }
 
-__device__ inline bool skip_field(uint8_t const* cur, uint8_t const* end, int wt, uint8_t const*& out_cur)
+__device__ inline bool skip_field(uint8_t const* cur,
+                                  uint8_t const* end,
+                                  int wt,
+                                  uint8_t const*& out_cur)
 {
   out_cur = cur;
   switch (wt) {
@@ -102,7 +108,7 @@ template <>
 __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 {
   uint64_t v = 0;
-  #pragma unroll
+#pragma unroll
   for (int i = 0; i < 8; ++i) {
     v |= (static_cast<uint64_t>(p[i]) << (8 * i));
   }
@@ -110,11 +116,8 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
 }
 
 template <typename OutT>
-__global__ void extract_varint_kernel(cudf::column_device_view const d_in,
-                                      int field_number,
-                                      OutT* out,
-                                      bool* valid,
-                                      int* error_flag)
+__global__ void extract_varint_kernel(
+  cudf::column_device_view const d_in, int field_number, OutT* out, bool* valid, int* error_flag)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
@@ -126,18 +129,18 @@ __global__ void extract_varint_kernel(cudf::column_device_view const d_in,
 
   // Use sliced child + offsets normalized to the slice start to correctly handle
   // list columns with non-zero row offsets (and any child offsets).
-  auto const base  = in.offset_at(0);
-  auto const child = in.get_sliced_child();
+  auto const base   = in.offset_at(0);
+  auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start = in.offset_at(row) - base;
-  auto end   = in.offset_at(row + 1) - base;
+  auto start        = in.offset_at(row) - base;
+  auto end          = in.offset_at(row + 1) - base;
   // Defensive bounds checks: if offsets are inconsistent, avoid illegal memory access.
   if (start < 0 || end < start || end > child.size()) {
     *error_flag = 1;
-    valid[row] = false;
+    valid[row]  = false;
     return;
   }
-  uint8_t const* cur = bytes + start;
+  uint8_t const* cur  = bytes + start;
   uint8_t const* stop = bytes + end;
 
   bool found = false;
@@ -178,7 +181,7 @@ __global__ void extract_varint_kernel(cudf::column_device_view const d_in,
   }
 
   if (found) {
-    out[row] = value;
+    out[row]   = value;
     valid[row] = true;
   } else {
     valid[row] = false;
@@ -186,11 +189,8 @@ __global__ void extract_varint_kernel(cudf::column_device_view const d_in,
 }
 
 template <typename OutT, int WT>
-__global__ void extract_fixed_kernel(cudf::column_device_view const d_in,
-                                     int field_number,
-                                     OutT* out,
-                                     bool* valid,
-                                     int* error_flag)
+__global__ void extract_fixed_kernel(
+  cudf::column_device_view const d_in, int field_number, OutT* out, bool* valid, int* error_flag)
 {
   auto row = static_cast<cudf::size_type>(blockIdx.x * blockDim.x + threadIdx.x);
   cudf::detail::lists_column_device_view in{d_in};
@@ -200,17 +200,17 @@ __global__ void extract_fixed_kernel(cudf::column_device_view const d_in,
     return;
   }
 
-  auto const base  = in.offset_at(0);
-  auto const child = in.get_sliced_child();
+  auto const base   = in.offset_at(0);
+  auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start = in.offset_at(row) - base;
-  auto end   = in.offset_at(row + 1) - base;
+  auto start        = in.offset_at(row) - base;
+  auto end          = in.offset_at(row + 1) - base;
   if (start < 0 || end < start || end > child.size()) {
     *error_flag = 1;
-    valid[row] = false;
+    valid[row]  = false;
     return;
   }
-  uint8_t const* cur = bytes + start;
+  uint8_t const* cur  = bytes + start;
   uint8_t const* stop = bytes + end;
 
   bool found = false;
@@ -231,12 +231,18 @@ __global__ void extract_fixed_kernel(cudf::column_device_view const d_in,
         break;
       }
       if constexpr (WT == WT_32BIT) {
-        if (stop - cur < 4) { *error_flag = 1; break; }
+        if (stop - cur < 4) {
+          *error_flag = 1;
+          break;
+        }
         uint32_t raw = load_le<uint32_t>(cur);
         cur += 4;
         value = *reinterpret_cast<OutT*>(&raw);
       } else {
-        if (stop - cur < 8) { *error_flag = 1; break; }
+        if (stop - cur < 8) {
+          *error_flag = 1;
+          break;
+        }
         uint64_t raw = load_le<uint64_t>(cur);
         cur += 8;
         value = *reinterpret_cast<OutT*>(&raw);
@@ -253,7 +259,7 @@ __global__ void extract_fixed_kernel(cudf::column_device_view const d_in,
   }
 
   if (found) {
-    out[row] = value;
+    out[row]   = value;
     valid[row] = true;
   } else {
     valid[row] = false;
@@ -273,17 +279,17 @@ __global__ void extract_string_kernel(cudf::column_device_view const d_in,
     return;
   }
 
-  auto const base  = in.offset_at(0);
-  auto const child = in.get_sliced_child();
+  auto const base   = in.offset_at(0);
+  auto const child  = in.get_sliced_child();
   auto const* bytes = reinterpret_cast<uint8_t const*>(child.data<int8_t>());
-  auto start = in.offset_at(row) - base;
-  auto end   = in.offset_at(row + 1) - base;
+  auto start        = in.offset_at(row) - base;
+  auto end          = in.offset_at(row + 1) - base;
   if (start < 0 || end < start || end > child.size()) {
-    *error_flag = 1;
+    *error_flag    = 1;
     out_pairs[row] = cudf::strings::detail::string_index_pair{nullptr, 0};
     return;
   }
-  uint8_t const* cur = bytes + start;
+  uint8_t const* cur  = bytes + start;
   uint8_t const* stop = bytes + end;
 
   cudf::strings::detail::string_index_pair pair{nullptr, 0};
@@ -431,9 +437,10 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       }
       case cudf::type_id::STRING: {
         rmm::device_uvector<cudf::strings::detail::string_index_pair> pairs(rows, stream, mr);
-        extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(*d_in, fn, pairs.data(), d_error.data());
-        children.push_back(cudf::strings::detail::make_strings_column(
-          pairs.begin(), pairs.end(), stream, mr));
+        extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(
+          *d_in, fn, pairs.data(), d_error.data());
+        children.push_back(
+          cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr));
         break;
       }
       default: CUDF_FAIL("Unsupported output type for protobuf_simple");
@@ -442,7 +449,8 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
 
   // Check for any parse errors.
   int h_error = 0;
-  CUDF_CUDA_TRY(cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
+  CUDF_CUDA_TRY(
+    cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
   CUDF_EXPECTS(h_error == 0, "Malformed protobuf message or unsupported wire type");
 
@@ -455,14 +463,8 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   rmm::device_buffer struct_mask{0, stream, mr};
   auto const struct_null_count = 0;
 
-  return cudf::make_structs_column(rows,
-                                   std::move(children),
-                                   struct_null_count,
-                                   std::move(struct_mask),
-                                   stream,
-                                   mr);
+  return cudf::make_structs_column(
+    rows, std::move(children), struct_null_count, std::move(struct_mask), stream, mr);
 }
 
 }  // namespace spark_rapids_jni
-
-

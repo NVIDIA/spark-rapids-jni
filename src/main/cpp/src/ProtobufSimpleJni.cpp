@@ -22,8 +22,13 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(
-  JNIEnv* env, jclass, jlong binary_input_view, jintArray field_numbers, jintArray type_ids, jintArray type_scales)
+JNIEXPORT jlong JNICALL
+Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
+                                                               jclass,
+                                                               jlong binary_input_view,
+                                                               jintArray field_numbers,
+                                                               jintArray type_ids,
+                                                               jintArray type_scales)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
   JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
@@ -37,7 +42,8 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeTo
     cudf::jni::native_jintArray n_field_numbers(env, field_numbers);
     cudf::jni::native_jintArray n_type_ids(env, type_ids);
     cudf::jni::native_jintArray n_type_scales(env, type_scales);
-    if (n_field_numbers.size() != n_type_ids.size() || n_field_numbers.size() != n_type_scales.size()) {
+    if (n_field_numbers.size() != n_type_ids.size() ||
+        n_field_numbers.size() != n_type_scales.size()) {
       JNI_THROW_NEW(env,
                     cudf::jni::ILLEGAL_ARG_EXCEPTION_CLASS,
                     "fieldNumbers/typeIds/typeScales must be the same length",
@@ -51,14 +57,10 @@ JNIEXPORT jlong JNICALL Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeTo
       out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
     }
 
-    auto result =
-      spark_rapids_jni::decode_protobuf_simple_to_struct(*input, field_nums, out_types);
+    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(*input, field_nums, out_types);
     return cudf::jni::release_as_jlong(result);
   }
   JNI_CATCH(env, 0);
 }
 
 }  // extern "C"
-
-
-
