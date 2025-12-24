@@ -51,10 +51,6 @@ std::unique_ptr<cudf::column> sha_impl(HashFunction hash_function,
 
 namespace spark_rapids_jni {
 
-// TODO: Add namespace hash.
-// TODO: Move other hash functions to this namespace.
-// TODO: Move sha1 to this namespace.
-
 std::unique_ptr<cudf::column> sha224_nulls_preserved(cudf::column_view const& input,
                                                      rmm::cuda_stream_view stream,
                                                      rmm::device_async_resource_ref mr)
