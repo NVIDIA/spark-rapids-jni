@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "../hash.hpp"
+#include <hash/hash.hpp>
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>

@@ -15,7 +15,7 @@
  */
 
 #include "bloom_filter.hpp"
-#include "murmur_hash.cuh"
+#include "hash/murmur_hash.cuh"
 
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_factories.hpp>
