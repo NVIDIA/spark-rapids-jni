@@ -59,7 +59,8 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
       out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
     }
 
-    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(*input, field_nums, out_types, encodings, fail_on_errors);
+    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(
+      *input, field_nums, out_types, encodings, fail_on_errors);
     return cudf::jni::release_as_jlong(result);
   }
   JNI_CATCH(env, 0);

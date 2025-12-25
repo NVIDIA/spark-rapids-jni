@@ -183,9 +183,7 @@ __global__ void extract_varint_kernel(
         break;
       }
       cur += n;
-      if constexpr (ZigZag) {
-        v = (v >> 1) ^ (-(v & 1));
-      }
+      if constexpr (ZigZag) { v = (v >> 1) ^ (-(v & 1)); }
       value = static_cast<OutT>(v);
       found = true;
       // Continue scanning to allow "last one wins" semantics.
@@ -553,10 +551,12 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
         } else {
           CUDF_FAIL("Unsupported encoding for LIST protobuf field");
         }
-        auto strings          = cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr);
+        auto strings =
+          cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr);
         auto const null_count = strings->null_count();
         auto contents         = strings->release();
-        auto null_mask        = contents.null_mask ? std::move(*contents.null_mask) : rmm::device_buffer{0, stream, mr};
+        auto null_mask =
+          contents.null_mask ? std::move(*contents.null_mask) : rmm::device_buffer{0, stream, mr};
         children.push_back(cudf::make_lists_column(rows,
                                                    std::move(contents.children[0]),
                                                    std::move(contents.children[1]),
