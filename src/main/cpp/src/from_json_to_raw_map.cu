@@ -562,7 +562,7 @@ std::unique_ptr<cudf::column> compute_list_offsets(
 #endif
 
   auto list_offsets   = rmm::device_uvector<cudf::size_type>(n_lists + 1, stream, mr);
-  auto const copy_end = cudf::detail::copy_if_safe(
+  auto const copy_end = cudf::detail::copy_if(
     node_child_counts.begin(),
     node_child_counts.end(),
     list_offsets.begin(),
@@ -636,11 +636,11 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
 
   auto const node_id_it = thrust::counting_iterator<NodeIndexT>(0);
   auto const invalid_copy_end =
-    cudf::detail::copy_if_safe(node_id_it,
-                               node_id_it + node_token_ids.size(),
-                               invalid_indices.begin(),
-                               is_invalid_struct_begin{tokens, node_token_ids, token_positions},
-                               stream);
+    cudf::detail::copy_if(node_id_it,
+                          node_id_it + node_token_ids.size(),
+                          invalid_indices.begin(),
+                          is_invalid_struct_begin{tokens, node_token_ids, token_positions},
+                          stream);
   auto const num_invalid = cuda::std::distance(invalid_indices.begin(), invalid_copy_end);
 #ifdef DEBUG_FROM_JSON
   print_debug(invalid_indices,
@@ -656,11 +656,11 @@ std::pair<rmm::device_buffer, cudf::size_type> create_null_mask(
     // We must have such list having size equal to the number of original input JSON strings.
     rmm::device_uvector<NodeIndexT> line_begin_indices(num_nodes, stream);
     auto const line_begin_copy_end =
-      cudf::detail::copy_if_safe(node_id_it,
-                                 node_id_it + node_token_ids.size(),
-                                 line_begin_indices.begin(),
-                                 is_line_begin{tokens, node_token_ids, parent_node_ids},
-                                 stream);
+      cudf::detail::copy_if(node_id_it,
+                            node_id_it + node_token_ids.size(),
+                            line_begin_indices.begin(),
+                            is_line_begin{tokens, node_token_ids, parent_node_ids},
+                            stream);
     auto const num_line_begin =
       cuda::std::distance(line_begin_indices.begin(), line_begin_copy_end);
     CUDF_EXPECTS(num_line_begin == num_rows, "Incorrect count of JSON objects.");
