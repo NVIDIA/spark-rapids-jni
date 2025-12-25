@@ -89,6 +89,23 @@ public class ProtobufSimple {
     if (fieldNumbers.length != typeIds.length || fieldNumbers.length != typeScales.length) {
       throw new IllegalArgumentException("fieldNumbers/typeIds/typeScales must be the same length");
     }
+    // Validate field numbers are positive (protobuf field numbers must be 1-536870911)
+    for (int i = 0; i < fieldNumbers.length; i++) {
+      if (fieldNumbers[i] <= 0) {
+        throw new IllegalArgumentException(
+            "Invalid field number at index " + i + ": " + fieldNumbers[i]
+                + " (field numbers must be positive)");
+      }
+    }
+    // Validate encoding values are within valid range
+    for (int i = 0; i < typeScales.length; i++) {
+      int enc = typeScales[i];
+      if (enc < ENC_DEFAULT || enc > ENC_ZIGZAG) {
+        throw new IllegalArgumentException(
+            "Invalid encoding value at index " + i + ": " + enc
+                + " (expected " + ENC_DEFAULT + ", " + ENC_FIXED + ", or " + ENC_ZIGZAG + ")");
+      }
+    }
     long handle = decodeToStruct(binaryInput.getNativeView(), fieldNumbers, typeIds, typeScales, failOnErrors);
     return new ColumnVector(handle);
   }

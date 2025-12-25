@@ -310,7 +310,7 @@ __global__ void extract_string_kernel(cudf::column_device_view const d_in,
   auto start        = in.offset_at(row) - base;
   auto end          = in.offset_at(row + 1) - base;
   if (start < 0 || end < start || end > child.size()) {
-    *error_flag    = 1;
+    atomicExch(error_flag, 1);
     out_pairs[row] = cudf::strings::detail::string_index_pair{nullptr, 0};
     return;
   }
@@ -549,6 +549,9 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
         break;
       }
       case cudf::type_id::LIST: {
+        // For protobuf `bytes` fields: we reuse the string extraction kernel to get the
+        // length-delimited raw bytes. The resulting strings column is then re-interpreted as
+        // LIST<INT8> by extracting its internal offsets and char data (which is just raw bytes).
         rmm::device_uvector<cudf::strings::detail::string_index_pair> pairs(rows, stream, mr);
         if (enc == ENC_DEFAULT) {
           extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(

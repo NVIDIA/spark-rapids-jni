@@ -130,8 +130,8 @@ public class ProtobufSimpleTest {
         box(new byte[]{1, 2, 3}));
 
     try (Table input = new Table.TestBuilder().column(row0).build();
-         ColumnVector expectedU32 = ColumnVector.fromBoxedLongs(4000000000L); // cuDF doesn't have boxed UInt32 easily, use Longs for test if needed, but we want native id
-         // Wait, I'll use direct values to avoid Boxing issues with UInt32
+         // Use fromBoxedLongs then cast to UINT32 since cuDF Java lacks direct UINT32 factory
+         ColumnVector expectedU32 = ColumnVector.fromBoxedLongs(4000000000L);
          ColumnVector expectedS64 = ColumnVector.fromBoxedLongs(-1234567890123L);
          ColumnVector expectedF32 = ColumnVector.fromBoxedInts(12345);
          ColumnVector expectedB = ColumnVector.fromLists(
@@ -150,8 +150,7 @@ public class ProtobufSimpleTest {
                  ProtobufSimple.ENC_ZIGZAG,
                  ProtobufSimple.ENC_FIXED,
                  ProtobufSimple.ENC_DEFAULT})) {
-      // For UINT32, expectedU32 from fromBoxedLongs will be INT64.
-      // I should use makeColumn to get exactly the right types for comparison.
+      // Cast expectedU32 from INT64 to UINT32 to match the actual output type
       try (ColumnVector expectedU32Correct = expectedU32.castTo(DType.UINT32);
            ColumnVector expectedStructCorrect = ColumnVector.makeStruct(expectedU32Correct, expectedS64, expectedF32, expectedB)) {
         AssertUtils.assertStructColumnsAreEqual(expectedStructCorrect, actualStruct);
