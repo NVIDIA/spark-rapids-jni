@@ -37,11 +37,15 @@ namespace spark_rapids_jni {
  * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message
  * @param field_numbers protobuf field numbers (one per output child)
  * @param out_types output cudf data types (one per output child)
+ * @param encodings encoding type for each field (0=default, 1=fixed, 2=zigzag)
+ * @param fail_on_errors whether to throw on malformed messages
  * @return STRUCT column with the given children types, with nullability propagated from input rows
  */
 std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   cudf::column_view const& binary_input,
   std::vector<int> const& field_numbers,
-  std::vector<cudf::data_type> const& out_types);
+  std::vector<cudf::data_type> const& out_types,
+  std::vector<int> const& encodings,
+  bool fail_on_errors);
 
 }  // namespace spark_rapids_jni

@@ -41,6 +41,18 @@ constexpr int WT_64BIT  = 1;
 constexpr int WT_LEN    = 2;
 constexpr int WT_32BIT  = 5;
 
+}  // namespace
+
+namespace spark_rapids_jni {
+
+constexpr int ENC_DEFAULT = 0;
+constexpr int ENC_FIXED   = 1;
+constexpr int ENC_ZIGZAG  = 2;
+
+}  // namespace spark_rapids_jni
+
+namespace {
+
 __device__ inline bool read_varint(uint8_t const* cur,
                                    uint8_t const* end,
                                    uint64_t& out,
@@ -115,7 +127,7 @@ __device__ inline uint64_t load_le<uint64_t>(uint8_t const* p)
   return v;
 }
 
-template <typename OutT>
+template <typename OutT, bool ZigZag = false>
 __global__ void extract_varint_kernel(
   cudf::column_device_view const d_in, int field_number, OutT* out, bool* valid, int* error_flag)
 {
@@ -155,6 +167,10 @@ __global__ void extract_varint_kernel(
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
+    if (fn == 0) {
+      *error_flag = 1;
+      break;
+    }
     if (fn == field_number) {
       if (wt != WT_VARINT) {
         *error_flag = 1;
@@ -167,6 +183,9 @@ __global__ void extract_varint_kernel(
         break;
       }
       cur += n;
+      if constexpr (ZigZag) {
+        v = (v >> 1) ^ (-(v & 1));
+      }
       value = static_cast<OutT>(v);
       found = true;
       // Continue scanning to allow "last one wins" semantics.
@@ -225,6 +244,10 @@ __global__ void extract_fixed_kernel(
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
+    if (fn == 0) {
+      *error_flag = 1;
+      break;
+    }
     if (fn == field_number) {
       if (wt != WT) {
         *error_flag = 1;
@@ -303,6 +326,10 @@ __global__ void extract_string_kernel(cudf::column_device_view const d_in,
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
+    if (fn == 0) {
+      *error_flag = 1;
+      break;
+    }
     if (fn == field_number) {
       if (wt != WT_LEN) {
         *error_flag = 1;
@@ -354,7 +381,9 @@ namespace spark_rapids_jni {
 std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   cudf::column_view const& binary_input,
   std::vector<int> const& field_numbers,
-  std::vector<cudf::data_type> const& out_types)
+  std::vector<cudf::data_type> const& out_types,
+  std::vector<int> const& encodings,
+  bool fail_on_errors)
 {
   CUDF_EXPECTS(binary_input.type().id() == cudf::type_id::LIST,
                "binary_input must be a LIST<INT8/UINT8> column");
@@ -364,6 +393,8 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
                "binary_input must be a LIST<INT8/UINT8> column");
   CUDF_EXPECTS(field_numbers.size() == out_types.size(),
                "field_numbers and out_types must have the same length");
+  CUDF_EXPECTS(encodings.size() == out_types.size(),
+               "encodings and out_types must have the same length");
 
   auto const stream = cudf::get_default_stream();
   auto mr           = cudf::get_current_device_resource_ref();
@@ -382,14 +413,19 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   auto const blocks  = static_cast<int>((rows + threads - 1) / threads);
 
   for (std::size_t i = 0; i < out_types.size(); ++i) {
-    auto const fn = field_numbers[i];
-    auto const dt = out_types[i];
+    auto const fn  = field_numbers[i];
+    auto const dt  = out_types[i];
+    auto const enc = encodings[i];
     switch (dt.id()) {
       case cudf::type_id::BOOL8: {
         rmm::device_uvector<uint8_t> out(rows, stream, mr);
         rmm::device_uvector<bool> valid(rows, stream, mr);
-        extract_varint_kernel<uint8_t><<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, out.data(), valid.data(), d_error.data());
+        if (enc == ENC_DEFAULT) {
+          extract_varint_kernel<uint8_t><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for BOOL8 protobuf field");
+        }
         auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
         children.push_back(
           std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
@@ -398,8 +434,35 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       case cudf::type_id::INT32: {
         rmm::device_uvector<int32_t> out(rows, stream, mr);
         rmm::device_uvector<bool> valid(rows, stream, mr);
-        extract_varint_kernel<int32_t><<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, out.data(), valid.data(), d_error.data());
+        if (enc == ENC_ZIGZAG) {
+          extract_varint_kernel<int32_t, true><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_FIXED) {
+          extract_fixed_kernel<int32_t, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_DEFAULT) {
+          extract_varint_kernel<int32_t, false><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for INT32 protobuf field");
+        }
+        auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
+        children.push_back(
+          std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
+        break;
+      }
+      case cudf::type_id::UINT32: {
+        rmm::device_uvector<uint32_t> out(rows, stream, mr);
+        rmm::device_uvector<bool> valid(rows, stream, mr);
+        if (enc == ENC_FIXED) {
+          extract_fixed_kernel<uint32_t, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_DEFAULT) {
+          extract_varint_kernel<uint32_t><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for UINT32 protobuf field");
+        }
         auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
         children.push_back(
           std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
@@ -408,8 +471,35 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       case cudf::type_id::INT64: {
         rmm::device_uvector<int64_t> out(rows, stream, mr);
         rmm::device_uvector<bool> valid(rows, stream, mr);
-        extract_varint_kernel<int64_t><<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, out.data(), valid.data(), d_error.data());
+        if (enc == ENC_ZIGZAG) {
+          extract_varint_kernel<int64_t, true><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_FIXED) {
+          extract_fixed_kernel<int64_t, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_DEFAULT) {
+          extract_varint_kernel<int64_t, false><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for INT64 protobuf field");
+        }
+        auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
+        children.push_back(
+          std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
+        break;
+      }
+      case cudf::type_id::UINT64: {
+        rmm::device_uvector<uint64_t> out(rows, stream, mr);
+        rmm::device_uvector<bool> valid(rows, stream, mr);
+        if (enc == ENC_FIXED) {
+          extract_fixed_kernel<uint64_t, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else if (enc == ENC_DEFAULT) {
+          extract_varint_kernel<uint64_t><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for UINT64 protobuf field");
+        }
         auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
         children.push_back(
           std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
@@ -418,8 +508,12 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       case cudf::type_id::FLOAT32: {
         rmm::device_uvector<float> out(rows, stream, mr);
         rmm::device_uvector<bool> valid(rows, stream, mr);
-        extract_fixed_kernel<float, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, out.data(), valid.data(), d_error.data());
+        if (enc == ENC_DEFAULT) {
+          extract_fixed_kernel<float, WT_32BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for FLOAT32 protobuf field");
+        }
         auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
         children.push_back(
           std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
@@ -428,8 +522,12 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       case cudf::type_id::FLOAT64: {
         rmm::device_uvector<double> out(rows, stream, mr);
         rmm::device_uvector<bool> valid(rows, stream, mr);
-        extract_fixed_kernel<double, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, out.data(), valid.data(), d_error.data());
+        if (enc == ENC_DEFAULT) {
+          extract_fixed_kernel<double, WT_64BIT><<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, out.data(), valid.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for FLOAT64 protobuf field");
+        }
         auto [mask, null_count] = make_null_mask_from_valid(valid, stream, mr);
         children.push_back(
           std::make_unique<cudf::column>(dt, rows, out.release(), std::move(mask), null_count));
@@ -437,10 +535,35 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       }
       case cudf::type_id::STRING: {
         rmm::device_uvector<cudf::strings::detail::string_index_pair> pairs(rows, stream, mr);
-        extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(
-          *d_in, fn, pairs.data(), d_error.data());
+        if (enc == ENC_DEFAULT) {
+          extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, pairs.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for STRING protobuf field");
+        }
         children.push_back(
           cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr));
+        break;
+      }
+      case cudf::type_id::LIST: {
+        rmm::device_uvector<cudf::strings::detail::string_index_pair> pairs(rows, stream, mr);
+        if (enc == ENC_DEFAULT) {
+          extract_string_kernel<<<blocks, threads, 0, stream.value()>>>(
+            *d_in, fn, pairs.data(), d_error.data());
+        } else {
+          CUDF_FAIL("Unsupported encoding for LIST protobuf field");
+        }
+        auto strings          = cudf::strings::detail::make_strings_column(pairs.begin(), pairs.end(), stream, mr);
+        auto const null_count = strings->null_count();
+        auto contents         = strings->release();
+        auto null_mask        = contents.null_mask ? std::move(*contents.null_mask) : rmm::device_buffer{0, stream, mr};
+        children.push_back(cudf::make_lists_column(rows,
+                                                   std::move(contents.children[0]),
+                                                   std::move(contents.children[1]),
+                                                   null_count,
+                                                   std::move(null_mask),
+                                                   stream,
+                                                   mr));
         break;
       }
       default: CUDF_FAIL("Unsupported output type for protobuf_simple");
@@ -452,7 +575,9 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
   CUDF_CUDA_TRY(
     cudaMemcpyAsync(&h_error, d_error.data(), sizeof(int), cudaMemcpyDeviceToHost, stream.value()));
   stream.synchronize();
-  CUDF_EXPECTS(h_error == 0, "Malformed protobuf message or unsupported wire type");
+  if (fail_on_errors) {
+    CUDF_EXPECTS(h_error == 0, "Malformed protobuf message or unsupported wire type");
+  }
 
   // Note: We intentionally do NOT propagate input nulls to the output STRUCT validity.
   // The expected semantics for this low-level helper (see ProtobufSimpleTest) are:

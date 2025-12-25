@@ -28,7 +28,8 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
                                                                jlong binary_input_view,
                                                                jintArray field_numbers,
                                                                jintArray type_ids,
-                                                               jintArray type_scales)
+                                                               jintArray type_scales,
+                                                               jboolean fail_on_errors)
 {
   JNI_NULL_CHECK(env, binary_input_view, "binary_input_view is null", 0);
   JNI_NULL_CHECK(env, field_numbers, "field_numbers is null", 0);
@@ -51,13 +52,14 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
     }
 
     std::vector<int> field_nums(n_field_numbers.begin(), n_field_numbers.end());
+    std::vector<int> encodings(n_type_scales.begin(), n_type_scales.end());
     std::vector<cudf::data_type> out_types;
     out_types.reserve(n_type_ids.size());
     for (int i = 0; i < n_type_ids.size(); ++i) {
       out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
     }
 
-    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(*input, field_nums, out_types);
+    auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(*input, field_nums, out_types, encodings, fail_on_errors);
     return cudf::jni::release_as_jlong(result);
   }
   JNI_CATCH(env, 0);
