@@ -19,6 +19,7 @@
 #include "protobuf_simple.hpp"
 
 #include <cudf/column/column_view.hpp>
+#include <cudf/utilities/traits.hpp>
 
 extern "C" {
 
@@ -56,7 +57,17 @@ Java_com_nvidia_spark_rapids_jni_ProtobufSimple_decodeToStruct(JNIEnv* env,
     std::vector<cudf::data_type> out_types;
     out_types.reserve(n_type_ids.size());
     for (int i = 0; i < n_type_ids.size(); ++i) {
-      out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
+      // For protobuf simple decoding, typeScales contains encoding info (0=default, 1=fixed,
+      // 2=zigzag) not decimal scales. For non-decimal types, scale should be 0. Decimal types are
+      // not currently supported in protobuf simple decoder.
+      auto type_id = static_cast<cudf::type_id>(n_type_ids[i]);
+      if (cudf::is_fixed_point(cudf::data_type{type_id})) {
+        // For decimal types, use the scale from typeScales (though currently unsupported)
+        out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], n_type_scales[i]));
+      } else {
+        // For non-decimal types, scale is always 0; typeScales contains encoding info
+        out_types.emplace_back(cudf::jni::make_data_type(n_type_ids[i], 0));
+      }
     }
 
     auto result = spark_rapids_jni::decode_protobuf_simple_to_struct(

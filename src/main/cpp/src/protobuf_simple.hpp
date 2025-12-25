@@ -31,8 +31,23 @@ namespace spark_rapids_jni {
  *
  * This is intentionally limited to "simple types" (top-level scalar fields).
  *
- * Supported output child types:
- * - BOOL8, INT32, INT64, FLOAT32, FLOAT64, STRING
+ * Supported output child types (cudf dtypes) and corresponding protobuf field types:
+ * - BOOL8   : protobuf `bool` (varint wire type)
+ * - INT32   : protobuf `int32`, `sint32` (with zigzag), `fixed32`/`sfixed32` (with fixed encoding)
+ * - UINT32  : protobuf `uint32`, `fixed32` (with fixed encoding)
+ * - INT64   : protobuf `int64`, `sint64` (with zigzag), `fixed64`/`sfixed64` (with fixed encoding)
+ * - UINT64  : protobuf `uint64`, `fixed64` (with fixed encoding)
+ * - FLOAT32 : protobuf `float`  (fixed32 wire type)
+ * - FLOAT64 : protobuf `double` (fixed64 wire type)
+ * - STRING  : protobuf `string` (length-delimited wire type, UTF-8 text)
+ * - LIST    : protobuf `bytes`  (length-delimited wire type, raw bytes as LIST<INT8>)
+ *
+ * Integer handling:
+ * - For standard varint-encoded fields (`int32`, `int64`, `uint32`, `uint64`), use encoding=0.
+ * - For zigzag-encoded signed fields (`sint32`, `sint64`), use encoding=2.
+ * - For fixed-width fields (`fixed32`, `fixed64`, `sfixed32`, `sfixed64`), use encoding=1.
+ *
+ * Nested messages, repeated fields, map fields, and oneof fields are out of scope for this API.
  *
  * @param binary_input LIST<INT8/UINT8> column, each row is one protobuf message
  * @param field_numbers protobuf field numbers (one per output child)

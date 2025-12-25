@@ -98,8 +98,10 @@ __device__ inline bool skip_field(uint8_t const* cur,
       int n;
       if (!read_varint(out_cur, end, len64, n)) return false;
       out_cur += n;
-      if (len64 > static_cast<uint64_t>(end - out_cur)) return false;
-      out_cur += static_cast<int>(len64);
+      // Check for both buffer overflow and int overflow
+      if (len64 > static_cast<uint64_t>(end - out_cur) || len64 > static_cast<uint64_t>(INT_MAX))
+        return false;
+      out_cur += static_cast<cudf::size_type>(len64);
       return true;
     }
     default: return false;
@@ -148,8 +150,8 @@ __global__ void extract_varint_kernel(
   auto end          = in.offset_at(row + 1) - base;
   // Defensive bounds checks: if offsets are inconsistent, avoid illegal memory access.
   if (start < 0 || end < start || end > child.size()) {
-    *error_flag = 1;
-    valid[row]  = false;
+    atomicExch(error_flag, 1);
+    valid[row] = false;
     return;
   }
   uint8_t const* cur  = bytes + start;
@@ -161,25 +163,25 @@ __global__ void extract_varint_kernel(
     uint64_t key;
     int key_bytes;
     if (!read_varint(cur, stop, key, key_bytes)) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
     if (fn == 0) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     if (fn == field_number) {
       if (wt != WT_VARINT) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       uint64_t v;
       int n;
       if (!read_varint(cur, stop, v, n)) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       cur += n;
@@ -190,7 +192,7 @@ __global__ void extract_varint_kernel(
     } else {
       uint8_t const* next;
       if (!skip_field(cur, stop, wt, next)) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       cur = next;
@@ -223,8 +225,8 @@ __global__ void extract_fixed_kernel(
   auto start        = in.offset_at(row) - base;
   auto end          = in.offset_at(row + 1) - base;
   if (start < 0 || end < start || end > child.size()) {
-    *error_flag = 1;
-    valid[row]  = false;
+    atomicExch(error_flag, 1);
+    valid[row] = false;
     return;
   }
   uint8_t const* cur  = bytes + start;
@@ -236,43 +238,45 @@ __global__ void extract_fixed_kernel(
     uint64_t key;
     int key_bytes;
     if (!read_varint(cur, stop, key, key_bytes)) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
     if (fn == 0) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     if (fn == field_number) {
       if (wt != WT) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       if constexpr (WT == WT_32BIT) {
         if (stop - cur < 4) {
-          *error_flag = 1;
+          atomicExch(error_flag, 1);
           break;
         }
         uint32_t raw = load_le<uint32_t>(cur);
         cur += 4;
-        value = *reinterpret_cast<OutT*>(&raw);
+        // Use memcpy to avoid undefined behavior from type punning
+        memcpy(&value, &raw, sizeof(value));
       } else {
         if (stop - cur < 8) {
-          *error_flag = 1;
+          atomicExch(error_flag, 1);
           break;
         }
         uint64_t raw = load_le<uint64_t>(cur);
         cur += 8;
-        value = *reinterpret_cast<OutT*>(&raw);
+        // Use memcpy to avoid undefined behavior from type punning
+        memcpy(&value, &raw, sizeof(value));
       }
       found = true;
     } else {
       uint8_t const* next;
       if (!skip_field(cur, stop, wt, next)) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       cur = next;
@@ -318,40 +322,41 @@ __global__ void extract_string_kernel(cudf::column_device_view const d_in,
     uint64_t key;
     int key_bytes;
     if (!read_varint(cur, stop, key, key_bytes)) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     cur += key_bytes;
     int fn = static_cast<int>(key >> 3);
     int wt = static_cast<int>(key & 0x7);
     if (fn == 0) {
-      *error_flag = 1;
+      atomicExch(error_flag, 1);
       break;
     }
     if (fn == field_number) {
       if (wt != WT_LEN) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       uint64_t len64;
       int n;
       if (!read_varint(cur, stop, len64, n)) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       cur += n;
-      if (len64 > static_cast<uint64_t>(stop - cur)) {
-        *error_flag = 1;
+      // Check for both buffer overflow and int overflow
+      if (len64 > static_cast<uint64_t>(stop - cur) || len64 > static_cast<uint64_t>(INT_MAX)) {
+        atomicExch(error_flag, 1);
         break;
       }
       pair.first  = reinterpret_cast<char const*>(cur);
       pair.second = static_cast<cudf::size_type>(len64);
-      cur += static_cast<int>(len64);
+      cur += static_cast<cudf::size_type>(len64);
       // Continue scanning to allow "last one wins".
     } else {
       uint8_t const* next;
       if (!skip_field(cur, stop, wt, next)) {
-        *error_flag = 1;
+        atomicExch(error_flag, 1);
         break;
       }
       cur = next;
@@ -569,6 +574,9 @@ std::unique_ptr<cudf::column> decode_protobuf_simple_to_struct(
       default: CUDF_FAIL("Unsupported output type for protobuf_simple");
     }
   }
+
+  // Check for kernel launch errors
+  CUDF_CUDA_TRY(cudaPeekAtLastError());
 
   // Check for any parse errors.
   int h_error = 0;

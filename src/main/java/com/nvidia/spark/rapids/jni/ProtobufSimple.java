@@ -23,8 +23,20 @@ import ai.rapids.cudf.NativeDepsLoader;
 /**
  * Simple GPU protobuf decoding utilities.
  *
- * This is intentionally limited to "simple types" (top-level scalar fields) as a first patch.
- * Nested/repeated/map/oneof are out of scope for this API.
+ * This API is intentionally limited to "simple types", i.e., top-level scalar fields whose
+ * values can be represented by a single cuDF scalar type. Supported protobuf field types
+ * include scalar fields using the standard protobuf wire encodings:
+ * <ul>
+ *   <li>VARINT: {@code int32}, {@code int64}, {@code uint32}, {@code uint64}, {@code bool}</li>
+ *   <li>ZIGZAG VARINT (encoding=2): {@code sint32}, {@code sint64}</li>
+ *   <li>FIXED32 (encoding=1): {@code fixed32}, {@code sfixed32}, {@code float}</li>
+ *   <li>FIXED64 (encoding=1): {@code fixed64}, {@code sfixed64}, {@code double}</li>
+ *   <li>LENGTH_DELIMITED: {@code string}, {@code bytes}</li>
+ * </ul>
+ * Each decoded field becomes a child column of the resulting STRUCT, with its cuDF type
+ * specified via the corresponding {@code typeIds} entry.
+ * <p>
+ * Nested messages, repeated fields, map fields, and oneof fields are out of scope for this API.
  */
 public class ProtobufSimple {
   static {
@@ -87,6 +99,4 @@ public class ProtobufSimple {
                                             int[] typeScales,
                                             boolean failOnErrors);
 }
-
-
 
