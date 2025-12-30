@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#include <hash/hash.hpp>
-
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/hashing.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
+
+#include <hash/hash.hpp>
 
 namespace {
 using HashFunction = std::unique_ptr<cudf::column> (*)(cudf::table_view const&,
