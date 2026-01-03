@@ -19,7 +19,7 @@
 #include <cudf_test/column_utilities.hpp>
 
 #include <bloom_filter.hpp>
-#include <hash.hpp>
+#include <hash/hash.hpp>
 #include <nvbench/nvbench.cuh>
 
 static void bloom_filter_put(nvbench::state& state)

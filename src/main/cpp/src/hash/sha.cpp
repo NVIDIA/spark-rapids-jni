@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#include "../hash.hpp"
-
 #include <cudf/column/column_factories.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/hashing.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
+
+#include <hash/hash.hpp>
 
 namespace {
 using HashFunction = std::unique_ptr<cudf::column> (*)(cudf::table_view const&,
@@ -50,10 +50,6 @@ std::unique_ptr<cudf::column> sha_impl(HashFunction hash_function,
 }  // namespace
 
 namespace spark_rapids_jni {
-
-// TODO: Add namespace hash.
-// TODO: Move other hash functions to this namespace.
-// TODO: Move sha1 to this namespace.
 
 std::unique_ptr<cudf::column> sha224_nulls_preserved(cudf::column_view const& input,
                                                      rmm::cuda_stream_view stream,

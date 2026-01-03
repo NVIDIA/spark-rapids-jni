@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "hash.hpp"
+#include "hash/hash.hpp"
 #include "hyper_log_log_plus_plus.hpp"
 #include "hyper_log_log_plus_plus_const.hpp"
 
